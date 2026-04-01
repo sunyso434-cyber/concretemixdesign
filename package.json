@@ -1,0 +1,106 @@
+{
+  "name": "concrete-mixdesign",
+  "version": "1.0.4",
+  "description": "混凝土配合比设计软件",
+  "main": "main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron:dev": "cross-env NODE_ENV=development electron .",
+    "electron:build": "cross-env NODE_ENV=production vite build && electron-builder",
+    "backup": "node backup.js"
+  },
+  "keywords": [
+    "concrete",
+    "mix design",
+    "electron",
+    "react"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@reduxjs/toolkit": "^2.0.0",
+    "antd": "^5.12.0",
+    "electron-updater": "^6.8.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-redux": "^9.0.0",
+    "react-router-dom": "^6.22.0",
+    "sequelize": "^6.37.8",
+    "sequelize-cli": "^6.6.5",
+    "sql.js": "^1.14.1",
+    "sqlite3": "^6.0.1"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
+    "@vitejs/plugin-react": "^4.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^28.3.3",
+    "electron-builder": "^24.9.1",
+    "electron-rebuild": "^3.2.9",
+    "vite": "^5.0.8"
+  },
+  "type": "commonjs",
+  "build": {
+    "appId": "com.concrete.mixdesign",
+    "productName": "混凝土配合比设计软件",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "dist-1.0.4",
+      "buildResources": "public"
+    },
+    "files": [
+      "main.js",
+      "package.json",
+      "build/**",
+      "src/main/**",
+      "node_modules/**"
+    ],
+    "extraMetadata": {
+      "main": "main.js"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "certificateFile": null,
+      "certificatePassword": null,
+      "signingHashAlgorithms": [
+        "sha256"
+      ],
+      "sign": null
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-x64.exe"
+    },
+    "buildDependenciesFromSource": true,
+    "publish": {
+      "provider": "generic",
+      "url": "https://example.com/updates",
+      "useMultipleRangeRequest": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": null,
+      "uninstallerIcon": null,
+      "installerHeaderIcon": null,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "混凝土配合比设计软件"
+    }
+  }
+}

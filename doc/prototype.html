@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<!-- 混凝土配合比设计软件UI原型 - Arctic Frost主题 -->
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>混凝土配合比设计软件</title>
+    
+    <!-- 引入Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Tailwind配置 - Arctic Frost主题 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        // Arctic Frost主题配色 - 冷色调专业风格
+                        'arctic-primary': '#1E40AF',      // 主色：深蓝（专业、稳重）
+                        'arctic-secondary': '#3B82F6',    // 辅色：中蓝（强调、按钮）
+                        'arctic-accent': '#60A5FA',       // 强调色：亮蓝（高亮、链接）
+                        'arctic-light': '#DBEAFE',        // 浅蓝（背景、卡片）
+                        'arctic-dark': '#0F172A',         // 深色（文本、标题）
+                        'arctic-gray': '#64748B',         // 灰色（次要文本）
+                        'arctic-bg': '#F8FAFC',           // 背景色（浅灰蓝）
+                        'arctic-border': '#E2E8F0',       // 边框色
+                    },
+                    fontFamily: {
+                        // 使用易读的无衬线字体
+                        sans: ['Microsoft YaHei', 'PingFang SC', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <!-- 自定义工具类 -->
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .nav-item-active {
+                @apply bg-arctic-light border-l-4 border-arctic-primary text-arctic-primary;
+            }
+            .card-shadow {
+                @apply shadow-sm shadow-arctic-light;
+            }
+        }
+    </style>
+    
+    <style>
+        /* 页面过渡动画 */
+        .page-content {
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+        .page-content.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #F1F5F9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #CBD5E1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94A3B8;
+        }
+    </style>
+</head>
+<body class="bg-arctic-bg text-arctic-dark font-sans">
+    
+    <!-- 主应用容器 -->
+    <div id="app" class="flex h-screen overflow-hidden">
+        
+        <!-- 左侧导航栏 - 固定宽度 -->
+        <aside id="sidebar" class="w-64 bg-white border-r border-arctic-border flex flex-col flex-shrink-0">
+            
+            <!-- Logo区域 -->
+            <div class="p-6 border-b border-arctic-border">
+                <h1 class="text-xl font-bold text-arctic-primary flex items-center gap-2">
+                    <!-- 混凝土图标 -->
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                              d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+                    </svg>
+                    配合比设计
+                </h1>
+                <p class="text-xs text-arctic-gray mt-1">混凝土工程专业软件</p>
+            </div>
+            
+            <!-- 导航菜单 -->
+            <nav class="flex-1 py-4 overflow-y-auto">
+                <ul class="space-y-1 px-3">
+                    <!-- 原材料管理 -->
+                    <li>
+                        <button onclick="switchPage('material')" 
+                                id="nav-material" 
+                                class="nav-item-active w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 hover:bg-arctic-light">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                      d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                            </svg>
+                            原材料管理
+                        </button>
+                    </li>
+                    
+                    <!-- 配合比设计 -->
+                    <li>
+                        <button onclick="switchPage('mixdesign')" 
+                                id="nav-mixdesign" 
+                                class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-arctic-gray transition-all duration-200 hover:bg-arctic-light hover:text-arctic-dark">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                      d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                            </svg>
+                            配合比设计
+                        </button>
+                    </li>
+                    
+                    <!-- 方案管理 -->
+                    <li>
+                        <button onclick="switchPage('schemes')" 
+                                id="nav-schemes" 
+                                class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-arctic-gray transition-all duration-200 hover:bg-arctic-light hover:text-arctic-dark">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                            </svg>
+                            方案管理
+                        </button>
+                    </li>
+                    
+                    <!-- 系统设置 -->
+                    <li>
+                        <button onclick="switchPage('settings')" 
+                                id="nav-settings" 
+                                class="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-arctic-gray transition-all duration-200 hover:bg-arctic-light hover:text-arctic-dark">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                            系统设置
+                        </button>
+                    </li>
+                </ul>
+            </nav>
+            
+            <!-- 用户信息区域 -->
+            <div class="p-4 border-t border-arctic-border">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-arctic-light flex items-center justify-center text-arctic-primary font-semibold">
+                        张
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-sm font-medium text-arctic-dark">张工程师</p>
+                        <p class="text-xs text-arctic-gray">系统管理员</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+        
+        <!-- 右侧内容区域 -->
+        <main class="flex-1 flex flex-col overflow-hidden">
+            
+            <!-- 顶部栏 -->
+            <header class="bg-white border-b border-arctic-border px-6 py-4 flex items-center justify-between flex-shrink-0">
+                <!-- 页面标题 -->
+                <div>
+                    <h2 id="page-title" class="text-lg font-semibold text-arctic-dark">原材料管理</h2>
+                    <p id="page-subtitle" class="text-sm text-arctic-gray">管理各类原材料信息，包括水泥、骨料、外加剂等</p>
+                </div>
+                
+                <!-- 右侧操作区 -->
+                <div class="flex items-center gap-4">
+                    <!-- 搜索框 -->
+                    <div class="relative">
+                        <input type="text" placeholder="搜索..." 
+                               class="pl-10 pr-4 py-2 rounded-lg border border-arctic-border bg-arctic-bg text-sm focus:outline-none focus:ring-2 focus:ring-arctic-secondary/30 focus:border-arctic-secondary w-64">
+                        <svg class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-arctic-gray" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                        </svg>
+                    </div>
+                    
+                    <!-- 通知图标 -->
+                    <button class="relative p-2 rounded-lg hover:bg-arctic-light transition-colors">
+                        <svg class="w-5 h-5 text-arctic-gray" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+                        </svg>
+                        <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                    </button>
+                </div>
+            </header>
+            
+            <!-- 页面内容区域 -->
+            <div class="flex-1 overflow-auto p-6">
+                
+                <!-- 原材料管理页面 -->
+                <div id="page-material" class="page-content active">
+                    <!-- 操作按钮栏 -->
+                    <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+                        <div class="flex items-center gap-3">
+                            <!-- 添加原材料按钮 -->
+                            <button class="flex items-center gap-2 px-4 py-2 bg-arctic-secondary text-white rounded-lg font-medium hover:bg-arctic-primary transition-colors shadow-sm">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                                </svg>
+                                添加原材料
+                            </button>
+                            
+                            <!-- 导入按钮 -->
+                            <button class="flex items-center gap-2 px-4 py-2 border border-arctic-border text-arctic-dark rounded-lg font-medium hover:bg-arctic-bg transition-colors">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                                </svg>
+                                导入数据
+                            </button>
+                            
+                            <!-- 导出按钮 -->
+                            <button class="flex items-center gap-2 px-4 py-2 border border-arctic-border text-arctic-dark rounded-lg font-medium hover:bg-arctic-bg transition-colors">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                </svg>
+                                导出数据
+                            </button>
+                        </div>
+                        
+                        <!-- 筛选器 -->
+                        <div class="flex items-center gap-3">
+                            <select class="px-3 py-2 border border-arctic-border rounded-lg bg-white text-sm focus:outline-none focus:ring-2 focus:ring-arctic-secondary/30">
+                                <option>全部类型</option>
+                                <option>水泥</option>
+                                <option>骨料</option>
+                                <option>外加剂</option>
+                                <option>掺合料</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- 原材料列表表格 -->
+                    <div class="bg-white rounded-xl border border-arctic-border card-shadow overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full">
+                                <thead>
+                                    <tr class="bg-arctic-bg/50 border-b border-arctic-border">
+                                        <th class="px-6 py-4 text-left text-sm font-semibold text-arctic-dark">原材料名称</th>
+                                        <th class="px-6 py-4 text-left text-sm font-semibold text-arctic-dark">类型</th>
+                                        <th class="px-6 py-4 text-left text-sm font-semibold text-arctic-dark">规格型号</th>
+                                        <th class="px-6 py-4 text-left text-sm font-semibold text-arctic-dark">生产厂家</th>
+                                        <th class="px-6 py-4 text-left text-sm font-semibold text-arctic-dark">入库日期</th>
+                                        <th class="px-6 py-4 text-left text-sm font-semibold text-arctic-dark">状态</th>
+                                        <th class="px-6 py-4 text-right text-sm font-semibold text-arctic-dark">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-arctic-border">
+                                    <!-- 水泥 -->
+                                    <tr class="hover:bg-arctic-bg/30 transition-colors">
+                                        <td class="px-6 py-4">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-10 h-10 rounded-lg bg-arctic-light flex items-center justify-center">
+                                                    <span class="text-lg">🏗️</span>
+                                                </div>
+                                                <div>
+                                                    <p class="font-medium text-arctic-dark">P.O 42.5 普通硅酸盐水泥</p>
+                                                    <p class="text-xs text-arctic-gray">编号: CM-2024-001</p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">水泥</span>
+                                        </td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">P.O 42.5</td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">海螺水泥</td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">2024-03-15</td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-3 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium">合格</span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right">
+                                            <div class="flex items-center justify-end gap-2">
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="查看">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="编辑">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-red-600" title="删除">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="生成报告">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    
+                                    <!-- 碎石 -->
+                                    <tr class="hover:bg-arctic-bg/30 transition-colors">
+                                        <td class="px-6 py-4">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center">
+                                                    <span class="text-lg">🪨</span>
+                                                </div>
+                                                <div>
+                                                    <p class="font-medium text-arctic-dark">5-20mm 碎石</p>
+                                                    <p class="text-xs text-arctic-gray">编号: AG-2024-001</p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-3 py-1 bg-amber-50 text-amber-700 rounded-full text-xs font-medium">骨料</span>
+                                        </td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">5-20mm</td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">本地砂石厂</td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">2024-03-14</td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-3 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium">合格</span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right">
+                                            <div class="flex items-center justify-end gap-2">
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="查看">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="编辑">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-red-600" title="删除">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="生成报告">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    
+                                    <!-- 河砂 -->
+                                    <tr class="hover:bg-arctic-bg/30 transition-colors">
+                                        <td class="px-6 py-4">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-10 h-10 rounded-lg bg-yellow-50 flex items-center justify-center">
+                                                    <span class="text-lg">🏜️</span>
+                                                </div>
+                                                <div>
+                                                    <p class="font-medium text-arctic-dark">中粗河砂</p>
+                                                    <p class="text-xs text-arctic-gray">编号: AG-2024-002</p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-3 py-1 bg-amber-50 text-amber-700 rounded-full text-xs font-medium">骨料</span>
+                                        </td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">细度模数 2.7</td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">本地砂石厂</td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">2024-03-14</td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-3 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium">合格</span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right">
+                                            <div class="flex items-center justify-end gap-2">
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="查看">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="编辑">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-red-600" title="删除">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="生成报告">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    
+                                    <!-- 减水剂 -->
+                                    <tr class="hover:bg-arctic-bg/30 transition-colors">
+                                        <td class="px-6 py-4">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center">
+                                                    <span class="text-lg">🧪</span>
+                                                </div>
+                                                <div>
+                                                    <p class="font-medium text-arctic-dark">聚羧酸高效减水剂</p>
+                                                    <p class="text-xs text-arctic-gray">编号: AD-2024-001</p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-medium">外加剂</span>
+                                        </td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">PC-100</td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">江苏苏博特</td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">2024-03-12</td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-3 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium">合格</span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right">
+                                            <div class="flex items-center justify-end gap-2">
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="查看">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="编辑">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-red-600" title="删除">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="生成报告">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    
+                                    <!-- 粉煤灰 -->
+                                    <tr class="hover:bg-arctic-bg/30 transition-colors">
+                                        <td class="px-6 py-4">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center">
+                                                    <span class="text-lg">⚫</span>
+                                                </div>
+                                                <div>
+                                                    <p class="font-medium text-arctic-dark">II级粉煤灰</p>
+                                                    <p class="text-xs text-arctic-gray">编号: MI-2024-001</p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium">掺合料</span>
+                                        </td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">II级</td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">某电厂</td>
+                                        <td class="px-6 py-4 text-sm text-arctic-gray">2024-03-10</td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-3 py-1 bg-yellow-50 text-yellow-700 rounded-full text-xs font-medium">待检</span>
+                                        </td>
+                                        <td class="px-6 py-4 text-right">
+                                            <div class="flex items-center justify-end gap-2">
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="查看">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="编辑">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-red-600" title="删除">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                                    </svg>
+                                                </button>
+                                                <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="生成报告">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <!-- 分页 -->
+                        <div class="px-6 py-4 border-t border-arctic-border flex items-center justify-between">
+                            <p class="text-sm text-arctic-gray">显示 1-5 条，共 28 条记录</p>
+                            <div class="flex items-center gap-2">
+                                <button class="px-3 py-1 border border-arctic-border rounded text-sm text-arctic-gray hover:bg-arctic-bg disabled:opacity-50" disabled>上一页</button>
+                                <button class="px-3 py-1 bg-arctic-secondary text-white rounded text-sm">1</button>
+                                <button class="px-3 py-1 border border-arctic-border rounded text-sm text-arctic-gray hover:bg-arctic-bg">2</button>
+                                <button class="px-3 py-1 border border-arctic-border rounded text-sm text-arctic-gray hover:bg-arctic-bg">3</button>
+                                <button class="px-3 py-1 border border-arctic-border rounded text-sm text-arctic-gray hover:bg-arctic-bg">下一页</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 配合比设计页面 -->
+                <div id="page-mixdesign" class="page-content">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        
+                        <!-- 左侧：设计参数设置 -->
+                        <div class="lg:col-span-2 space-y-6">
+                            
+                            <!-- 设计目标卡片 -->
+                            <div class="bg-white rounded-xl border border-arctic-border card-shadow p-6">
+                                <h3 class="text-lg font-semibold text-arctic-dark mb-4 flex items-center gap-2">
+                                    <svg class="w-5 h-5 text-arctic-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                    </svg>
+                                    设计目标参数
+                                </h3>
+                                
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label class="block text-sm font-medium text-arctic-dark mb-2">强度等级</label>
+                                        <select class="w-full px-4 py-2.5 border border-arctic-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-arctic-secondary/30 focus:border-arctic-secondary">
+                                            <option>C25</option>
+                                            <option>C30</option>
+                                            <option selected>C35</option>
+                                            <option>C40</option>
+                                            <option>C45</option>
+                                            <option>C50</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium text-arctic-dark mb-2">坍落度 (mm)</label>
+                                        <input type="number" value="180" class="w-full px-4 py-2.5 border border-arctic-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-arctic-secondary/30 focus:border-arctic-secondary">
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium text-arctic-dark mb-2">环境类别</label>
+                                        <select class="w-full px-4 py-2.5 border border-arctic-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-arctic-secondary/30 focus:border-arctic-secondary">
+                                            <option>一类（室内干燥环境）</option>
+                                            <option selected>二类 a（室内潮湿环境）</option>
+                                            <option>二类 b（严寒和寒冷地区的露天环境）</option>
+                                            <option>三类（使用除冰盐的环境）</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium text-arctic-dark mb-2">工程类型</label>
+                                        <select class="w-full px-4 py-2.5 border border-arctic-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-arctic-secondary/30 focus:border-arctic-secondary">
+                                            <option>民用建筑</option>
+                                            <option selected>工业建筑</option>
+                                            <option>桥梁工程</option>
+                                            <option>水利工程</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 原材料选择卡片 -->
+                            <div class="bg-white rounded-xl border border-arctic-border card-shadow p-6">
+                                <h3 class="text-lg font-semibold text-arctic-dark mb-4 flex items-center gap-2">
+                                    <svg class="w-5 h-5 text-arctic-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/>
+                                    </svg>
+                                    原材料选择
+                                </h3>
+                                
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <label class="block text-sm font-medium text-arctic-dark mb-2">水泥</label>
+                                        <select class="w-full px-4 py-2.5 border border-arctic-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-arctic-secondary/30 focus:border-arctic-secondary">
+                                            <option selected>P.O 42.5 普通硅酸盐水泥</option>
+                                            <option>P.O 52.5 普通硅酸盐水泥</option>
+                                            <option>P.II 42.5 硅酸盐水泥</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium text-arctic-dark mb-2">粗骨料</label>
+                                        <select class="w-full px-4 py-2.5 border border-arctic-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-arctic-secondary/30 focus:border-arctic-secondary">
+                                            <option selected>5-20mm 碎石</option>
+                                            <option>5-25mm 碎石</option>
+                                            <option>5-31.5mm 碎石</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium text-arctic-dark mb-2">细骨料</label>
+                                        <select class="w-full px-4 py-2.5 border border-arctic-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-arctic-secondary/30 focus:border-arctic-secondary">
+                                            <option selected>中粗河砂</option>
+                                            <option>细砂</option>
+                                            <option>机制砂</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium text-arctic-dark mb-2">外加剂</label>
+                                        <select class="w-full px-4 py-2.5 border border-arctic-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-arctic-secondary/30 focus:border-arctic-secondary">
+                                            <option selected>聚羧酸高效减水剂</option>
+                                            <option>萘系高效减水剂</option>
+                                            <option>不使用外加剂</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block text-sm font-medium text-arctic-dark mb-2">掺合料</label>
+                                        <select class="w-full px-4 py-2.5 border border-arctic-border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-arctic-secondary/30 focus:border-arctic-secondary">
+                                            <option selected>II级粉煤灰</option>
+                                            <option>S95矿渣粉</option>
+                                            <option>不使用掺合料</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 操作按钮 -->
+                            <div class="flex items-center gap-4">
+                                <button onclick="calculateMix()" class="flex items-center gap-2 px-6 py-3 bg-arctic-secondary text-white rounded-lg font-medium hover:bg-arctic-primary transition-colors shadow-sm">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                                    </svg>
+                                    计算配合比
+                                </button>
+                                <button class="flex items-center gap-2 px-6 py-3 border border-arctic-border text-arctic-dark rounded-lg font-medium hover:bg-arctic-bg transition-colors">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                    重置参数
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- 右侧：计算结果与优化 -->
+                        <div class="space-y-6">
+                            
+                            <!-- 配合比计算结果 -->
+                            <div class="bg-white rounded-xl border border-arctic-border card-shadow p-6">
+                                <h3 class="text-lg font-semibold text-arctic-dark mb-4 flex items-center gap-2">
+                                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                    </svg>
+                                    配合比计算结果
+                                </h3>
+                                
+                                <div class="space-y-4">
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div class="bg-arctic-bg/50 rounded-lg p-4 text-center">
+                                            <p class="text-xs text-arctic-gray mb-1">水灰比</p>
+                                            <p class="text-xl font-bold text-arctic-primary">0.45</p>
+                                        </div>
+                                        <div class="bg-arctic-bg/50 rounded-lg p-4 text-center">
+                                            <p class="text-xs text-arctic-gray mb-1">砂率</p>
+                                            <p class="text-xl font-bold text-arctic-primary">38%</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="border-t border-arctic-border pt-4">
+                                        <table class="w-full text-sm">
+                                            <thead>
+                                                <tr class="text-arctic-gray">
+                                                    <th class="text-left py-2">材料</th>
+                                                    <th class="text-right py-2">用量 (kg/m³)</th>
+                                                    <th class="text-right py-2">比例</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-arctic-border">
+                                                <tr>
+                                                    <td class="py-2 text-arctic-dark">水泥</td>
+                                                    <td class="py-2 text-right font-medium">360</td>
+                                                    <td class="py-2 text-right text-arctic-gray">1.00</td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="py-2 text-arctic-dark">水</td>
+                                                    <td class="py-2 text-right font-medium">162</td>
+                                                    <td class="py-2 text-right text-arctic-gray">0.45</td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="py-2 text-arctic-dark">砂</td>
+                                                    <td class="py-2 text-right font-medium">658</td>
+                                                    <td class="py-2 text-right text-arctic-gray">1.83</td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="py-2 text-arctic-dark">石子</td>
+                                                    <td class="py-2 text-right font-medium">1078</td>
+                                                    <td class="py-2 text-right text-arctic-gray">2.99</td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="py-2 text-arctic-dark">外加剂</td>
+                                                    <td class="py-2 text-right font-medium">3.6</td>
+                                                    <td class="py-2 text-right text-arctic-gray">0.01</td>
+                                                </tr>
+                                                <tr>
+                                                    <td class="py-2 text-arctic-dark">粉煤灰</td>
+                                                    <td class="py-2 text-right font-medium">72</td>
+                                                    <td class="py-2 text-right text-arctic-gray">0.20</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                
+                                <div class="mt-6 flex items-center gap-3">
+                                    <button class="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-arctic-secondary text-white rounded-lg text-sm font-medium hover:bg-arctic-primary transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                        </svg>
+                                        验证配合比
+                                    </button>
+                                    <button class="flex items-center justify-center gap-2 px-4 py-2 border border-arctic-border rounded-lg text-sm font-medium hover:bg-arctic-bg transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- 优化建议 -->
+                            <div class="bg-white rounded-xl border border-arctic-border card-shadow p-6">
+                                <h3 class="text-lg font-semibold text-arctic-dark mb-4 flex items-center gap-2">
+                                    <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                                    </svg>
+                                    优化建议
+                                </h3>
+                                
+                                <div class="space-y-3">
+                                    <div class="flex items-start gap-3 p-3 bg-green-50 rounded-lg border border-green-100">
+                                        <span class="text-lg">💰</span>
+                                        <div>
+                                            <p class="font-medium text-green-800 text-sm">成本优化</p>
+                                            <p class="text-xs text-green-600 mt-1">可增加粉煤灰掺量至30%，降低水泥用量约10%，节约成本约8%。</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="flex items-start gap-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                                        <span class="text-lg">⚡</span>
+                                        <div>
+                                            <p class="font-medium text-blue-800 text-sm">性能优化</p>
+                                            <p class="text-xs text-blue-600 mt-1">建议砂率调整至36%，可改善混凝土和易性，减少离析风险。</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 方案管理页面 -->
+                <div id="page-schemes" class="page-content">
+                    <!-- 顶部操作栏 -->
+                    <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+                        <div class="flex items-center gap-3">
+                            <button class="flex items-center gap-2 px-4 py-2 bg-arctic-secondary text-white rounded-lg font-medium hover:bg-arctic-primary transition-colors shadow-sm">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                                </svg>
+                                新建方案
+                            </button>
+                            <button class="flex items-center gap-2 px-4 py-2 border border-arctic-border text-arctic-dark rounded-lg font-medium hover:bg-arctic-bg transition-colors">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2v10m0 0a2 2 0 002 2h2a2 2 0 002-2M9 7h6m0 10v-3m-3 3h.01"/>
+                                </svg>
+                                对比分析
+                            </button>
+                        </div>
+                        
+                        <div class="flex items-center gap-3">
+                            <select class="px-3 py-2 border border-arctic-border rounded-lg bg-white text-sm">
+                                <option>全部强度等级</option>
+                                <option>C25-C30</option>
+                                <option>C35-C45</option>
+                                <option>C50+</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- 方案卡片列表 -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <!-- 方案卡片1 -->
+                        <div class="bg-white rounded-xl border border-arctic-border card-shadow overflow-hidden hover:shadow-md transition-shadow">
+                            <div class="p-6">
+                                <div class="flex items-start justify-between mb-4">
+                                    <div>
+                                        <h3 class="font-semibold text-arctic-dark">C35 工业厂房柱</h3>
+                                        <p class="text-xs text-arctic-gray mt-1">编号: SCH-2024-001</p>
+                                    </div>
+                                    <span class="px-2 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium">已验证</span>
+                                </div>
+                                
+                                <div class="space-y-2 mb-4">
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-arctic-gray">强度等级</span>
+                                        <span class="font-medium text-arctic-dark">C35</span>
+                                    </div>
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-arctic-gray">坍落度</span>
+                                        <span class="font-medium text-arctic-dark">180mm</span>
+                                    </div>
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-arctic-gray">水泥用量</span>
+                                        <span class="font-medium text-arctic-dark">360 kg/m³</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="flex items-center justify-between pt-4 border-t border-arctic-border">
+                                    <p class="text-xs text-arctic-gray">创建于: 2024-03-18</p>
+                                    <div class="flex items-center gap-2">
+                                        <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="查看详情">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                            </svg>
+                                        </button>
+                                        <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="复制">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                            </svg>
+                                        </button>
+                                        <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="导出">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 方案卡片2 -->
+                        <div class="bg-white rounded-xl border border-arctic-border card-shadow overflow-hidden hover:shadow-md transition-shadow">
+                            <div class="p-6">
+                                <div class="flex items-start justify-between mb-4">
+                                    <div>
+                                        <h3 class="font-semibold text-arctic-dark">C40 桥梁预应力梁</h3>
+                                        <p class="text-xs text-arctic-gray mt-1">编号: SCH-2024-002</p>
+                                    </div>
+                                    <span class="px-2 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium">已验证</span>
+                                </div>
+                                
+                                <div class="space-y-2 mb-4">
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-arctic-gray">强度等级</span>
+                                        <span class="font-medium text-arctic-dark">C40</span>
+                                    </div>
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-arctic-gray">坍落度</span>
+                                        <span class="font-medium text-arctic-dark">160mm</span>
+                                    </div>
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-arctic-gray">水泥用量</span>
+                                        <span class="font-medium text-arctic-dark">390 kg/m³</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="flex items-center justify-between pt-4 border-t border-arctic-border">
+                                    <p class="text-xs text-arctic-gray">创建于: 2024-03-16</p>
+                                    <div class="flex items-center gap-2">
+                                        <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="查看详情">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                            </svg>
+                                        </button>
+                                        <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="复制">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                            </svg>
+                                        </button>
+                                        <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="导出">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 方案卡片3 -->
+                        <div class="bg-white rounded-xl border border-arctic-border card-shadow overflow-hidden hover:shadow-md transition-shadow">
+                            <div class="p-6">
+                                <div class="flex items-start justify-between mb-4">
+                                    <div>
+                                        <h3 class="font-semibold text-arctic-dark">C30 住宅楼板</h3>
+                                        <p class="text-xs text-arctic-gray mt-1">编号: SCH-2024-003</p>
+                                    </div>
+                                    <span class="px-2 py-1 bg-yellow-50 text-yellow-700 rounded-full text-xs font-medium">草稿</span>
+                                </div>
+                                
+                                <div class="space-y-2 mb-4">
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-arctic-gray">强度等级</span>
+                                        <span class="font-medium text-arctic-dark">C30</span>
+                                    </div>
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-arctic-gray">坍落度</span>
+                                        <span class="font-medium text-arctic-dark">200mm</span>
+                                    </div>
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-arctic-gray">水泥用量</span>
+                                        <span class="font-medium text-arctic-dark">320 kg/m³</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="flex items-center justify-between pt-4 border-t border-arctic-border">
+                                    <p class="text-xs text-arctic-gray">创建于: 2024-03-15</p>
+                                    <div class="flex items-center gap-2">
+                                        <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="查看详情">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                            </svg>
+                                        </button>
+                                        <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="复制">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                                            </svg>
+                                        </button>
+                                        <button class="p-1.5 rounded hover:bg-arctic-light text-arctic-gray hover:text-arctic-dark" title="导出">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 系统设置页面 -->
+                <div id="page-settings" class="page-content">
+                    <div class="max-w-4xl space-y-6">
+                        <!-- 用户管理卡片 -->
+                        <div class="bg-white rounded-xl border border-arctic-border card-shadow p-6">
+                            <h3 class="text-lg font-semibold text-arctic-dark mb-6 flex items-center gap-2">
+                                <svg class="w-5 h-5 text-arctic-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
+                                </svg>
+                                用户管理
+                            </h3>
+                            
+                            <div class="space-y-4">
+                                <div class="flex items-center justify-between p-4 bg-arctic-bg/50 rounded-lg">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 rounded-full bg-arctic-light flex items-center justify-center text-arctic-primary font-semibold">
+                                            张
+                                        </div>
+                                        <div>
+                                            <p class="font-medium text-arctic-dark">张工程师</p>
+                                            <p class="text-xs text-arctic-gray">系统管理员</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <button class="px-3 py-1.5 border border-arctic-border rounded text-sm hover:bg-white">编辑</button>
+                                        <button class="px-3 py-1.5 border border-red-200 text-red-600 rounded text-sm hover:bg-red-50">删除</button>
+                                    </div>
+                                </div>
+                                
+                                <div class="flex items-center justify-between p-4 bg-arctic-bg/50 rounded-lg">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-semibold">
+                                            李
+                                        </div>
+                                        <div>
+                                            <p class="font-medium text-arctic-dark">李技术员</p>
+                                            <p class="text-xs text-arctic-gray">普通用户</p>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <button class="px-3 py-1.5 border border-arctic-border rounded text-sm hover:bg-white">编辑</button>
+                                        <button class="px-3 py-1.5 border border-red-200 text-red-600 rounded text-sm hover:bg-red-50">删除</button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <button class="mt-4 flex items-center gap-2 px-4 py-2 border border-arctic-border text-arctic-dark rounded-lg font-medium hover:bg-arctic-bg transition-colors">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                                </svg>
+                                添加用户
+                            </button>
+                        </div>
+                        
+                        <!-- 系统参数卡片 -->
+                        <div class="bg-white rounded-xl border border-arctic-border card-shadow p-6">
+                            <h3 class="text-lg font-semibold text-arctic-dark mb-6 flex items-center gap-2">
+                                <svg class="w-5 h-5 text-arctic-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                </svg>
+                                系统参数
+                            </h3>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label class="block text-sm font-medium text-arctic-dark mb-2">默认强度等级</label>
+                                    <select class="w-full px-4 py-2.5 border border-arctic-border rounded-lg bg-white">
+                                        <option selected>C30</option>
+                                        <option>C35</option>
+                                        <option>C40</option>
+                                    </select>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-arctic-dark mb-2">默认坍落度 (mm)</label>
+                                    <input type="number" value="180" class="w-full px-4 py-2.5 border border-arctic-border rounded-lg bg-white">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-arctic-dark mb-2">默认环境类别</label>
+                                    <select class="w-full px-4 py-2.5 border border-arctic-border rounded-lg bg-white">
+                                        <option selected>一类（室内干燥环境）</option>
+                                        <option>二类 a（室内潮湿环境）</option>
+                                    </select>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-arctic-dark mb-2">数据备份周期</label>
+                                    <select class="w-full px-4 py-2.5 border border-arctic-border rounded-lg bg-white">
+                                        <option selected>每日</option>
+                                        <option>每周</option>
+                                        <option>每月</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-6 flex items-center justify-end gap-3">
+                                <button class="px-4 py-2 border border-arctic-border text-arctic-dark rounded-lg font-medium hover:bg-arctic-bg">重置</button>
+                                <button class="px-4 py-2 bg-arctic-secondary text-white rounded-lg font-medium hover:bg-arctic-primary">保存设置</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <!-- JavaScript - 页面交互逻辑 -->
+    <script>
+        // 页面信息配置
+        const pageInfo = {
+            material: {
+                title: '原材料管理',
+                subtitle: '管理各类原材料信息，包括水泥、骨料、外加剂等'
+            },
+            mixdesign: {
+                title: '配合比设计',
+                subtitle: '基于原材料性能参数，进行配合比计算和优化'
+            },
+            schemes: {
+                title: '方案管理',
+                subtitle: '保存、管理和复用配合比设计方案'
+            },
+            settings: {
+                title: '系统设置',
+                subtitle: '配置系统参数和用户偏好'
+            }
+        };
+        
+        // 切换页面函数
+        function switchPage(pageName) {
+            // 隐藏所有页面
+            document.querySelectorAll('.page-content').forEach(page => {
+                page.classList.remove('active');
+            });
+            
+            // 显示目标页面
+            const targetPage = document.getElementById('page-' + pageName);
+            if (targetPage) {
+                setTimeout(() => {
+                    targetPage.classList.add('active');
+                }, 50);
+            }
+            
+            // 更新导航状态
+            document.querySelectorAll('[id^="nav-"]').forEach(nav => {
+                nav.classList.remove('nav-item-active');
+                nav.classList.add('text-arctic-gray');
+            });
+            
+            const activeNav = document.getElementById('nav-' + pageName);
+            if (activeNav) {
+                activeNav.classList.add('nav-item-active');
+                activeNav.classList.remove('text-arctic-gray');
+            }
+            
+            // 更新页面标题
+            const info = pageInfo[pageName];
+            if (info) {
+                document.getElementById('page-title').textContent = info.title;
+                document.getElementById('page-subtitle').textContent = info.subtitle;
+            }
+        }
+        
+        // 模拟配合比计算函数
+        function calculateMix() {
+            alert('正在计算配合比...\\n\\n计算完成！结果已更新。');
+        }
+    </script>
+</body>
+</html>
