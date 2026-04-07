@@ -1075,6 +1075,9 @@ class MixDesignService {
         materialCosts.superplasticizer = (materialAmounts.superplasticizer * spPrice) / 1000
         totalCost += materialCosts.superplasticizer
       }
+
+      // 计算胶凝材料成本（水泥+粉煤灰+矿渣粉）
+      const cementitiousCost = (materialCosts.cement || 0) + (materialCosts.flyAsh || 0) + (materialCosts.slag || 0)
     }
     
     console.log('材料成本:', materialCosts)
@@ -1106,6 +1109,7 @@ class MixDesignService {
       materials: materialAmounts,
       materialCosts,
       totalCost,
+      cementitiousCost,
       superplasticizerDosage,
       waterReducingRate,
       influenceFactor,
