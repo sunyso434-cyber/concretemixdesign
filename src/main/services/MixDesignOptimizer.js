@@ -43,14 +43,14 @@ class MixDesignOptimizer {
       sandRatioRange
     })
 
-    // 3. 预处理材料：如果有多种同类材料，选择成本最低的一种
-    const optimizedMaterials = this._selectCheapestMaterials(constraints.materials)
+    // 3. 预处理材料：保留原始材料对象，不过滤
+    const materials = this._prepareMaterials(constraints.materials)
 
     // 4. 处理细骨料优化（独立于主循环）
     let fineAggregateRatios = [null] // 默认不优化
-    if (optimizedMaterials?.sand && Array.isArray(optimizedMaterials.sand) && optimizedMaterials.sand.length > 1) {
+    if (materials?.sand && Array.isArray(materials.sand) && materials.sand.length > 1) {
       console.log('[优化器] 检测到多种细骨料，开始成本优化...')
-      fineAggregateRatios = this._generateFineAggregateRatios(optimizedMaterials.sand)
+      fineAggregateRatios = this._generateFineAggregateRatios(materials.sand)
       console.log('[优化器] 细骨料比例组合数:', fineAggregateRatios.length)
     }
 
@@ -74,7 +74,7 @@ class MixDesignOptimizer {
             try {
               // 构建当前迭代的材料对象
               const iterationMaterials = this._buildIterationMaterials(
-                optimizedMaterials,
+                materials,
                 { sand: fineAggregateRatio }
               )
 
@@ -113,8 +113,8 @@ class MixDesignOptimizer {
                     ...resultWithParams,
                     // 包含最终选择的粉煤灰和矿渣粉材料信息（名称、单价等）
                     selectedMaterials: {
-                      flyAsh: optimizedMaterials.flyAsh,
-                      slag: optimizedMaterials.slag
+                      flyAsh: materials.flyAsh,
+                      slag: materials.slag
                     }
                   }
                 }
@@ -153,7 +153,7 @@ class MixDesignOptimizer {
   _buildIterationMaterials(baseMaterials, blendRatios = {}) {
     const materials = { ...baseMaterials }
 
-    // 仅混合细骨料（粉煤灰、矿渣粉、减水剂已在预处理时选择成本最低的一种）
+    // 仅混合细骨料（粉煤灰、矿渣粉、减水剂保持原始数组，搜索时遍历选择）
     if (blendRatios.sand && baseMaterials.sand && Array.isArray(baseMaterials.sand) && baseMaterials.sand.length > 1) {
       materials.sand = this._blendFineAggregates(baseMaterials.sand, blendRatios.sand)
     }
@@ -256,44 +256,14 @@ class MixDesignOptimizer {
   }
 
   /**
-   * 选择成本最低的材料
-   * 对于粉煤灰、矿渣粉、减水剂，如果选择了多种，自动选择成本最低的一种
-   * 细骨料保持原样，因为需要优化混合比例
-   * @param {Object} materials - 原材料对象
-   * @returns {Object} 优化后的材料对象
-   */
-  _selectCheapestMaterials(materials) {
-    const result = { ...materials }
-
-    // 粉煤灰：选择成本最低的一种
-    if (result.flyAsh && Array.isArray(result.flyAsh) && result.flyAsh.length > 1) {
-      const cheapestFlyAsh = result.flyAsh.reduce((min, fa) =>
-        (fa.price || 0) < (min.price || 0) ? fa : min
-      )
-      console.log('[优化器] 从', result.flyAsh.length, '种粉煤灰中选择成本最低:', cheapestFlyAsh.name, '价格:', cheapestFlyAsh.price)
-      result.flyAsh = cheapestFlyAsh
-    }
-
-    // 矿渣粉：选择成本最低的一种
-    if (result.slag && Array.isArray(result.slag) && result.slag.length > 1) {
-      const cheapestSlag = result.slag.reduce((min, s) =>
-        (s.price || 0) < (min.price || 0) ? s : min
-      )
-      console.log('[优化器] 从', result.slag.length, '种矿渣粉中选择成本最低:', cheapestSlag.name, '价格:', cheapestSlag.price)
-      result.slag = cheapestSlag
-    }
-
-    // 减水剂：选择成本最低的一种
-    if (result.superplasticizer && Array.isArray(result.superplasticizer) && result.superplasticizer.length > 1) {
-      const cheapestSp = result.superplasticizer.reduce((min, sp) =>
-        (sp.price || 0) < (min.price || 0) ? sp : min
-      )
-      console.log('[优化器] 从', result.superplasticizer.length, '种减水剂中选择成本最低:', cheapestSp.name, '价格:', cheapestSp.price)
-      result.superplasticizer = cheapestSp
-    }
-
-    return result
-  }
+ * 保留原始材料对象，不过滤
+ * 粉煤灰、矿渣粉、减水剂的选择将在网格搜索循环内进行
+ * @param {Object} materials - 原材料对象
+ * @returns {Object} 原始材料对象
+ */
+_prepareMaterials(materials) {
+  return { ...materials }
+}
 
   /**
    * 创建等差数列
