@@ -7,6 +7,10 @@ const MixDesignPage = () => {
   const [form] = Form.useForm()
   const [materials, setMaterials] = useState([])
   const [calculationResult, setCalculationResult] = useState(null)
+  const watchedSand = Form.useWatch ? Form.useWatch('sand', form) : null
+  const watchedSandRatio = Form.useWatch ? Form.useWatch('sandRatio', form) : null
+  const watchedStrength = Form.useWatch ? Form.useWatch('strength', form) : null
+  const [adjustedResult, setAdjustedResult] = useState(null)
   const [seriesResults, setSeriesResults] = useState(null)
   const [loading, setLoading] = useState(false)
   const [saveModalVisible, setSaveModalVisible] = useState(false)
@@ -50,6 +54,118 @@ const MixDesignPage = () => {
     stone: '粗骨料',
     superplasticizer: '减水剂'
   }
+
+  // 当有计算结果且选中了两种细骨料时，实时按两砂细度模数计算占比并调整展示结果（不保存）
+  useEffect(() => {
+    try {
+      if (!calculationResult || !materials) {
+        setAdjustedResult(null)
+        return
+      }
+
+      const selectedSand = Array.isArray(watchedSand) ? watchedSand : (watchedSand ? [watchedSand] : [])
+      if (selectedSand.length !== 2) {
+        setAdjustedResult(null)
+        return
+      }
+
+      // 找到对应的材料对象
+      const sandMaterials = materials.filter(m => selectedSand.some(id => String(id) === String(m.id)))
+      if (sandMaterials.length !== 2) {
+        setAdjustedResult(null)
+        return
+      }
+
+      const fm1 = parseFloat(sandMaterials[0].finenessModulus)
+      const fm2 = parseFloat(sandMaterials[1].finenessModulus)
+      let r1 = null
+
+      // 计算目标细度模数（与后端保持一致的经验规则）
+      const computeTargetFinenessModulus = (strength, tempSettings = null) => {
+        try {
+          if (tempSettings && tempSettings.targetFinenessModulus !== undefined && tempSettings.targetFinenessModulus !== null) {
+            return parseFloat(tempSettings.targetFinenessModulus)
+          }
+          const base = 2.7
+          const strengthNum = parseInt(String(strength || '').replace('C', '')) || 30
+          let target = base - (strengthNum - 30) * 0.01
+          if (target < 2.3) target = 2.3
+          if (target > 2.9) target = 2.9
+          return Number(target.toFixed(3))
+        } catch (e) {
+          return 2.7
+        }
+      }
+
+      const strengthForCalc = watchedStrength || form.getFieldValue('strength') || 'C30'
+      const targetFM = computeTargetFinenessModulus(strengthForCalc, tempSettings)
+
+      // 优先使用细度模数求解两砂占比（解析解），当缺失或相等时回退到服务器返回的分配或平均
+      if (Number.isFinite(fm1) && Number.isFinite(fm2) && fm1 !== fm2) {
+        r1 = (targetFM - fm2) / (fm1 - fm2)
+      } else if (Array.isArray(calculationResult.fineAggregateBreakdown) && calculationResult.fineAggregateBreakdown.length === 2) {
+        const b0 = calculationResult.fineAggregateBreakdown.find(b => String(b.id) === String(sandMaterials[0].id))
+        r1 = b0 ? b0.ratio : 0.5
+      } else {
+        r1 = 0.5
+      }
+
+      r1 = Math.max(0, Math.min(1, r1))
+      const r2 = 1 - r1
+
+      const totalSand = calculationResult.materials?.sand || 0
+      const newMaterials = { ...calculationResult.materials }
+      newMaterials[`sand_${sandMaterials[0].id}`] = totalSand * r1
+      newMaterials[`sand_${sandMaterials[1].id}`] = totalSand * r2
+      newMaterials.sand = totalSand
+
+      // 重新计算细砂相关成本并更新总成本
+      const baseCosts = { ...(calculationResult.materialCosts || {}) }
+      // 先收集并移除旧的 sand_/stone_ 明细与汇总的 sand/stone 成本，避免重复计算
+      const existingSandDetails = {}
+      const existingStoneDetails = {}
+      Object.keys(baseCosts).forEach(k => {
+        if (k.startsWith('sand_')) { existingSandDetails[k] = baseCosts[k]; delete baseCosts[k] }
+        if (k.startsWith('stone_')) { existingStoneDetails[k] = baseCosts[k]; delete baseCosts[k] }
+      })
+      if (baseCosts.sand !== undefined) delete baseCosts.sand
+      if (baseCosts.stone !== undefined) delete baseCosts.stone
+
+      let newTotal = 0
+      // 累加非细/粗骨料成本
+      Object.keys(baseCosts).forEach(k => { newTotal += baseCosts[k] || 0 })
+
+      const newCosts = { ...baseCosts }
+      const price1 = parseFloat(sandMaterials[0].price) || 0
+      const price2 = parseFloat(sandMaterials[1].price) || 0
+
+      if (price1 > 0) {
+        newCosts[`sand_${sandMaterials[0].id}`] = (newMaterials[`sand_${sandMaterials[0].id}`] * price1) / 1000
+        newTotal += newCosts[`sand_${sandMaterials[0].id}`]
+      }
+      if (price2 > 0) {
+        newCosts[`sand_${sandMaterials[1].id}`] = (newMaterials[`sand_${sandMaterials[1].id}`] * price2) / 1000
+        newTotal += newCosts[`sand_${sandMaterials[1].id}`]
+      }
+      newCosts.sand = (newCosts[`sand_${sandMaterials[0].id}`] || 0) + (newCosts[`sand_${sandMaterials[1].id}`] || 0)
+
+      // 如果原始结果中包含粗骨料明细，保留这些明细并加入总成本（但已从 baseCosts 移除，避免重复）
+      if (existingStoneDetails && Object.keys(existingStoneDetails).length > 0) {
+        let stoneSum = 0
+        Object.entries(existingStoneDetails).forEach(([k, v]) => {
+          newCosts[k] = v
+          stoneSum += v || 0
+          newTotal += v || 0
+        })
+        newCosts.stone = stoneSum
+      }
+
+      setAdjustedResult({ ...calculationResult, materials: newMaterials, materialCosts: newCosts, totalCost: newTotal, fineAggregateBreakdown: [ { id: sandMaterials[0].id, name: sandMaterials[0].name, amount: newMaterials[`sand_${sandMaterials[0].id}`], ratio: r1 }, { id: sandMaterials[1].id, name: sandMaterials[1].name, amount: newMaterials[`sand_${sandMaterials[1].id}`], ratio: r2 } ] })
+    } catch (e) {
+      console.error('实时调整细骨料占比失败:', e)
+      setAdjustedResult(null)
+    }
+  }, [calculationResult, materials, watchedSand, watchedSandRatio, watchedStrength, tempSettings])
 
   // 加载原材料列表
   const loadMaterials = async () => {
@@ -134,14 +250,30 @@ const MixDesignPage = () => {
         superplasticizer: latestMaterials.find(m => m.id === values.superplasticizer)
       }
       
+      console.log('材料对象:', materialsObj)
+      
       // 检查材料对象是否都存在
       for (const [key, material] of Object.entries(materialsObj)) {
         if (key === 'sand' || key === 'stone') {
           if (!material || (Array.isArray(material) && material.length === 0)) {
             throw new Error(`找不到${key}材料，请重新选择`)
           }
-        } else if (!material) {
-          throw new Error(`找不到${key}材料，请重新选择`)
+          // 检查价格
+          if (Array.isArray(material)) {
+            const materialsWithoutPrice = material.filter(m => !m.price || m.price <= 0)
+            if (materialsWithoutPrice.length > 0) {
+              throw new Error(`${key}材料 ${materialsWithoutPrice.map(m => m.name).join(', ')} 未设置价格，请在材料管理页面设置价格`)
+            }
+          } else if (!material.price || material.price <= 0) {
+            throw new Error(`${key}材料 ${material.name} 未设置价格，请在材料管理页面设置价格`)
+          }
+        } else if (key !== 'flyAsh' && key !== 'slag' && key !== 'superplasticizer') {
+          if (!material) {
+            throw new Error(`找不到${key}材料，请重新选择`)
+          }
+          if (!material.price || material.price <= 0) {
+            throw new Error(`${key}材料 ${material.name} 未设置价格，请在材料管理页面设置价格`)
+          }
         }
       }
       
@@ -204,8 +336,22 @@ const MixDesignPage = () => {
           if (!material || (Array.isArray(material) && material.length === 0)) {
             throw new Error(`找不到${key}材料，请重新选择`)
           }
-        } else if (!material) {
-          throw new Error(`找不到${key}材料，请重新选择`)
+          // 检查价格
+          if (Array.isArray(material)) {
+            const materialsWithoutPrice = material.filter(m => !m.price || m.price <= 0)
+            if (materialsWithoutPrice.length > 0) {
+              throw new Error(`${key}材料 ${materialsWithoutPrice.map(m => m.name).join(', ')} 未设置价格，请在材料管理页面设置价格`)
+            }
+          } else if (!material.price || material.price <= 0) {
+            throw new Error(`${key}材料 ${material.name} 未设置价格，请在材料管理页面设置价格`)
+          }
+        } else if (key !== 'flyAsh' && key !== 'slag' && key !== 'superplasticizer') {
+          if (!material) {
+            throw new Error(`找不到${key}材料，请重新选择`)
+          }
+          if (!material.price || material.price <= 0) {
+            throw new Error(`${key}材料 ${material.name} 未设置价格，请在材料管理页面设置价格`)
+          }
         }
       }
       
@@ -295,22 +441,23 @@ const MixDesignPage = () => {
         cement: latestMaterials.find(m => m.id === values.cement),
         flyAsh: latestMaterials.find(m => m.id === values.flyAsh),
         slag: latestMaterials.find(m => m.id === values.slag),
-        sand: latestMaterials.find(m => m.id === values.sand),
-        stone: latestMaterials.find(m => m.id === values.stone),
+        sand: Array.isArray(values.sand) ? latestMaterials.filter(m => values.sand.some(sid => String(sid) === String(m.id))) : latestMaterials.find(m => m.id === values.sand),
+        stone: Array.isArray(values.stone) ? latestMaterials.filter(m => values.stone.some(sid => String(sid) === String(m.id))) : latestMaterials.find(m => m.id === values.stone),
         superplasticizer: latestMaterials.find(m => m.id === values.superplasticizer)
       }
       
-      console.log('calculationResult:', {
-        hasMaterialCosts: !!calculationResult.materialCosts,
-        hasTotalCost: !!calculationResult.totalCost,
-        materialCosts: calculationResult.materialCosts,
-        totalCost: calculationResult.totalCost
+      const resultToSave = adjustedResult || calculationResult
+      console.log('保存时使用的结果:', {
+        hasMaterialCosts: !!resultToSave?.materialCosts,
+        hasTotalCost: !!resultToSave?.totalCost,
+        materialCosts: resultToSave?.materialCosts,
+        totalCost: resultToSave?.totalCost
       })
-      
+
       const mixDesignData = {
         ...saveValues,
         ...values,
-        ...calculationResult,
+        ...resultToSave,
         materialDetails: materialsObj,
         tempSettings,
         status: '未验证'
@@ -340,8 +487,9 @@ const MixDesignPage = () => {
 
   // 构建计算结果表格数据
   const buildCalculationResult = () => {
-    if (!calculationResult || !calculationResult.materials) return []
-    const materialsAmounts = calculationResult.materials
+    const displayResult = adjustedResult || calculationResult
+    if (!displayResult || !displayResult.materials) return []
+    const materialsAmounts = displayResult.materials
     console.log('Materials amounts:', materialsAmounts)
     const result = [
       { key: '1', material: '水泥', amount: (materialsAmounts.cement || 0).toFixed(1), unit: 'kg/m³' },
@@ -427,6 +575,8 @@ const MixDesignPage = () => {
   const getMaterialsByType = (type) => {
     return materials.filter(m => m.type === materialTypes[type])
   }
+
+  const displayResult = adjustedResult || calculationResult
 
   return (
     <div>
@@ -572,7 +722,7 @@ const MixDesignPage = () => {
 
       <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
         <div style={{ flex: 2, minWidth: '300px' }}>
-          {calculationResult ? (
+          {displayResult ? (
             <Card className="custom-card" title="计算结果">
               <Table 
                 dataSource={buildCalculationResult()} 
@@ -583,12 +733,12 @@ const MixDesignPage = () => {
               <div style={{ marginTop: 24, padding: '16px', background: '#f9f9f9', borderRadius: '8px' }}>
                 <h4 style={{ marginBottom: 16, fontSize: '14px', fontWeight: '600' }}>配合比参数</h4>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <p>配置强度f_cu,0: <strong>{String(calculationResult.targetStrength || 0)} MPa</strong></p>
-                  <p>水胶比: <strong>{String(calculationResult.waterRatio || 0)}</strong></p>
-                  <p>砂率: <strong>{String((calculationResult.sandRatio || 0) * 100)}%</strong></p>
-                  <p>容重: <strong>{String(calculationResult.density || 0)} kg/m³</strong></p>
-                  <p>减水剂掺量: <strong>{String(calculationResult.superplasticizerDosage || 0)}%</strong></p>
-                  <p>减水率: <strong>{String(calculationResult.waterReducingRate || 0)}%</strong></p>
+                  <p>配置强度f_cu,0: <strong>{String(displayResult.targetStrength || 0)} MPa</strong></p>
+                  <p>水胶比: <strong>{String(displayResult.waterRatio || 0)}</strong></p>
+                  <p>砂率: <strong>{String((displayResult.sandRatio || 0) * 100)}%</strong></p>
+                  <p>容重: <strong>{String(displayResult.density || 0)} kg/m³</strong></p>
+                  <p>减水剂掺量: <strong>{String(displayResult.superplasticizerDosage || 0)}%</strong></p>
+                  <p>减水率: <strong>{String(displayResult.waterReducingRate || 0)}%</strong></p>
                 </div>
               </div>
             </Card>
@@ -602,46 +752,46 @@ const MixDesignPage = () => {
         </div>
         
         <div style={{ flex: 1, minWidth: '300px' }}>
-          {calculationResult && calculationResult.materialCosts && (
+          {displayResult && displayResult.materialCosts && (
             <Card className="custom-card" title="成本分析">
               <div style={{ marginTop: 16 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <p>水泥成本: <strong>{String((calculationResult.materialCosts.cement || 0).toFixed(2))} 元/m³</strong></p>
-                  <p>粉煤灰成本: <strong>{String((calculationResult.materialCosts.flyAsh || 0).toFixed(2))} 元/m³</strong></p>
-                  <p>矿渣粉成本: <strong>{String((calculationResult.materialCosts.slag || 0).toFixed(2))} 元/m³</strong></p>
+                  <p>水泥成本: <strong>{String((displayResult.materialCosts.cement || 0).toFixed(2))} 元/m³</strong></p>
+                  <p>粉煤灰成本: <strong>{String((displayResult.materialCosts.flyAsh || 0).toFixed(2))} 元/m³</strong></p>
+                  <p>矿渣粉成本: <strong>{String((displayResult.materialCosts.slag || 0).toFixed(2))} 元/m³</strong></p>
                   
                   {/* 处理多种细骨料的成本 */}
-                  {Object.keys(calculationResult.materialCosts).filter(key => key.startsWith('sand_')).map((key, index) => {
+                  {Object.keys(displayResult.materialCosts).filter(key => key.startsWith('sand_')).map((key, index) => {
                     const materialId = key.replace('sand_', '')
                     const material = materials.find(m => m && String(m.id) === String(materialId)) || { name: `细骨料${index + 1}` }
                     return (
-                      <p key={key}>{`砂 - ${material.name} 成本:`} <strong>{String((calculationResult.materialCosts[key] || 0).toFixed(2))} 元/m³</strong></p>
+                      <p key={key}>{`砂 - ${material.name} 成本:`} <strong>{String((displayResult.materialCosts[key] || 0).toFixed(2))} 元/m³</strong></p>
                     )
                   })}
                   
                   {/* 处理单一细骨料的成本 */}
-                  {!Object.keys(calculationResult.materialCosts).some(key => key.startsWith('sand_')) && (
-                    <p>砂成本: <strong>{String((calculationResult.materialCosts.sand || 0).toFixed(2))} 元/m³</strong></p>
+                  {!Object.keys(displayResult.materialCosts).some(key => key.startsWith('sand_')) && (
+                    <p>砂成本: <strong>{String((displayResult.materialCosts.sand || 0).toFixed(2))} 元/m³</strong></p>
                   )}
                   
                   {/* 处理多种粗骨料的成本 */}
-                  {Object.keys(calculationResult.materialCosts).filter(key => key.startsWith('stone_')).map((key, index) => {
+                  {Object.keys(displayResult.materialCosts).filter(key => key.startsWith('stone_')).map((key, index) => {
                     const materialId = key.replace('stone_', '')
                     const material = materials.find(m => m && String(m.id) === String(materialId)) || { name: `粗骨料${index + 1}` }
                     return (
-                      <p key={key}>{`石 - ${material.name} 成本:`} <strong>{String((calculationResult.materialCosts[key] || 0).toFixed(2))} 元/m³</strong></p>
+                      <p key={key}>{`石 - ${material.name} 成本:`} <strong>{String((displayResult.materialCosts[key] || 0).toFixed(2))} 元/m³</strong></p>
                     )
                   })}
                   
                   {/* 处理单一粗骨料的成本 */}
-                  {!Object.keys(calculationResult.materialCosts).some(key => key.startsWith('stone_')) && (
-                    <p>石成本: <strong>{String((calculationResult.materialCosts.stone || 0).toFixed(2))} 元/m³</strong></p>
+                  {!Object.keys(displayResult.materialCosts).some(key => key.startsWith('stone_')) && (
+                    <p>石成本: <strong>{String((displayResult.materialCosts.stone || 0).toFixed(2))} 元/m³</strong></p>
                   )}
                   
-                  <p>减水剂成本: <strong>{String((calculationResult.materialCosts.superplasticizer || 0).toFixed(2))} 元/m³</strong></p>
+                  <p>减水剂成本: <strong>{String((displayResult.materialCosts.superplasticizer || 0).toFixed(2))} 元/m³</strong></p>
                 </div>
                 <Divider />
-                <p style={{ fontSize: '16px', fontWeight: 'bold', textAlign: 'right' }}>总成本: <strong style={{ color: '#1890ff' }}>{String((calculationResult.totalCost || 0).toFixed(2))} 元/m³</strong></p>
+                <p style={{ fontSize: '16px', fontWeight: 'bold', textAlign: 'right' }}>总成本: <strong style={{ color: '#1890ff' }}>{String((displayResult.totalCost || 0).toFixed(2))} 元/m³</strong></p>
               </div>
             </Card>
           )}

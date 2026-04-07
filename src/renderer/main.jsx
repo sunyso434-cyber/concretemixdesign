@@ -393,6 +393,135 @@ if (!window.electron) {
     }
   }
 
+  // 计算目标细度模数（可由临时设置覆盖），与后端保持一致的经验规则
+  const computeTargetFinenessModulus = (strength, tempSettings = null) => {
+    try {
+      if (tempSettings && tempSettings.targetFinenessModulus !== undefined && tempSettings.targetFinenessModulus !== null) {
+        return parseFloat(tempSettings.targetFinenessModulus)
+      }
+      const base = 2.7
+      const strengthNum = parseInt(String(strength || '').replace('C', '')) || 30
+      let target = base - (strengthNum - 30) * 0.01
+      if (target < 2.3) target = 2.3
+      if (target > 2.9) target = 2.9
+      return Number(target.toFixed(3))
+    } catch (e) {
+      return 2.7
+    }
+  }
+
+  // 计算多种细骨料的最佳比例，使组合后的细度模数最接近目标值（默认为2.7）
+  const calculateOptimalFineAggregateRatio = (fineAggregates, targetFinenessModulus = 2.7) => {
+    if (!Array.isArray(fineAggregates) || fineAggregates.length <= 1) {
+      const result = (fineAggregates || []).map((aggregate, index) => ({ aggregate, ratio: 1 / Math.max(1, fineAggregates.length) }))
+      result.combinedFinenessModulus = fineAggregates && fineAggregates.length === 1 ? (fineAggregates[0].finenessModulus || targetFinenessModulus) : targetFinenessModulus
+      result.combinedMbValue = fineAggregates && fineAggregates.length === 1 ? (fineAggregates[0].mbValue || 0.5) : 0.5
+      return result
+    }
+
+    const steps = 10
+    let bestCombination = null
+    let minDifference = Infinity
+
+    const sieveKeys = ['sieve_4_75', 'sieve_2_36', 'sieve_1_18', 'sieve_0_60', 'sieve_0_30', 'sieve_0_15']
+    const hasDetailedSieve = fineAggregates.every(agg => {
+      return sieveKeys.every(k => {
+        const v = agg && agg[k]
+        const n = parseFloat(v)
+        return Number.isFinite(n)
+      })
+    })
+
+    const generateCombinations = (index, currentRatios) => {
+      if (index === fineAggregates.length - 1) {
+        const remainingRatio = 1 - currentRatios.reduce((sum, r) => sum + r, 0)
+        if (remainingRatio < 0 || remainingRatio > 1) return
+
+        const ratios = [...currentRatios, remainingRatio]
+
+        let combinedFinenessModulus = 0
+        let combinedMbValue = 0
+
+        if (hasDetailedSieve) {
+          const combinedSieve = {}
+          for (const key of sieveKeys) combinedSieve[key] = 0
+
+          for (let i = 0; i < fineAggregates.length; i++) {
+            const aggregate = fineAggregates[i]
+            const ratio = ratios[i]
+            for (const key of sieveKeys) {
+              const v = parseFloat(aggregate[key]) || 0
+              combinedSieve[key] += v * ratio
+            }
+            combinedMbValue += (aggregate.mbValue || 0.5) * ratio
+          }
+
+          const sieveSum = sieveKeys.reduce((s, k) => s + (combinedSieve[k] || 0), 0)
+          combinedFinenessModulus = sieveSum / 100
+        } else {
+          for (let i = 0; i < fineAggregates.length; i++) {
+            const aggregate = fineAggregates[i]
+            const ratio = ratios[i]
+            combinedFinenessModulus += (aggregate.finenessModulus || targetFinenessModulus) * ratio
+            combinedMbValue += (aggregate.mbValue || 0.5) * ratio
+          }
+        }
+
+        const difference = Math.abs(combinedFinenessModulus - targetFinenessModulus)
+        if (difference < minDifference) {
+          minDifference = difference
+          bestCombination = { ratios, combinedFinenessModulus, combinedMbValue }
+        }
+        return
+      }
+
+      for (let i = 0; i <= steps; i++) {
+        const ratio = i / steps
+        const remainingRatio = 1 - currentRatios.reduce((sum, r) => sum + r, 0) - ratio
+        if (remainingRatio >= 0) {
+          generateCombinations(index + 1, [...currentRatios, ratio])
+        }
+      }
+    }
+
+    generateCombinations(0, [])
+
+    if (bestCombination) {
+      const result = fineAggregates.map((aggregate, index) => ({ aggregate, ratio: bestCombination.ratios[index] }))
+      result.combinedFinenessModulus = bestCombination.combinedFinenessModulus
+      result.combinedMbValue = bestCombination.combinedMbValue
+      return result
+    }
+
+    const result = fineAggregates.map((aggregate, index) => ({ aggregate, ratio: 1 / fineAggregates.length }))
+    const combinedFm = fineAggregates.reduce((s, agg) => s + ((agg.finenessModulus || targetFinenessModulus) * (1 / fineAggregates.length)), 0)
+    const combinedMb = fineAggregates.reduce((s, agg) => s + ((agg.mbValue || 0.5) * (1 / fineAggregates.length)), 0)
+    result.combinedFinenessModulus = combinedFm
+    result.combinedMbValue = combinedMb
+    return result
+  }
+
+  const calculateCombinedFineAggregateParams = (fineAggregates, targetFinenessModulus = 2.7) => {
+    const optimalRatio = calculateOptimalFineAggregateRatio(fineAggregates, targetFinenessModulus)
+    let combinedFinenessModulus = optimalRatio.combinedFinenessModulus
+    let combinedMbValue = optimalRatio.combinedMbValue
+
+    if (combinedFinenessModulus === undefined || combinedMbValue === undefined) {
+      combinedFinenessModulus = 0
+      combinedMbValue = 0
+      for (const item of optimalRatio) {
+        combinedFinenessModulus += (item.aggregate.finenessModulus || targetFinenessModulus) * item.ratio
+        combinedMbValue += (item.aggregate.mbValue || 0.5) * item.ratio
+      }
+    }
+
+    return {
+      finenessModulus: combinedFinenessModulus,
+      mbValue: combinedMbValue,
+      optimalRatio
+    }
+  }
+
   // 计算掺合料影响系数（线性插值）
   const calculateInfluenceFactor = (admixtureDosage, admixtureMaterial) => {
     const dosageLevels = [10, 20, 30, 40, 50]
@@ -460,114 +589,102 @@ if (!window.electron) {
     }
   }
 
-  // 计算配合比 - JGJ 55标准版本
+  // 计算配合比 - JGJ 55标准版本（增强：支持多细/粗骨料分配与成本）
   const calculateMixDesignMock = (params) => {
     const { strength, slump, environment, tempSettings, materials, calculationMethod, targetDensity, flyAshDosage, slagDosage, sandRatio } = params
-    
-    console.log('开始JGJ 55标准配合比计算（模拟）...')
-    console.log('输入参数:', { strength, slump, environment, tempSettings, calculationMethod, targetDensity, flyAshDosage, slagDosage, sandRatio })
 
-    // 1. 获取强度标准差σ
+    console.log('开始JGJ 55标准配合比计算（模拟 - 多骨料支持）...')
+
+    // 1. 基本计算（同真实逻辑，略简化）
     const stdDev = getStrengthStdDev(strength, tempSettings)
-    console.log('强度标准差σ:', stdDev)
-    
-    // 2. 计算配置强度
     const targetStrength = calculateTargetStrength(strength, stdDev)
-    console.log('配置强度f_cu,0:', targetStrength)
-    
-    // 3. 获取回归系数
-    const alphaA = (tempSettings && tempSettings.regressionAlphaA) 
-      ? parseFloat(tempSettings.regressionAlphaA) 
-      : globalSettings.regressionAlphaA
-    const alphaB = (tempSettings && tempSettings.regressionAlphaB) 
-      ? parseFloat(tempSettings.regressionAlphaB) 
-      : globalSettings.regressionAlphaB
-    console.log('回归系数:', { alphaA, alphaB })
-    
-    // 4. 计算掺合料影响系数（使用粉煤灰掺量）
-    let influenceFactor = 1.0
+    // 计算目标细度模数（用于细骨料组合与减水剂调整）
+    const targetFinenessModulus = computeTargetFinenessModulus(strength, tempSettings)
+    const alphaA = (tempSettings && tempSettings.regressionAlphaA) ? parseFloat(tempSettings.regressionAlphaA) : globalSettings.regressionAlphaA
+    const alphaB = (tempSettings && tempSettings.regressionAlphaB) ? parseFloat(tempSettings.regressionAlphaB) : globalSettings.regressionAlphaB
+
     const flyAshMaterial = materials?.flyAsh || mockMaterials.find(m => m.type === '粉煤灰')
-    if (flyAshDosage && flyAshMaterial) {
-      influenceFactor = calculateInfluenceFactor(flyAshDosage, flyAshMaterial)
-    }
-    console.log('掺合料影响系数:', influenceFactor)
-    
-    // 5. 计算水胶比
-    // 从水泥原材料获取28天抗压强度
+    let influenceFactor = 1.0
+    if (flyAshDosage && flyAshMaterial) influenceFactor = calculateInfluenceFactor(flyAshDosage, flyAshMaterial)
+
     const cementMaterial = materials?.cement || mockMaterials.find(m => m.type === '水泥')
-    const cementStrength = (cementMaterial?.compressiveStrength28d || 48.0) * influenceFactor // 考虑掺合料影响系数
-    console.log('水泥28天抗压强度:', cementMaterial?.compressiveStrength28d || 48.0, 'MPa')
-    
+    const cementStrength = (cementMaterial?.compressiveStrength28d || 48.0) * influenceFactor
     const waterRatio = calculateWaterRatio(targetStrength, cementStrength, alphaA, alphaB)
-    console.log('水胶比W/B:', waterRatio)
-    
-    // 6. 计算基准用水量
-    // 从粗骨料原材料获取最大粒径和类型
-    const coarseAggregateMaterial = materials?.stone || mockMaterials.find(m => m.type === '粗骨料')
+
+    // 粗骨料最大粒径与类型（支持数组）
+    let coarse = materials?.stone
     let maxSize = 25
-    if (coarseAggregateMaterial && coarseAggregateMaterial.specification) {
-      const match = coarseAggregateMaterial.specification.match(/(\d+)-(\d+)mm/)
-      if (match) {
-        maxSize = parseInt(match[2])
-      } else {
-        const singleMatch = coarseAggregateMaterial.specification.match(/(\d+)mm/)
-        if (singleMatch) {
-          maxSize = parseInt(singleMatch[1])
+    let aggregateType = '碎石'
+    if (Array.isArray(coarse) && coarse.length > 0) {
+      // 取最大规格为代表
+      let largest = coarse[0]
+      let largestSize = 0
+      for (const s of coarse) {
+        const m = (s.specification || '').match(/(\d+)-(\d+)mm/)
+        if (m) {
+          const size = parseInt(m[2])
+          if (size > largestSize) { largestSize = size; largest = s }
         }
       }
+      coarse = largest
     }
-    // 根据粗骨料名称判断骨料类型
-    const aggregateType = coarseAggregateMaterial?.name?.includes('卵石') ? '卵石' : '碎石'
-    console.log('粗骨料最大粒径:', maxSize, 'mm')
-    console.log('粗骨料类型:', aggregateType)
-    
+    if (coarse && coarse.specification) {
+      const match = coarse.specification.match(/(\d+)-(\d+)mm/)
+      if (match) maxSize = parseInt(match[2])
+      else {
+        const sm = coarse.specification.match(/(\d+)mm/)
+        if (sm) maxSize = parseInt(sm[1])
+      }
+      aggregateType = coarse.name?.includes('卵石') ? '卵石' : '碎石'
+    }
+
     const baseWaterAmount = getBaseWaterAmount(maxSize, slump, aggregateType)
-    console.log('基准用水量:', baseWaterAmount)
-    
-    // 7. 计算减水剂掺量
-    const sandMaterial = materials?.sand || mockMaterials.find(m => m.type === '细骨料')
-    console.log('细骨料MB值:', sandMaterial?.mbValue || 0.5)
-    console.log('细骨料细度模数:', sandMaterial?.finenessModulus || 2.7)
-    
-    const superplasticizerDosage = calculateSuperplasticizerDosage(strength, sandMaterial, tempSettings)
-    console.log('减水剂掺量:', superplasticizerDosage)
-    
-    // 8. 计算减水率
-    const superplasticizerMaterial = mockMaterials.find(m => m.id === materials?.superplasticizer) || mockMaterials.find(m => m.type === '外加剂')
-    const baseDosage = superplasticizerMaterial?.recommendedDosage || 1.8 // 从减水剂获取推荐掺量
-    const baseReducingRate = superplasticizerMaterial?.waterReducingRate || 25 // 从减水剂获取减水率
-    console.log('减水剂推荐掺量:', baseDosage, '%')
-    console.log('减水剂基准减水率:', baseReducingRate, '%')
-    
-    const ratePer01 = globalSettings.waterReducingRatePer01Dosage
-    const dosageDiff = superplasticizerDosage.strengthDosage - baseDosage // 只考虑强度等级调整的掺量变化
-    const rateAdjustment = (dosageDiff / 0.1) * ratePer01
-    const waterReducingRate = baseReducingRate + rateAdjustment
-    console.log('减水率:', waterReducingRate)
-    
-    // 9. 计算实际用水量
-    const waterAmount = baseWaterAmount * (1 - waterReducingRate / 100)
-    console.log('实际用水量:', waterAmount)
 
-    // 10. 计算胶凝材料总量
-    const cementitiousAmount = waterAmount / waterRatio
-    console.log('胶凝材料总量:', cementitiousAmount)
-
-    // 11. 计算砂率
-    let finalSandRatio
-    if (sandRatio !== undefined && sandRatio !== null) {
-      finalSandRatio = sandRatio / 100
-    } else {
-      finalSandRatio = calculateSandRatio(slump)
+    // 减水剂掺量（合并细骨料参数时使用优化后的组合参数）
+    let fine = materials?.sand
+    let combinedFine = null
+    if (Array.isArray(fine) && fine.length > 0) {
+      const combinedParams = calculateCombinedFineAggregateParams(fine, targetFinenessModulus)
+      combinedFine = { mbValue: combinedParams.mbValue, finenessModulus: combinedParams.finenessModulus }
+      console.log('细骨料组合参数（模拟）:', combinedParams)
+    } else if (fine) {
+      combinedFine = fine
     }
-    console.log('砂率:', finalSandRatio)
 
-    // 12. 计算初始材料用量
-    // 使用用户自定义的粉煤灰和矿渣粉掺量
+    const spResult = calculateSuperplasticizerDosage(strength, combinedFine, tempSettings)
+    const finalDosage = spResult.finalDosage || spResult
+
+    // 减水率
+    const superplasticizerMaterial = mockMaterials.find(m => m.id === materials?.superplasticizer) || mockMaterials.find(m => m.type === '外加剂')
+    const baseDosage = superplasticizerMaterial?.recommendedDosage || 1.8
+    const baseReducingRate = superplasticizerMaterial?.waterReducingRate || 25
+    const ratePer01 = globalSettings.waterReducingRatePer01Dosage
+    const dosageDiff = (spResult.strengthDosage || spResult) - baseDosage
+    const waterReducingRate = baseReducingRate + (dosageDiff / 0.1) * ratePer01
+
+    // 实际用水量（考虑粉煤灰、矿渣影响的简化处理）
+    let waterAmount = baseWaterAmount * (1 - waterReducingRate / 100)
+    if (flyAshDosage && materials?.flyAsh?.waterDemandRatio) {
+      const flyAshWaterDemandRatio = materials.flyAsh.waterDemandRatio
+      const flyAshInfluence = 1 - (100 - flyAshWaterDemandRatio) / 30 * (flyAshDosage / 100)
+      waterAmount *= flyAshInfluence
+    }
+    if (slagDosage && materials?.slag?.fluidityRatio) {
+      const slagFluidityRatio = materials.slag.fluidityRatio
+      const slagInfluence = 1 - (1 - 100 / slagFluidityRatio) / 50 * (slagDosage / 100)
+      waterAmount *= slagInfluence
+    }
+
+    const cementitiousAmount = waterAmount / waterRatio
+
+    // 砂率
+    let finalSandRatio = (sandRatio !== undefined && sandRatio !== null) ? sandRatio / 100 : calculateSandRatio(slump)
+
+    // 初始材料用量
     const flyAshPercentage = (flyAshDosage || 0) / 100
     const slagPercentage = (slagDosage || 0) / 100
     const cementPercentage = 1 - flyAshPercentage - slagPercentage
-    
+
     let materialAmounts = {
       water: waterAmount,
       cement: cementitiousAmount * Math.max(0, cementPercentage),
@@ -575,43 +692,54 @@ if (!window.electron) {
       slag: cementitiousAmount * slagPercentage,
       sand: 0,
       stone: 0,
-      superplasticizer: cementitiousAmount * (superplasticizerDosage.finalDosage / 100)
+      superplasticizer: cementitiousAmount * (finalDosage / 100)
     }
-    
-    console.log('掺合料分配:', {
-      cementPercentage: (cementPercentage * 100).toFixed(1) + '%',
-      flyAshPercentage: (flyAshPercentage * 100).toFixed(1) + '%',
-      slagPercentage: (slagPercentage * 100).toFixed(1) + '%'
-    })
 
-    // 13. 根据计算方法选择计算
+    // 质量法/绝对体积法（简化）
     if (calculationMethod === 'mass') {
       const density = targetDensity || 2400
       const aggregateAmount = density - waterAmount - cementitiousAmount - materialAmounts.superplasticizer
       materialAmounts.sand = aggregateAmount * finalSandRatio
       materialAmounts.stone = aggregateAmount - materialAmounts.sand
-      
-      const massResult = calculateByMassMethod(materialAmounts, density)
-      if (massResult) {
-        materialAmounts = massResult.materialAmounts
-      }
     } else {
       const aggregateAmount = 2400 - waterAmount - cementitiousAmount - materialAmounts.superplasticizer
       materialAmounts.sand = aggregateAmount * finalSandRatio
       materialAmounts.stone = aggregateAmount - materialAmounts.sand
     }
-    
-    console.log('材料用量:', materialAmounts)
 
-    // 14. 计算容重
-    const density = Object.values(materialAmounts).reduce((sum, amount) => sum + amount, 0)
-    console.log('容重:', density)
+    // 支持多种细/粗骨料分配
+    let fineAggregateBreakdown = []
+    let coarseAggregateBreakdown = []
+    if (Array.isArray(materials?.sand) && materials.sand.length > 0) {
+      const optimalRatio = calculateOptimalFineAggregateRatio(materials.sand, targetFinenessModulus)
+      for (const item of optimalRatio) {
+        const ratio = item.ratio || (1 / materials.sand.length)
+        const key = `sand_${item.aggregate.id}`
+        materialAmounts[key] = materialAmounts.sand * ratio
+        fineAggregateBreakdown.push({ id: item.aggregate.id, name: item.aggregate.name, amount: materialAmounts[key], ratio })
+      }
+    } else if (materials?.sand) {
+      fineAggregateBreakdown.push({ id: materials.sand.id, name: materials.sand.name, amount: materialAmounts.sand, ratio: 1 })
+    }
 
-    // 15. 计算配合比成本
+    if (Array.isArray(materials?.stone) && materials.stone.length > 0) {
+      const len = materials.stone.length
+      const ratio = 1 / len
+      materials.stone.forEach(s => {
+        const key = `stone_${s.id}`
+        materialAmounts[key] = materialAmounts.stone * ratio
+        coarseAggregateBreakdown.push({ id: s.id, name: s.name, amount: materialAmounts[key], ratio })
+      })
+    } else if (materials?.stone) {
+      coarseAggregateBreakdown.push({ id: materials.stone.id, name: materials.stone.name, amount: materialAmounts.stone, ratio: 1 })
+    }
+
+    // 容重
+    const density = Object.values(materialAmounts).reduce((s, a) => s + a, 0)
+
+    // 成本计算（支持多种骨料）
     const materialCosts = {}
     let totalCost = 0
-    
-    // 计算每种材料的成本（用量单位：kg/m³，单价单位：元/吨，所以需要除以1000）
     if (materials) {
       if (materials.cement && materials.cement.price) {
         materialCosts.cement = (materialAmounts.cement * materials.cement.price) / 1000
@@ -625,22 +753,65 @@ if (!window.electron) {
         materialCosts.slag = (materialAmounts.slag * materials.slag.price) / 1000
         totalCost += materialCosts.slag
       }
-      if (materials.sand && materials.sand.price) {
+
+      // 细骨料
+      if (Array.isArray(materials.sand)) {
+        let sandTotal = 0
+        materials.sand.forEach(s => {
+          const key = `sand_${s.id}`
+          if (materialAmounts[key] && s.price) {
+            materialCosts[key] = (materialAmounts[key] * s.price) / 1000
+            sandTotal += materialCosts[key]
+            totalCost += materialCosts[key]
+          }
+        })
+        materialCosts.sand = sandTotal
+      } else if (materials.sand && materials.sand.price) {
         materialCosts.sand = (materialAmounts.sand * materials.sand.price) / 1000
         totalCost += materialCosts.sand
       }
-      if (materials.stone && materials.stone.price) {
+
+      // 粗骨料
+      if (Array.isArray(materials.stone)) {
+        let stoneTotal = 0
+        materials.stone.forEach(s => {
+          const key = `stone_${s.id}`
+          if (materialAmounts[key] && s.price) {
+            materialCosts[key] = (materialAmounts[key] * s.price) / 1000
+            stoneTotal += materialCosts[key]
+            totalCost += materialCosts[key]
+          }
+        })
+        materialCosts.stone = stoneTotal
+      } else if (materials.stone && materials.stone.price) {
         materialCosts.stone = (materialAmounts.stone * materials.stone.price) / 1000
         totalCost += materialCosts.stone
       }
+
       if (materials.superplasticizer && materials.superplasticizer.price) {
         materialCosts.superplasticizer = (materialAmounts.superplasticizer * materials.superplasticizer.price) / 1000
         totalCost += materialCosts.superplasticizer
       }
     }
-    
-    console.log('材料成本:', materialCosts)
-    console.log('总成本:', totalCost)
+
+    console.log('模拟材料用量:', materialAmounts)
+    console.log('模拟细骨料分配:', fineAggregateBreakdown)
+    console.log('模拟粗骨料分配:', coarseAggregateBreakdown)
+    // 规范化总成本：当存在 sand_* / stone_* 明细时，不重复加入聚合键 sand/stone
+    try {
+      const hasSandDetail = Object.keys(materialCosts).some(k => k.startsWith('sand_'))
+      const hasStoneDetail = Object.keys(materialCosts).some(k => k.startsWith('stone_'))
+      let normalizedTotal = 0
+      for (const [k, v] of Object.entries(materialCosts)) {
+        if (k === 'sand' && hasSandDetail) continue
+        if (k === 'stone' && hasStoneDetail) continue
+        normalizedTotal += v || 0
+      }
+      totalCost = normalizedTotal
+    } catch (e) {
+      console.error('模拟总成本规范化失败:', e)
+    }
+    console.log('模拟材料成本:', materialCosts, '总成本:', totalCost)
 
     return {
       targetStrength,
@@ -651,11 +822,13 @@ if (!window.electron) {
       materials: materialAmounts,
       materialCosts,
       totalCost,
-      superplasticizerDosage: superplasticizerDosage.finalDosage,
+      superplasticizerDosage: finalDosage,
       waterReducingRate,
       influenceFactor,
       calculationMethod: calculationMethod || 'absolute',
-      slump // 包含用户输入的坍落度值
+      slump,
+      fineAggregateBreakdown,
+      coarseAggregateBreakdown
     }
   }
 

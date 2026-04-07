@@ -47,6 +47,30 @@ class MixDesignService {
     return strengthNum + 1.645 * stdDev
   }
 
+  // 根据强度等级和临时设置计算目标细度模数（同步）
+  computeTargetFinenessModulus(strength, tempSettings = null) {
+    try {
+      // 优先使用临时设置中的目标细度模数
+      if (tempSettings && tempSettings.targetFinenessModulus !== undefined && tempSettings.targetFinenessModulus !== null) {
+        return parseFloat(tempSettings.targetFinenessModulus)
+      }
+
+      const base = 2.7
+      const strengthNum = parseInt(String(strength || '').replace('C', '')) || 30
+
+      // 简单经验规则：每增加10MPa，目标细度模数减小0.1（高强度采用相对细的级配）
+      let target = base - (strengthNum - 30) * 0.01
+
+      // 限制合理范围，避免极端值
+      if (target < 2.3) target = 2.3
+      if (target > 2.9) target = 2.9
+
+      return Number(target.toFixed(3))
+    } catch (error) {
+      return 2.7
+    }
+  }
+
   // 获取回归系数
   async getRegressionCoefficients(tempSettings = null) {
     try {
@@ -145,20 +169,34 @@ class MixDesignService {
     return 20 // 默认值
   }
 
-  // 计算多种细骨料的最佳比例，使组合后的细度模数最接近2.7
-  calculateOptimalFineAggregateRatio(fineAggregates) {
+  // 计算多种细骨料的最佳比例，使组合后的细度模数最接近目标值
+  // targetFinenessModulus: 可选，默认为2.7
+  calculateOptimalFineAggregateRatio(fineAggregates, targetFinenessModulus = 2.7) {
     if (!Array.isArray(fineAggregates) || fineAggregates.length <= 1) {
-      return fineAggregates.map((aggregate, index) => ({ aggregate, ratio: 1 / fineAggregates.length }))
+      const result = fineAggregates.map((aggregate, index) => ({ aggregate, ratio: 1 / fineAggregates.length }))
+      // attach combined metrics for compatibility
+      result.combinedFinenessModulus = fineAggregates.length === 1 ? (fineAggregates[0].finenessModulus || targetFinenessModulus) : targetFinenessModulus
+      result.combinedMbValue = fineAggregates.length === 1 ? (fineAggregates[0].mbValue || 0.5) : 0.5
+      return result
     }
 
-    // 目标细度模数
-    const targetFinenessModulus = 2.7
+    // 注意：targetFinenessModulus 由调用方提供（或使用默认2.7）
     
     // 生成可能的比例组合（简化为等间隔的比例）
     const steps = 10 // 每个骨料的比例步数
     let bestCombination = null
     let minDifference = Infinity
     
+    // 判断是否所有细骨料都具备详细的筛余累计百分数（用于按筛余合成级配）
+    const sieveKeys = ['sieve_4_75', 'sieve_2_36', 'sieve_1_18', 'sieve_0_60', 'sieve_0_30', 'sieve_0_15']
+    const hasDetailedSieve = fineAggregates.every(agg => {
+      return sieveKeys.every(k => {
+        const v = agg && agg[k]
+        const n = parseFloat(v)
+        return Number.isFinite(n)
+      })
+    })
+
     // 递归生成所有可能的比例组合
     const generateCombinations = (index, currentRatios) => {
       if (index === fineAggregates.length - 1) {
@@ -171,12 +209,33 @@ class MixDesignService {
         // 计算组合后的细度模数
         let combinedFinenessModulus = 0
         let combinedMbValue = 0
-        
-        for (let i = 0; i < fineAggregates.length; i++) {
-          const aggregate = fineAggregates[i]
-          const ratio = ratios[i]
-          combinedFinenessModulus += (aggregate.finenessModulus || 2.7) * ratio
-          combinedMbValue += (aggregate.mbValue || 0.5) * ratio
+
+        if (hasDetailedSieve) {
+          // 使用每种砂的筛余累计百分数按比例合成后计算细度模数
+          const combinedSieve = {}
+          for (const key of sieveKeys) combinedSieve[key] = 0
+
+          for (let i = 0; i < fineAggregates.length; i++) {
+            const aggregate = fineAggregates[i]
+            const ratio = ratios[i]
+            for (const key of sieveKeys) {
+              const v = parseFloat(aggregate[key]) || 0
+              combinedSieve[key] += v * ratio
+            }
+            combinedMbValue += (aggregate.mbValue || 0.5) * ratio
+          }
+
+          // 细度模数 = 各级筛余累计百分数之和 / 100
+          const sieveSum = sieveKeys.reduce((s, k) => s + (combinedSieve[k] || 0), 0)
+          combinedFinenessModulus = sieveSum / 100
+        } else {
+          // 回退：按各砂的细度模数加权平均
+          for (let i = 0; i < fineAggregates.length; i++) {
+            const aggregate = fineAggregates[i]
+            const ratio = ratios[i]
+            combinedFinenessModulus += (aggregate.finenessModulus || targetFinenessModulus) * ratio
+            combinedMbValue += (aggregate.mbValue || 0.5) * ratio
+          }
         }
         
         // 计算与目标细度模数的差异
@@ -209,44 +268,60 @@ class MixDesignService {
     generateCombinations(0, [])
     
     if (bestCombination) {
-      return fineAggregates.map((aggregate, index) => ({
+      const result = fineAggregates.map((aggregate, index) => ({
         aggregate,
         ratio: bestCombination.ratios[index]
       }))
+      // attach computed metrics for callers
+      result.combinedFinenessModulus = bestCombination.combinedFinenessModulus
+      result.combinedMbValue = bestCombination.combinedMbValue
+      return result
     }
     
     // 如果没有找到最佳组合，返回等比例
-    return fineAggregates.map((aggregate, index) => ({ aggregate, ratio: 1 / fineAggregates.length }))
+    const result = fineAggregates.map((aggregate, index) => ({ aggregate, ratio: 1 / fineAggregates.length }))
+    // compute combined metrics for equal distribution
+    const combinedFm = fineAggregates.reduce((s, agg) => s + ((agg.finenessModulus || targetFinenessModulus) * (1 / fineAggregates.length)), 0)
+    const combinedMb = fineAggregates.reduce((s, agg) => s + ((agg.mbValue || 0.5) * (1 / fineAggregates.length)), 0)
+    result.combinedFinenessModulus = combinedFm
+    result.combinedMbValue = combinedMb
+    return result
   }
 
   // 计算组合后的细骨料参数
-  calculateCombinedFineAggregateParams(fineAggregates) {
+  // targetFinenessModulus: 可选，传入目标细度模数以影响最佳配比计算
+  calculateCombinedFineAggregateParams(fineAggregates, targetFinenessModulus = 2.7) {
     if (!Array.isArray(fineAggregates)) {
       return {
-        finenessModulus: fineAggregates?.finenessModulus || 2.7,
+        finenessModulus: fineAggregates?.finenessModulus || targetFinenessModulus,
         mbValue: fineAggregates?.mbValue || 0.5
       }
     }
     
     if (fineAggregates.length === 1) {
       return {
-        finenessModulus: fineAggregates[0].finenessModulus || 2.7,
+        finenessModulus: fineAggregates[0].finenessModulus || targetFinenessModulus,
         mbValue: fineAggregates[0].mbValue || 0.5
       }
     }
     
-    // 计算最佳比例
-    const optimalRatio = this.calculateOptimalFineAggregateRatio(fineAggregates)
-    
-    // 计算组合后的参数
-    let combinedFinenessModulus = 0
-    let combinedMbValue = 0
-    
-    for (const item of optimalRatio) {
-      combinedFinenessModulus += (item.aggregate.finenessModulus || 2.7) * item.ratio
-      combinedMbValue += (item.aggregate.mbValue || 0.5) * item.ratio
+    // 计算最佳比例（使用传入的目标细度模数）
+    const optimalRatio = this.calculateOptimalFineAggregateRatio(fineAggregates, targetFinenessModulus)
+
+    // 如果optimalRatio携带已计算的组合细度模数（由筛余累计合成），直接使用
+    let combinedFinenessModulus = optimalRatio.combinedFinenessModulus
+    let combinedMbValue = optimalRatio.combinedMbValue
+
+    // 否则回退到按细度模数和MB值加权平均
+    if (combinedFinenessModulus === undefined || combinedMbValue === undefined) {
+      combinedFinenessModulus = 0
+      combinedMbValue = 0
+      for (const item of optimalRatio) {
+        combinedFinenessModulus += (item.aggregate.finenessModulus || targetFinenessModulus) * item.ratio
+        combinedMbValue += (item.aggregate.mbValue || 0.5) * item.ratio
+      }
     }
-    
+
     return {
       finenessModulus: combinedFinenessModulus,
       mbValue: combinedMbValue,
@@ -324,11 +399,13 @@ class MixDesignService {
       let fmAdjustment = 0
       
       if (fineAggregateMaterial) {
-        // 计算组合后的细骨料参数
-        const combinedParams = this.calculateCombinedFineAggregateParams(fineAggregateMaterial)
-        
+        // 根据强度等级计算目标细度模数并用于组合计算
+        const targetFinenessModulus = this.computeTargetFinenessModulus(strength, tempSettings)
+        // 计算组合后的细骨料参数（使用目标细度模数）
+        const combinedParams = this.calculateCombinedFineAggregateParams(fineAggregateMaterial, targetFinenessModulus)
+
         const baseMbValue = 0.5 // 基准MB值
-        const baseFinenessModulus = 2.7 // 基准细度模数
+        const baseFinenessModulus = targetFinenessModulus // 基准细度模数使用目标值
         
         const mbValue = combinedParams.mbValue
         const finenessModulus = combinedParams.finenessModulus
@@ -615,6 +692,9 @@ class MixDesignService {
       // 2. 计算配置强度 f_cu,0 = f_cu,k + 1.645 × σ
       const targetStrength = this.calculateTargetStrength(strength, stdDev)
       console.log('配置强度f_cu,0:', targetStrength)
+      // 计算并记录目标细度模数（根据强度等级调整）
+      const targetFinenessModulus = this.computeTargetFinenessModulus(strength, tempSettings)
+      console.log('目标细度模数:', targetFinenessModulus)
       
       // 3. 获取回归系数
       const { alphaA, alphaB } = await this.getRegressionCoefficients(tempSettings)
@@ -767,8 +847,8 @@ class MixDesignService {
       
       // 处理多种骨料的情况
       if (Array.isArray(materials.sand)) {
-        // 多种细骨料，使用最佳比例分配
-        const optimalRatio = this.calculateOptimalFineAggregateRatio(materials.sand)
+        // 多种细骨料，使用最佳比例分配，按强度等级确定目标细度模数
+        const optimalRatio = this.calculateOptimalFineAggregateRatio(materials.sand, targetFinenessModulus)
         for (const item of optimalRatio) {
           materialAmounts[`sand_${item.aggregate.id}`] = sandAmount * item.ratio
         }
@@ -792,7 +872,47 @@ class MixDesignService {
         materialAmounts.stone = stoneAmount
       }
       
+      // 准备细骨料和粗骨料的详细分配
+      let fineAggregateBreakdown = []
+      let coarseAggregateBreakdown = []
+      
+      if (Array.isArray(materials.sand)) {
+        const optimalRatio = this.calculateOptimalFineAggregateRatio(materials.sand, targetFinenessModulus)
+        fineAggregateBreakdown = optimalRatio.map(item => ({
+          id: item.aggregate.id,
+          name: item.aggregate.name,
+          amount: sandAmount * item.ratio,
+          ratio: item.ratio
+        }))
+      } else if (materials.sand) {
+        fineAggregateBreakdown = [{
+          id: materials.sand.id,
+          name: materials.sand.name,
+          amount: sandAmount,
+          ratio: 1
+        }]
+      }
+      
+      if (Array.isArray(materials.stone)) {
+        const stoneRatio = 1 / materials.stone.length
+        coarseAggregateBreakdown = materials.stone.map(stone => ({
+          id: stone.id,
+          name: stone.name,
+          amount: stoneAmount * stoneRatio,
+          ratio: stoneRatio
+        }))
+      } else if (materials.stone) {
+        coarseAggregateBreakdown = [{
+          id: materials.stone.id,
+          name: materials.stone.name,
+          amount: stoneAmount,
+          ratio: 1
+        }]
+      }
+      
       console.log('材料用量:', materialAmounts)
+      console.log('细骨料分配:', fineAggregateBreakdown)
+      console.log('粗骨料分配:', coarseAggregateBreakdown)
 
       // 14. 计算容重
     const density = Object.values(materialAmounts).reduce((sum, amount) => sum + amount, 0)
@@ -818,32 +938,38 @@ class MixDesignService {
       }
       
       // 处理多种细骨料的成本
+      let sandTotalCost = 0
       if (Array.isArray(materials.sand)) {
         materials.sand.forEach(sand => {
           if (sand && sand.price) {
             const key = `sand_${sand.id}`
             if (materialAmounts[key]) {
               materialCosts[key] = (materialAmounts[key] * sand.price) / 1000
+              sandTotalCost += materialCosts[key]
               totalCost += materialCosts[key]
             }
           }
         })
+        materialCosts.sand = sandTotalCost
       } else if (materials.sand && materials.sand.price) {
         materialCosts.sand = (materialAmounts.sand * materials.sand.price) / 1000
         totalCost += materialCosts.sand
       }
       
       // 处理多种粗骨料的成本
+      let stoneTotalCost = 0
       if (Array.isArray(materials.stone)) {
         materials.stone.forEach(stone => {
           if (stone && stone.price) {
             const key = `stone_${stone.id}`
             if (materialAmounts[key]) {
               materialCosts[key] = (materialAmounts[key] * stone.price) / 1000
+              stoneTotalCost += materialCosts[key]
               totalCost += materialCosts[key]
             }
           }
         })
+        materialCosts.stone = stoneTotalCost
       } else if (materials.stone && materials.stone.price) {
         materialCosts.stone = (materialAmounts.stone * materials.stone.price) / 1000
         totalCost += materialCosts.stone
@@ -856,7 +982,24 @@ class MixDesignService {
     }
     
     console.log('材料成本:', materialCosts)
+    // 防止在同时存在细/粗骨料明细键 (sand_*/stone_*) 和聚合键 (sand/stone) 时重复计入
+    try {
+      const hasSandDetail = Object.keys(materialCosts).some(k => k.startsWith('sand_'))
+      const hasStoneDetail = Object.keys(materialCosts).some(k => k.startsWith('stone_'))
+      let normalizedTotal = 0
+      for (const [k, v] of Object.entries(materialCosts)) {
+        if (k === 'sand' && hasSandDetail) continue
+        if (k === 'stone' && hasStoneDetail) continue
+        normalizedTotal += v || 0
+      }
+      totalCost = normalizedTotal
+    } catch (e) {
+      // 如果规范化失败，保留原有的 totalCost
+      console.error('规范化总成本失败:', e)
+    }
     console.log('总成本:', totalCost)
+    console.log('细骨料分配:', fineAggregateBreakdown)
+    console.log('粗骨料分配:', coarseAggregateBreakdown)
 
     return {
       targetStrength,
@@ -872,6 +1015,8 @@ class MixDesignService {
       influenceFactor,
       calculationMethod: calculationMethod || 'absolute',
       slump, // 包含用户输入的坍落度值
+      fineAggregateBreakdown,
+      coarseAggregateBreakdown,
       // 保留原始简化计算结果，用于兼容性
       original: {
         waterRatio: waterRatio,

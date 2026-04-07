@@ -17,8 +17,8 @@ async function initializeDatabase() {
     const Material = require('./src/main/db/models/Material')
     const MixDesign = require('./src/main/db/models/MixDesign')
     const SystemParam = require('./src/main/db/models/SystemParam')
-    await sequelize.sync({ alter: true })
-    console.log('数据库表同步完成')
+    await sequelize.sync({ force: true })
+    console.log('数据库表重建完成')
     // 初始化预设材料
     const MaterialService = require('./src/main/services/MaterialService')
     await MaterialService.initDefaultMaterials()
@@ -90,8 +90,7 @@ async function createWindow() {
     console.log('DevTools已打开')
   }
 
-  // 初始化系统处理器
-  SystemHandler.init(mainWindow)
+  // 系统处理器已在导入时自动初始化
 
   // 配置自动更新
   if (process.env.NODE_ENV === 'production') {

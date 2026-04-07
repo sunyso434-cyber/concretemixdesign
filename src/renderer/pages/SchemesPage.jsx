@@ -45,6 +45,10 @@ const SchemesPage = () => {
     try {
       const result = await window.electron.ipcRenderer.invoke('getMixDesignById', id)
       if (result.success) {
+        console.log('方案详情数据:', result.data)
+        console.log('细骨料分配:', result.data.fineAggregateBreakdown)
+        console.log('粗骨料分配:', result.data.coarseAggregateBreakdown)
+        console.log('材料成本:', result.data.materialCosts)
         setCurrentScheme(result.data)
         setViewModalVisible(true)
       } else {
@@ -164,6 +168,25 @@ const SchemesPage = () => {
         return <Tag color="red">已使用</Tag>
       default:
         return <Tag>{status}</Tag>
+    }
+  }
+
+  // 规范化总成本展示：当存在 stone_* 或 sand_* 明细时，忽略聚合键 stone/sand
+  const computeNormalizedTotal = (materialCosts) => {
+    if (!materialCosts) return null
+    try {
+      const hasSandDetail = Object.keys(materialCosts).some(k => k.startsWith('sand_'))
+      const hasStoneDetail = Object.keys(materialCosts).some(k => k.startsWith('stone_'))
+      let total = 0
+      Object.entries(materialCosts).forEach(([k, v]) => {
+        if (k === 'sand' && hasSandDetail) return
+        if (k === 'stone' && hasStoneDetail) return
+        total += v || 0
+      })
+      return total
+    } catch (e) {
+      console.error('规范化总成本失败:', e)
+      return materialCosts && materialCosts.totalCost ? materialCosts.totalCost : null
     }
   }
 
@@ -302,71 +325,174 @@ const SchemesPage = () => {
               </div>
               <div style={{ padding: 'var(--spacing-md)', background: 'var(--primary-light)', borderRadius: 'var(--border-radius-md)' }}>
                 <h4 style={{ marginBottom: 'var(--spacing-md)', fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)' }}>材料用量</h4>
-                {currentScheme.materials && (
-                  <ul style={{ listStyle: 'none', padding: 0 }}>
-                    {Object.entries(currentScheme.materials).map(([key, value]) => (
-                      <li key={key} style={{ marginBottom: 'var(--spacing-sm)', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>{key === 'cement' ? '水泥' : 
-                         key === 'flyAsh' ? '粉煤灰' : 
-                         key === 'slag' ? '矿渣粉' : 
-                         key === 'sand' ? '砂' : 
-                         key === 'stone' ? '石' : 
-                         key === 'water' ? '水' : 
-                         key === 'superplasticizer' ? '减水剂' : key}:</span>
-                        <span><strong>{typeof value === 'number' ? value.toFixed(1) : 'N/A'} kg/m³</strong></span>
-                      </li>
-                    ))}
-                  </ul>
+                {currentScheme.materials && (() => {
+                  const mats = currentScheme.materials || {}
+                  const fine = currentScheme.fineAggregateBreakdown || []
+                  const coarse = currentScheme.coarseAggregateBreakdown || []
+                  const items = []
+
+                  // 按顺序：用水量 → 水泥 → 掺合料 → 细骨料 → 粗骨料 → 外加剂
+                  if (mats.water !== undefined) items.push({ key: 'water', label: '用水量', amount: mats.water })
+                  if (mats.cement !== undefined) items.push({ key: 'cement', label: '水泥', amount: mats.cement })
+                  if (mats.flyAsh !== undefined) items.push({ key: 'flyAsh', label: '粉煤灰', amount: mats.flyAsh })
+                  if (mats.slag !== undefined) items.push({ key: 'slag', label: '矿渣粉', amount: mats.slag })
+
+                  // 细骨料：优先使用 breakdown 明细显示为 砂_材料名，若无则显示聚合的 砂
+                  if (Array.isArray(fine) && fine.length > 0) {
+                    fine.forEach(f => {
+                      items.push({ key: `砂_${f.name}`, label: `砂_${f.name}`, amount: f.amount })
+                    })
+                  } else if (mats.sand !== undefined) {
+                    items.push({ key: 'sand', label: '砂', amount: mats.sand })
+                  }
+
+                  // 粗骨料：同上，优先使用 breakdown 明细显示为 石_材料名
+                  if (Array.isArray(coarse) && coarse.length > 0) {
+                    coarse.forEach(c => {
+                      items.push({ key: `石_${c.name}`, label: `石_${c.name}`, amount: c.amount })
+                    })
+                  } else if (mats.stone !== undefined) {
+                    items.push({ key: 'stone', label: '石', amount: mats.stone })
+                  }
+
+                  if (mats.superplasticizer !== undefined) items.push({ key: 'superplasticizer', label: '减水剂', amount: mats.superplasticizer })
+
+                  return (
+                    <ul style={{ listStyle: 'none', padding: 0 }}>
+                      {items.map(item => (
+                        <li key={item.key} style={{ marginBottom: 'var(--spacing-sm)', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>{item.label}:</span>
+                          <span><strong>{typeof item.amount === 'number' ? item.amount.toFixed(1) : 'N/A'} kg/m³</strong></span>
+                        </li>
+                      ))}
+                    </ul>
+                  )
+                })()}
+                
+                {currentScheme.fineAggregateBreakdown && currentScheme.fineAggregateBreakdown.length > 0 && (
+                  <div style={{ marginTop: 'var(--spacing-md)' }}>
+                    <h5 style={{ marginBottom: 'var(--spacing-sm)', fontSize: '12px', fontWeight: '600', color: 'var(--primary-dark)' }}>细骨料详细分配</h5>
+                    <ul style={{ listStyle: 'none', padding: 0 }}>
+                      {currentScheme.fineAggregateBreakdown.map((item) => (
+                        <li key={item.id} style={{ marginBottom: 'var(--spacing-xs)', display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                          <span>{item.name} ({(item.ratio * 100).toFixed(1)}%):</span>
+                          <span><strong>{item.amount.toFixed(1)} kg/m³</strong></span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {currentScheme.coarseAggregateBreakdown && currentScheme.coarseAggregateBreakdown.length > 0 && (
+                  <div style={{ marginTop: 'var(--spacing-md)' }}>
+                    <h5 style={{ marginBottom: 'var(--spacing-sm)', fontSize: '12px', fontWeight: '600', color: 'var(--primary-dark)' }}>粗骨料详细分配</h5>
+                    <ul style={{ listStyle: 'none', padding: 0 }}>
+                      {currentScheme.coarseAggregateBreakdown.map((item) => (
+                        <li key={item.id} style={{ marginBottom: 'var(--spacing-xs)', display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                          <span>{item.name} ({(item.ratio * 100).toFixed(1)}%):</span>
+                          <span><strong>{item.amount.toFixed(1)} kg/m³</strong></span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
             </div>
             
-            {currentScheme.materialDetails && (
-              <div style={{ marginTop: 'var(--spacing-lg)', padding: 'var(--spacing-md)', background: 'var(--primary-light)', borderRadius: 'var(--border-radius-md)' }}>
-                <h4 style={{ marginBottom: 'var(--spacing-md)', fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)' }}>原材料信息</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-md)' }}>
-                  {Object.entries(currentScheme.materialDetails).map(([key, material]) => (
-                    material && (
-                      <div key={key} style={{ padding: 'var(--spacing-sm)', background: 'var(--card-bg)', borderRadius: 'var(--border-radius-sm)', boxShadow: 'var(--shadow-sm)' }}>
-                        <p style={{ fontWeight: '600', marginBottom: 'var(--spacing-xs)' }}>{key === 'cement' ? '水泥' : 
-                         key === 'flyAsh' ? '粉煤灰' : 
-                         key === 'slag' ? '矿渣粉' : 
-                         key === 'sand' ? '细骨料' : 
-                         key === 'stone' ? '粗骨料' : 
-                         key === 'superplasticizer' ? '外加剂' : key}</p>
-                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>名称: {material.name || 'N/A'}</p>
-                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>规格: {material.specification || 'N/A'}</p>
-                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>厂家: {material.manufacturer || 'N/A'}</p>
-                      </div>
-                    )
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {currentScheme.materialCosts && (
-              <div style={{ marginTop: 'var(--spacing-lg)', padding: 'var(--spacing-md)', background: 'var(--primary-light)', borderRadius: 'var(--border-radius-md)' }}>
-                <h4 style={{ marginBottom: 'var(--spacing-md)', fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)' }}>成本信息</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-md)' }}>
-                  {Object.entries(currentScheme.materialCosts).map(([key, cost]) => (
-                    <div key={key} style={{ padding: 'var(--spacing-sm)', background: 'var(--card-bg)', borderRadius: 'var(--border-radius-sm)', boxShadow: 'var(--shadow-sm)' }}>
-                      <p style={{ fontWeight: '600', marginBottom: 'var(--spacing-xs)' }}>{key === 'cement' ? '水泥' : 
-                       key === 'flyAsh' ? '粉煤灰' : 
-                       key === 'slag' ? '矿渣粉' : 
-                       key === 'sand' ? '细骨料' : 
-                       key === 'stone' ? '粗骨料' : 
-                       key === 'superplasticizer' ? '外加剂' : key}</p>
-                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>成本: <strong>{typeof cost === 'number' ? cost.toFixed(2) : 'N/A'} 元/m³</strong></p>
-                    </div>
-                  ))}
-                </div>
-                {currentScheme.totalCost && (
-                  <div style={{ marginTop: 'var(--spacing-md)', padding: 'var(--spacing-sm)', background: 'var(--card-bg)', borderRadius: 'var(--border-radius-sm)', boxShadow: 'var(--shadow-sm)' }}>
-                    <p style={{ fontWeight: '600', fontSize: '14px', textAlign: 'right' }}>总成本: <strong style={{ color: '#1890ff' }}>{currentScheme.totalCost.toFixed(2)} 元/m³</strong></p>
+            {currentScheme.materialDetails && (() => {
+              const details = currentScheme.materialDetails || {}
+              const blocks = []
+
+              if (details.cement) blocks.push({ key: 'cement', title: '水泥', material: details.cement })
+              if (details.flyAsh) blocks.push({ key: 'flyAsh', title: '粉煤灰', material: details.flyAsh })
+              if (details.slag) blocks.push({ key: 'slag', title: '矿渣粉', material: details.slag })
+
+              // 细骨料：若为数组，逐项展示；否则展示单个细骨料
+              if (Array.isArray(details.sand)) {
+                details.sand.forEach(s => blocks.push({ key: `sand_${s.id}`, title: `砂 - ${s.name}`, material: s }))
+              } else if (details.sand) {
+                blocks.push({ key: 'sand', title: '细骨料', material: details.sand })
+              }
+
+              if (Array.isArray(details.stone)) {
+                details.stone.forEach(s => blocks.push({ key: `stone_${s.id}`, title: `石 - ${s.name}`, material: s }))
+              } else if (details.stone) {
+                blocks.push({ key: 'stone', title: '粗骨料', material: details.stone })
+              }
+
+              if (details.superplasticizer) blocks.push({ key: 'superplasticizer', title: '外加剂', material: details.superplasticizer })
+
+              return (
+                <div style={{ marginTop: 'var(--spacing-lg)', padding: 'var(--spacing-md)', background: 'var(--primary-light)', borderRadius: 'var(--border-radius-md)' }}>
+                  <h4 style={{ marginBottom: 'var(--spacing-md)', fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)' }}>原材料信息</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-md)' }}>
+                    {blocks.map(b => (
+                      b.material && (
+                        <div key={b.key} style={{ padding: 'var(--spacing-sm)', background: 'var(--card-bg)', borderRadius: 'var(--border-radius-sm)', boxShadow: 'var(--shadow-sm)' }}>
+                          <p style={{ fontWeight: '600', marginBottom: 'var(--spacing-xs)' }}>{b.title}</p>
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>名称: {b.material.name || 'N/A'}</p>
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>规格: {b.material.specification || 'N/A'}</p>
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>厂家: {b.material.manufacturer || 'N/A'}</p>
+                        </div>
+                      )
+                    ))}
                   </div>
-                )}
-              </div>
-            )}
+                </div>
+              )
+            })()}
+            
+            {currentScheme.materialCosts && (() => {
+              const costs = currentScheme.materialCosts || {}
+              const fine = currentScheme.fineAggregateBreakdown || []
+              const coarse = currentScheme.coarseAggregateBreakdown || []
+              const entries = []
+
+              if (costs.water !== undefined) entries.push({ key: 'water', label: '水', cost: costs.water })
+              if (costs.cement !== undefined) entries.push({ key: 'cement', label: '水泥', cost: costs.cement })
+              if (costs.flyAsh !== undefined) entries.push({ key: 'flyAsh', label: '粉煤灰', cost: costs.flyAsh })
+              if (costs.slag !== undefined) entries.push({ key: 'slag', label: '矿渣粉', cost: costs.slag })
+
+              if (Array.isArray(fine) && fine.length > 0) {
+                fine.forEach(f => {
+                  const key = `sand_${f.id}`
+                  entries.push({ key, label: `砂_${f.name}`, cost: costs[key] })
+                })
+              } else if (costs.sand !== undefined) {
+                entries.push({ key: 'sand', label: '细骨料', cost: costs.sand })
+              }
+
+              if (Array.isArray(coarse) && coarse.length > 0) {
+                coarse.forEach(c => {
+                  const key = `stone_${c.id}`
+                  entries.push({ key, label: `石_${c.name}`, cost: costs[key] })
+                })
+              } else if (costs.stone !== undefined) {
+                entries.push({ key: 'stone', label: '粗骨料', cost: costs.stone })
+              }
+
+              if (costs.superplasticizer !== undefined) entries.push({ key: 'superplasticizer', label: '外加剂', cost: costs.superplasticizer })
+
+              const displayedTotal = computeNormalizedTotal(costs)
+
+              return (
+                <div style={{ marginTop: 'var(--spacing-lg)', padding: 'var(--spacing-md)', background: 'var(--primary-light)', borderRadius: 'var(--border-radius-md)' }}>
+                  <h4 style={{ marginBottom: 'var(--spacing-md)', fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)' }}>成本信息</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-md)' }}>
+                    {entries.map(e => (
+                      <div key={e.key} style={{ padding: 'var(--spacing-sm)', background: 'var(--card-bg)', borderRadius: 'var(--border-radius-sm)', boxShadow: 'var(--shadow-sm)' }}>
+                        <p style={{ fontWeight: '600', marginBottom: 'var(--spacing-xs)' }}>{e.label}</p>
+                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>成本: <strong>{typeof e.cost === 'number' ? e.cost.toFixed(2) : 'N/A'} 元/m³</strong></p>
+                      </div>
+                    ))}
+                  </div>
+                  {displayedTotal !== null && (
+                    <div style={{ marginTop: 'var(--spacing-md)', padding: 'var(--spacing-sm)', background: 'var(--card-bg)', borderRadius: 'var(--spacing-sm)', boxShadow: 'var(--shadow-sm)' }}>
+                      <p style={{ fontWeight: '600', fontSize: '14px', textAlign: 'right' }}>总成本: <strong style={{ color: '#1890ff' }}>{(displayedTotal || 0).toFixed(2)} 元/m³</strong></p>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
             
             {currentScheme.description && (
               <div style={{ marginTop: 'var(--spacing-lg)', padding: 'var(--spacing-md)', background: 'var(--primary-light)', borderRadius: 'var(--border-radius-md)' }}>
