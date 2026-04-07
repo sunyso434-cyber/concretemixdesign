@@ -8,14 +8,14 @@ class MixDesignOptimizer {
   }
 
   /**
-   * 优化配合比设计 - 成本最优
+   * 优化配合比设计 - 成本最优（分层过滤搜索）
    * @param {Object} params - 优化参数
-   * @param {Object} params.constraints - 一类约束：性能目标
+   * @param {Object} params.constraints - 性能目标约束
    * @param {string} params.constraints.strength - 强度等级 (e.g., 'C30')
    * @param {number} params.constraints.slump - 坍落度 (mm)
    * @param {string} params.constraints.environment - 环境类别
    * @param {Object} params.constraints.materials - 候选原材料列表
-   * @param {Object} params.userLimits - 二类约束：用户自定义限值
+   * @param {Object} params.userLimits - 用户自定义限值
    * @param {number[]} params.userLimits.flyAshRange - 粉煤灰掺量范围 [%]，如 [0, 30]
    * @param {number[]} params.userLimits.slagRange - 矿渣粉掺量范围 [%]，如 [0, 20]
    * @param {number[]} params.userLimits.sandRatioRange - 砂率范围 [%]，如 [35, 42]
@@ -25,121 +25,86 @@ class MixDesignOptimizer {
   async optimizeMixDesign(params) {
     const { constraints, userLimits = {} } = params
 
-    console.log('[优化器] 开始优化...', { constraints, userLimits })
+    console.log('[优化器] 开始优化（分层过滤策略）...', { constraints, userLimits })
 
     // 1. 计算水胶比（固定值，不进入网格搜索）
     const waterRatioResult = await this._calculateWaterRatio(constraints, constraints.materials)
-    console.log('[优化器] 计算水胶比:', waterRatioResult)
+    console.log('[优化器] 水胶比:', waterRatioResult.waterRatio)
 
     // 2. 确定网格搜索范围
     const flyAshRange = this._createRange(userLimits.flyAshRange || [0, 30], userLimits.gridStep || 5)
     const slagRange = this._createRange(userLimits.slagRange || [0, 20], userLimits.gridStep || 5)
-    const sandRatioRange = this._createRange(userLimits.sandRatioRange || [35, 42], 1) // 砂率步长 1%
+    const sandRatioRange = this._createRange(userLimits.sandRatioRange || [35, 42], 1) // 砂率步长1%
 
-    console.log('[优化器] 搜索范围:', {
-      waterRatio: waterRatioResult.waterRatio,
-      flyAshRange,
-      slagRange,
-      sandRatioRange
-    })
-
-    // 3. 预处理材料：保留原始材料对象，不过滤
+    // 3. 预处理材料（不过滤，只是浅拷贝）
     const materials = this._prepareMaterials(constraints.materials)
 
-    // 4. 处理细骨料优化（独立于主循环）
-    let fineAggregateRatios = [null] // 默认不优化
+    // 4. 处理细骨料组合（仅支持两种，步长5%）
+    let fineAggregateRatios = [null]
     if (materials?.sand && Array.isArray(materials.sand) && materials.sand.length > 1) {
-      console.log('[优化器] 检测到多种细骨料，开始成本优化...')
       fineAggregateRatios = this._generateFineAggregateRatios(materials.sand)
       console.log('[优化器] 细骨料比例组合数:', fineAggregateRatios.length)
     }
 
-    // 5. 网格搜索（仅细骨料比例需要循环优化）
-    const results = []
-    let bestCost = Infinity
-    let bestSolution = null
+    // 5. 第一层粗筛
+    const top5Combinations = this._firstLayerFilter({
+      materials,
+      waterRatio: waterRatioResult.waterRatio,
+      flyAshRange,
+      slagRange,
+      sandRatioRange,
+      fineAggregateRatios,
+      constraints,
+      userLimits
+    })
 
-    const totalIterations = flyAshRange.length * slagRange.length * sandRatioRange.length * fineAggregateRatios.length
-    let currentIteration = 0
-
-    for (const flyAsh of flyAshRange) {
-      for (const slag of slagRange) {
-        // 检查掺合料总掺量是否合理（不超过 50%）
-        if (flyAsh + slag > 50) continue
-
-        for (const sandRatio of sandRatioRange) {
-          for (const fineAggregateRatio of fineAggregateRatios) {
-            currentIteration++
-
-            try {
-              // 构建当前迭代的材料对象
-              const iterationMaterials = this._buildIterationMaterials(
-                materials,
-                { sand: fineAggregateRatio }
-              )
-
-              const calcParams = {
-                strength: constraints.strength,
-                slump: constraints.slump,
-                environment: constraints.environment,
-                waterRatio: waterRatioResult.waterRatio,
-                flyAshDosage: flyAsh,
-                slagDosage: slag,
-                sandRatio: sandRatio,
-                materials: iterationMaterials,
-                tempSettings: constraints.tempSettings
-              }
-
-              const result = await this.mixDesignService.calculateMixDesign(calcParams)
-
-              // 验证约束
-              const isValid = this._validateConstraints(result, constraints, userLimits)
-
-              if (isValid) {
-                const resultWithParams = {
-                  ...result,
-                  params: {
-                    flyAsh,
-                    slag,
-                    sandRatio,
-                    fineAggregateRatio
-                  }
-                }
-                results.push(resultWithParams)
-
-                if (result.totalCost < bestCost) {
-                  bestCost = result.totalCost
-                  bestSolution = {
-                    ...resultWithParams,
-                    // 包含最终选择的粉煤灰和矿渣粉材料信息（名称、单价等）
-                    selectedMaterials: {
-                      flyAsh: materials.flyAsh,
-                      slag: materials.slag
-                    }
-                  }
-                }
-              }
-            } catch (error) {
-              console.warn(`[优化器] 迭代 ${currentIteration}/${totalIterations} 失败:`, error.message)
-            }
-          }
-        }
-      }
+    if (top5Combinations.length === 0) {
+      throw new Error('第一层筛选未找到满足约束条件的配合比方案，请放宽约束或更换原材料')
     }
 
-    console.log(`[优化器] 优化完成，共评估 ${results.length} 个有效方案`)
+    // 6. 第二层细筛
+    const { bestSolution, alternatives, allResults } = this._secondLayerRefine(
+      { materials, waterRatio: waterRatioResult.waterRatio, constraints, userLimits },
+      top5Combinations
+    )
 
     if (!bestSolution) {
-      throw new Error('未找到满足约束条件的配合比方案，请放宽约束或更换原材料')
+      throw new Error('第二层细筛未找到满足约束条件的配合比方案，请放宽约束或更换原材料')
     }
 
-    // 5. 保存优化历史
-    const historyRecord = await this._saveOptimizationHistory(constraints, bestSolution, results.slice(0, 5))
+    console.log('[优化器] 优化完成，总评估组合数:', allResults.length)
+
+    // 7. 添加胶凝材料成本
+    const cementitiousCost = (bestSolution.materialCosts?.cement || 0) +
+      (bestSolution.materialCosts?.flyAsh || 0) +
+      (bestSolution.materialCosts?.slag || 0)
+
+    const bestSolutionWithCost = {
+      ...bestSolution,
+      cementitiousCost
+    }
+
+    const alternativesWithCost = alternatives.map(alt => ({
+      ...alt,
+      cementitiousCost: (alt.materialCosts?.cement || 0) +
+        (alt.materialCosts?.flyAsh || 0) +
+        (alt.materialCosts?.slag || 0)
+    }))
+
+    // 8. 确保 bestSolution 包含 selectedMaterials
+    bestSolutionWithCost.selectedMaterials = {
+      flyAsh: bestSolution.materialSelection?.flyAsh,
+      slag: bestSolution.materialSelection?.slag,
+      superplasticizer: bestSolution.materialSelection?.superplasticizer
+    }
+
+    // 9. 保存优化历史
+    const historyRecord = await this._saveOptimizationHistory(constraints, bestSolutionWithCost, alternativesWithCost)
 
     return {
-      bestSolution,
-      alternatives: results.slice(0, 5).filter(r => r !== bestSolution),
-      totalEvaluated: results.length,
+      bestSolution: bestSolutionWithCost,
+      alternatives: alternativesWithCost,
+      totalEvaluated: allResults.length,
       historyId: historyRecord?.id
     }
   }
