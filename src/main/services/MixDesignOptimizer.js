@@ -505,14 +505,17 @@ _prepareMaterials(materials) {
         },
         bestSolution: {
           totalCost: bestSolution.totalCost,
+          cementitiousCost: bestSolution.cementitiousCost,
           waterRatio: bestSolution.waterRatio,
           sandRatio: bestSolution.sandRatio,
           materials: bestSolution.materials,
           materialCosts: bestSolution.materialCosts,
-          density: bestSolution.density
+          density: bestSolution.density,
+          selectedMaterials: bestSolution.selectedMaterials
         },
         alternatives: alternatives.map(alt => ({
           totalCost: alt.totalCost,
+          cementitiousCost: alt.cementitiousCost,
           waterRatio: alt.waterRatio,
           sandRatio: alt.sandRatio,
           params: alt.params
