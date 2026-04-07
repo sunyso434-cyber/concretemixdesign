@@ -340,6 +340,87 @@ class MixDesignOptimizer {
   }
 
   /**
+   * 第二层细筛
+   * 对Top5组合用全量减水剂品种重新计算
+   * @param {Object} params - 搜索参数
+   * @param {Array} top5Combinations - 第一层筛选出的Top5组合
+   * @param {Object} params.materials - 原材料
+   * @param {number} params.waterRatio - 水胶比
+   * @param {Object} params.constraints - 性能约束
+   * @param {Object} params.userLimits - 用户限制
+   * @returns {Object} 最优方案
+   */
+  async _secondLayerRefine(params, top5Combinations) {
+    const { materials, waterRatio, constraints, userLimits } = params
+
+    const spList = this._getMaterialList(materials.superplasticizer)
+    let bestSolution = null
+    let bestCost = Infinity
+    const allResults = []
+
+    for (const combo of top5Combinations) {
+      const { params: comboParams, materialSelection } = combo
+      const { flyAsh, slag, sandRatio, fineAggregateRatio } = comboParams
+
+      // 尝试每种减水剂
+      for (const spMat of spList) {
+        try {
+          // 构建当前迭代的材料对象
+          const iterationMaterials = this._buildIterationMaterials(
+            { ...materials, flyAsh: materialSelection.flyAsh, slag: materialSelection.slag, superplasticizer: spMat },
+            { sand: fineAggregateRatio }
+          )
+
+          const calcParams = {
+            strength: constraints.strength,
+            slump: constraints.slump,
+            environment: constraints.environment,
+            waterRatio: waterRatio,
+            flyAshDosage: flyAsh,
+            slagDosage: slag,
+            sandRatio: sandRatio,
+            materials: iterationMaterials,
+            tempSettings: constraints.tempSettings
+          }
+
+          const result = await this.mixDesignService.calculateMixDesign(calcParams)
+          const isValid = this._validateConstraints(result, constraints, userLimits)
+
+          if (isValid) {
+            allResults.push({
+              ...result,
+              params: comboParams,
+              materialSelection: {
+                flyAsh: materialSelection.flyAsh,
+                slag: materialSelection.slag,
+                superplasticizer: spMat
+              }
+            })
+
+            if (result.totalCost < bestCost) {
+              bestCost = result.totalCost
+              bestSolution = allResults[allResults.length - 1]
+            }
+          }
+        } catch (error) {
+          // 忽略计算失败的组合
+        }
+      }
+    }
+
+    console.log('[第二层细筛] 完成，有效组合:', allResults.length)
+
+    // 按总成本排序，返回Top5备选方案
+    allResults.sort((a, b) => a.totalCost - b.totalCost)
+
+    return {
+      bestSolution,
+      alternatives: allResults.slice(0, 5).filter(r => r !== bestSolution),
+      allResults
+    }
+  }
+
+  /**
    * 计算水胶比
    * @param {Object} constraints - 约束条件
    * @param {Object} materials - 材料列表
