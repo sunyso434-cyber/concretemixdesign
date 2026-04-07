@@ -984,6 +984,7 @@ class MixDesignService {
     // 15. 计算配合比成本
     const materialCosts = {}
     let totalCost = 0
+    let cementitiousCost = 0
     // 计算每种材料的成本（用量单位：kg/m³，单价单位：元/吨，所以需要除以1000）
     const cementPrice = this.toNumber(materials?.cement?.price)
     const flyAshPrice = this.toNumber(materials?.flyAsh?.price)
