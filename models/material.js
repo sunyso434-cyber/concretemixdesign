@@ -70,6 +70,12 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       comment: '备注'
     },
+    price: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+      defaultValue: null,
+      comment: '价格 (元/吨)'
+    },
     createdAt: {
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW

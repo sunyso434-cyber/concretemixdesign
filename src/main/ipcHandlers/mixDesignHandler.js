@@ -75,20 +75,40 @@ class MixDesignHandler {
       }
     })
 
-    // 验证配合比
-    ipcMain.handle('validateMixDesign', async (_, mixDesign) => {
+    // 计算系列配合比（批量计算）
+    ipcMain.handle('calculateSeriesMixDesign', async (_, { baseParams, strengthRange }) => {
       try {
-        const result = await MixDesignService.validateMixDesign(mixDesign)
-        return { success: true, data: result }
+        const results = await MixDesignService.calculateSeriesMixDesign(baseParams, strengthRange)
+        return { success: true, data: results }
       } catch (error) {
         return { success: false, error: error.message }
       }
     })
 
-    // 优化配合比
-    ipcMain.handle('optimizeMixDesign', async (_, mixDesign) => {
+    // 批量保存系列配合比方案
+    ipcMain.handle('batchSaveSeriesMixDesigns', async (_, { designs, saveValues }) => {
       try {
-        const result = await MixDesignService.optimizeMixDesign(mixDesign)
+        const savedDesigns = []
+        for (const design of designs) {
+          const mixDesignData = {
+            ...saveValues,
+            ...design,
+            tempSettings: design.tempSettings,
+            status: '未验证'
+          }
+          const saved = await MixDesignService.createMixDesign(mixDesignData)
+          savedDesigns.push(saved.toJSON())
+        }
+        return { success: true, data: savedDesigns }
+      } catch (error) {
+        return { success: false, error: error.message }
+      }
+    })
+
+    // 验证配合比
+    ipcMain.handle('validateMixDesign', async (_, mixDesign) => {
+      try {
+        const result = await MixDesignService.validateMixDesign(mixDesign)
         return { success: true, data: result }
       } catch (error) {
         return { success: false, error: error.message }

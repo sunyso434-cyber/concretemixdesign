@@ -1,10 +1,47 @@
 const { app, BrowserWindow, ipcMain, protocol } = require('electron')
 const path = require('path')
 const fs = require('fs')
+
+// 设置日志文件路径（在 app ready 后获取）
+let logFilePath = null
+function initLogPath() {
+  try {
+    logFilePath = path.join(app.getPath('userData'), 'app.log')
+  } catch (e) {
+    logFilePath = path.join(__dirname, 'app.log')
+  }
+}
+
+function logToFile(message) {
+  if (!logFilePath) initLogPath()
+  const timestamp = new Date().toISOString()
+  const logLine = `[${timestamp}] ${message}\n`
+  try {
+    fs.appendFileSync(logFilePath, logLine, 'utf8')
+  } catch (e) {
+    // 忽略日志写入错误
+  }
+}
+
+// 覆盖 console.log 以便所有日志都输出到文件
+const originalLog = console.log
+const originalError = console.error
+console.log = function(...args) {
+  const message = args.join(' ')
+  originalLog.apply(console, args)
+  logToFile('[LOG] ' + message)
+}
+console.error = function(...args) {
+  const message = args.join(' ')
+  originalError.apply(console, args)
+  logToFile('[ERROR] ' + message)
+}
+
 const { sequelize } = require('./src/main/db/database')
 // 导入IPC处理器
 require('./src/main/ipcHandlers/materialHandler')
 require('./src/main/ipcHandlers/mixDesignHandler')
+require('./src/main/ipcHandlers/mixDesignOptimizerHandler') // 新增：优化器 IPC 处理器
 const SystemHandler = require('./src/main/ipcHandlers/systemHandler')
 const { autoUpdater } = require('electron-updater')
 
@@ -17,6 +54,7 @@ async function initializeDatabase() {
     const Material = require('./src/main/db/models/Material')
     const MixDesign = require('./src/main/db/models/MixDesign')
     const SystemParam = require('./src/main/db/models/SystemParam')
+    require('./src/main/db/models/OptimizationHistory') // 新增：优化历史记录模型
     await sequelize.sync({ force: true })
     console.log('数据库表重建完成')
     // 初始化预设材料

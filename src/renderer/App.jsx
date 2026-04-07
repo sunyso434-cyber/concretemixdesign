@@ -8,19 +8,23 @@ import './index.css'
 // 页面组件 - 使用 lazy 加载
 const MaterialsPage = lazy(() => import('./pages/MaterialsPage').catch(err => {
   console.error('MaterialsPage 加载失败:', err)
-  return { default: () => <div className="custom-empty"><div className="empty-icon">📦</div><div className="empty-title">加载失败</div><div className="empty-description">MaterialsPage 加载失败: {err.message}</div></div> }
+  return { default: () => <div className="custom-empty"><div className="empty-icon">📦</div><div className="empty-title">加载失败</div><div className="empty-description">MaterialsPage 加载失败：{err.message}</div></div> }
 }))
 const MixDesignPage = lazy(() => import('./pages/MixDesignPage').catch(err => {
   console.error('MixDesignPage 加载失败:', err)
-  return { default: () => <div className="custom-empty"><div className="empty-icon">📝</div><div className="empty-title">加载失败</div><div className="empty-description">MixDesignPage 加载失败: {err.message}</div></div> }
+  return { default: () => <div className="custom-empty"><div className="empty-icon">📝</div><div className="empty-title">加载失败</div><div className="empty-description">MixDesignPage 加载失败：{err.message}</div></div> }
 }))
 const SchemesPage = lazy(() => import('./pages/SchemesPage').catch(err => {
   console.error('SchemesPage 加载失败:', err)
-  return { default: () => <div className="custom-empty"><div className="empty-icon">📋</div><div className="empty-title">加载失败</div><div className="empty-description">SchemesPage 加载失败: {err.message}</div></div> }
+  return { default: () => <div className="custom-empty"><div className="empty-icon">📋</div><div className="empty-title">加载失败</div><div className="empty-description">SchemesPage 加载失败：{err.message}</div></div> }
 }))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').catch(err => {
   console.error('SettingsPage 加载失败:', err)
-  return { default: () => <div className="custom-empty"><div className="empty-icon">⚙️</div><div className="empty-title">加载失败</div><div className="empty-description">SettingsPage 加载失败: {err.message}</div></div> }
+  return { default: () => <div className="custom-empty"><div className="empty-icon">⚙️</div><div className="empty-title">加载失败</div><div className="empty-description">SettingsPage 加载失败：{err.message}</div></div> }
+}))
+const OptimizationPage = lazy(() => import('./pages/OptimizationPage').catch(err => {
+  console.error('OptimizationPage 加载失败:', err)
+  return { default: () => <div className="custom-empty"><div className="empty-icon">🎯</div><div className="empty-title">加载失败</div><div className="empty-description">OptimizationPage 加载失败：{err.message}</div></div> }
 }))
 
 const { Header, Content, Sider } = Layout
@@ -74,7 +78,7 @@ class ErrorBoundary extends React.Component {
 // 导航组件
 const Navigation = ({ activeKey, setActiveKey }) => {
   const location = useLocation()
-  
+
   useEffect(() => {
     // 根据当前路径更新活动菜单项
     const path = location.pathname.replace('/', '')
@@ -92,9 +96,9 @@ const Navigation = ({ activeKey, setActiveKey }) => {
     <Menu
       mode="horizontal"
       selectedKeys={[activeKey]}
-      style={{ 
-        flex: 1, 
-        minWidth: 0, 
+      style={{
+        flex: 1,
+        minWidth: 0,
         background: 'transparent',
         borderBottom: 'none'
       }}
@@ -109,6 +113,11 @@ const Navigation = ({ activeKey, setActiveKey }) => {
           key: 'mixdesign',
           label: <Link to="/mixdesign">配合比设计</Link>,
           icon: <span className="nav-icon">📝</span>
+        },
+        {
+          key: 'optimization',
+          label: <Link to="/optimization">成本优化</Link>,
+          icon: <span className="nav-icon">🎯</span>
         },
         {
           key: 'schemes',
@@ -129,7 +138,7 @@ function App() {
   const [activeKey, setActiveKey] = useState('materials')
 
   return (
-    <ConfigProvider 
+    <ConfigProvider
       locale={zhCN}
       theme={{
         token: {
@@ -171,27 +180,27 @@ function App() {
     >
       <Router>
         <Layout style={{ minHeight: '100vh' }}>
-          <Header style={{ 
-            background: 'var(--card-bg)', 
+          <Header style={{
+            background: 'var(--card-bg)',
             boxShadow: 'var(--shadow-md)',
             padding: '0 var(--spacing-xl)',
             position: 'sticky',
             top: 0,
             zIndex: 100
           }}>
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
               height: '72px'
             }}>
-              <div style={{ 
+              <div style={{
                 display: 'flex',
                 alignItems: 'center',
                 marginRight: 'var(--spacing-2xl)'
               }}>
-                <div style={{ 
-                  fontSize: '20px', 
-                  fontWeight: '700', 
+                <div style={{
+                  fontSize: '20px',
+                  fontWeight: '700',
                   color: 'var(--primary-color)',
                   marginRight: 'var(--spacing-sm)',
                   display: 'flex',
@@ -204,13 +213,13 @@ function App() {
               <Navigation activeKey={activeKey} setActiveKey={setActiveKey} />
             </div>
           </Header>
-          <Content style={{ 
-            padding: 'var(--spacing-xl)', 
+          <Content style={{
+            padding: 'var(--spacing-xl)',
             background: 'var(--bg-color)',
             minHeight: 'calc(100vh - 72px)'
           }}>
-            <div style={{ 
-              maxWidth: '1400px', 
+            <div style={{
+              maxWidth: '1400px',
               margin: '0 auto',
               minHeight: '100%'
             }}>
@@ -220,6 +229,7 @@ function App() {
                     <Route path="/" element={<Navigate to="/materials" replace />} />
                     <Route path="/materials" element={<MaterialsPage />} />
                     <Route path="/mixdesign" element={<MixDesignPage />} />
+                    <Route path="/optimization" element={<OptimizationPage />} />
                     <Route path="/schemes" element={<SchemesPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
                   </Routes>

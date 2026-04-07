@@ -432,6 +432,7 @@ const SchemesPage = () => {
                           <p style={{ fontWeight: '600', marginBottom: 'var(--spacing-xs)' }}>{b.title}</p>
                           <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>名称: {b.material.name || 'N/A'}</p>
                           <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>规格: {b.material.specification || 'N/A'}</p>
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>单价: {b.material.price ? `¥${b.material.price}/吨` : 'N/A'}</p>
                           <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>厂家: {b.material.manufacturer || 'N/A'}</p>
                         </div>
                       )
@@ -443,14 +444,15 @@ const SchemesPage = () => {
             
             {currentScheme.materialCosts && (() => {
               const costs = currentScheme.materialCosts || {}
+              const details = currentScheme.materialDetails || {}
               const fine = currentScheme.fineAggregateBreakdown || []
               const coarse = currentScheme.coarseAggregateBreakdown || []
               const entries = []
 
               if (costs.water !== undefined) entries.push({ key: 'water', label: '水', cost: costs.water })
-              if (costs.cement !== undefined) entries.push({ key: 'cement', label: '水泥', cost: costs.cement })
-              if (costs.flyAsh !== undefined) entries.push({ key: 'flyAsh', label: '粉煤灰', cost: costs.flyAsh })
-              if (costs.slag !== undefined) entries.push({ key: 'slag', label: '矿渣粉', cost: costs.slag })
+              if (costs.cement !== undefined) entries.push({ key: 'cement', label: '水泥', cost: costs.cement, price: details.cement?.price })
+              if (costs.flyAsh !== undefined) entries.push({ key: 'flyAsh', label: '粉煤灰', cost: costs.flyAsh, price: details.flyAsh?.price, materialName: details.flyAsh?.name })
+              if (costs.slag !== undefined) entries.push({ key: 'slag', label: '矿渣粉', cost: costs.slag, price: details.slag?.price, materialName: details.slag?.name })
 
               if (Array.isArray(fine) && fine.length > 0) {
                 fine.forEach(f => {
@@ -458,7 +460,7 @@ const SchemesPage = () => {
                   entries.push({ key, label: `砂_${f.name}`, cost: costs[key] })
                 })
               } else if (costs.sand !== undefined) {
-                entries.push({ key: 'sand', label: '细骨料', cost: costs.sand })
+                entries.push({ key: 'sand', label: '细骨料', cost: costs.sand, price: details.sand?.price })
               }
 
               if (Array.isArray(coarse) && coarse.length > 0) {
@@ -467,7 +469,7 @@ const SchemesPage = () => {
                   entries.push({ key, label: `石_${c.name}`, cost: costs[key] })
                 })
               } else if (costs.stone !== undefined) {
-                entries.push({ key: 'stone', label: '粗骨料', cost: costs.stone })
+                entries.push({ key: 'stone', label: '粗骨料', cost: costs.stone, price: details.stone?.price })
               }
 
               if (costs.superplasticizer !== undefined) entries.push({ key: 'superplasticizer', label: '外加剂', cost: costs.superplasticizer })
@@ -480,7 +482,12 @@ const SchemesPage = () => {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-md)' }}>
                     {entries.map(e => (
                       <div key={e.key} style={{ padding: 'var(--spacing-sm)', background: 'var(--card-bg)', borderRadius: 'var(--border-radius-sm)', boxShadow: 'var(--shadow-sm)' }}>
-                        <p style={{ fontWeight: '600', marginBottom: 'var(--spacing-xs)' }}>{e.label}</p>
+                        <p style={{ fontWeight: '600', marginBottom: 'var(--spacing-xs)' }}>
+                          {e.materialName ? `${e.label} (${e.materialName})` : e.label}
+                        </p>
+                        {e.price ? (
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '2px' }}>单价: <strong>{e.price} 元/吨</strong></p>
+                        ) : null}
                         <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>成本: <strong>{typeof e.cost === 'number' ? e.cost.toFixed(2) : 'N/A'} 元/m³</strong></p>
                       </div>
                     ))}

@@ -1,12 +1,20 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
-// 暴露API给渲染进程
+// 暴露给渲染进程的 API
+contextBridge.exposeInMainWorld('electronAPI', {
+  invoke: (channel, ...args) => {
+    // 允许所有通道（在应用中使用）
+    return ipcRenderer.invoke(channel, ...args)
+  }
+})
+
+// 兼容旧的 electron 对象
 contextBridge.exposeInMainWorld('electron', {
   ipcRenderer: {
-    send: (channel, data) => ipcRenderer.send(channel, data), // 发送单向消息
-    invoke: (channel, data) => ipcRenderer.invoke(channel, data), // 发送异步调用并等待响应
-    on: (channel, func) => ipcRenderer.on(channel, (event, ...args) => func(...args)), // 监听消息
-    once: (channel, func) => ipcRenderer.once(channel, (event, ...args) => func(...args)), // 一次性监听
-    removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel) // 移除所有监听器
+    send: (channel, data) => ipcRenderer.send(channel, data),
+    invoke: (channel, data) => ipcRenderer.invoke(channel, data),
+    on: (channel, func) => ipcRenderer.on(channel, (event, ...args) => func(...args)),
+    once: (channel, func) => ipcRenderer.once(channel, (event, ...args) => func(...args)),
+    removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel)
   }
 })

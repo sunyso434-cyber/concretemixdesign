@@ -59,6 +59,12 @@ const MixDesign = sequelize.define('MixDesign', {
   },
   materialDetails: {
     type: DataTypes.JSON
+  },
+  fineAggregateBreakdown: {
+    type: DataTypes.JSON
+  },
+  coarseAggregateBreakdown: {
+    type: DataTypes.JSON
   }
 }, {
   tableName: 'mixDesigns',
