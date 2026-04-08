@@ -99,16 +99,7 @@ class BackgroundTaskService {
         t.progress = 100
         t.result = result
         this._notifyRenderer(t)
-        // 发送系统通知
-        if (t.type === 'backup') {
-          this._sendNotification('备份完成', `数据库已备份至: ${result}`)
-        } else if (t.type === 'restore') {
-          this._sendNotification('恢复完成', '数据库已成功恢复')
-        } else if (t.type === 'export') {
-          this._sendNotification('导出完成', `数据已导出至: ${result}`)
-        } else if (t.type === 'import') {
-          this._sendNotification('导入完成', `成功导入 ${result.count || 0} 条记录`)
-        }
+        // 不再发送系统通知，避免可能的渲染问题
       }
     } catch (error) {
       const t = this.tasks.get(id)
@@ -116,7 +107,6 @@ class BackgroundTaskService {
         t.status = 'failed'
         t.error = error.message
         this._notifyRenderer(t)
-        this._sendNotification('操作失败', error.message)
       }
     }
   }
