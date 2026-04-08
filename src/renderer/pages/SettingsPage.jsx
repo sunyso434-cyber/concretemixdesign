@@ -1,322 +1,252 @@
-import React, { useState, useEffect } from 'react';
-import { Card, Form, Input, Select, Button, message, Table, Modal, Upload, Space, Divider, Alert } from 'antd';
-import { DownloadOutlined, UploadOutlined, SaveOutlined, ReloadOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+// src/renderer/pages/SettingsPage.jsx
+import React, { useState, useEffect, useCallback } from 'react'
+import { Card, Tabs, Button, message, Space, Typography } from 'antd'
+import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons'
+import ParamCard from '../components/ParamCard'
+import ExportWizard from '../components/ExportWizard'
+import ImportWizard from '../components/ImportWizard'
+import RestoreConfirmModal from '../components/RestoreConfirmModal'
+import { PARAM_CONFIG, PARAM_TABS } from '../config/paramConfig'
 
-const { Option } = Select;
+const { Text } = Typography
+
+const TAB_KEYS = ['配合比参数', 'JGJ55标准', '系统设置', '备份设置']
 
 const SettingsPage = () => {
-  const [params, setParams] = useState([]);
-  const [form] = Form.useForm();
-  const [isModalVisible, setIsModalVisible] = useState(false);
-  const [editingParam, setEditingParam] = useState(null);
+  const [params, setParams] = useState([])
+  const [modifiedParams, setModifiedParams] = useState({})
+  const [loading, setLoading] = useState(false)
+  const [saveLoading, setSaveLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState('配合比参数')
 
-  // 加载系统参数
+  const [exportWizardVisible, setExportWizardVisible] = useState(false)
+  const [importWizardVisible, setImportWizardVisible] = useState(false)
+  const [restoreModalVisible, setRestoreModalVisible] = useState(false)
+  const [selectedBackupPath, setSelectedBackupPath] = useState('')
+
   useEffect(() => {
     const loadParams = async () => {
-      console.log('开始加载系统参数');
+      setLoading(true)
       try {
-        const result = await window.electron.ipcRenderer.invoke('get-all-params');
-        console.log('收到系统参数响应:', result);
+        const result = await window.electron.ipcRenderer.invoke('get-all-params')
         if (result.success) {
-          console.log('系统参数数据:', result.data);
-          setParams(result.data);
-        } else {
-          console.error('获取系统参数失败:', result.error);
-          message.error('获取系统参数失败');
+          setParams(result.data)
         }
-      } catch (error) {
-        console.error('获取系统参数时发生错误:', error);
-        message.error('获取系统参数失败');
+      } catch (e) {
+        message.error('加载参数失败')
+      } finally {
+        setLoading(false)
       }
-    };
-
-    loadParams();
-  }, []);
-
-  // 打开添加/编辑参数模态框
-  const showModal = (param = null) => {
-    setEditingParam(param);
-    if (param) {
-      form.setFieldsValue({
-        name: param.name,
-        value: param.value,
-        type: param.type,
-        description: param.description
-      });
-    } else {
-      form.resetFields();
     }
-    setIsModalVisible(true);
-  };
+    loadParams()
+  }, [])
 
-  // 关闭模态框
-  const handleCancel = () => {
-    setIsModalVisible(false);
-  };
+  const getCurrentTabParams = useCallback(() => {
+    const paramNames = PARAM_TABS[activeTab] || []
+    return params.filter(p => paramNames.includes(p.name)).map(p => ({
+      ...p,
+      config: PARAM_CONFIG[p.name] || null,
+    }))
+  }, [activeTab, params])
 
-  // 保存参数
-  const handleSave = async () => {
+  const handleParamChange = (name, value) => {
+    setModifiedParams(prev => ({ ...prev, [name]: value }))
+  }
+
+  const getParamValue = (name) => {
+    if (name in modifiedParams) return modifiedParams[name]
+    const p = params.find(p => p.name === name)
+    return p ? p.value : null
+  }
+
+  const handleSaveCurrentTab = async () => {
+    const paramNames = PARAM_TABS[activeTab] || []
+    const toSave = paramNames.filter(name => name in modifiedParams)
+    if (toSave.length === 0) {
+      message.info('没有需要保存的修改')
+      return
+    }
+
+    setSaveLoading(true)
     try {
-      const values = await form.validateFields();
-      const result = await window.electron.ipcRenderer.invoke('set-param', values);
-      if (result.success) {
-        message.success('参数保存成功');
-        setIsModalVisible(false);
-        // 重新加载参数
-        const loadResult = await window.electron.ipcRenderer.invoke('get-all-params');
-        if (loadResult.success) {
-          setParams(loadResult.data);
-        }
-      } else {
-        message.error('参数保存失败');
+      for (const name of toSave) {
+        const param = params.find(p => p.name === name)
+        await window.electron.ipcRenderer.invoke('set-param', {
+          name,
+          value: modifiedParams[name],
+          type: param?.type || 'system',
+          description: param?.description || '',
+        })
       }
-    } catch (error) {
-      console.error('保存参数时发生错误:', error);
-      message.error('参数保存失败');
+      message.success('保存成功')
+      setModifiedParams(prev => {
+        const next = { ...prev }
+        toSave.forEach(n => delete next[n])
+        return next
+      })
+      const result = await window.electron.ipcRenderer.invoke('get-all-params')
+      if (result.success) setParams(result.data)
+    } catch (e) {
+      message.error('保存失败')
+    } finally {
+      setSaveLoading(false)
     }
-  };
+  }
 
-  // 删除参数
-  const handleDelete = (name) => {
-    Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除该参数吗？',
-      onOk: async () => {
-        try {
-          const result = await window.electron.ipcRenderer.invoke('delete-param', name);
-          if (result.success) {
-            message.success('参数删除成功');
-            // 重新加载参数
-            const loadResult = await window.electron.ipcRenderer.invoke('get-all-params');
-            if (loadResult.success) {
-              setParams(loadResult.data);
-            }
-          } else {
-            message.error('参数删除失败');
-          }
-        } catch (error) {
-          console.error('删除参数时发生错误:', error);
-          message.error('参数删除失败');
-        }
-      }
-    });
-  };
+  const handleResetCurrentTab = () => {
+    const paramNames = PARAM_TABS[activeTab] || []
+    setModifiedParams(prev => {
+      const next = { ...prev }
+      paramNames.forEach(n => delete next[n])
+      return next
+    })
+    message.info('已重置为原始值')
+  }
 
-  // 备份数据库
   const handleBackup = async () => {
     try {
-      const result = await window.electron.ipcRenderer.invoke('backup-database');
-      if (result.success) {
-        message.success(`数据库备份成功，备份文件路径：${result.data}`);
-      } else {
-        message.error('数据库备份失败');
-      }
-    } catch (error) {
-      console.error('备份数据库时发生错误:', error);
-      message.error('数据库备份失败');
+      const dialogResult = await window.electron.ipcRenderer.invoke('show-save-dialog', {
+        title: '选择备份保存位置',
+        defaultPath: `backup-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.sqlite`,
+        filters: [{ name: 'SQLite Database', extensions: ['sqlite', 'db'] }],
+      })
+      if (dialogResult.data.canceled || !dialogResult.data.filePath) return
+      window.electron.ipcRenderer.invoke('start-backup-task', dialogResult.data.filePath)
+    } catch (e) {
+      message.error('备份失败')
     }
-  };
+  }
 
-  // 恢复数据库
   const handleRestore = async () => {
-    // 这里需要实现文件选择功能，暂时使用模拟路径
-    const backupPath = prompt('请输入备份文件路径：');
-    if (backupPath) {
-      try {
-        const result = await window.electron.ipcRenderer.invoke('restore-database', backupPath);
-        if (result.success) {
-          message.success('数据库恢复成功');
-          // 重新加载参数
-          const loadResult = await window.electron.ipcRenderer.invoke('get-all-params');
-          if (loadResult.success) {
-            setParams(loadResult.data);
-          }
-        } else {
-          message.error('数据库恢复失败');
-        }
-      } catch (error) {
-        console.error('恢复数据库时发生错误:', error);
-        message.error('数据库恢复失败');
-      }
-    }
-  };
-
-  // 导入数据
-  const handleImport = async (file) => {
     try {
-      const result = await window.electron.ipcRenderer.invoke('import-data', file.path);
-      if (result.success) {
-        message.success('数据导入成功');
-      } else {
-        message.error('数据导入失败');
-      }
-    } catch (error) {
-      console.error('导入数据时发生错误:', error);
-      message.error('数据导入失败');
+      const dialogResult = await window.electron.ipcRenderer.invoke('show-open-dialog', {
+        title: '选择备份文件',
+        filters: [{ name: 'SQLite Database', extensions: ['sqlite', 'db'] }],
+        properties: ['openFile'],
+      })
+      if (dialogResult.data.canceled || dialogResult.data.filePaths.length === 0) return
+      setSelectedBackupPath(dialogResult.data.filePaths[0])
+      setRestoreModalVisible(true)
+    } catch (e) {
+      message.error('选择文件失败')
     }
-  };
+  }
 
-  // 导出数据
-  const handleExport = async () => {
-    // 这里需要实现文件保存功能，暂时使用模拟路径
-    const exportPath = prompt('请输入导出文件路径：');
-    if (exportPath) {
-      try {
-        const result = await window.electron.ipcRenderer.invoke('export-data', exportPath);
-        if (result.success) {
-          message.success('数据导出成功');
-        } else {
-          message.error('数据导出失败');
-        }
-      } catch (error) {
-        console.error('导出数据时发生错误:', error);
-        message.error('数据导出失败');
-      }
-    }
-  };
+  const handleConfirmRestore = async () => {
+    setRestoreModalVisible(false)
+    window.electron.ipcRenderer.invoke('start-restore-task', selectedBackupPath)
+  }
 
-  // 系统参数表格列定义
-  const columns = [
-    {
-      title: '参数名称',
-      dataIndex: 'name',
-      key: 'name'
-    },
-    {
-      title: '参数值',
-      dataIndex: 'value',
-      key: 'value'
-    },
-    {
-      title: '参数类型',
-      dataIndex: 'type',
-      key: 'type',
-      render: (type) => {
-        switch (type) {
-          case 'system': return '系统';
-          case 'mixdesign': return '配合比';
-          case 'backup': return '备份';
-          default: return type;
-        }
-      }
-    },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description'
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (text, record) => (
-        <Space size="middle">
-          <Button type="primary" size="small" onClick={() => showModal(record)}>编辑</Button>
-          <Button danger size="small" onClick={() => handleDelete(record.name)}>删除</Button>
-        </Space>
-      )
+  const renderParamCards = () => {
+    const tabParams = getCurrentTabParams()
+    if (tabParams.length === 0) {
+      return <Text type="secondary">该分类下暂无参数</Text>
     }
-  ];
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 16 }}>
+        {tabParams.map(p => {
+          if (!p.config) return null
+          return (
+            <ParamCard
+              key={p.name}
+              paramName={p.name}
+              config={p.config}
+              value={getParamValue(p.name)}
+              onChange={(val) => handleParamChange(p.name, val)}
+            />
+          )
+        })}
+      </div>
+    )
+  }
 
   return (
-    <div>
+    <div style={{ padding: 24 }}>
       <div style={{ marginBottom: 24 }}>
         <h2 className="page-title">系统设置</h2>
-        <p className="page-subtitle">管理系统参数和数据</p>
+        <p className="page-subtitle">管理配合比参数和系统数据</p>
       </div>
-      
-      {/* 系统参数设置 */}
-      <Card className="custom-card" title="系统参数设置" style={{ marginBottom: 24 }}>
-        <div className="action-bar" style={{ marginBottom: 24 }}>
-          <Button type="primary" className="custom-btn" icon={<PlusOutlined />} onClick={() => showModal()}>添加参数</Button>
-        </div>
-        <Table 
-          className="custom-table"
-          columns={columns} 
-          dataSource={params} 
-          rowKey="name"
-          pagination={{ 
-            pageSize: 10,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (total) => `共 ${total} 条记录`
-          }}
+
+      <Card className="custom-card" style={{ marginBottom: 24 }}>
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={TAB_KEYS.map(key => ({
+            key,
+            label: key,
+            children: (
+              <div>
+                {renderParamCards()}
+                <div style={{ marginTop: 24, display: 'flex', gap: 12 }}>
+                  <Button icon={<ReloadOutlined />} onClick={handleResetCurrentTab}>
+                    重置当前页
+                  </Button>
+                  <Button type="primary" icon={<SaveOutlined />} loading={saveLoading} onClick={handleSaveCurrentTab}>
+                    保存当前页
+                  </Button>
+                </div>
+              </div>
+            ),
+          }))}
         />
       </Card>
 
-      {/* 数据管理 */}
       <Card className="custom-card" title="数据管理" style={{ marginBottom: 24 }}>
         <Space direction="vertical" style={{ width: '100%' }}>
-          <Alert message="数据管理操作请谨慎执行，建议在操作前先备份数据库" type="warning" showIcon />
-          <div className="action-bar" style={{ marginTop: 16 }}>
-            <Button type="primary" className="custom-btn" icon={<SaveOutlined />} onClick={handleBackup}>备份数据库</Button>
-            <Button className="custom-btn" icon={<ReloadOutlined />} onClick={handleRestore}>恢复数据库</Button>
-            <Button className="custom-btn" icon={<UploadOutlined />} onClick={() => document.getElementById('import-file').click()}>导入数据</Button>
-            <Button className="custom-btn" icon={<DownloadOutlined />} onClick={handleExport}>导出数据</Button>
-            <input 
-              id="import-file" 
-              type="file" 
-              style={{ display: 'none' }} 
-              onChange={(e) => e.target.files[0] && handleImport(e.target.files[0])} 
-            />
-          </div>
+          <Text type="secondary">操作会覆盖现有数据，建议操作前先备份数据库</Text>
+          <Space wrap>
+            <Button type="primary" icon={<SaveOutlined />} onClick={handleBackup}>
+              备份数据库
+            </Button>
+            <Button icon={<ReloadOutlined />} onClick={handleRestore}>
+              恢复数据库
+            </Button>
+            <Button icon={<DownloadOutlined />} onClick={() => setExportWizardVisible(true)}>
+              导出数据
+            </Button>
+            <Button icon={<UploadOutlined />} onClick={() => setImportWizardVisible(true)}>
+              导入数据
+            </Button>
+          </Space>
         </Space>
       </Card>
 
-      {/* 关于系统 */}
       <Card className="custom-card" title="关于系统">
-        <div style={{ padding: '16px', background: '#f9f9f9', borderRadius: '8px' }}>
-          <p style={{ marginBottom: 8 }}>混凝土配合比设计软件</p>
-          <p style={{ marginBottom: 8 }}>版本：1.0.0</p>
-          <p style={{ marginBottom: 8 }}>基于 Electron + React + SQLite 开发</p>
-          <p>依据标准：JGJ 55, GB 50010-2010, GB 50204-2015, JGJ/T 193-2009</p>
-        </div>
+        <AppVersionInfo />
       </Card>
 
-      {/* 添加/编辑参数模态框 */}
-      <Modal
-        className="custom-modal"
-        title={editingParam ? '编辑参数' : '添加参数'}
-        open={isModalVisible}
-        onOk={handleSave}
-        onCancel={handleCancel}
-        width={600}
-      >
-        <Form className="custom-form" form={form} layout="vertical">
-          <Form.Item
-            name="name"
-            label="参数名称"
-            rules={[{ required: true, message: '请输入参数名称' }]}
-          >
-            <Input placeholder="请输入参数名称" />
-          </Form.Item>
-          <Form.Item
-            name="value"
-            label="参数值"
-            rules={[{ required: true, message: '请输入参数值' }]}
-          >
-            <Input placeholder="请输入参数值" />
-          </Form.Item>
-          <Form.Item
-            name="type"
-            label="参数类型"
-            rules={[{ required: true, message: '请选择参数类型' }]}
-          >
-            <Select placeholder="请选择参数类型">
-              <Option value="system">系统</Option>
-              <Option value="mixdesign">配合比</Option>
-              <Option value="backup">备份</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item
-            name="description"
-            label="描述"
-          >
-            <Input placeholder="请输入参数描述" />
-          </Form.Item>
-        </Form>
-      </Modal>
+      {exportWizardVisible && (
+        <ExportWizard onClose={() => setExportWizardVisible(false)} />
+      )}
+      {importWizardVisible && (
+        <ImportWizard onClose={() => setImportWizardVisible(false)} />
+      )}
+      {restoreModalVisible && (
+        <RestoreConfirmModal
+          backupPath={selectedBackupPath}
+          onConfirm={handleConfirmRestore}
+          onCancel={() => setRestoreModalVisible(false)}
+        />
+      )}
     </div>
-  );
-};
+  )
+}
 
-export default SettingsPage;
+const AppVersionInfo = () => {
+  const [version, setVersion] = useState('1.0.0')
+  useEffect(() => {
+    window.electron.ipcRenderer.invoke('get-app-version').then(result => {
+      if (result.success) setVersion(result.data)
+    })
+  }, [])
+  return (
+    <div style={{ padding: '16px', background: '#f9f9f9', borderRadius: 8 }}>
+      <p style={{ marginBottom: 8 }}>混凝土配合比设计软件</p>
+      <p style={{ marginBottom: 8 }}>版本：{version}</p>
+      <p style={{ marginBottom: 8 }}>基于 Electron + React + SQLite 开发</p>
+      <p>依据标准：JGJ 55, GB 50010-2010, GB 50204-2015, JGJ/T 193-2009</p>
+    </div>
+  )
+}
+
+export default SettingsPage
