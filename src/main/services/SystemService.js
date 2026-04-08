@@ -244,7 +244,7 @@ class SystemService {
     }
   }
 
-  // 备份数据库
+  // 备份数据库（内部使用，自动生成路径）
   async backupDatabase() {
     try {
       const backupDir = path.join(app.getPath('userData'), 'backups')
@@ -268,7 +268,17 @@ class SystemService {
     }
   }
 
-  // 恢复数据库
+  // 备份数据库到指定路径（供后台任务调用）
+  async backupDatabaseToFile(filePath, onProgress) {
+    onProgress(30)
+    const dbPath = path.join(app.getPath('userData'), 'concrete-mixdesign.db')
+    if (!fs.existsSync(dbPath)) throw new Error('数据库文件不存在')
+    fs.copyFileSync(dbPath, filePath)
+    onProgress(100)
+    return filePath
+  }
+
+  // 恢复数据库（内部使用）
   async restoreDatabase(backupPath) {
     try {
       const dbPath = path.join(app.getPath('userData'), 'concrete-mixdesign.db')
@@ -285,30 +295,197 @@ class SystemService {
     }
   }
 
-  // 导入数据
-  async importData(filePath) {
-    try {
-      // 简化实现，实际应根据文件格式进行解析
-      console.log('导入数据:', filePath)
-      // 这里可以实现具体的导入逻辑
-      return true
-    } catch (error) {
-      console.error('导入数据失败:', error)
-      throw error
-    }
+  // 从指定路径恢复数据库（供后台任务调用）
+  async restoreDatabaseFromFile(backupPath, onProgress) {
+    onProgress(30)
+    await sequelize.close()
+    const dbPath = path.join(app.getPath('userData'), 'concrete-mixdesign.db')
+    if (!fs.existsSync(backupPath)) throw new Error('备份文件不存在')
+    fs.copyFileSync(backupPath, dbPath)
+    onProgress(80)
+    // 重新连接（由应用重启或重新初始化 sequelize 处理）
+    const { sequelize: newSeq } = require('../db/database')
+    await newSeq.sync()
+    onProgress(100)
+    return true
   }
 
-  // 导出数据
-  async exportData(filePath) {
-    try {
-      // 简化实现，实际应根据需要导出的数据进行处理
-      console.log('导出数据:', filePath)
-      // 这里可以实现具体的导出逻辑
-      return true
-    } catch (error) {
-      console.error('导出数据失败:', error)
-      throw error
+  // 导出数据（供 BackgroundTaskService 调用，支持多类型多格式）
+  async exportData(taskId, { types, format, filePath }, onProgress) {
+    const XLSX = require('xlsx')
+
+    const data = {}
+    const totalSteps = types.length
+
+    for (let i = 0; i < types.length; i++) {
+      const type = types[i]
+      let records = []
+      if (type === 'materials') {
+        const Material = require('../db/models/Material')
+        records = await Material.findAll()
+        records = records.map(r => r.toJSON())
+      } else if (type === 'mixdesigns') {
+        const MixDesign = require('../db/models/MixDesign')
+        records = await MixDesign.findAll()
+        records = records.map(r => r.toJSON())
+      } else if (type === 'params') {
+        const SystemParam = require('../db/models/SystemParam')
+        records = await SystemParam.findAll()
+        records = records.map(r => ({ paramName: r.paramName, paramValue: r.paramValue, paramType: r.paramType, description: r.description }))
+      }
+      data[type] = records
+      onProgress(Math.round(((i + 1) / totalSteps) * 90))
     }
+
+    if (format === 'xlsx') {
+      const wb = XLSX.utils.book_new()
+      for (const [type, records] of Object.entries(data)) {
+        const ws = XLSX.utils.json_to_sheet(records)
+        XLSX.utils.book_append_sheet(wb, ws, type)
+      }
+      XLSX.writeFile(wb, filePath)
+    } else if (format === 'csv') {
+      const firstType = types[0]
+      const records = data[firstType]
+      const ws = XLSX.utils.json_to_sheet(records)
+      const csv = XLSX.utils.sheet_to_csv(ws)
+      fs.writeFileSync(filePath, csv, 'utf8')
+    } else if (format === 'json') {
+      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8')
+    }
+
+    onProgress(100)
+    return filePath
+  }
+
+  // 生成导入模板
+  async generateImportTemplate(type, filePath) {
+    const XLSX = require('xlsx')
+
+    const materialFields = [
+      { name: 'name', desc: '材料名称', example: 'PO42.5普通水泥', type: 'string' },
+      { name: 'type', desc: '材料类型', example: 'cement/flyash/slag/sand/aggregate/admixture', type: 'enum' },
+      { name: 'density', desc: '密度 (kg/m³)', example: '3100', type: 'number' },
+      { name: 'finenessModulus', desc: '细度模数', example: '2.8', type: 'number' },
+      { name: 'gradingModule', desc: '级配模数', example: 'II区', type: 'string' },
+      { name: 'waterRequirement', desc: '需水量比 (%)', example: '95', type: 'number' },
+      { name: 'waterReducerDosage', desc: '减水剂掺量 (%)', example: '1.8', type: 'number' },
+      { name: 'remarks', desc: '备注', example: '', type: 'string' },
+    ]
+
+    const mixdesignFields = [
+      { name: 'schemeName', desc: '方案名称', example: 'C30普通混凝土', type: 'string' },
+      { name: 'strengthGrade', desc: '强度等级', example: 'C30', type: 'string' },
+      { name: 'slump', desc: '坍落度 (mm)', example: '180', type: 'number' },
+      { name: 'environmentCategory', desc: '环境类别', example: '1', type: 'string' },
+      { name: 'cementType', desc: '水泥类型', example: 'PO42.5', type: 'string' },
+      { name: 'cementAmount', desc: '水泥用量 (kg/m³)', example: '320', type: 'number' },
+      { name: 'sandAmount', desc: '砂用量 (kg/m³)', example: '650', type: 'number' },
+      { name: 'stoneAmount', desc: '石用量 (kg/m³)', example: '1100', type: 'number' },
+      { name: 'waterAmount', desc: '用水量 (kg/m³)', example: '175', type: 'number' },
+      { name: 'admixtureAmount', desc: '外加剂用量 (kg/m³)', example: '5.76', type: 'number' },
+      { name: 'costPerCubicMeter', desc: '每方成本 (元)', example: '420', type: 'number' },
+    ]
+
+    const fields = type === 'materials' ? materialFields : mixdesignFields
+
+    const descData = [
+      ['字段名称', '中文说明', '数据类型', '示例值', '有效值范围'],
+      ...fields.map(f => [f.name, f.desc, f.type, f.example, f.type === 'enum' && type === 'materials' ? 'cement/flyash/slag/sand/aggregate/admixture' : f.type === 'number' ? '数值' : '文本']),
+    ]
+    const headerRow = fields.map(f => f.name)
+    const emptyData = [headerRow]
+
+    const wb = XLSX.utils.book_new()
+    const ws1 = XLSX.utils.aoa_to_sheet(descData)
+    const ws2 = XLSX.utils.aoa_to_sheet(emptyData)
+    XLSX.utils.book_append_sheet(wb, ws1, '填写说明')
+    XLSX.utils.book_append_sheet(wb, ws2, '数据')
+    XLSX.writeFile(wb, filePath)
+    return filePath
+  }
+
+  // 解析导入文件
+  async parseImportFile(filePath) {
+    const XLSX = require('xlsx')
+    const ext = filePath.toLowerCase().split('.').pop()
+
+    let workbook
+    if (ext === 'xlsx' || ext === 'xls') {
+      workbook = XLSX.readFile(filePath)
+    } else if (ext === 'csv') {
+      const csv = fs.readFileSync(filePath, 'utf8')
+      workbook = XLSX.read(csv, { type: 'string' })
+    }
+
+    const sheetName = workbook.SheetNames[0]
+    const sheet = workbook.Sheets[sheetName]
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 })
+
+    if (rows.length < 2) {
+      throw new Error('文件数据不足，请检查格式')
+    }
+
+    const headers = rows[0]
+    const dataRows = rows.slice(1).filter(row => row.some(cell => cell !== null && cell !== ''))
+
+    const records = dataRows.map(row => {
+      const obj = {}
+      headers.forEach((h, i) => { obj[h] = row[i] ?? null })
+      return obj
+    })
+
+    return { columns: headers, rows: records }
+  }
+
+  // 执行数据导入（供 BackgroundTaskService 调用）
+  async importData(taskId, { type, filePath }, onProgress) {
+    const { rows } = await this.parseImportFile(filePath)
+
+    onProgress(20)
+    let count = 0
+
+    if (type === 'materials') {
+      const Material = require('../db/models/Material')
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+        await Material.create({
+          name: row.name,
+          type: row.type,
+          density: parseFloat(row.density) || 0,
+          finenessModulus: parseFloat(row.finenessModulus) || 0,
+          gradingModule: row.gradingModule,
+          waterRequirement: parseFloat(row.waterRequirement) || 0,
+          waterReducerDosage: parseFloat(row.waterReducerDosage) || 0,
+          remarks: row.remarks || '',
+        })
+        count++
+        onProgress(20 + Math.round((i / rows.length) * 75))
+      }
+    } else if (type === 'mixdesigns') {
+      const MixDesign = require('../db/models/MixDesign')
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
+        await MixDesign.create({
+          schemeName: row.schemeName,
+          strengthGrade: row.strengthGrade,
+          slump: parseFloat(row.slump) || 0,
+          environmentCategory: row.environmentCategory || '1',
+          cementType: row.cementType,
+          cementAmount: parseFloat(row.cementAmount) || 0,
+          sandAmount: parseFloat(row.sandAmount) || 0,
+          stoneAmount: parseFloat(row.stoneAmount) || 0,
+          waterAmount: parseFloat(row.waterAmount) || 0,
+          admixtureAmount: parseFloat(row.admixtureAmount) || 0,
+          costPerCubicMeter: parseFloat(row.costPerCubicMeter) || 0,
+        })
+        count++
+        onProgress(20 + Math.round((i / rows.length) * 75))
+      }
+    }
+
+    onProgress(100)
+    return { count }
   }
 }
 
