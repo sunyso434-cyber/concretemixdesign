@@ -253,6 +253,65 @@ function englishToCn(englishName) {
   return null
 }
 
+// generateMaterialTemplate - 生成原材料导入模板Excel
+async function generateMaterialTemplate(filePath) {
+  const XLSX = require('xlsx')
+  const { getFieldsForCategory } = require('./TemplateService')
+
+  const wb = XLSX.utils.book_new()
+
+  // Sheet 1: 说明
+  const descRows = [
+    ['原材料导入模板 - 使用说明'],
+    [''],
+    ['1. 本模板用于批量导入原材料数据'],
+    ['2. 每个Sheet对应一种材料类别，请按类别填写数据'],
+    ['3. 表头格式：中文名称 / 英文名称，请勿修改'],
+    ['4. 必填字段必须填写，非必填字段可留空'],
+    ['5. 数值字段只填写数字，不要带单位'],
+    ['6. 灰色背景行为示例数据，请删除后再填写'],
+    [''],
+    ['材料类别对照表：'],
+    ['序号_Sheet名称', '材料类型', '说明'],
+    ['01_水泥', '水泥', '硅酸盐水泥，普通硅酸盐水泥等'],
+    ['02_粉煤灰', '粉煤灰', '粉煤灰材料'],
+    ['03_矿渣粉', '矿渣粉', '粒化高炉矿渣粉'],
+    ['04_细骨料', '细骨料', '砂材料'],
+    ['05_粗骨料', '粗骨料', '碎石或卵石'],
+    ['06_外加剂', '外加剂', '减水剂等'],
+    ['07_水', '水', '混凝土拌合用水'],
+  ]
+
+  const wsDesc = XLSX.utils.aoa_to_sheet(descRows)
+  wsDesc['!cols'] = [{ wch: 20 }, { wch: 15 }, { wch: 40 }]
+  XLSX.utils.book_append_sheet(wb, wsDesc, '说明')
+
+  // Sheets 2-8: 各材料类别
+  const categoryOrder = ['01_水泥', '02_粉煤灰', '03_矿渣粉', '04_细骨料', '05_粗骨料', '06_外加剂', '07_水']
+
+  for (const sheetName of categoryOrder) {
+    const fields = getFieldsForCategory(sheetName)
+    const headers = fields.map(f => `${f.name} / ${f.english}`)
+
+    const exampleData = fields.map(f => {
+      if (f.name === '名称') return '示例：PO42.5普通水泥'
+      if (f.name === '类型') return '' // 自动填充
+      if (f.name === '规格') return 'P.O 42.5'
+      if (f.name === '单价') return '450'
+      if (f.name === '密度') return '3100'
+      return ''
+    })
+
+    const wsData = XLSX.utils.aoa_to_sheet([[...headers], exampleData])
+    wsData['!cols'] = headers.map(() => ({ wch: 18 }))
+    XLSX.utils.book_append_sheet(wb, wsData, sheetName)
+  }
+
+  const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
+  await require('fs').promises.writeFile(filePath, buf)
+  return filePath
+}
+
 module.exports = {
   COMMON_FIELDS,
   MATERIAL_CATEGORIES,
@@ -262,4 +321,5 @@ module.exports = {
   getMaterialTypeFromSheetName,
   cnToEnglish,
   englishToCn,
+  generateMaterialTemplate,
 }

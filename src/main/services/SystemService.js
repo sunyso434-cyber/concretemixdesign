@@ -1,6 +1,6 @@
 const SystemParam = require('../db/models/SystemParam')
-const { sequelize } = require('../db/database')
 const fs = require('fs')
+const fsp = fs.promises
 const path = require('path')
 const { app } = require('electron')
 const iconv = require('iconv-lite')
@@ -258,7 +258,7 @@ class SystemService {
       const dbPath = path.join(app.getPath('userData'), 'concrete-mixdesign.db')
 
       if (fs.existsSync(dbPath)) {
-        fs.copyFileSync(dbPath, backupPath)
+        await fsp.copyFile(dbPath, backupPath)
         return backupPath
       } else {
         throw new Error('数据库文件不存在')
@@ -274,7 +274,7 @@ class SystemService {
     onProgress(30)
     const dbPath = path.join(app.getPath('userData'), 'concrete-mixdesign.db')
     if (!fs.existsSync(dbPath)) throw new Error('数据库文件不存在')
-    fs.copyFileSync(dbPath, filePath)
+    await fsp.copyFile(dbPath, filePath)
     onProgress(100)
     return filePath
   }
@@ -285,7 +285,7 @@ class SystemService {
       const dbPath = path.join(app.getPath('userData'), 'concrete-mixdesign.db')
 
       if (fs.existsSync(backupPath)) {
-        fs.copyFileSync(backupPath, dbPath)
+        await fsp.copyFile(backupPath, dbPath)
         return true
       } else {
         throw new Error('备份文件不存在')
@@ -298,18 +298,25 @@ class SystemService {
 
   // 从指定路径恢复数据库（供后台任务调用）
   async restoreDatabaseFromFile(backupPath, onProgress) {
+    console.log('[SystemService] restoreDatabaseFromFile called, backupPath:', backupPath)
     onProgress(30)
     const dbPath = path.join(app.getPath('userData'), 'concrete-mixdesign.db')
-    if (!fs.existsSync(backupPath)) throw new Error('备份文件不存在')
+    if (!fs.existsSync(backupPath)) {
+      console.error('[SystemService] Backup file does not exist:', backupPath)
+      throw new Error('备份文件不存在')
+    }
+    console.log('[SystemService] DB path:', dbPath)
 
-    // 直接复制文件，不需要关闭连接
-    // SQLite 允许在读取时复制，sequelize.sync() 会重新加载表信息
-    fs.copyFileSync(backupPath, dbPath)
+    // 使用异步复制，避免阻塞主线程
+    await fsp.copyFile(backupPath, dbPath)
+    console.log('[SystemService] Database file copied from', backupPath, 'to', dbPath)
     onProgress(80)
 
-    // 重新同步模型，刷新表缓存
-    await sequelize.sync({ force: false })
+    // 注意：不要调用 closeAllConnections()，因为 sequelize.close() 会导致
+    // 后续查询报 "ConnectionManager was closed" 错误。
+    // sequelize 会在下次查询时自动重连到新的数据库文件。
     onProgress(100)
+    console.log('[SystemService] restoreDatabaseFromFile completed')
     return true
   }
 
@@ -346,15 +353,16 @@ class SystemService {
         const ws = XLSX.utils.json_to_sheet(records)
         XLSX.utils.book_append_sheet(wb, ws, type)
       }
-      XLSX.writeFile(wb, filePath)
+      const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
+      await fsp.writeFile(filePath, buf)
     } else if (format === 'csv') {
       const firstType = types[0]
       const records = data[firstType]
       const ws = XLSX.utils.json_to_sheet(records)
       const csv = XLSX.utils.sheet_to_csv(ws)
-      fs.writeFileSync(filePath, csv, 'utf8')
+      await fsp.writeFile(filePath, csv, 'utf8')
     } else if (format === 'json') {
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8')
+      await fsp.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8')
     }
 
     onProgress(100)
@@ -363,49 +371,14 @@ class SystemService {
 
   // 生成导入模板
   async generateImportTemplate(type, filePath) {
-    const XLSX = require('xlsx')
+    const TemplateService = require('./TemplateService')
 
-    const materialFields = [
-      { name: 'name', desc: '材料名称', example: 'PO42.5普通水泥', type: 'string' },
-      { name: 'type', desc: '材料类型', example: 'cement/flyash/slag/sand/aggregate/admixture', type: 'enum' },
-      { name: 'density', desc: '密度 (kg/m³)', example: '3100', type: 'number' },
-      { name: 'finenessModulus', desc: '细度模数', example: '2.8', type: 'number' },
-      { name: 'gradingModule', desc: '级配模数', example: 'II区', type: 'string' },
-      { name: 'waterRequirement', desc: '需水量比 (%)', example: '95', type: 'number' },
-      { name: 'waterReducerDosage', desc: '减水剂掺量 (%)', example: '1.8', type: 'number' },
-      { name: 'remarks', desc: '备注', example: '', type: 'string' },
-    ]
-
-    const mixdesignFields = [
-      { name: 'schemeName', desc: '方案名称', example: 'C30普通混凝土', type: 'string' },
-      { name: 'strengthGrade', desc: '强度等级', example: 'C30', type: 'string' },
-      { name: 'slump', desc: '坍落度 (mm)', example: '180', type: 'number' },
-      { name: 'environmentCategory', desc: '环境类别', example: '1', type: 'string' },
-      { name: 'cementType', desc: '水泥类型', example: 'PO42.5', type: 'string' },
-      { name: 'cementAmount', desc: '水泥用量 (kg/m³)', example: '320', type: 'number' },
-      { name: 'sandAmount', desc: '砂用量 (kg/m³)', example: '650', type: 'number' },
-      { name: 'stoneAmount', desc: '石用量 (kg/m³)', example: '1100', type: 'number' },
-      { name: 'waterAmount', desc: '用水量 (kg/m³)', example: '175', type: 'number' },
-      { name: 'admixtureAmount', desc: '外加剂用量 (kg/m³)', example: '5.76', type: 'number' },
-      { name: 'costPerCubicMeter', desc: '每方成本 (元)', example: '420', type: 'number' },
-    ]
-
-    const fields = type === 'materials' ? materialFields : mixdesignFields
-
-    const descData = [
-      ['字段名称', '中文说明', '数据类型', '示例值', '有效值范围'],
-      ...fields.map(f => [f.name, f.desc, f.type, f.example, f.type === 'enum' && type === 'materials' ? 'cement/flyash/slag/sand/aggregate/admixture' : f.type === 'number' ? '数值' : '文本']),
-    ]
-    const headerRow = fields.map(f => f.name)
-    const emptyData = [headerRow]
-
-    const wb = XLSX.utils.book_new()
-    const ws1 = XLSX.utils.aoa_to_sheet(descData)
-    const ws2 = XLSX.utils.aoa_to_sheet(emptyData)
-    XLSX.utils.book_append_sheet(wb, ws1, '填写说明')
-    XLSX.utils.book_append_sheet(wb, ws2, '数据')
-    XLSX.writeFile(wb, filePath)
-    return filePath
+    if (type === 'materials') {
+      return await TemplateService.generateMaterialTemplate(filePath)
+    } else if (type === 'mixdesigns') {
+      // 暂时返回错误，配合比模板在Task 4实现
+      throw new Error('配合比模板生成功能开发中')
+    }
   }
 
   // 解析导入文件
@@ -415,10 +388,11 @@ class SystemService {
 
     let workbook
     if (ext === 'xlsx' || ext === 'xls') {
+      // 使用同步读取对于 xlsx 仍然是最快的方法（文件通常较小），保持现状
       workbook = XLSX.readFile(filePath)
     } else if (ext === 'csv') {
       // 使用 iconv-lite 正确处理各种编码的 CSV
-      const buffer = fs.readFileSync(filePath)
+      const buffer = await fsp.readFile(filePath)
 
       // 检测 BOM
       let bomStripped = buffer
