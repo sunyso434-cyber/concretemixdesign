@@ -1,0 +1,265 @@
+/**
+ * TemplateService - Template configuration definition service
+ * Manages field definitions for materials and mix design templates
+ */
+
+const COMMON_FIELDS = [
+  { name: '名称', english: 'name', type: 'string', required: true, desc: '材料名称' },
+  { name: '类型', english: 'type', type: 'string', required: true, desc: '自动填充', autoFill: true },
+  { name: '规格', english: 'specification', type: 'string', desc: '如：P.O 42.5' },
+  { name: '厂家', english: 'manufacturer', type: 'string', desc: '生产厂家' },
+  { name: '单价', english: 'price', type: 'number', desc: '元/吨' },
+  { name: '密度', english: 'density', type: 'number', desc: 'kg/m³' },
+  { name: '含水率', english: 'waterContent', type: 'number', desc: '%' },
+  { name: '状态', english: 'status', type: 'string', desc: '启用/禁用' },
+  { name: '备注', english: 'notes', type: 'string', desc: '' },
+]
+
+const MATERIAL_CATEGORIES = {
+  '01_水泥': {
+    type: '水泥',
+    english: 'cement',
+    fields: [
+      { name: '比表面积', english: 'specificSurfaceArea', type: 'number', desc: 'm²/kg' },
+      { name: '标准稠度', english: 'standardConsistency', type: 'number', desc: '%' },
+      { name: '安定性', english: 'stability', type: 'string', desc: '沸煮法' },
+      { name: '初凝时间', english: 'initialSettingTime', type: 'number', desc: 'min' },
+      { name: '终凝时间', english: 'finalSettingTime', type: 'number', desc: 'min' },
+      { name: '3d抗折强度', english: 'flexuralStrength3d', type: 'number', desc: 'MPa' },
+      { name: '28d抗折强度', english: 'flexuralStrength28d', type: 'number', desc: 'MPa' },
+      { name: '3d抗压强度', english: 'compressiveStrength3d', type: 'number', desc: 'MPa' },
+      { name: '28d抗压强度', english: 'compressiveStrength28d', type: 'number', desc: 'MPa' },
+      { name: '细度', english: 'fineness', type: 'number', desc: '%' },
+    ],
+  },
+  '02_粉煤灰': {
+    type: '粉煤灰',
+    english: 'flyAsh',
+    fields: [
+      { name: '需水量比', english: 'waterDemandRatio', type: 'number', desc: '%' },
+      { name: '烧失量', english: 'lossOnIgnition', type: 'number', desc: '%' },
+      { name: '7d活性指数', english: 'activityIndex7d', type: 'number', desc: '%' },
+      { name: '28d活性指数', english: 'activityIndex28d', type: 'number', desc: '%' },
+      { name: '细度', english: 'fineness', type: 'number', desc: '%' },
+    ],
+  },
+  '03_矿渣粉': {
+    type: '矿渣粉',
+    english: 'slag',
+    fields: [
+      { name: '流动度比', english: 'fluidityRatio', type: 'number', desc: '%' },
+      { name: '比表面积', english: 'specificSurfaceArea', type: 'number', desc: 'm²/kg' },
+      { name: '7d活性指数', english: 'activityIndex7d', type: 'number', desc: '%' },
+      { name: '28d活性指数', english: 'activityIndex28d', type: 'number', desc: '%' },
+      { name: '细度', english: 'fineness', type: 'number', desc: '%' },
+    ],
+  },
+  '04_细骨料': {
+    type: '细骨料',
+    english: 'fineAggregate',
+    fields: [
+      { name: '含泥量', english: 'mudContent', type: 'number', desc: '%' },
+      { name: '泥块含量', english: 'clayLumpContent', type: 'number', desc: '%' },
+      { name: 'MB值', english: 'mbValue', type: 'number', desc: '' },
+      { name: '细度模数', english: 'finenessModulus', type: 'number', desc: '' },
+      { name: '筛孔4.75', english: 'sieve_4_75', type: 'number', desc: '%' },
+      { name: '筛孔2.36', english: 'sieve_2_36', type: 'number', desc: '%' },
+      { name: '筛孔1.18', english: 'sieve_1_18', type: 'number', desc: '%' },
+      { name: '筛孔0.6', english: 'sieve_0_6', type: 'number', desc: '%' },
+      { name: '筛孔0.3', english: 'sieve_0_3', type: 'number', desc: '%' },
+      { name: '筛孔0.15', english: 'sieve_0_15', type: 'number', desc: '%' },
+    ],
+  },
+  '05_粗骨料': {
+    type: '粗骨料',
+    english: 'coarseAggregate',
+    fields: [
+      { name: '针片状含量', english: 'needleFlakeContent', type: 'number', desc: '%' },
+      { name: '压碎值', english: 'crushingValue', type: 'number', desc: '%' },
+      { name: '级配', english: 'grading', type: 'string', desc: '' },
+      { name: '筛孔37.5', english: 'sieve_37_5', type: 'number', desc: '%' },
+      { name: '筛孔31.5', english: 'sieve_31_5', type: 'number', desc: '%' },
+      { name: '筛孔26.5', english: 'sieve_26_5', type: 'number', desc: '%' },
+      { name: '筛孔19.0', english: 'sieve_19_0', type: 'number', desc: '%' },
+      { name: '筛孔16.0', english: 'sieve_16_0', type: 'number', desc: '%' },
+      { name: '筛孔9.50', english: 'sieve_9_50', type: 'number', desc: '%' },
+    ],
+  },
+  '06_外加剂': {
+    type: '外加剂',
+    english: 'admixture',
+    fields: [
+      { name: '固体含量', english: 'solidContent', type: 'number', desc: '%' },
+      { name: '减水率', english: 'waterReducingRate', type: 'number', desc: '%' },
+      { name: '含气量', english: 'airContent', type: 'number', desc: '%' },
+      { name: '推荐掺量', english: 'recommendedDosage', type: 'number', desc: '%' },
+      { name: '每0.5%减水率', english: 'waterReducingRatePer01Dosage', type: 'number', desc: '%' },
+      { name: '影响系数10', english: 'influenceFactor_10', type: 'number', desc: '' },
+      { name: '影响系数20', english: 'influenceFactor_20', type: 'number', desc: '' },
+      { name: '影响系数30', english: 'influenceFactor_30', type: 'number', desc: '' },
+      { name: '影响系数40', english: 'influenceFactor_40', type: 'number', desc: '' },
+      { name: '影响系数50', english: 'influenceFactor_50', type: 'number', desc: '' },
+    ],
+  },
+  '07_水': {
+    type: '水',
+    english: 'water',
+    fields: [
+      { name: 'pH值', english: 'phValue', type: 'number', desc: '' },
+      { name: '不溶物', english: 'insolubleMatter', type: 'number', desc: 'mg/L' },
+      { name: '可溶物', english: 'solubleMatter', type: 'number', desc: 'mg/L' },
+    ],
+  },
+}
+
+const MIXDESIGN_SHEETS = {
+  '配合比方案': {
+    fields: [
+      { name: '名称', english: 'name', type: 'string', required: true },
+      { name: '工程名称', english: 'projectName', type: 'string' },
+      { name: '说明', english: 'description', type: 'string' },
+      { name: '强度等级', english: 'strength', type: 'string' },
+      { name: '坍落度', english: 'slump', type: 'string' },
+      { name: '环境', english: 'environment', type: 'string' },
+      { name: '工程类型', english: 'projectType', type: 'string' },
+      { name: '粉煤灰掺量', english: 'flyAshDosage', type: 'number' },
+      { name: '矿渣粉掺量', english: 'slagDosage', type: 'number' },
+      { name: '砂率', english: 'sandRatio', type: 'number' },
+      { name: '水胶比', english: 'waterRatio', type: 'number' },
+      { name: '密度', english: 'density', type: 'number' },
+      { name: '总成本', english: 'totalCost', type: 'number' },
+      { name: '状态', english: 'status', type: 'string' },
+    ],
+  },
+  '材料用量': {
+    fields: [
+      { name: '配合比名称', english: 'mixDesignName', type: 'string', required: true },
+      { name: '材料类型', english: 'materialType', type: 'string' },
+      { name: '材料名称', english: 'materialName', type: 'string' },
+      { name: '规格', english: 'specification', type: 'string' },
+      { name: '厂家', english: 'manufacturer', type: 'string' },
+      { name: '用量', english: 'amount', type: 'number' },
+      { name: '单价', english: 'price', type: 'number' },
+      { name: '成本', english: 'cost', type: 'number' },
+    ],
+  },
+  '骨料分配': {
+    fields: [
+      { name: '配合比名称', english: 'mixDesignName', type: 'string', required: true },
+      { name: '骨料类型', english: 'aggregateType', type: 'string' },
+      { name: '材料名称', english: 'materialName', type: 'string' },
+      { name: '规格', english: 'specification', type: 'string' },
+      { name: '用量', english: 'amount', type: 'number' },
+      { name: '比例', english: 'ratio', type: 'number' },
+    ],
+  },
+  '计算参数': {
+    fields: [
+      { name: '配合比名称', english: 'mixDesignName', type: 'string', required: true },
+      { name: '回归系数αa', english: 'regressionAlphaA', type: 'number' },
+      { name: '回归系数αb', english: 'regressionAlphaB', type: 'number' },
+      { name: '强度标准差', english: 'strengthStdDev', type: 'number' },
+      { name: 'MB值影响', english: 'mbInfluence', type: 'number' },
+      { name: '细度影响', english: 'finenessInfluence', type: 'number' },
+      { name: '强度影响', english: 'strengthInfluence', type: 'number' },
+      { name: '目标细度模数基准', english: 'targetFinenessModulusBase', type: 'number' },
+    ],
+  },
+}
+
+/**
+ * Get all fields (common + category-specific) for a material category
+ * @param {string} categoryKey - Category key like '01_水泥'
+ * @returns {Array} Combined array of common and category-specific fields
+ */
+function getFieldsForCategory(categoryKey) {
+  const category = MATERIAL_CATEGORIES[categoryKey]
+  if (!category) {
+    return null
+  }
+  return [...COMMON_FIELDS, ...category.fields]
+}
+
+/**
+ * Get headers (Chinese / English) for a material category
+ * @param {string} categoryKey - Category key like '01_水泥'
+ * @returns {Array} Array of "中文 / english" header strings
+ */
+function getHeadersForCategory(categoryKey) {
+  const fields = getFieldsForCategory(categoryKey)
+  if (!fields) {
+    return null
+  }
+  return fields.map(f => `${f.name} / ${f.english}`)
+}
+
+/**
+ * Get material type from sheet name
+ * @param {string} sheetName - Sheet name like '01_水泥'
+ * @returns {string|null} Material type string or null if not found
+ */
+function getMaterialTypeFromSheetName(sheetName) {
+  const category = MATERIAL_CATEGORIES[sheetName]
+  return category ? category.type : null
+}
+
+/**
+ * Convert Chinese field name to English key
+ * @param {string} fieldName - Chinese field name
+ * @returns {string|null} English key or null if not found
+ */
+function cnToEnglish(fieldName) {
+  for (const categoryKey of Object.keys(MATERIAL_CATEGORIES)) {
+    const category = MATERIAL_CATEGORIES[categoryKey]
+    for (const field of [...COMMON_FIELDS, ...category.fields]) {
+      if (field.name === fieldName) {
+        return field.english
+      }
+    }
+  }
+  for (const sheetKey of Object.keys(MIXDESIGN_SHEETS)) {
+    const sheet = MIXDESIGN_SHEETS[sheetKey]
+    for (const field of sheet.fields) {
+      if (field.name === fieldName) {
+        return field.english
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * Convert English key to Chinese field name
+ * @param {string} englishName - English field key
+ * @returns {string|null} Chinese field name or null if not found
+ */
+function englishToCn(englishName) {
+  for (const categoryKey of Object.keys(MATERIAL_CATEGORIES)) {
+    const category = MATERIAL_CATEGORIES[categoryKey]
+    for (const field of [...COMMON_FIELDS, ...category.fields]) {
+      if (field.english === englishName) {
+        return field.name
+      }
+    }
+  }
+  for (const sheetKey of Object.keys(MIXDESIGN_SHEETS)) {
+    const sheet = MIXDESIGN_SHEETS[sheetKey]
+    for (const field of sheet.fields) {
+      if (field.english === englishName) {
+        return field.name
+      }
+    }
+  }
+  return null
+}
+
+module.exports = {
+  COMMON_FIELDS,
+  MATERIAL_CATEGORIES,
+  MIXDESIGN_SHEETS,
+  getFieldsForCategory,
+  getHeadersForCategory,
+  getMaterialTypeFromSheetName,
+  cnToEnglish,
+  englishToCn,
+}
