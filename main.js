@@ -101,6 +101,10 @@ async function createWindow() {
   }
   
   mainWindow.loadURL(loadUrl)
+
+  // 设置 BackgroundTaskService 的 webContents
+  const backgroundTaskService = require('./src/main/services/BackgroundTaskService')
+  backgroundTaskService.setWebContents(mainWindow.webContents)
   
   // 监听加载失败事件
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {

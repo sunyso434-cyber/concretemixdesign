@@ -4,6 +4,7 @@ import { ConfigProvider, Menu, Layout, Spin, Typography, Space, Divider } from '
 import zhCN from 'antd/lib/locale/zh_CN'
 import 'antd/dist/reset.css'
 import './index.css'
+import BackgroundTaskBar from './components/BackgroundTaskBar'
 
 // 页面组件 - 使用 lazy 加载
 const MaterialsPage = lazy(() => import('./pages/MaterialsPage').catch(err => {
@@ -107,27 +108,27 @@ const Navigation = ({ activeKey, setActiveKey }) => {
         {
           key: 'materials',
           label: <Link to="/materials">原材料管理</Link>,
-          icon: <span className="nav-icon">📦</span>
+          icon: <span className="nav-icon" aria-label="原材料">📦</span>
         },
         {
           key: 'mixdesign',
           label: <Link to="/mixdesign">配合比设计</Link>,
-          icon: <span className="nav-icon">📝</span>
+          icon: <span className="nav-icon" aria-label="配合比设计">📝</span>
         },
         {
           key: 'optimization',
           label: <Link to="/optimization">成本优化</Link>,
-          icon: <span className="nav-icon">🎯</span>
+          icon: <span className="nav-icon" aria-label="成本优化">🎯</span>
         },
         {
           key: 'schemes',
           label: <Link to="/schemes">方案管理</Link>,
-          icon: <span className="nav-icon">📋</span>
+          icon: <span className="nav-icon" aria-label="方案管理">📋</span>
         },
         {
           key: 'settings',
           label: <Link to="/settings">系统管理</Link>,
-          icon: <span className="nav-icon">⚙️</span>
+          icon: <span className="nav-icon" aria-label="系统设置">⚙️</span>
         }
       ]}
     />
@@ -142,32 +143,39 @@ function App() {
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: 'var(--primary-color)',
-          colorSuccess: 'var(--success-color)',
-          colorWarning: 'var(--warning-color)',
-          colorError: 'var(--error-color)',
-          colorInfo: 'var(--info-color)',
-          fontFamily: 'var(--font-sans)',
-          borderRadius: 8,
+          colorPrimary: '#1E56A0',
+          colorSuccess: '#009966',
+          colorWarning: '#ff9900',
+          colorError: '#cc0033',
+          colorInfo: '#666666',
+          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+          borderRadius: 4,
+          transitionDuration: '0.33s',
         },
         components: {
           Menu: {
-            itemBorderRadius: 6,
-            itemHoverBg: 'var(--primary-light)',
-            itemSelectedBg: 'var(--primary-light)',
-            itemSelectedColor: 'var(--primary-dark)',
+            itemBorderRadius: 4,
+            itemHoverBg: '#F4F4F4',
+            itemSelectedBg: '#F4F4F4',
+            itemSelectedColor: '#1E56A0',
+            horizontalItemHoverColor: '#171A20',
+            horizontalItemSelectedColor: '#3E6AE1',
+            itemColor: '#171A20',
           },
           Button: {
-            borderRadius: 6,
+            borderRadius: 4,
+            controlHeight: 40,
           },
           Card: {
             borderRadius: 12,
           },
           Input: {
-            borderRadius: 6,
+            borderRadius: 4,
+            controlHeight: 40,
           },
           Select: {
-            borderRadius: 6,
+            borderRadius: 4,
+            controlHeight: 40,
           },
           Table: {
             borderRadius: 12,
@@ -181,45 +189,41 @@ function App() {
       <Router>
         <Layout style={{ minHeight: '100vh' }}>
           <Header style={{
-            background: 'var(--card-bg)',
-            boxShadow: 'var(--shadow-md)',
-            padding: '0 var(--spacing-xl)',
+            background: '#FFFFFF',
+            borderBottom: '1px solid #EEEEEE',
+            padding: '0 32px',
             position: 'sticky',
             top: 0,
             zIndex: 100
           }}>
+            <a href="#main-content" className="skip-to-content">跳转到主要内容</a>
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              height: '72px'
+              height: '64px'
             }}>
               <div style={{
+                fontSize: '17px',
+                fontWeight: '500',
+                color: '#171A20',
+                marginRight: '48px',
                 display: 'flex',
                 alignItems: 'center',
-                marginRight: 'var(--spacing-2xl)'
+                letterSpacing: 'normal'
               }}>
-                <div style={{
-                  fontSize: '20px',
-                  fontWeight: '700',
-                  color: 'var(--primary-color)',
-                  marginRight: 'var(--spacing-sm)',
-                  display: 'flex',
-                  alignItems: 'center'
-                }}>
-                  <span style={{ marginRight: '8px' }}>🏗️</span>
-                  混凝土配合比设计系统
-                </div>
+                <span style={{ marginRight: '8px' }}>🏗️</span>
+                混凝土配合比设计系统
               </div>
               <Navigation activeKey={activeKey} setActiveKey={setActiveKey} />
             </div>
           </Header>
           <Content style={{
-            padding: 'var(--spacing-xl)',
-            background: 'var(--bg-color)',
-            minHeight: 'calc(100vh - 72px)'
-          }}>
+            padding: '32px',
+            background: '#FFFFFF',
+            minHeight: 'calc(100vh - 64px)'
+          }} id="main-content">
             <div style={{
-              maxWidth: '1400px',
+              maxWidth: '1383px',
               margin: '0 auto',
               minHeight: '100%'
             }}>
@@ -239,6 +243,7 @@ function App() {
           </Content>
         </Layout>
       </Router>
+      <BackgroundTaskBar />
     </ConfigProvider>
   )
 }
