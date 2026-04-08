@@ -298,14 +298,16 @@ class SystemService {
   // 从指定路径恢复数据库（供后台任务调用）
   async restoreDatabaseFromFile(backupPath, onProgress) {
     onProgress(30)
-    await sequelize.close()
     const dbPath = path.join(app.getPath('userData'), 'concrete-mixdesign.db')
     if (!fs.existsSync(backupPath)) throw new Error('备份文件不存在')
+
+    // 直接复制文件，不需要关闭连接
+    // SQLite 允许在读取时复制，sequelize.sync() 会重新加载表信息
     fs.copyFileSync(backupPath, dbPath)
     onProgress(80)
-    // 重新连接（由应用重启或重新初始化 sequelize 处理）
-    const { sequelize: newSeq } = require('../db/database')
-    await newSeq.sync()
+
+    // 重新同步模型，刷新表缓存
+    await sequelize.sync({ force: false })
     onProgress(100)
     return true
   }
