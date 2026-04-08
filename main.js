@@ -120,6 +120,16 @@ async function createWindow() {
   mainWindow.webContents.on('render-process-crashed', (event, killed) => {
     console.error('渲染进程崩溃:', killed)
   })
+
+  // 监听渲染进程消失事件
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    console.error('渲染进程消失:', details.reason, details.exitCode)
+  })
+
+  // 监听未捕获的页面错误
+  mainWindow.webContents.on('page-failed-to-provisional-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.error('页面加载失败:', errorCode, errorDescription, validatedURL)
+  })
   
   // 监听加载完成事件
   mainWindow.webContents.on('did-finish-load', () => {

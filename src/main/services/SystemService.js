@@ -3,6 +3,7 @@ const { sequelize } = require('../db/database')
 const fs = require('fs')
 const path = require('path')
 const { app } = require('electron')
+const iconv = require('iconv-lite')
 
 class SystemService {
   // 获取所有系统参数
@@ -416,9 +417,24 @@ class SystemService {
     if (ext === 'xlsx' || ext === 'xls') {
       workbook = XLSX.readFile(filePath)
     } else if (ext === 'csv') {
-      // 读取文件原始 buffer，xlsx 库会自动检测编码
+      // 使用 iconv-lite 正确处理各种编码的 CSV
       const buffer = fs.readFileSync(filePath)
-      workbook = XLSX.read(buffer, { type: 'buffer' })
+
+      // 检测 BOM
+      let bomStripped = buffer
+      if (buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) {
+        // UTF-8 BOM
+        bomStripped = buffer.slice(3)
+      }
+
+      // 尝试 UTF-8 解码，检查是否有无效字符
+      let content = iconv.decode(bomStripped, 'utf8')
+      if (content.includes('\uFFFD')) {
+        // 包含替换字符，说明不是有效 UTF-8，尝试 GBK
+        content = iconv.decode(bomStripped, 'gbk')
+      }
+
+      workbook = XLSX.read(content, { type: 'string' })
     }
 
     const sheetName = workbook.SheetNames[0]
