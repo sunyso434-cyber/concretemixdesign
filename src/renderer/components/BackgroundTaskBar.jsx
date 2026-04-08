@@ -24,22 +24,26 @@ const BackgroundTaskBar = () => {
 
     // 监听进度更新
     const handler = (event, task) => {
-      setTasks(prev => {
-        const idx = prev.findIndex(t => t.id === task.id)
-        if (idx >= 0) {
-          const updated = [...prev]
-          updated[idx] = task
-          if (task.status === 'completed') {
-            setTimeout(() => {
-              setTasks(curr => curr.filter(t => t.id !== task.id))
-              window.electron.ipcRenderer.invoke('clear-task', task.id)
-            }, 5000)
+      try {
+        setTasks(prev => {
+          const idx = prev.findIndex(t => t.id === task.id)
+          if (idx >= 0) {
+            const updated = [...prev]
+            updated[idx] = task
+            if (task.status === 'completed') {
+              setTimeout(() => {
+                setTasks(curr => curr.filter(t => t.id !== task.id))
+                window.electron.ipcRenderer.invoke('clear-task', task.id)
+              }, 5000)
+            }
+            return updated
+          } else {
+            return [...prev, task]
           }
-          return updated
-        } else {
-          return [...prev, task]
-        }
-      })
+        })
+      } catch (err) {
+        console.error('BackgroundTaskBar update error:', err)
+      }
     }
 
     window.electron.ipcRenderer.on('background-task-progress', handler)

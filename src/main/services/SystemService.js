@@ -416,8 +416,9 @@ class SystemService {
     if (ext === 'xlsx' || ext === 'xls') {
       workbook = XLSX.readFile(filePath)
     } else if (ext === 'csv') {
-      const csv = fs.readFileSync(filePath, 'utf8')
-      workbook = XLSX.read(csv, { type: 'string' })
+      // 读取文件原始 buffer，xlsx 库会自动检测编码
+      const buffer = fs.readFileSync(filePath)
+      workbook = XLSX.read(buffer, { type: 'buffer' })
     }
 
     const sheetName = workbook.SheetNames[0]

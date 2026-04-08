@@ -30,8 +30,12 @@ class BackgroundTaskService {
    * 向渲染进程推送任务更新
    */
   _notifyRenderer(task) {
-    if (this.webContents && !this.webContents.isDestroyed()) {
-      this.webContents.send('background-task-progress', task)
+    try {
+      if (this.webContents && !this.webContents.isDestroyed()) {
+        this.webContents.send('background-task-progress', task)
+      }
+    } catch (err) {
+      console.error('Notify renderer error:', err)
     }
   }
 
@@ -39,8 +43,12 @@ class BackgroundTaskService {
    * 发送系统通知
    */
   _sendNotification(title, body) {
-    if (Notification.isSupported()) {
-      new Notification({ title, body }).show()
+    try {
+      if (Notification.isSupported()) {
+        new Notification({ title, body }).show()
+      }
+    } catch (err) {
+      console.error('Notification error:', err)
     }
   }
 
