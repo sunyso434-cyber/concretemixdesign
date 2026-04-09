@@ -323,6 +323,7 @@ class SystemService {
   // 导出数据（供 BackgroundTaskService 调用，支持多类型多格式）
   async exportData(taskId, { types, format, filePath }, onProgress) {
     const XLSX = require('xlsx')
+    const TemplateService = require('./TemplateService')
 
     const data = {}
     const totalSteps = types.length
@@ -348,13 +349,19 @@ class SystemService {
     }
 
     if (format === 'xlsx') {
-      const wb = XLSX.utils.book_new()
-      for (const [type, records] of Object.entries(data)) {
-        const ws = XLSX.utils.json_to_sheet(records)
-        XLSX.utils.book_append_sheet(wb, ws, type)
+      if (types.includes('materials') && types.length === 1) {
+        // 单独导出原材料：使用多Sheet格式
+        await TemplateService.exportMaterialsToExcel(data.materials, filePath, onProgress)
+      } else {
+        // 其他情况：使用简单格式（兼容旧版）
+        const wb = XLSX.utils.book_new()
+        for (const [type, records] of Object.entries(data)) {
+          const ws = XLSX.utils.json_to_sheet(records)
+          XLSX.utils.book_append_sheet(wb, ws, type)
+        }
+        const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
+        await fsp.writeFile(filePath, buf)
       }
-      const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
-      await fsp.writeFile(filePath, buf)
     } else if (format === 'csv') {
       const firstType = types[0]
       const records = data[firstType]
