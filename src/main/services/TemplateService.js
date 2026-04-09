@@ -312,6 +312,234 @@ async function generateMaterialTemplate(filePath) {
   return filePath
 }
 
+// exportMaterialsToExcel - 导出原材料为多Sheet Excel
+async function exportMaterialsToExcel(materials, filePath, onProgress) {
+  const XLSX = require('xlsx')
+  const { getFieldsForCategory, MATERIAL_CATEGORIES } = require('./TemplateService')
+
+  // 按材料类型分组
+  const grouped = {}
+  for (const mat of materials) {
+    const type = mat.type
+    if (!grouped[type]) grouped[type] = []
+    grouped[type].push(mat)
+  }
+
+  const wb = XLSX.utils.book_new()
+
+  // Sheet 1: 汇总说明
+  const summaryData = [
+    ['原材料导出数据'],
+    [`导出时间：${new Date().toLocaleString()}`],
+    [`共 ${materials.length} 条记录`],
+    [''],
+    ['材料类型', '数量'],
+  ]
+  for (const [type, items] of Object.entries(grouped)) {
+    summaryData.push([type, items.length.toString()])
+  }
+
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryData)
+  wsSummary['!cols'] = [{ wch: 20 }, { wch: 10 }]
+  XLSX.utils.book_append_sheet(wb, wsSummary, '汇总')
+
+  // 各材料类别Sheet
+  const categoryOrder = ['01_水泥', '02_粉煤灰', '03_矿渣粉', '04_细骨料', '05_粗骨料', '06_外加剂', '07_水']
+
+  for (const sheetName of categoryOrder) {
+    const category = MATERIAL_CATEGORIES[sheetName]
+    if (!category) continue
+
+    const type = category.type
+    const items = grouped[type]
+    if (!items || items.length === 0) continue
+
+    const fields = getFieldsForCategory(sheetName)
+    const headers = fields.map(f => `${f.name} / ${f.english}`)
+
+    // 构建数据行
+    const dataRows = items.map(item => {
+      return fields.map(f => {
+        const value = item[f.english]
+        if (value === undefined || value === null) return ''
+        return value
+      })
+    })
+
+    const wsData = XLSX.utils.aoa_to_sheet([[...headers], ...dataRows])
+    wsData['!cols'] = headers.map(() => ({ wch: 18 }))
+    XLSX.utils.book_append_sheet(wb, wsData, sheetName)
+
+    onProgress && onProgress(50 + categoryOrder.indexOf(sheetName) * 7)
+  }
+
+  const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
+  await require('fs').promises.writeFile(filePath, buf)
+  return filePath
+}
+
+// generateMixDesignTemplate - 生成配合比导入模板Excel
+async function generateMixDesignTemplate(filePath) {
+  const XLSX = require('xlsx')
+  const { MIXDESIGN_SHEETS } = require('./TemplateService')
+
+  const wb = XLSX.utils.book_new()
+
+  // Sheet 1: 说明
+  const descRows = [
+    ['配合比导入模板 - 使用说明'],
+    [''],
+    ['1. 本模板用于批量导入配合比数据'],
+    ['2. Sheet2为配合比方案主数据，Sheet3-5为关联明细'],
+    ['3. 表头格式：中文名称 / 英文名称，请勿修改'],
+    ['4. 必填字段必须填写'],
+    [''],
+    ['Sheet说明：'],
+    ['Sheet名称', '说明'],
+    ['配合比方案', '配合比主数据，包含基本信息和计算结果'],
+    ['材料用量', '各材料用量、单价、金额'],
+    ['骨料分配', '细骨料/粗骨料详细分配'],
+    ['计算参数', '高级计算参数设置'],
+  ]
+
+  const wsDesc = XLSX.utils.aoa_to_sheet(descRows)
+  wsDesc['!cols'] = [{ wch: 20 }, { wch: 40 }]
+  XLSX.utils.book_append_sheet(wb, wsDesc, '说明')
+
+  // Sheets 2-5: 各配合比数据
+  for (const [sheetName, config] of Object.entries(MIXDESIGN_SHEETS)) {
+    const headers = config.fields.map(f => `${f.name} / ${f.english}`)
+    const exampleRow = config.fields.map(f => {
+      if (f.name === '名称') return '示例：C30普通混凝土'
+      if (f.name === '强度等级') return 'C30'
+      if (f.name === '坍落度') return '180'
+      if (f.name === '环境') return '一般环境'
+      return ''
+    })
+
+    const wsData = XLSX.utils.aoa_to_sheet([[...headers], exampleRow])
+    wsData['!cols'] = headers.map(() => ({ wch: 22 }))
+    XLSX.utils.book_append_sheet(wb, wsData, sheetName)
+  }
+
+  const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
+  await require('fs').promises.writeFile(filePath, buf)
+  return filePath
+}
+
+// exportMixDesignsToExcel - 导出配合比为多Sheet Excel
+async function exportMixDesignsToExcel(mixDesigns, filePath, onProgress) {
+  const XLSX = require('xlsx')
+  const { MIXDESIGN_SHEETS } = require('./TemplateService')
+
+  const wb = XLSX.utils.book_new()
+
+  // Sheet 1: 汇总说明
+  const summaryData = [
+    ['配合比导出数据'],
+    [`导出时间：${new Date().toLocaleString()}`],
+    [`共 ${mixDesigns.length} 条记录`],
+  ]
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryData)
+  wsSummary['!cols'] = [{ wch: 20 }]
+  XLSX.utils.book_append_sheet(wb, wsSummary, '汇总')
+
+  // 准备各Sheet数据
+  const sheet2Data = [] // 配合比方案
+  const sheet3Data = [] // 材料用量
+  const sheet4Data = [] // 骨料分配
+  const sheet5Data = [] // 计算参数
+
+  for (const md of mixDesigns) {
+    // Sheet 2: 配合比方案
+    const mainRow = {}
+    const fields2 = MIXDESIGN_SHEETS['配合比方案'].fields
+    for (const f of fields2) {
+      mainRow[`${f.name} / ${f.english}`] = md[f.english] ?? ''
+    }
+    sheet2Data.push(mainRow)
+
+    // Sheet 3: 材料用量 - 从 materialDetails 构建
+    if (md.materialDetails) {
+      const details = md.materialDetails
+      for (const [matType, mat] of Object.entries(details)) {
+        if (mat && typeof mat === 'object' && mat.name) {
+          sheet3Data.push({
+            '配合比名称 / mixDesignName': md.name,
+            '材料类别 / materialType': matType,
+            '材料名称 / materialName': mat.name || '',
+            '规格 / specification': mat.specification || '',
+            '厂家 / manufacturer': mat.manufacturer || '',
+            '用量 / amount': mat.amount || '',
+            '单价 / price': mat.price || '',
+            '成本 / cost': '',
+          })
+        }
+      }
+    }
+
+    // Sheet 4: 骨料分配
+    if (md.fineAggregateBreakdown && Array.isArray(md.fineAggregateBreakdown)) {
+      for (const agg of md.fineAggregateBreakdown) {
+        sheet4Data.push({
+          '配合比名称 / mixDesignName': md.name,
+          '骨料类型 / aggregateType': '细骨料',
+          '材料名称 / materialName': agg.name || '',
+          '规格 / specification': agg.specification || '',
+          '用量 / amount': agg.amount || '',
+          '比例 / ratio': agg.ratio || '',
+        })
+      }
+    }
+    if (md.coarseAggregateBreakdown && Array.isArray(md.coarseAggregateBreakdown)) {
+      for (const agg of md.coarseAggregateBreakdown) {
+        sheet4Data.push({
+          '配合比名称 / mixDesignName': md.name,
+          '骨料类型 / aggregateType': '粗骨料',
+          '材料名称 / materialName': agg.name || '',
+          '规格 / specification': agg.specification || '',
+          '用量 / amount': agg.amount || '',
+          '比例 / ratio': agg.ratio || '',
+        })
+      }
+    }
+
+    // Sheet 5: 计算参数
+    if (md.tempSettings) {
+      const ts = md.tempSettings
+      sheet5Data.push({
+        '配合比名称 / mixDesignName': md.name,
+        '回归系数α_a / regressionAlphaA': ts.regressionAlphaA || '',
+        '回归系数α_b / regressionAlphaB': ts.regressionAlphaB || '',
+        '强度标准差 / strengthStdDev': ts.strengthStdDev || '',
+        'MB值影响 / mbInfluence': ts.mbInfluence || '',
+        '细度影响 / finenessInfluence': ts.finenessInfluence || '',
+        '强度影响 / strengthInfluence': ts.strengthInfluence || '',
+        '目标细度模数基准 / targetFinenessModulusBase': ts.targetFinenessModulusBase || '',
+      })
+    }
+  }
+
+  // 生成各Sheet
+  const ws2 = XLSX.utils.json_to_sheet(sheet2Data)
+  XLSX.utils.book_append_sheet(wb, ws2, '配合比方案')
+
+  const ws3 = XLSX.utils.json_to_sheet(sheet3Data)
+  XLSX.utils.book_append_sheet(wb, ws3, '材料用量')
+
+  const ws4 = XLSX.utils.json_to_sheet(sheet4Data)
+  XLSX.utils.book_append_sheet(wb, ws4, '骨料分配')
+
+  const ws5 = XLSX.utils.json_to_sheet(sheet5Data)
+  XLSX.utils.book_append_sheet(wb, ws5, '计算参数')
+
+  onProgress && onProgress(75)
+
+  const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
+  await require('fs').promises.writeFile(filePath, buf)
+  return filePath
+}
+
 module.exports = {
   COMMON_FIELDS,
   MATERIAL_CATEGORIES,
@@ -322,4 +550,7 @@ module.exports = {
   cnToEnglish,
   englishToCn,
   generateMaterialTemplate,
+  exportMaterialsToExcel,
+  generateMixDesignTemplate,
+  exportMixDesignsToExcel,
 }

@@ -352,6 +352,9 @@ class SystemService {
       if (types.includes('materials') && types.length === 1) {
         // 单独导出原材料：使用多Sheet格式
         await TemplateService.exportMaterialsToExcel(data.materials, filePath, onProgress)
+      } else if (types.includes('mixdesigns') && types.length === 1) {
+        // 单独导出配合比：使用多Sheet格式
+        await TemplateService.exportMixDesignsToExcel(data.mixdesigns, filePath, onProgress)
       } else {
         // 其他情况：使用简单格式（兼容旧版）
         const wb = XLSX.utils.book_new()
@@ -383,8 +386,7 @@ class SystemService {
     if (type === 'materials') {
       return await TemplateService.generateMaterialTemplate(filePath)
     } else if (type === 'mixdesigns') {
-      // 暂时返回错误，配合比模板在Task 4实现
-      throw new Error('配合比模板生成功能开发中')
+      return await TemplateService.generateMixDesignTemplate(filePath)
     }
   }
 
