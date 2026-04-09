@@ -6,8 +6,8 @@ import { DownloadOutlined, UploadOutlined, FileExcelFilled } from '@ant-design/i
 const { Text, Paragraph } = Typography
 
 const IMPORT_TYPES = [
-  { value: 'materials', label: '原材料', desc: '导入水泥、砂石、减水剂等材料数据' },
-  { value: 'mixdesigns', label: '配合比方案', desc: '导入配合比设计结果和方案' },
+  { value: 'materials', label: '原材料', desc: '导入完整原材料数据，支持7种材料类别（水泥、粉煤灰、矿渣粉、细骨料、粗骨料、外加剂、水），包含所有技术指标' },
+  { value: 'mixdesigns', label: '配合比方案', desc: '导入配合比设计结果，包含方案信息、材料用量、骨料分配和计算参数' },
 ]
 
 const ImportWizard = ({ onClose }) => {
@@ -23,9 +23,12 @@ const ImportWizard = ({ onClose }) => {
   // 下载模板
   const handleDownloadTemplate = async () => {
     try {
+      const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
       const dialogResult = await window.electron.ipcRenderer.invoke('show-save-dialog', {
-        title: '保存模板文件',
-        defaultPath: `import_template_${importType}.xlsx`,
+        title: '保存导入模板文件',
+        defaultPath: importType === 'materials'
+          ? `原材料导入模板_${today}.xlsx`
+          : `配合比导入模板_${today}.xlsx`,
         filters: [{ name: 'Excel', extensions: ['xlsx'] }],
       })
       if (dialogResult.data.canceled || !dialogResult.data.filePath) return
@@ -135,9 +138,14 @@ const ImportWizard = ({ onClose }) => {
       {step === 1 && (
         <div style={{ textAlign: 'center', padding: '24px 0' }}>
           <FileExcelFilled style={{ fontSize: 48, color: '#52c41a', marginBottom: 16 }} />
-          <Paragraph>请先下载导入模板，按模板格式填写数据后再上传</Paragraph>
+          <Paragraph>请先下载导入模板</Paragraph>
           <Paragraph type="secondary" style={{ fontSize: 12 }}>
-            模板包含表头说明和示例行，请勿修改表头名称
+            {importType === 'materials'
+              ? '模板包含7个材料类别Sheet，按类别填写数据。所有Sheet共享通用字段（名称、规格、厂家等），每个Sheet还有其特有的技术指标字段。'
+              : '模板包含配合比主数据Sheet和关联明细Sheet。请先填写配合比方案Sheet。'}
+          </Paragraph>
+          <Paragraph type="secondary" style={{ fontSize: 12 }}>
+            <Text strong>重要：</Text>请勿修改表头格式（中文 / 英文）
           </Paragraph>
           <Button
             type="primary"
