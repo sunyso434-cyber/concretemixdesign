@@ -1,9 +1,14 @@
 import React, { useState, useEffect } from 'react'
 import { Card, Form, Input, Select, Button, Table, Space, message, Modal, InputNumber, Divider } from 'antd'
+import { useSelector, useDispatch } from 'react-redux'
+import { setCalculationCache, clearCalculationCache } from '../../store/mixDesignSlice'
 
 const { Option } = Select
 
 const MixDesignPage = () => {
+  const dispatch = useDispatch()
+  const calculationCache = useSelector(state => state.mixDesign.calculationCache)
+
   const [form] = Form.useForm()
   const [materials, setMaterials] = useState([])
   const [calculationResult, setCalculationResult] = useState(null)
@@ -18,6 +23,7 @@ const MixDesignPage = () => {
   const [advancedForm] = Form.useForm()
   const [saveForm] = Form.useForm()
   const [tempSettings, setTempSettings] = useState(null)
+  const [cacheRestored, setCacheRestored] = useState(false)
 
   // 强度等级选项
   const strengthOptions = ['C15', 'C20', 'C25', 'C30', 'C35', 'C40', 'C45', 'C50', 'C55', 'C60']
@@ -167,6 +173,18 @@ const MixDesignPage = () => {
     }
   }, [calculationResult, materials, watchedSand, watchedSandRatio, watchedStrength, tempSettings])
 
+  // 当 adjustedResult 变化时，同步到 Redux 缓存
+  useEffect(() => {
+    if (!cacheRestored) return // 跳过初始渲染和缓存恢复
+    if (adjustedResult) {
+      dispatch(setCalculationCache({
+        calculationResult: calculationResult,
+        adjustedResult: adjustedResult,
+        seriesResults: seriesResults
+      }))
+    }
+  }, [adjustedResult, cacheRestored])
+
   // 加载原材料列表
   const loadMaterials = async () => {
     try {
@@ -188,10 +206,20 @@ const MixDesignPage = () => {
     }
   }
 
-  // 初始化加载
+  // 初始化加载 - 优先从缓存恢复状态
   useEffect(() => {
-    loadMaterials()
-  }, [])
+    if (calculationCache && !cacheRestored) {
+      // 从 Redux 缓存恢复状态
+      setCalculationResult(calculationCache.calculationResult)
+      setAdjustedResult(calculationCache.adjustedResult)
+      setSeriesResults(calculationCache.seriesResults)
+      setCacheRestored(true)
+      console.log('[MixDesignPage] 从缓存恢复状态')
+    } else {
+      // 无缓存，加载材料
+      loadMaterials()
+    }
+  }, [calculationCache, cacheRestored])
 
   // 快速测试计算
   const quickTest = async () => {
@@ -217,6 +245,12 @@ const MixDesignPage = () => {
       
       if (result.success) {
         setCalculationResult(result.data)
+        // 保存到 Redux 缓存
+        dispatch(setCalculationCache({
+          calculationResult: result.data,
+          adjustedResult: null,
+          seriesResults: null
+        }))
         message.success('计算成功！')
       } else {
         message.error(result.error)
@@ -291,6 +325,12 @@ const MixDesignPage = () => {
       
       if (result.success) {
         setCalculationResult(result.data)
+        // 保存到 Redux 缓存
+        dispatch(setCalculationCache({
+          calculationResult: result.data,
+          adjustedResult: null,
+          seriesResults: null
+        }))
         console.log('计算结果:', {
           hasMaterialCosts: !!result.data.materialCosts,
           hasTotalCost: !!result.data.totalCost,
@@ -372,6 +412,12 @@ const MixDesignPage = () => {
 
       if (result.success) {
         setSeriesResults(result.data)
+        // 保存到 Redux 缓存
+        dispatch(setCalculationCache({
+          calculationResult: null,
+          adjustedResult: null,
+          seriesResults: result.data
+        }))
         message.success('系列配合比计算成功')
       } else {
         message.error(result.error)
@@ -574,22 +620,29 @@ const MixDesignPage = () => {
     {
       title: '材料',
       dataIndex: 'material',
-      key: 'material'
+      key: 'material',
+      onHeaderCell: () => ({ scope: 'col' })
     },
     {
       title: '用量',
       dataIndex: 'amount',
-      key: 'amount'
+      key: 'amount',
+      onHeaderCell: () => ({ scope: 'col' })
     },
     {
       title: '单位',
       dataIndex: 'unit',
-      key: 'unit'
+      key: 'unit',
+      onHeaderCell: () => ({ scope: 'col' })
     }
   ]
 
   // 根据类型获取原材料
   const getMaterialsByType = (type) => {
+    // 外加剂/减水剂类型允许匹配两种材料类型
+    if (type === 'superplasticizer') {
+      return materials.filter(m => m.type === '减水剂' || m.type === '外加剂')
+    }
     return materials.filter(m => m.type === materialTypes[type])
   }
 
@@ -741,13 +794,14 @@ const MixDesignPage = () => {
         <div style={{ flex: 2, minWidth: '300px' }}>
           {displayResult ? (
             <Card className="custom-card" title="计算结果">
-              <Table 
-                dataSource={buildCalculationResult()} 
-                columns={columns} 
-                pagination={false} 
+              <Table
+                dataSource={buildCalculationResult()}
+                columns={columns}
+                pagination={false}
                 className="custom-table"
+                aria-label="配合比计算结果"
               />
-              <div style={{ marginTop: 24, padding: '16px', background: '#f9f9f9', borderRadius: '8px' }}>
+              <div style={{ marginTop: 24, padding: '16px', background: 'var(--bg-ash)', borderRadius: '8px' }} role="region" aria-label="配合比参数">
                 <h4 style={{ marginBottom: 16, fontSize: '14px', fontWeight: '600' }}>配合比参数</h4>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <p>配置强度f_cu,0: <strong>{String(displayResult.targetStrength || 0)} MPa</strong></p>
@@ -770,7 +824,7 @@ const MixDesignPage = () => {
         
         <div style={{ flex: 1, minWidth: '300px' }}>
           {displayResult && displayResult.materialCosts && (
-            <Card className="custom-card" title="成本分析">
+            <Card className="custom-card" title="成本分析" role="region" aria-label="成本分析">
               <div style={{ marginTop: 16 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                   <p>水泥成本: <strong>{String((displayResult.materialCosts.cement || 0).toFixed(2))} 元/m³</strong></p>

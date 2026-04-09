@@ -15,24 +15,34 @@ const BackgroundTaskBar = () => {
   useEffect(() => {
     // 初始加载所有任务
     const loadTasks = async () => {
-      const result = await window.electron.ipcRenderer.invoke('get-all-tasks')
-      if (result.success) {
-        setTasks(result.data.filter(t => t.status === 'running' || t.status === 'completed'))
+      try {
+        const result = await window.electron.ipcRenderer.invoke('get-all-tasks')
+        if (result && result.success && Array.isArray(result.data)) {
+          setTasks(result.data.filter(t => t && (t.status === 'running' || t.status === 'completed')))
+        }
+      } catch (err) {
+        console.error('Load tasks error:', err)
       }
     }
     loadTasks()
 
-    // 监听进度更新
-    const handler = (event, task) => {
+    // 监听进度更新 - 直接接收展开的参数
+    const handler = (...args) => {
       try {
+        // args[0] 应该是 task 对象
+        const task = args[0]
+        if (!task || !task.id) {
+          console.error('Invalid task received:', task)
+          return
+        }
         setTasks(prev => {
-          const idx = prev.findIndex(t => t.id === task.id)
+          const idx = prev.findIndex(t => t && t.id === task.id)
           if (idx >= 0) {
             const updated = [...prev]
             updated[idx] = task
             if (task.status === 'completed') {
               setTimeout(() => {
-                setTasks(curr => curr.filter(t => t.id !== task.id))
+                setTasks(curr => curr.filter(t => t && t.id !== task.id))
                 window.electron.ipcRenderer.invoke('clear-task', task.id)
               }, 5000)
             }
@@ -46,9 +56,9 @@ const BackgroundTaskBar = () => {
       }
     }
 
-    window.electron.ipcRenderer.on('background-task-progress', handler)
+    const listenerId = window.electron.ipcRenderer.on('background-task-progress', handler)
     return () => {
-      window.electron.ipcRenderer.removeListener('background-task-progress', handler)
+      window.electron.ipcRenderer.removeListener(listenerId)
     }
   }, [])
 
@@ -103,7 +113,12 @@ const BackgroundTaskBar = () => {
             size="small"
           />
           {task.result && task.status === 'completed' && (
-            <Text type="secondary" style={{ fontSize: 12 }}>{task.result}</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {task.type === 'import' && task.result.count ? `导入成功：${task.result.count} 条` :
+               task.type === 'export' && task.result ? `导出成功` :
+               task.type === 'restore' ? `恢复成功` :
+               typeof task.result === 'string' ? task.result : `完成`}
+            </Text>
           )}
           {task.error && task.status === 'failed' && (
             <Text type="danger" style={{ fontSize: 12 }}>{task.error}</Text>

@@ -145,13 +145,18 @@ class SystemHandler {
 
     // 启动恢复任务
     ipcMain.handle('start-restore-task', async (_, backupPath) => {
+      console.log('[SystemHandler] start-restore-task called with path:', backupPath)
       try {
         const taskId = backgroundTaskService.startTask('restore', '正在恢复数据库...', async (onProgress) => {
+          console.log('[SystemHandler] Restore task started, calling restoreDatabaseFromFile')
           await systemService.restoreDatabaseFromFile(backupPath, onProgress)
+          console.log('[SystemHandler] restoreDatabaseFromFile completed')
           return true
         })
+        console.log('[SystemHandler] Restore task created with ID:', taskId)
         return { success: true, data: { taskId } }
       } catch (error) {
+        console.error('[SystemHandler] start-restore-task error:', error)
         return { success: false, error: error.message }
       }
     })

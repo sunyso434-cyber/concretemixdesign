@@ -2,9 +2,85 @@ const MixDesignService = require('./MixDesignService')
 const OptimizationHistory = require('../db/models/OptimizationHistory')
 
 class MixDesignOptimizer {
-  constructor() {
+  constructor(progressCallback = null) {
     // MixDesignService 已经导出为实例，直接使用
     this.mixDesignService = MixDesignService
+    this.progressCallback = progressCallback
+  }
+
+  /**
+   * 报告进度
+   * @param {string} phase - 阶段名称
+   * @param {number} current - 当前进度
+   * @param {number} total - 总数
+   * @param {string} message - 消息
+   */
+  _reportProgress(phase, current, total, message = '') {
+    if (this.progressCallback) {
+      this.progressCallback({ phase, current, total, message })
+    }
+  }
+
+  /**
+   * 处理单个任务（用于并行计算）
+   * @param {Object} task - 任务参数
+   * @param {Object} screeningMaterials - 筛选用材料对象
+   * @param {Object} screeningSp - 筛选用减水剂
+   * @param {number} waterRatio - 水胶比
+   * @param {Object} constraints - 约束条件
+   * @param {Object} userLimits - 用户限制
+   * @returns {Object|null} 计算结果或null
+   */
+  async _processSingleTask(task, screeningMaterials, screeningSp, waterRatio, constraints, userLimits) {
+    const { flyAshMat, slagMat, flyAsh, slag, fineAggregateRatio } = task
+
+    try {
+      // 构建混合砂材料
+      const iterationMaterials = this._buildIterationMaterials(
+        { ...screeningMaterials, flyAsh: flyAshMat, slag: slagMat },
+        { sand: fineAggregateRatio }
+      )
+
+      // 公式计算砂率（水胶比、坍落度、砂细度模数）
+      const blendedSand = iterationMaterials.sand
+      const finenessModulus = blendedSand?.finenessModulus || 2.8
+      const calculatedSandRatio = this.mixDesignService.calculateSandRatio(
+        waterRatio,
+        constraints.slump,
+        finenessModulus,
+        'gravel'
+      )
+
+      const calcParams = {
+        strength: constraints.strength,
+        slump: constraints.slump,
+        environment: constraints.environment,
+        waterRatio: waterRatio,
+        flyAshDosage: flyAsh,
+        slagDosage: slag,
+        sandRatio: calculatedSandRatio * 100, // 转换为百分比
+        materials: iterationMaterials,
+        tempSettings: constraints.tempSettings
+      }
+
+      const result = await this.mixDesignService.calculateMixDesign(calcParams)
+      const isValid = this._validateConstraints(result, constraints, userLimits)
+
+      if (isValid) {
+        return {
+          ...result,
+          params: { flyAsh, slag, sandRatio: calculatedSandRatio * 100, fineAggregateRatio },
+          materialSelection: {
+            flyAsh: flyAshMat,
+            slag: slagMat,
+            superplasticizer: screeningSp
+          }
+        }
+      }
+    } catch (error) {
+      // 忽略计算失败的组合
+    }
+    return null
   }
 
   /**
@@ -20,10 +96,16 @@ class MixDesignOptimizer {
    * @param {number[]} params.userLimits.slagRange - 矿渣粉掺量范围 [%]，如 [0, 20]
    * @param {number[]} params.userLimits.sandRatioRange - 砂率范围 [%]，如 [35, 42]
    * @param {number} params.userLimits.gridStep - 网格搜索步长，默认 5
+   * @param {Object} cancellationToken - 取消令牌 { cancelled: boolean }
    * @returns {Promise<Object>} 最优配合比方案
    */
-  async optimizeMixDesign(params) {
+  async optimizeMixDesign(params, cancellationToken = null) {
     const { constraints, userLimits = {} } = params
+
+    // 检查是否已取消
+    if (cancellationToken?.cancelled) {
+      throw new Error('cancelled')
+    }
 
     console.log('[优化器] 开始优化（分层过滤策略）...', { constraints, userLimits })
 
@@ -31,10 +113,9 @@ class MixDesignOptimizer {
     const waterRatioResult = await this._calculateWaterRatio(constraints, constraints.materials)
     console.log('[优化器] 水胶比:', waterRatioResult.waterRatio)
 
-    // 2. 确定网格搜索范围
+    // 2. 确定网格搜索范围（砂率由公式计算，不搜索）
     const flyAshRange = this._createRange(userLimits.flyAshRange || [0, 30], userLimits.gridStep || 5)
     const slagRange = this._createRange(userLimits.slagRange || [0, 20], userLimits.gridStep || 5)
-    const sandRatioRange = this._createRange(userLimits.sandRatioRange || [35, 42], 1) // 砂率步长1%
 
     // 3. 预处理材料（不过滤，只是浅拷贝）
     const materials = this._prepareMaterials(constraints.materials)
@@ -47,15 +128,15 @@ class MixDesignOptimizer {
     }
 
     // 5. 第一层粗筛
-    const top5Combinations = this._firstLayerFilter({
+    const top5Combinations = await this._firstLayerFilter({
       materials,
       waterRatio: waterRatioResult.waterRatio,
       flyAshRange,
       slagRange,
-      sandRatioRange,
       fineAggregateRatios,
       constraints,
-      userLimits
+      userLimits,
+      cancellationToken
     })
 
     if (top5Combinations.length === 0) {
@@ -63,13 +144,15 @@ class MixDesignOptimizer {
     }
 
     // 6. 第二层细筛
-    const { bestSolution, alternatives, allResults } = this._secondLayerRefine(
-      { materials, waterRatio: waterRatioResult.waterRatio, constraints, userLimits },
+    const { bestSolution, alternatives, allResults } = await this._secondLayerRefine(
+      { materials, waterRatio: waterRatioResult.waterRatio, constraints, userLimits, cancellationToken },
       top5Combinations
     )
 
     if (!bestSolution) {
-      throw new Error('第二层细筛未找到满足约束条件的配合比方案，请放宽约束或更换原材料')
+      console.log('[优化器] 警告：未找到有效方案，使用第一层结果')
+      // 第二层细筛已有回退逻辑，理论上不会走到这里
+      throw new Error('未找到满足约束条件的配合比方案，请放宽约束或更换原材料')
     }
 
     console.log('[优化器] 优化完成，总评估组合数:', allResults.length)
@@ -212,23 +295,32 @@ class MixDesignOptimizer {
    * @param {number} params.waterRatio - 水胶比
    * @param {Array} params.flyAshRange - 粉煤灰掺量范围
    * @param {Array} params.slagRange - 矿渣粉掺量范围
-   * @param {Array} params.sandRatioRange - 砂率范围
    * @param {Array} params.fineAggregateRatios - 细骨料比例组合
    * @param {Object} params.constraints - 性能约束
    * @param {Object} params.userLimits - 用户限制
    * @returns {Array} Top5 组合（按总成本排序）
    */
   async _firstLayerFilter(params) {
-    const { materials, waterRatio, flyAshRange, slagRange, sandRatioRange, fineAggregateRatios, constraints, userLimits } = params
+    const { materials, waterRatio, flyAshRange, slagRange, fineAggregateRatios, constraints, userLimits } = params
 
-    // 1. 选择筛选用减水剂（最便宜的一种）
+    // 1. 选择筛选用减水剂（最便宜的一种，如果没有则使用默认）
     let screeningSp = null
     if (materials.superplasticizer && Array.isArray(materials.superplasticizer) && materials.superplasticizer.length > 0) {
       screeningSp = materials.superplasticizer.reduce((min, sp) =>
         (sp.price || 0) < (min.price || 0) ? sp : min
       )
-    } else {
+    } else if (materials.superplasticizer && typeof materials.superplasticizer === 'object') {
       screeningSp = materials.superplasticizer
+    } else {
+      // 如果没有减水剂数据，创建一个默认的
+      console.log('[第一层粗筛] 警告：没有减水剂数据，使用默认减水剂')
+      screeningSp = {
+        name: '默认减水剂',
+        price: 5000,
+        waterReducingRate: 25,
+        recommendedDosage: 1.5,
+        waterReducingRatePer01Dosage: 2.0
+      }
     }
 
     console.log('[第一层粗筛] 筛选减水剂:', screeningSp?.name, '价格:', screeningSp?.price)
@@ -239,62 +331,61 @@ class MixDesignOptimizer {
       superplasticizer: screeningSp
     }
 
-    // 3. 遍历所有组合
+    // 3. 遍历所有组合（并行批次处理）
     const results = []
     const flyAshList = this._getMaterialList(materials.flyAsh)
     const slagList = this._getMaterialList(materials.slag)
 
+    console.log('[第一层粗筛] flyAshList数量:', flyAshList.length, ', slagList数量:', slagList.length)
+    console.log('[第一层粗筛] flyAshRange:', flyAshRange, ', slagRange:', slagRange)
+    console.log('[第一层粗筛] fineAggregateRatios数量:', fineAggregateRatios.length)
+
+    // 构建所有任务（砂率由公式计算，不搜索）
+    const tasks = []
     for (const flyAshMat of flyAshList) {
+      if (!flyAshMat) continue
       for (const slagMat of slagList) {
+        if (!slagMat) continue
         for (const flyAsh of flyAshRange) {
           for (const slag of slagRange) {
-            // 检查掺合料总掺量不超过50%
             if (flyAsh + slag > 50) continue
-
-            for (const sandRatio of sandRatioRange) {
-              for (const fineAggregateRatio of fineAggregateRatios) {
-                try {
-                  // 构建当前迭代的材料对象
-                  const iterationMaterials = this._buildIterationMaterials(
-                    { ...screeningMaterials, flyAsh: flyAshMat, slag: slagMat },
-                    { sand: fineAggregateRatio }
-                  )
-
-                  const calcParams = {
-                    strength: constraints.strength,
-                    slump: constraints.slump,
-                    environment: constraints.environment,
-                    waterRatio: waterRatio,
-                    flyAshDosage: flyAsh,
-                    slagDosage: slag,
-                    sandRatio: sandRatio,
-                    materials: iterationMaterials,
-                    tempSettings: constraints.tempSettings
-                  }
-
-                  const result = await this.mixDesignService.calculateMixDesign(calcParams)
-                  const isValid = this._validateConstraints(result, constraints, userLimits)
-
-                  if (isValid) {
-                    results.push({
-                      ...result,
-                      params: { flyAsh, slag, sandRatio, fineAggregateRatio },
-                      materialSelection: {
-                        flyAsh: flyAshMat,
-                        slag: slagMat,
-                        superplasticizer: screeningSp
-                      }
-                    })
-                  }
-                } catch (error) {
-                  // 忽略计算失败的组合
-                }
-              }
+            for (const fineAggregateRatio of fineAggregateRatios) {
+              tasks.push({ flyAshMat, slagMat, flyAsh, slag, fineAggregateRatio })
             }
           }
         }
       }
     }
+
+    console.log('[第一层粗筛] 总任务数:', tasks.length)
+
+    // 并行批次处理
+    const BATCH_SIZE = 50
+    let completed = 0
+    let validCount = 0
+
+    for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
+      // 检查是否已取消
+      if (params.cancellationToken?.cancelled) {
+        throw new Error('cancelled')
+      }
+
+      const batch = tasks.slice(i, i + BATCH_SIZE)
+      const batchPromises = batch.map(task => this._processSingleTask(task, screeningMaterials, screeningSp, waterRatio, constraints, userLimits))
+      const batchResults = await Promise.all(batchPromises)
+
+      for (const result of batchResults) {
+        if (result) {
+          results.push(result)
+          validCount++
+        }
+      }
+
+      completed += batch.length
+      this._reportProgress('第一层粗筛', completed, tasks.length, `已处理 ${completed}/${tasks.length}`)
+    }
+
+    console.log('[第一层粗筛] 完成，总迭代次数:', tasks.length, ', 有效组合:', validCount)
 
     // 4. 按总成本排序，保留Top5
     results.sort((a, b) => a.totalCost - b.totalCost)
@@ -323,12 +414,24 @@ class MixDesignOptimizer {
     let bestCost = Infinity
     const allResults = []
 
+    console.log('[第二层细筛] 开始，候选减水剂数量:', spList.length, ', Top5组合数:', top5Combinations.length)
+
     for (const combo of top5Combinations) {
+      // 检查是否已取消
+      if (params.cancellationToken?.cancelled) {
+        throw new Error('cancelled')
+      }
+
       const { params: comboParams, materialSelection } = combo
       const { flyAsh, slag, sandRatio, fineAggregateRatio } = comboParams
 
       // 尝试每种减水剂
       for (const spMat of spList) {
+        if (!spMat) {
+          console.log('[第二层细筛] 跳过无效减水剂')
+          continue
+        }
+
         try {
           // 构建当前迭代的材料对象
           const iterationMaterials = this._buildIterationMaterials(
@@ -351,6 +454,14 @@ class MixDesignOptimizer {
           const result = await this.mixDesignService.calculateMixDesign(calcParams)
           const isValid = this._validateConstraints(result, constraints, userLimits)
 
+          console.log('[第二层细筛] 计算结果:', {
+            flyAsh: materialSelection.flyAsh?.name,
+            slag: materialSelection.slag?.name,
+            sp: spMat?.name,
+            totalCost: result.totalCost,
+            isValid
+          })
+
           if (isValid) {
             allResults.push({
               ...result,
@@ -365,15 +476,41 @@ class MixDesignOptimizer {
             if (result.totalCost < bestCost) {
               bestCost = result.totalCost
               bestSolution = allResults[allResults.length - 1]
+              console.log('[第二层细筛] 更新最佳方案:', { cost: result.totalCost, flyAsh: materialSelection.flyAsh?.name, slag: materialSelection.slag?.name, sp: spMat?.name })
             }
+          } else {
+            console.log('[第二层细筛] 组合验证失败:', {
+              flyAsh: materialSelection.flyAsh?.name,
+              slag: materialSelection.slag?.name,
+              sp: spMat?.name,
+              totalCementitious: (result.materials?.cement || 0) + (result.materials?.flyAsh || 0) + (result.materials?.slag || 0),
+              waterAmount: result.materials?.water
+            })
           }
         } catch (error) {
+          console.log('[第二层细筛] 计算异常:', error.message)
           // 忽略计算失败的组合
         }
       }
     }
 
-    console.log('[第二层细筛] 完成，有效组合:', allResults.length)
+    console.log('[第二层细筛] 完成，allResults:', allResults.length, ', bestSolution:', bestSolution ? '有值' : 'null')
+
+    // 如果第二层没有找到有效方案，回退到第一层的Top5（使用筛选减水剂）
+    if (allResults.length === 0 && top5Combinations.length > 0) {
+      console.log('[第二层细筛] 未找到有效方案，回退到第一层结果')
+
+      // 使用第一层的Top1作为最佳方案
+      const fallback = top5Combinations[0]
+      allResults.push(fallback)
+      bestSolution = fallback
+
+      // 对其他Top4方案使用第一层的减水剂重新计算
+      for (let i = 1; i < Math.min(top5Combinations.length, 5); i++) {
+        const combo = top5Combinations[i]
+        allResults.push(combo)
+      }
+    }
 
     // 按总成本排序，返回Top5备选方案
     allResults.sort((a, b) => a.totalCost - b.totalCost)

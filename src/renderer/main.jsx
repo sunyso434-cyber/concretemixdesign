@@ -945,9 +945,14 @@ if (!window.electron) {
   console.log('已加载模拟Electron API（包含完整JGJ 55标准计算），用于浏览器开发测试')
 }
 
+import { Provider } from 'react-redux'
+import store from '../store/index'
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <Provider store={store}>
+      <App />
+    </Provider>
   </React.StrictMode>,
 )
 

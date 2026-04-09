@@ -1,15 +1,22 @@
 import React, { useState, useEffect } from 'react'
-import { Card, Form, Input, Select, Button, Table, Space, message, Divider, Row, Col, Tag, InputNumber } from 'antd'
+import { Card, Form, Input, Select, Button, Table, Space, message, Divider, Row, Col, Tag, InputNumber, Progress } from 'antd'
 import { Link } from 'react-router-dom'
+import { useSelector, useDispatch } from 'react-redux'
+import { setOptimizationTask, clearOptimizationTask } from '../../store/mixDesignSlice'
 
 const { Option } = Select
 const { Group: InputNumberGroup } = InputNumber
 
 const OptimizationPage = () => {
+  const dispatch = useDispatch()
+  const optimizationTask = useSelector(state => state.mixDesign.optimizationTask)
+
   const [form] = Form.useForm()
   const [materials, setMaterials] = useState([])
   const [optimizing, setOptimizing] = useState(false)
   const [result, setResult] = useState(null)
+  const [progress, setProgress] = useState(null)
+  const [currentTaskId, setCurrentTaskId] = useState(null)
 
   // 强度等级选项
   const strengthOptions = ['C15', 'C20', 'C25', 'C30', 'C35', 'C40', 'C45', 'C50', 'C55', 'C60']
@@ -33,10 +40,75 @@ const OptimizationPage = () => {
     { value: 210, label: '210mm' }
   ]
 
-  // 加载原材料
+  // 加载原材料和恢复优化状态
   useEffect(() => {
     loadMaterials()
-  }, [])
+
+    // 检查是否有正在进行的优化任务
+    if (optimizationTask && optimizationTask.status === 'running' && optimizationTask.taskId) {
+      setOptimizing(true)
+      setCurrentTaskId(optimizationTask.taskId)
+      // 查询任务状态
+      window.electronAPI.invoke('getOptimizationTaskStatus', optimizationTask.taskId)
+        .then(res => {
+          if (res.success) {
+            if (res.status === 'completed' && res.result) {
+              setResult(res.result.bestSolution)
+              dispatch(clearOptimizationTask())
+              message.success('优化完成！找到最低成本方案')
+            } else if (res.status === 'failed') {
+              dispatch(clearOptimizationTask())
+              message.error('优化失败')
+            } else if (res.status === 'cancelled') {
+              dispatch(clearOptimizationTask())
+              message.info('优化已取消')
+            }
+            setOptimizing(false)
+            setCurrentTaskId(null)
+          }
+        })
+    }
+
+    // 监听优化进度事件
+    const handleProgress = (progress) => {
+      setProgress(progress)
+    }
+
+    // 监听优化完成事件
+    const handleCompleted = (data) => {
+      console.log('[优化页面] 优化完成:', data)
+      setProgress(null)
+      setOptimizing(false)
+      if (data.result && data.result.bestSolution) {
+        setResult(data.result.bestSolution)
+        dispatch(clearOptimizationTask())
+        message.success('优化完成！找到最低成本方案')
+      }
+      setCurrentTaskId(null)
+    }
+
+    // 监听优化失败事件
+    const handleFailed = (data) => {
+      console.log('[优化页面] 优化失败:', data)
+      setProgress(null)
+      setOptimizing(false)
+      dispatch(clearOptimizationTask())
+      if (data.error !== 'cancelled') {
+        message.error('优化失败：' + data.error)
+      }
+      setCurrentTaskId(null)
+    }
+
+    window.electronAPI.on('optimization-progress', handleProgress)
+    window.electronAPI.on('optimization-completed', handleCompleted)
+    window.electronAPI.on('optimization-failed', handleFailed)
+
+    return () => {
+      window.electronAPI.removeAllListeners('optimization-progress')
+      window.electronAPI.removeAllListeners('optimization-completed')
+      window.electronAPI.removeAllListeners('optimization-failed')
+    }
+  }, [optimizationTask])
 
   const loadMaterials = async () => {
     try {
@@ -143,25 +215,49 @@ const OptimizationPage = () => {
 
       console.log('[优化页面] 发送优化请求:', params)
 
-      const res = await window.electronAPI.invoke('optimizeMixDesign', params)
+      // 使用后台模式，允许用户导航到其他界面
+      const res = await window.electronAPI.invoke('optimizeMixDesign', { ...params, background: true })
 
       console.log('[优化页面] 收到优化结果:', res)
 
       if (res.success) {
-        setResult(res.data.bestSolution)
-        message.success('优化完成！找到最低成本方案')
+        // 保存任务ID到 Redux
+        setCurrentTaskId(res.taskId)
+        dispatch(setOptimizationTask({ taskId: res.taskId, status: 'running' }))
+        message.info('优化已开始，您可在优化页面查看进度，也可先操作其他功能')
       } else {
         message.error('优化失败：' + res.error)
+        setOptimizing(false)
       }
     } catch (error) {
       console.error('[优化页面] 优化失败:', error)
+      setOptimizing(false)
+      dispatch(clearOptimizationTask())
       if (error.message?.includes('未找到满足约束条件')) {
         message.error('未找到满足约束条件的方案，请放宽约束或更换原材料')
       } else {
         message.error('优化失败：' + error.message)
       }
-    } finally {
-      setOptimizing(false)
+    }
+  }
+
+  // 取消优化
+  const handleCancel = async () => {
+    if (!currentTaskId) return
+
+    try {
+      const res = await window.electronAPI.invoke('cancelOptimization', currentTaskId)
+      if (res.success) {
+        message.info('优化已取消')
+        dispatch(clearOptimizationTask())
+        setOptimizing(false)
+        setCurrentTaskId(null)
+        setProgress(null)
+      } else {
+        message.error('取消失败：' + res.error)
+      }
+    } catch (error) {
+      message.error('取消失败：' + error.message)
     }
   }
 
@@ -605,24 +701,55 @@ const OptimizationPage = () => {
 
           <Divider />
 
+          {/* 优化进度条 */}
+          {optimizing && progress && (
+            <div style={{ marginBottom: 16 }}>
+              <Progress
+                percent={Math.round((progress.current / progress.total) * 100)}
+                status="active"
+                role="status"
+                aria-live="polite"
+                format={(percent) => `${progress.phase || '计算中'} ${progress.current}/${progress.total} (${percent}%)`}
+              />
+            </div>
+          )}
+
           <Form.Item>
-            <Space>
-              <Button
-                type="primary"
-                size="large"
-                onClick={handleOptimize}
-                loading={optimizing}
-              >
-                {optimizing ? '优化计算中...' : '开始优化'}
-              </Button>
-              {result && (
+            <Space direction="vertical" align="start">
+              <Space>
                 <Button
                   type="primary"
                   size="large"
-                  onClick={handleSaveBest}
+                  onClick={handleOptimize}
+                  disabled={optimizing}
                 >
-                  保存最优方案
+                  {optimizing ? '优化计算中...' : '开始优化'}
                 </Button>
+                {optimizing && currentTaskId && (
+                  <Button
+                    size="large"
+                    onClick={handleCancel}
+                  >
+                    取消优化
+                  </Button>
+                )}
+                {result && (
+                  <Button
+                    type="primary"
+                    size="large"
+                    onClick={handleSaveBest}
+                  >
+                    保存最优方案
+                  </Button>
+                )}
+              </Space>
+              {progress && (
+                <div style={{ marginTop: 8, minWidth: 300 }}>
+                  <div style={{ color: '#666', marginBottom: 4 }}>
+                    {progress.message || '优化中...'} ({progress.current}/{progress.total})
+                  </div>
+                  <Progress percent={Math.round((progress.current / progress.total) * 100)} status="active" />
+                </div>
               )}
             </Space>
           </Form.Item>
@@ -631,30 +758,30 @@ const OptimizationPage = () => {
 
       {/* 优化结果 */}
       {result && (
-        <Card className="custom-card" title="最优方案" style={{ marginTop: 16 }}>
+        <Card className="custom-card" title="最优方案" style={{ marginTop: 16 }} role="region" aria-label="优化结果">
           <Row gutter={16}>
             <Col span={8}>
-              <div style={{ textAlign: 'center', padding: '20px', background: '#f0f8ff', borderRadius: 8 }}>
-                <div style={{ fontSize: '28px', fontWeight: 'bold', color: '#1890ff' }}>
+              <div className="stat-block stat-block-cost">
+                <div className="stat-block-value">
                   ¥{result.totalCost?.toFixed(2)}
                 </div>
-                <div style={{ color: '#666', marginTop: 8 }}>每立方米成本</div>
+                <div className="stat-block-sub">每立方米成本</div>
               </div>
             </Col>
             <Col span={8}>
-              <div style={{ textAlign: 'center', padding: '20px', background: '#f6ffed', borderRadius: 8 }}>
-                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#52c41a' }}>
+              <div className="stat-block stat-block-strength">
+                <div className="stat-block-value">
                   水胶比：{result.waterRatio?.toFixed(3)}
                 </div>
-                <div style={{ color: '#666', marginTop: 8 }}>砂率：{(result.sandRatio * 100)?.toFixed(1)}%</div>
+                <div className="stat-block-sub">砂率：{(result.sandRatio * 100)?.toFixed(1)}%</div>
               </div>
             </Col>
             <Col span={8}>
-              <div style={{ textAlign: 'center', padding: '20px', background: '#fff7e6', borderRadius: 8 }}>
-                <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fa8c16' }}>
+              <div className="stat-block stat-block-density">
+                <div className="stat-block-value">
                   {result.density?.toFixed(0)} kg/m³
                 </div>
-                <div style={{ color: '#666', marginTop: 8 }}>表观密度</div>
+                <div className="stat-block-sub">表观密度</div>
               </div>
             </Col>
           </Row>

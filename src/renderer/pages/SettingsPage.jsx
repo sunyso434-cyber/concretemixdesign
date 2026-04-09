@@ -39,6 +39,21 @@ const SettingsPage = () => {
       }
     }
     loadParams()
+
+    // 监听数据刷新事件（备份/恢复/导入/导出操作完成后）
+    const handleDataRefresh = () => {
+      try {
+        loadParams()
+        message.info('数据已刷新')
+      } catch (err) {
+        console.error('数据刷新失败:', err)
+        message.error('数据刷新失败')
+      }
+    }
+    const listenerId = window.electron.ipcRenderer.on('data-refresh', handleDataRefresh)
+    return () => {
+      window.electron.ipcRenderer.removeListener(listenerId)
+    }
   }, [])
 
   const getCurrentTabParams = useCallback(() => {

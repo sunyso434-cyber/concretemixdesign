@@ -1201,18 +1201,35 @@ class MixDesignService {
     }
   }
 
-  // 计算砂率
-  calculateSandRatio(slump) {
-    // 简化计算，实际应根据骨料级配和坍落度计算
-    if (slump <= 80) {
-      return 0.38
-    } else if (slump <= 120) {
-      return 0.40
-    } else if (slump <= 160) {
-      return 0.42
-    } else {
-      return 0.44
-    }
+  /**
+   * 计算砂率（基于JGJ 55-2011标准）
+   * @param {number} waterRatio - 水胶比
+   * @param {number} slump - 坍落度(mm)
+   * @param {number} finenessModulus - 砂细度模数（默认2.8）
+   * @param {string} aggregateType - 骨料类型，'gravel'碎石或'cobble'卵石（默认gravel）
+   * @returns {number} 砂率（小数形式，如0.38表示38%）
+   */
+  calculateSandRatio(waterRatio, slump, finenessModulus = 2.8, aggregateType = 'gravel') {
+    // JGJ 55-2011 碎石混凝土砂率表（简化公式）
+    // 基准砂率33%（水胶比0.40，坍落度30-50mm，砂细度模数2.8）
+    // 水胶比每增加0.05，砂率增加1%
+    // 坍落度每增加20mm，砂率增加1%
+    // 砂细度模数每增加0.25，砂率减少0.5%
+
+    const baseSandRatio = 0.33 // 基准砂率33%
+    const waterRatioEffect = (waterRatio - 0.40) * 2.0 // 水胶比影响，每增加0.05砂率增加1%
+    const slumpEffect = ((slump - 60) / 20) * 0.01 // 坍落度影响，每增加20mm砂率增加1%
+    const fmEffect = -(finenessModulus - 2.8) * 0.02 // 细度模数影响，每增加0.25砂率减少0.5%
+
+    // 卵石混凝土砂率比碎石高约2-3%
+    const aggregateBonus = aggregateType === 'cobble' ? 0.025 : 0
+
+    let sandRatio = baseSandRatio + waterRatioEffect + slumpEffect + fmEffect + aggregateBonus
+
+    // 限制在合理范围内
+    sandRatio = Math.max(0.28, Math.min(0.50, sandRatio))
+
+    return sandRatio
   }
 
   // 验证配合比

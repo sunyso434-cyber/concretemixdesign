@@ -33,5 +33,23 @@ const sequelize = new Sequelize({
   logging: false
 })
 
-// 导出sequelize实例
-module.exports = { sequelize }
+// 关闭所有连接（用于恢复数据库后刷新连接）
+async function closeAllConnections() {
+  try {
+    const pool = sequelize.connectionManager.getConnection()
+    if (pool && pool.close) {
+      pool.close()
+    }
+  } catch (e) {
+    // 忽略获取连接池的错误
+  }
+  // 强制关闭所有连接
+  try {
+    await sequelize.close()
+  } catch (e) {
+    // 忽略关闭错误
+  }
+}
+
+// 导出sequelize实例和关闭函数
+module.exports = { sequelize, closeAllConnections }

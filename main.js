@@ -55,8 +55,8 @@ async function initializeDatabase() {
     const MixDesign = require('./src/main/db/models/MixDesign')
     const SystemParam = require('./src/main/db/models/SystemParam')
     require('./src/main/db/models/OptimizationHistory') // 新增：优化历史记录模型
-    await sequelize.sync({ force: true })
-    console.log('数据库表重建完成')
+    await sequelize.sync()
+    console.log('数据库表同步完成')
     // 初始化预设材料
     const MaterialService = require('./src/main/services/MaterialService')
     await MaterialService.initDefaultMaterials()
@@ -71,8 +71,7 @@ async function initializeDatabase() {
 
 // 创建窗口
 async function createWindow() {
-  // 等待数据库初始化完成
-  await initializeDatabase()
+  // 数据库已在 app.whenReady 中初始化，这里不需要再初始化
   const mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -116,14 +115,28 @@ async function createWindow() {
     console.log('渲染进程控制台:', message)
   })
   
-  // 监听渲染进程崩溃事件
+  // 监听渲染进程崩溃事件 - 尝试恢复
   mainWindow.webContents.on('render-process-crashed', (event, killed) => {
     console.error('渲染进程崩溃:', killed)
+    // 尝试恢复窗口
+    if (!mainWindow.isDestroyed()) {
+      console.log('尝试重新加载窗口...')
+      mainWindow.reload()
+    }
   })
 
-  // 监听渲染进程消失事件
+  // 监听渲染进程消失事件 - 尝试恢复
   mainWindow.webContents.on('render-process-gone', (event, details) => {
     console.error('渲染进程消失:', details.reason, details.exitCode)
+    // 如果渲染进程异常退出（非正常关闭），尝试恢复
+    if (details.reason !== 'clean-exit' && !mainWindow.isDestroyed()) {
+      console.log('渲染进程异常退出，尝试重新加载...')
+      setTimeout(() => {
+        if (!mainWindow.isDestroyed()) {
+          mainWindow.reload()
+        }
+      }, 500)
+    }
   })
 
   // 监听未捕获的页面错误

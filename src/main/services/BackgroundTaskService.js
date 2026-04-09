@@ -31,11 +31,41 @@ class BackgroundTaskService {
    */
   _notifyRenderer(task) {
     try {
-      if (this.webContents && !this.webContents.isDestroyed()) {
-        this.webContents.send('background-task-progress', task)
+      if (!this.webContents) {
+        console.error('[BackgroundTaskService] webContents is null, cannot send:', task.type)
+        return
       }
+      if (this.webContents.isDestroyed()) {
+        console.error('[BackgroundTaskService] webContents is destroyed, cannot send:', task.type)
+        return
+      }
+      this.webContents.send('background-task-progress', task)
+      console.log('[BackgroundTaskService] Sent task update to renderer:', task.type, task.status)
     } catch (err) {
-      console.error('Notify renderer error:', err)
+      console.error('[BackgroundTaskService] Notify renderer error:', err)
+    }
+  }
+
+  /**
+   * 通知渲染进程刷新数据（恢复/导入/导出操作后）
+   * @param {string} taskType - 任务类型
+   */
+  _notifyDataRefresh(taskType) {
+    // 仅恢复、导入、导出操作需要刷新数据
+    if (!['restore', 'import', 'export'].includes(taskType)) return
+    try {
+      if (!this.webContents) {
+        console.error('[BackgroundTaskService] webContents is null, cannot send data-refresh')
+        return
+      }
+      if (this.webContents.isDestroyed()) {
+        console.error('[BackgroundTaskService] webContents is destroyed, cannot send data-refresh')
+        return
+      }
+      this.webContents.send('data-refresh', { type: taskType })
+      console.log('[BackgroundTaskService] Sent data-refresh to renderer:', taskType)
+    } catch (err) {
+      console.error('[BackgroundTaskService] Notify data refresh error:', err)
     }
   }
 
@@ -92,16 +122,20 @@ class BackgroundTaskService {
     }
 
     try {
+      console.log(`[BackgroundTaskService] Starting task ${id} of type ${task.type}`)
       const result = await workerFn(onProgress)
       const t = this.tasks.get(id)
       if (t) {
         t.status = 'completed'
         t.progress = 100
         t.result = result
+        console.log(`[BackgroundTaskService] Task ${id} completed successfully`)
         this._notifyRenderer(t)
-        // 不再发送系统通知，避免可能的渲染问题
+        // 通知渲染进程刷新数据
+        this._notifyDataRefresh(t.type)
       }
     } catch (error) {
+      console.error(`[BackgroundTaskService] Task ${id} failed:`, error.message, error.stack)
       const t = this.tasks.get(id)
       if (t) {
         t.status = 'failed'

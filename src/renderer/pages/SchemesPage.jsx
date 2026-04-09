@@ -38,6 +38,18 @@ const SchemesPage = () => {
   // 初始化加载
   useEffect(() => {
     loadSchemes()
+    // 监听数据刷新事件（导入操作完成后）
+    const handleDataRefresh = () => {
+      try {
+        loadSchemes()
+      } catch (err) {
+        console.error('SchemesPage data refresh failed:', err)
+      }
+    }
+    const listenerId = window.electron.ipcRenderer.on('data-refresh', handleDataRefresh)
+    return () => {
+      window.electron.ipcRenderer.removeListener(listenerId)
+    }
   }, [])
 
   // 查看方案详情
@@ -195,39 +207,45 @@ const SchemesPage = () => {
       title: '方案名称',
       dataIndex: 'name',
       key: 'name',
+      onHeaderCell: () => ({ scope: 'col' }),
       render: (text, record) => (
         <div>
           <p>{text}</p>
-          <p style={{ fontSize: '12px', color: '#666' }}>项目: {record.projectName || '无'}</p>
+          <p style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>项目: {record.projectName || '无'}</p>
         </div>
       )
     },
     {
       title: '强度等级',
       dataIndex: 'strength',
-      key: 'strength'
+      key: 'strength',
+      onHeaderCell: () => ({ scope: 'col' })
     },
     {
       title: '坍落度',
       dataIndex: 'slump',
       key: 'slump',
+      onHeaderCell: () => ({ scope: 'col' }),
       render: (slump) => slump !== null && slump !== undefined ? `${slump}mm` : '未设置'
     },
     {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
+      onHeaderCell: () => ({ scope: 'col' }),
       render: (date) => date ? new Date(date).toLocaleDateString() : '未知'
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      onHeaderCell: () => ({ scope: 'col' }),
       render: (status) => renderStatusTag(status)
     },
     {
       title: '操作',
       key: 'action',
+      onHeaderCell: () => ({ scope: 'col' }),
       render: (_, record) => (
         <Space size="middle">
           <Button size="small" onClick={() => viewScheme(record.id)}>查看</Button>

@@ -420,6 +420,20 @@ class SystemService {
       workbook = XLSX.read(content, { type: 'string' })
     }
 
+    // 检查是否是多Sheet格式（新模板）
+    const sheetNames = workbook.SheetNames
+
+    // 新模板判断：包含"说明"Sheet且包含材料类别Sheet
+    const isNewMaterialTemplate = sheetNames.includes('说明') &&
+      sheetNames.some(name => name.match(/^\d{2}_/))
+
+    // 新模板判断：包含"配合比方案"Sheet
+    const isNewMixDesignTemplate = sheetNames.includes('配合比方案')
+
+    if (isNewMaterialTemplate || isNewMixDesignTemplate) {
+      return await this._parseNewTemplate(workbook, sheetNames)
+    }
+
     const sheetName = workbook.SheetNames[0]
     const sheet = workbook.Sheets[sheetName]
     const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 })
@@ -440,10 +454,287 @@ class SystemService {
     return { columns: headers, rows: records }
   }
 
+  // 解析新格式模板（多Sheet）
+  async _parseNewTemplate(workbook, sheetNames) {
+    const TemplateService = require('./TemplateService')
+
+    // 判断是原材料还是配合比模板
+    if (sheetNames.some(name => name.match(/^\d{2}_/))) {
+      // 原材料模板
+      const allData = {}
+
+      for (const sheetName of sheetNames) {
+        if (sheetName === '说明' || sheetName === '汇总') continue
+
+        const materialType = TemplateService.getMaterialTypeFromSheetName(sheetName)
+        if (!materialType) continue
+
+        const sheet = workbook.Sheets[sheetName]
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 })
+
+        if (rows.length < 2) continue
+
+        const headers = rows[0]
+        const dataRows = rows.slice(1).filter(row =>
+          row.some(cell => cell !== null && cell !== '')
+        )
+
+        const records = dataRows.map(row => {
+          const obj = { type: materialType } // 自动填充类型
+          headers.forEach((h, i) => {
+            // 解析 "中文 / english" 格式
+            const parts = String(h).split(' / ')
+            const englishKey = parts.length > 1 ? parts[1].trim() : String(h).trim()
+            obj[englishKey] = row[i] ?? null
+          })
+          return obj
+        })
+
+        if (records.length > 0) {
+          allData[sheetName] = records
+        }
+      }
+
+      return {
+        type: 'materials',
+        sheets: allData,
+        isNewFormat: true
+      }
+    }
+
+    if (sheetNames.includes('配合比方案')) {
+      // 配合比模板
+      const mixDesigns = []
+      const materialDetailsMap = {}
+      const fineAggregateMap = {}
+      const coarseAggregateMap = {}
+      const tempSettingsMap = {}
+
+      // 解析配合比方案Sheet
+      const sheet2 = workbook.Sheets['配合比方案']
+      const rows2 = XLSX.utils.sheet_to_json(sheet2, { header: 1 })
+      if (rows2.length >= 2) {
+        const headers = rows2[0]
+        const dataRows = rows2.slice(1).filter(row => row.some(cell => cell !== null && cell !== ''))
+
+        for (const row of dataRows) {
+          const obj = {}
+          let mixDesignName = ''
+          headers.forEach((h, i) => {
+            const parts = String(h).split(' / ')
+            const englishKey = parts.length > 1 ? parts[1].trim() : String(h).trim()
+            if (englishKey === 'name') mixDesignName = row[i]
+            obj[englishKey] = row[i] ?? null
+          })
+          if (mixDesignName) {
+            mixDesigns.push(obj)
+            materialDetailsMap[mixDesignName] = []
+            fineAggregateMap[mixDesignName] = []
+            coarseAggregateMap[mixDesignName] = []
+            tempSettingsMap[mixDesignName] = {}
+          }
+        }
+      }
+
+      // 解析材料用量Sheet
+      if (sheetNames.includes('材料用量')) {
+        const sheet3 = workbook.Sheets['材料用量']
+        const rows3 = XLSX.utils.sheet_to_json(sheet3, { header: 1 })
+        if (rows3.length >= 2) {
+          const headers = rows3[0]
+          const dataRows = rows3.slice(1).filter(row => row.some(cell => cell !== null && cell !== ''))
+
+          for (const row of dataRows) {
+            const obj = {}
+            let mixDesignName = ''
+            headers.forEach((h, i) => {
+              const parts = String(h).split(' / ')
+              const englishKey = parts.length > 1 ? parts[1].trim() : String(h).trim()
+              if (englishKey === 'mixDesignName') mixDesignName = row[i]
+              obj[englishKey] = row[i] ?? null
+            })
+            if (mixDesignName && materialDetailsMap[mixDesignName] !== undefined) {
+              materialDetailsMap[mixDesignName].push(obj)
+            }
+          }
+        }
+      }
+
+      // 解析骨料分配Sheet
+      if (sheetNames.includes('骨料分配')) {
+        const sheet4 = workbook.Sheets['骨料分配']
+        const rows4 = XLSX.utils.sheet_to_json(sheet4, { header: 1 })
+        if (rows4.length >= 2) {
+          const headers = rows4[0]
+          const dataRows = rows4.slice(1).filter(row => row.some(cell => cell !== null && cell !== ''))
+
+          for (const row of dataRows) {
+            const obj = {}
+            let mixDesignName = ''
+            let aggregateType = ''
+            headers.forEach((h, i) => {
+              const parts = String(h).split(' / ')
+              const englishKey = parts.length > 1 ? parts[1].trim() : String(h).trim()
+              if (englishKey === 'mixDesignName') mixDesignName = row[i]
+              if (englishKey === 'aggregateType') aggregateType = row[i]
+              obj[englishKey] = row[i] ?? null
+            })
+            if (mixDesignName) {
+              if (aggregateType === '细骨料' && fineAggregateMap[mixDesignName] !== undefined) {
+                fineAggregateMap[mixDesignName].push(obj)
+              } else if (aggregateType === '粗骨料' && coarseAggregateMap[mixDesignName] !== undefined) {
+                coarseAggregateMap[mixDesignName].push(obj)
+              }
+            }
+          }
+        }
+      }
+
+      // 解析计算参数Sheet
+      if (sheetNames.includes('计算参数')) {
+        const sheet5 = workbook.Sheets['计算参数']
+        const rows5 = XLSX.utils.sheet_to_json(sheet5, { header: 1 })
+        if (rows5.length >= 2) {
+          const headers = rows5[0]
+          const dataRows = rows5.slice(1).filter(row => row.some(cell => cell !== null && cell !== ''))
+
+          for (const row of dataRows) {
+            let mixDesignName = ''
+            const settings = {}
+            headers.forEach((h, i) => {
+              const parts = String(h).split(' / ')
+              const englishKey = parts.length > 1 ? parts[1].trim() : String(h).trim()
+              if (englishKey === 'mixDesignName') mixDesignName = row[i]
+              else settings[englishKey] = row[i] ?? null
+            })
+            if (mixDesignName && tempSettingsMap[mixDesignName] !== undefined) {
+              tempSettingsMap[mixDesignName] = settings
+            }
+          }
+        }
+      }
+
+      // 将关联数据合并到主数据
+      for (const md of mixDesigns) {
+        md._materialDetails = materialDetailsMap[md.name] || []
+        md._fineAggregateBreakdown = fineAggregateMap[md.name] || []
+        md._coarseAggregateBreakdown = coarseAggregateMap[md.name] || []
+        md._tempSettings = tempSettingsMap[md.name] || {}
+      }
+
+      return {
+        type: 'mixdesigns',
+        sheets: {
+          '配合比方案': mixDesigns
+        },
+        isNewFormat: true
+      }
+    }
+
+    throw new Error('无法识别的模板格式')
+  }
+
   // 执行数据导入（供 BackgroundTaskService 调用）
   async importData(taskId, { type, filePath }, onProgress) {
-    const { rows } = await this.parseImportFile(filePath)
+    const result = await this.parseImportFile(filePath)
 
+    // 检查是否是新格式
+    const isNewFormat = result.isNewFormat === true
+
+    if (isNewFormat) {
+      // 新格式：多Sheet导入
+      const { type: resultType, sheets } = result
+
+      if (resultType === 'materials') {
+        // 新格式：按Sheet分别导入
+        const Material = require('../db/models/Material')
+        let totalCount = 0
+        const sheetKeys = Object.keys(sheets).filter(k => k !== '说明' && k !== '汇总')
+
+        for (let i = 0; i < sheetKeys.length; i++) {
+          const sheetName = sheetKeys[i]
+          const records = sheets[sheetName]
+
+          for (const row of records) {
+            // 构建材料记录，只包含Material模型存在的字段
+            const materialData = {
+              name: row.name,
+              type: row.type,
+              specification: row.specification || null,
+              manufacturer: row.manufacturer || null,
+              price: parseFloat(row.price) || null,
+              density: parseFloat(row.density) || null,
+              waterContent: parseFloat(row.waterContent) || null,
+              status: row.status || '正常',
+              notes: row.notes || null,
+              // 类型特有字段
+              specificSurfaceArea: parseFloat(row.specificSurfaceArea) || null,
+              standardConsistency: parseFloat(row.standardConsistency) || null,
+              stability: row.stability || null,
+              initialSettingTime: parseInt(row.initialSettingTime) || null,
+              finalSettingTime: parseInt(row.finalSettingTime) || null,
+              flexuralStrength3d: parseFloat(row.flexuralStrength3d) || null,
+              flexuralStrength28d: parseFloat(row.flexuralStrength28d) || null,
+              compressiveStrength3d: parseFloat(row.compressiveStrength3d) || null,
+              compressiveStrength28d: parseFloat(row.compressiveStrength28d) || null,
+              fineness: parseFloat(row.fineness) || null,
+              waterDemandRatio: parseFloat(row.waterDemandRatio) || null,
+              lossOnIgnition: parseFloat(row.lossOnIgnition) || null,
+              activityIndex7d: parseFloat(row.activityIndex7d) || null,
+              activityIndex28d: parseFloat(row.activityIndex28d) || null,
+              fluidityRatio: parseFloat(row.fluidityRatio) || null,
+              mudContent: parseFloat(row.mudContent) || null,
+              clayLumpContent: parseFloat(row.clayLumpContent) || null,
+              mbValue: parseFloat(row.mbValue) || null,
+              finenessModulus: parseFloat(row.finenessModulus) || null,
+              needleFlakeContent: parseFloat(row.needleFlakeContent) || null,
+              crushingValue: parseFloat(row.crushingValue) || null,
+              grading: row.grading || null,
+              solidContent: parseFloat(row.solidContent) || null,
+              waterReducingRate: parseFloat(row.waterReducingRate) || null,
+              airContent: parseFloat(row.airContent) || null,
+              recommendedDosage: parseFloat(row.recommendedDosage) || null,
+              waterReducingRatePer01Dosage: parseFloat(row.waterReducingRatePer01Dosage) || null,
+              influenceFactor_10: parseFloat(row.influenceFactor_10) || null,
+              influenceFactor_20: parseFloat(row.influenceFactor_20) || null,
+              influenceFactor_30: parseFloat(row.influenceFactor_30) || null,
+              influenceFactor_40: parseFloat(row.influenceFactor_40) || null,
+              influenceFactor_50: parseFloat(row.influenceFactor_50) || null,
+              phValue: parseFloat(row.phValue) || null,
+              insolubleMatter: parseFloat(row.insolubleMatter) || null,
+              solubleMatter: parseFloat(row.solubleMatter) || null,
+              sieve_4_75: parseFloat(row.sieve_4_75) || null,
+              sieve_2_36: parseFloat(row.sieve_2_36) || null,
+              sieve_1_18: parseFloat(row.sieve_1_18) || null,
+              sieve_0_60: parseFloat(row.sieve_0_60) || null,
+              sieve_0_30: parseFloat(row.sieve_0_30) || null,
+              sieve_0_15: parseFloat(row.sieve_0_15) || null,
+              sieve_37_5: parseFloat(row.sieve_37_5) || null,
+              sieve_31_5: parseFloat(row.sieve_31_5) || null,
+              sieve_26_5: parseFloat(row.sieve_26_5) || null,
+              sieve_19_0: parseFloat(row.sieve_19_0) || null,
+              sieve_16_0: parseFloat(row.sieve_16_0) || null,
+              sieve_9_50: parseFloat(row.sieve_9_50) || null,
+            }
+
+            await Material.create(materialData)
+            totalCount++
+          }
+
+          onProgress(20 + Math.round(((i + 1) / sheetKeys.length) * 75))
+        }
+
+        onProgress(100)
+        return { count: totalCount }
+      } else if (resultType === 'mixdesigns') {
+        // 配合比导入暂不支持，返回提示
+        onProgress(100)
+        return { count: 0, message: '配合比导入功能开发中' }
+      }
+    }
+
+    // 旧格式：简单处理
+    const { rows } = result
     onProgress(20)
     let count = 0
 

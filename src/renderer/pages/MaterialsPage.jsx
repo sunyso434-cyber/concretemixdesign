@@ -32,6 +32,18 @@ const MaterialsPage = () => {
 
   useEffect(() => {
     loadMaterials()
+    // 监听数据刷新事件（导入操作完成后）
+    const handleDataRefresh = () => {
+      try {
+        loadMaterials()
+      } catch (err) {
+        console.error('MaterialsPage data refresh failed:', err)
+      }
+    }
+    const listenerId = window.electron.ipcRenderer.on('data-refresh', handleDataRefresh)
+    return () => {
+      window.electron.ipcRenderer.removeListener(listenerId)
+    }
   }, [])
 
   const handleAddNew = () => {
@@ -220,14 +232,16 @@ const MaterialsPage = () => {
       dataIndex: 'id',
       key: 'id',
       width: 50,
-      sorter: (a, b) => a.id - b.id
+      sorter: (a, b) => a.id - b.id,
+      onHeaderCell: () => ({ scope: 'col' })
     },
     {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
       width: 180,
-      sorter: (a, b) => a.name.localeCompare(b.name)
+      sorter: (a, b) => a.name.localeCompare(b.name),
+      onHeaderCell: () => ({ scope: 'col' })
     },
     {
       title: '类型',
@@ -235,26 +249,30 @@ const MaterialsPage = () => {
       key: 'type',
       width: 100,
       filters: MATERIAL_TYPES.map(t => ({ text: t, value: t })),
-      onFilter: (value, record) => record.type === value
+      onFilter: (value, record) => record.type === value,
+      onHeaderCell: () => ({ scope: 'col' })
     },
     {
       title: '规格',
       dataIndex: 'specification',
       key: 'specification',
-      width: 100
+      width: 100,
+      onHeaderCell: () => ({ scope: 'col' })
     },
     {
       title: '生产厂家',
       dataIndex: 'manufacturer',
       key: 'manufacturer',
-      width: 150
+      width: 150,
+      onHeaderCell: () => ({ scope: 'col' })
     },
     {
       title: '密度',
       dataIndex: 'density',
       key: 'density',
       width: 80,
-      sorter: (a, b) => (a.density || 0) - (b.density || 0)
+      sorter: (a, b) => (a.density || 0) - (b.density || 0),
+      onHeaderCell: () => ({ scope: 'col' })
     },
     {
       title: '单价',
@@ -262,12 +280,14 @@ const MaterialsPage = () => {
       key: 'price',
       width: 100,
       sorter: (a, b) => (a.price || 0) - (b.price || 0),
-      render: (price) => price ? `${price} 元/吨` : '-'
+      render: (price) => price ? `${price} 元/吨` : '-',
+      onHeaderCell: () => ({ scope: 'col' })
     },
     {
       title: '操作',
       key: 'action',
       width: 120,
+      onHeaderCell: () => ({ scope: 'col' }),
       render: (_, record) => (
         <Space size="small">
           <Button

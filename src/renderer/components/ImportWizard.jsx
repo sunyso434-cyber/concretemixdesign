@@ -56,12 +56,20 @@ const ImportWizard = ({ onClose }) => {
     const selectedPath = dialogResult.data.filePaths[0]
     setFilePath(selectedPath)
 
-    const result = await window.electron.ipcRenderer.invoke('parse-import-file', selectedPath)
-    if (result.success) {
-      setPreviewData(result.data.rows.slice(0, 10))
-      setPreviewColumns(result.data.columns)
-      setTotalCount(result.data.rows.length)
-      setStep(3)
+    try {
+      const result = await window.electron.ipcRenderer.invoke('parse-import-file', selectedPath)
+      if (result && result.success) {
+        setPreviewData(result.data.rows.slice(0, 10))
+        setPreviewColumns(result.data.columns)
+        setTotalCount(result.data.rows.length)
+        setStep(3)
+      } else {
+        console.error('parse-import-file failed:', result?.error)
+        alert('解析文件失败：' + (result?.error || '未知错误'))
+      }
+    } catch (err) {
+      console.error('parse-import-file exception:', err)
+      alert('解析文件异常：' + err.message)
     }
   }
 
