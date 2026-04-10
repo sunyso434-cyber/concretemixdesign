@@ -63,34 +63,119 @@ class MassConcreteAdiabaticTempService {
   }
 
   /**
-   * 生成温度分布数据
+   * 生成温度分布数据（单一时刻）
    * @param {number} maxTemp - 最高温度 ℃
    * @param {number} m - 温升系数
    * @param {number} ambientTemp - 环境温度 ℃
    * @param {number} concreteThickness - 混凝土厚度 m
    * @param {number} concreteLength - 混凝土长度 m
+   * @param {number} moldingTemp - 入模温度 ℃
    * @returns {Array} 温度分布数据
    */
-  static generateTempDistribution(maxTemp, m, ambientTemp, concreteThickness, concreteLength) {
+  static generateTempDistribution(maxTemp, m, ambientTemp, concreteThickness, concreteLength, moldingTemp) {
     const distribution = []
     const points = 20 // 沿长度方向的采样点数
 
     for (let i = 0; i <= points; i++) {
-      // x: 从混凝土中心到表面的距离
+      // position: 从中心到表面，0%=中心，100%=表面
+      const position = i / points * 100 // 百分比 0-100
       const x = (i / points) * (concreteThickness / 2)
-      // 简化模型：温度从中心到表面线性降低
-      // 表面温度接近环境温度
-      const tempRatio = Math.exp(-m * x)
-      const temp = ambientTemp + (maxTemp - ambientTemp) * tempRatio
+      // 正确：温度 = 入模温度 + 绝热温升（绝热温升沿厚度衰减）
+      const adiabaticTempRise = maxTemp * (1 - Math.exp(-m * x))
+      const temp = moldingTemp + adiabaticTempRise
 
       distribution.push({
-        position: i / points, // 相对位置 0-1
-        distance: x, // 距离 m
+        position, // 百分比 0-100
+        distance: Math.round(x * 100) / 100, // 距离 m
         temperature: Math.round(temp * 10) / 10
       })
     }
 
     return distribution
+  }
+
+  /**
+   * 生成温度场数据（时间-位置-温度三维数据）
+   * @param {number} maxAdiabaticTemp - 最高绝热温升 ℃
+   * @param {number} m0 - 温升系数
+   * @param {number} moldingTemp - 入模温度 ℃
+   * @param {number} ambientTemp - 环境温度 ℃
+   * @param {number} concreteThickness - 混凝土厚度 m
+   * @returns {Array} 温度场数据 [{day, position, distance, temperature}]
+   */
+  static generateTempFieldData(maxAdiabaticTemp, m0, moldingTemp, ambientTemp, concreteThickness) {
+    const tempFieldData = []
+    const days = [1, 3, 7, 14, 21, 28]
+    const positionPoints = 10 // 沿厚度方向的采样点数
+
+    for (const day of days) {
+      // 计算该时刻的绝热温升
+      const adiabaticTemp = maxAdiabaticTemp * (1 - Math.exp(-m0 * day))
+
+      for (let i = 0; i <= positionPoints; i++) {
+        const position = i / positionPoints * 100 // 百分比 0-100
+        const x = (i / positionPoints) * (concreteThickness / 2)
+        // 正确：温度 = 入模温度 + 绝热温升（绝热温升沿厚度衰减）
+        const adiabaticTempRise = adiabaticTemp * (1 - Math.exp(-m0 * x))
+        const temp = moldingTemp + adiabaticTempRise
+
+        tempFieldData.push({
+          day,
+          position: Math.round(position * 10) / 10, // 百分比
+          distance: Math.round(x * 100) / 100, // 距离 m
+          temperature: Math.round(temp * 10) / 10
+        })
+      }
+    }
+
+    return tempFieldData
+  }
+
+  /**
+   * 生成温差曲线数据
+   * @param {number} maxAdiabaticTemp - 最高绝热温升 ℃
+   * @param {number} m0 - 温升系数
+   * @param {number} moldingTemp - 入模温度 ℃
+   * @param {number} ambientTemp - 环境温度 ℃
+   * @param {number} concreteThickness - 混凝土厚度 m
+   * @returns {Object} {tempDiffCurveData: 里表温差, surfaceTempDiffCurveData: 表气温温}
+   */
+  static generateTempDiffData(maxAdiabaticTemp, m0, moldingTemp, ambientTemp, concreteThickness) {
+    const tempDiffCurveData = [] // 里表温差（中心-表面）
+    const surfaceTempDiffCurveData = [] // 表气温温（表面-大气）
+
+    const days = [1, 2, 3, 5, 7, 10, 14, 21, 28]
+    // 表面节点位于 x = concreteThickness / 2
+    const surfaceX = concreteThickness / 2
+
+    for (const day of days) {
+      // 绝热温升
+      const adiabaticTempRise = maxAdiabaticTemp * (1 - Math.exp(-m0 * day))
+      // 混凝土中心温度（简化：中心温度 = 入模温度 + 绝热温升）
+      const centerTemp = moldingTemp + adiabaticTempRise
+      // 表面温度：考虑散热后的温度
+      const surfaceTemp = ambientTemp + (centerTemp - ambientTemp) * Math.exp(-m0 * surfaceX)
+
+      // 里表温差
+      const interiorSurfaceDiff = centerTemp - surfaceTemp
+      // 表气温温
+      const surfaceAirDiff = surfaceTemp - ambientTemp
+
+      tempDiffCurveData.push({
+        day,
+        tempDiff: Math.round(interiorSurfaceDiff * 10) / 10
+      })
+
+      surfaceTempDiffCurveData.push({
+        day,
+        tempDiff: Math.round(surfaceAirDiff * 10) / 10
+      })
+    }
+
+    return {
+      tempDiffCurveData,
+      surfaceTempDiffCurveData
+    }
   }
 
   /**
@@ -149,11 +234,17 @@ class MassConcreteAdiabaticTempService {
       })
     }
 
-    // 5. 生成温差曲线数据（温度 - 入模温度）
-    const tempDiffCurveData = tempCurveData.map(point => ({
-      day: point.day,
-      tempDiff: Math.round((point.temperature - moldingTemp) * 100) / 100
-    }))
+    // 5. 生成温差曲线数据（里表温差和表气温温）
+    const {
+      tempDiffCurveData,
+      surfaceTempDiffCurveData
+    } = MassConcreteAdiabaticTempService.generateTempDiffData(
+      maxAdiabaticTemp,
+      m0,
+      moldingTemp,
+      ambientTemp,
+      concreteThickness
+    )
 
     // 6. 生成温度分布数据
     const tempDistributionData = MassConcreteAdiabaticTempService.generateTempDistribution(
@@ -161,7 +252,17 @@ class MassConcreteAdiabaticTempService {
       m0,
       ambientTemp,
       concreteThickness,
-      concreteLength || 0
+      concreteLength || 0,
+      moldingTemp
+    )
+
+    // 7. 生成温度场数据（时间-位置-温度）
+    const tempFieldData = MassConcreteAdiabaticTempService.generateTempFieldData(
+      maxAdiabaticTemp,
+      m0,
+      moldingTemp,
+      ambientTemp,
+      concreteThickness
     )
 
     console.log('[绝热温升计算] 参数:', {
@@ -202,7 +303,9 @@ class MassConcreteAdiabaticTempService {
       concreteRho,
       tempCurveData,
       tempDiffCurveData,
-      tempDistributionData
+      surfaceTempDiffCurveData,
+      tempDistributionData,
+      tempFieldData
     }
   }
 
@@ -228,7 +331,9 @@ class MassConcreteAdiabaticTempService {
         maxAdiabaticTemp: data.maxAdiabaticTemp,
         tempCurveData: data.tempCurveData,
         tempDiffCurveData: data.tempDiffCurveData,
-        tempDistributionData: data.tempDistributionData
+        surfaceTempDiffCurveData: data.surfaceTempDiffCurveData,
+        tempDistributionData: data.tempDistributionData,
+        tempFieldData: data.tempFieldData
       }
 
       if (adiabaticTemp) {
