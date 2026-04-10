@@ -12,23 +12,23 @@ const MassConcreteScheme = sequelize.define('MassConcreteScheme', {
     allowNull: false,
     comment: '方案名称'
   },
-  strength_grade: {
+  strengthGrade: {
     type: DataTypes.STRING,
     comment: '强度等级 如C30'
   },
-  project_name: {
+  projectName: {
     type: DataTypes.STRING,
     comment: '项目名称'
   },
-  builder_name: {
+  builderName: {
     type: DataTypes.STRING,
     comment: '施工单位'
   },
-  casting_method: {
+  castingMethod: {
     type: DataTypes.STRING,
     comment: '浇筑方法'
   },
-  ambient_temp: {
+  ambientTemp: {
     type: DataTypes.FLOAT,
     comment: '环境温度 ℃'
   },
@@ -46,14 +46,17 @@ const MassConcreteScheme = sequelize.define('MassConcreteScheme', {
   },
   status: {
     type: DataTypes.STRING,
-    defaultValue: '草稿',
-    comment: '状态：草稿、已计算、已确认'
+    defaultValue: 'draft',
+    validate: {
+      isIn: [['draft', 'calculated', 'saved']]
+    },
+    comment: '状态：draft、calculated、saved'
   },
   remarks: {
     type: DataTypes.TEXT
   }
 }, {
-  tableName: 'mass_concrete_schemes',
+  tableName: 'massConcreteSchemes',
   timestamps: true
 })
 

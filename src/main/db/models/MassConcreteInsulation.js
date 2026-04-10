@@ -7,48 +7,48 @@ const MassConcreteInsulation = sequelize.define('MassConcreteInsulation', {
     primaryKey: true,
     autoIncrement: true
   },
-  scheme_id: {
+  schemeId: {
     type: DataTypes.INTEGER,
     allowNull: false
   },
-  wind_speed: {
+  windSpeed: {
     type: DataTypes.FLOAT,
     comment: '风速 m/s'
   },
-  surface_roughness: {
+  surfaceRoughness: {
     type: DataTypes.STRING,
     comment: '表面粗糙度类型'
   },
-  insulation_layers: {
+  insulationLayers: {
     type: DataTypes.JSON,
     comment: '保温层配置'
   },
-  total_thermal_resistance: {
+  totalThermalResistance: {
     type: DataTypes.FLOAT,
     comment: '总热阻 m²·K/W'
   },
-  total_heat_transfer: {
+  totalHeatTransfer: {
     type: DataTypes.FLOAT,
     comment: '总传热系数 W/(m²·K)'
   },
-  virtual_thickness: {
+  virtualThickness: {
     type: DataTypes.FLOAT,
     comment: '虚厚度 m'
   },
-  calculated_thickness: {
+  calculatedThickness: {
     type: DataTypes.FLOAT,
     comment: '计算厚度 m'
   },
-  surface_temp_diff: {
+  surfaceTempDiff: {
     type: DataTypes.FLOAT,
     comment: '表面温度差 ℃'
   },
-  meets_requirement: {
+  meetsRequirement: {
     type: DataTypes.BOOLEAN,
     comment: '是否满足温控要求'
   }
 }, {
-  tableName: 'mass_concrete_insulations',
+  tableName: 'massConcreteInsulations',
   timestamps: true
 })
 

@@ -7,44 +7,44 @@ const MassConcreteAdiabaticTemp = sequelize.define('MassConcreteAdiabaticTemp', 
     primaryKey: true,
     autoIncrement: true
   },
-  scheme_id: {
+  schemeId: {
     type: DataTypes.INTEGER,
     allowNull: false
   },
-  molding_temp: {
+  moldingTemp: {
     type: DataTypes.FLOAT,
     comment: '入模温度 ℃'
   },
-  ambient_temp: {
+  ambientTemp: {
     type: DataTypes.FLOAT,
     comment: '环境温度 ℃'
   },
-  concrete_thickness: {
+  concreteThickness: {
     type: DataTypes.FLOAT,
     comment: '混凝土厚度 m'
   },
-  concrete_length: {
+  concreteLength: {
     type: DataTypes.FLOAT,
     comment: '混凝土长度 m'
   },
-  m_coefficient: {
+  mCoefficient: {
     type: DataTypes.FLOAT,
     comment: 'M系数'
   },
-  max_adiabatic_temp: {
+  maxAdiabaticTemp: {
     type: DataTypes.FLOAT,
     comment: '最高绝热温升 ℃'
   },
-  temp_curve_data: {
+  tempCurveData: {
     type: DataTypes.JSON,
     comment: '温度曲线数据'
   },
-  temp_diff_curve_data: {
+  tempDiffCurveData: {
     type: DataTypes.JSON,
     comment: '温差曲线数据'
   }
 }, {
-  tableName: 'mass_concrete_adiabatic_temps',
+  tableName: 'massConcreteAdiabaticTemps',
   timestamps: true
 })
 

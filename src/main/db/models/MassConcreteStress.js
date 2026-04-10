@@ -7,40 +7,40 @@ const MassConcreteStress = sequelize.define('MassConcreteStress', {
     primaryKey: true,
     autoIncrement: true
   },
-  scheme_id: {
+  schemeId: {
     type: DataTypes.INTEGER,
     allowNull: false
   },
-  external_constraint_type: {
+  externalConstraintType: {
     type: DataTypes.STRING,
     comment: '外部约束类型 如：地基约束、一面散热等'
   },
-  cx_value: {
+  cxValue: {
     type: DataTypes.FLOAT,
     comment: '约束系数 Cx'
   },
-  self_constraint_stress: {
+  selfConstraintStress: {
     type: DataTypes.JSON,
     comment: '自约束应力数据'
   },
-  external_constraint_stress: {
+  externalConstraintStress: {
     type: DataTypes.JSON,
     comment: '外约束应力数据'
   },
-  total_stress: {
+  totalStress: {
     type: DataTypes.JSON,
     comment: '总应力数据'
   },
-  crack_resistance_check: {
+  crackResistanceCheck: {
     type: DataTypes.JSON,
     comment: '抗裂验算结果'
   },
-  tensile_strength_curve: {
+  tensileStrengthCurve: {
     type: DataTypes.JSON,
     comment: '抗拉强度曲线数据'
   }
 }, {
-  tableName: 'mass_concrete_stresses',
+  tableName: 'massConcreteStresses',
   timestamps: true
 })
 

@@ -11,11 +11,11 @@ const InsulationMaterial = sequelize.define('InsulationMaterial', {
     type: DataTypes.STRING,
     allowNull: false
   },
-  thermal_conductivity: {
+  thermalConductivity: {
     type: DataTypes.FLOAT,
     comment: '导热系数 W/(m·K)'
   },
-  heat_storage_coefficient: {
+  heatStorageCoefficient: {
     type: DataTypes.FLOAT,
     comment: '蓄热系数 W/(m²·K)'
   },
@@ -23,19 +23,19 @@ const InsulationMaterial = sequelize.define('InsulationMaterial', {
     type: DataTypes.FLOAT,
     comment: '常用厚度 mm'
   },
-  unit_price: {
+  unitPrice: {
     type: DataTypes.FLOAT,
     comment: '单价 元/m²'
   },
   remarks: {
     type: DataTypes.TEXT
   },
-  is_default: {
+  isDefault: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
   }
 }, {
-  tableName: 'insulation_materials',
+  tableName: 'insulationMaterials',
   timestamps: true
 })
 

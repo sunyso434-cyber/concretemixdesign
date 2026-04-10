@@ -67,57 +67,57 @@ const MassConcreteInsulation = require('./models/MassConcreteInsulation')
 const defaultInsulationMaterials = [
   {
     name: '草袋',
-    thermal_conductivity: 0.07,
-    heat_storage_coefficient: 9.0,
+    thermalConductivity: 0.07,
+    heatStorageCoefficient: 9.0,
     thickness: 30,
-    unit_price: 5.0,
+    unitPrice: 5.0,
     remarks: '草袋保温，常规做法',
-    is_default: true
+    isDefault: true
   },
   {
     name: '泡沫板',
-    thermal_conductivity: 0.035,
-    heat_storage_coefficient: 3.0,
+    thermalConductivity: 0.035,
+    heatStorageCoefficient: 3.0,
     thickness: 20,
-    unit_price: 15.0,
+    unitPrice: 15.0,
     remarks: '聚苯乙烯泡沫板，保温效果好',
-    is_default: true
+    isDefault: true
   },
   {
     name: '棉被',
-    thermal_conductivity: 0.06,
-    heat_storage_coefficient: 7.0,
+    thermalConductivity: 0.06,
+    heatStorageCoefficient: 7.0,
     thickness: 25,
-    unit_price: 8.0,
+    unitPrice: 8.0,
     remarks: '毛毡保温被',
-    is_default: true
+    isDefault: true
   },
   {
     name: '木模板',
-    thermal_conductivity: 0.20,
-    heat_storage_coefficient: 15.0,
+    thermalConductivity: 0.20,
+    heatStorageCoefficient: 15.0,
     thickness: 18,
-    unit_price: 30.0,
+    unitPrice: 30.0,
     remarks: '木模板散热',
-    is_default: true
+    isDefault: true
   },
   {
     name: '钢模板',
-    thermal_conductivity: 50.0,
-    heat_storage_coefficient: 200.0,
+    thermalConductivity: 50.0,
+    heatStorageCoefficient: 200.0,
     thickness: 5,
-    unit_price: 80.0,
+    unitPrice: 80.0,
     remarks: '钢模板，散热快',
-    is_default: true
+    isDefault: true
   },
   {
     name: '砂层',
-    thermal_conductivity: 0.50,
-    heat_storage_coefficient: 10.0,
+    thermalConductivity: 0.50,
+    heatStorageCoefficient: 10.0,
     thickness: 100,
-    unit_price: 3.0,
+    unitPrice: 3.0,
     remarks: '砂层保温',
-    is_default: true
+    isDefault: true
   }
 ]
 
