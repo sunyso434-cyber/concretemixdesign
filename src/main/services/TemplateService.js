@@ -65,7 +65,7 @@ const MATERIAL_CATEGORIES = {
       { name: '筛孔4.75', english: 'sieve_4_75', type: 'number', desc: '%' },
       { name: '筛孔2.36', english: 'sieve_2_36', type: 'number', desc: '%' },
       { name: '筛孔1.18', english: 'sieve_1_18', type: 'number', desc: '%' },
-      { name: '筛孔0.6', english: 'sieve_0_6', type: 'number', desc: '%' },
+      { name: '筛孔0.6', english: 'sieve_0_60', type: 'number', desc: '%' },
       { name: '筛孔0.3', english: 'sieve_0_3', type: 'number', desc: '%' },
       { name: '筛孔0.15', english: 'sieve_0_15', type: 'number', desc: '%' },
     ],

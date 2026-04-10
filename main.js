@@ -44,7 +44,7 @@ require('./src/main/ipcHandlers/mixDesignHandler')
 require('./src/main/ipcHandlers/mixDesignOptimizerHandler') // 新增：优化器 IPC 处理器
 require('./src/main/ipcHandlers/massConcreteHandler') // 大体积混凝土模块 IPC 处理器
 const SystemHandler = require('./src/main/ipcHandlers/systemHandler')
-const { autoUpdater } = require('electron-updater')
+// const { autoUpdater } = require('electron-updater')
 
 // 初始化数据库（在后台执行，不阻塞UI）
 async function initializeDatabase() {
@@ -154,43 +154,43 @@ async function createWindow() {
 
   // 系统处理器已在导入时自动初始化
 
-  // 配置自动更新
-  if (process.env.NODE_ENV === 'production') {
-    autoUpdater.checkForUpdatesAndNotify()
-
-    // 自动更新事件监听
-    autoUpdater.on('checking-for-update', () => {
-      console.log('正在检查更新...')
-    })
-
-    autoUpdater.on('update-available', (info) => {
-      console.log('发现新版本:', info.version)
-      mainWindow.webContents.send('update-available', info)
-    })
-
-    autoUpdater.on('update-not-available', (info) => {
-      console.log('当前已是最新版本')
-    })
-
-    autoUpdater.on('error', (err) => {
-      console.error('更新检查失败:', err)
-    })
-
-    autoUpdater.on('download-progress', (progressObj) => {
-      let log_message = "下载进度: " + progressObj.percent + '%'
-      console.log(log_message)
-      mainWindow.webContents.send('download-progress', progressObj)
-    })
-
-    autoUpdater.on('update-downloaded', (info) => {
-      console.log('更新下载完成')
-      mainWindow.webContents.send('update-downloaded', info)
-      // 自动安装更新
-      setTimeout(() => {
-        autoUpdater.quitAndInstall()
-      }, 5000)
-    })
-  }
+  // // 配置自动更新
+  // if (process.env.NODE_ENV === 'production') {
+  //   autoUpdater.checkForUpdatesAndNotify()
+  //
+  //   // 自动更新事件监听
+  //   autoUpdater.on('checking-for-update', () => {
+  //     console.log('正在检查更新...')
+  //   })
+  //
+  //   autoUpdater.on('update-available', (info) => {
+  //     console.log('发现新版本:', info.version)
+  //     mainWindow.webContents.send('update-available', info)
+  //   })
+  //
+  //   autoUpdater.on('update-not-available', (info) => {
+  //     console.log('当前已是最新版本')
+  //   })
+  //
+  //   autoUpdater.on('error', (err) => {
+  //     console.error('更新检查失败:', err)
+  //   })
+  //
+  //   autoUpdater.on('download-progress', (progressObj) => {
+  //     let log_message = "下载进度: " + progressObj.percent + '%'
+  //     console.log(log_message)
+  //     mainWindow.webContents.send('download-progress', progressObj)
+  //   })
+  //
+  //   autoUpdater.on('update-downloaded', (info) => {
+  //     console.log('更新下载完成')
+  //     mainWindow.webContents.send('update-downloaded', info)
+  //     // 自动安装更新
+  //     setTimeout(() => {
+  //       autoUpdater.quitAndInstall()
+  //     }, 5000)
+  //   })
+  // }
 }
 
 // 应用准备就绪

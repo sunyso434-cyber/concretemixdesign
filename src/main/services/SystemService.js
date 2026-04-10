@@ -93,42 +93,6 @@ class SystemService {
   async initDefaultParams() {
     try {
       const defaultParams = [
-        {
-          paramName: 'defaultLanguage',
-          paramValue: 'zh-CN',
-          paramType: 'system',
-          description: '默认语言'
-        },
-        {
-          paramName: 'defaultUnit',
-          paramValue: 'metric',
-          paramType: 'system',
-          description: '默认单位制'
-        },
-        {
-          paramName: 'defaultStrength',
-          paramValue: 'C30',
-          paramType: 'mixdesign',
-          description: '默认强度等级'
-        },
-        {
-          paramName: 'defaultSlump',
-          paramValue: '100',
-          paramType: 'mixdesign',
-          description: '默认坍落度(mm)'
-        },
-        {
-          paramName: 'defaultEnvironment',
-          paramValue: '1',
-          paramType: 'mixdesign',
-          description: '默认环境类别'
-        },
-        {
-          paramName: 'defaultDensity',
-          paramValue: '2400',
-          paramType: 'mixdesign',
-          description: '默认容重(kg/m³)'
-        },
         // JGJ 55标准 - 回归系数
         {
           paramName: 'regressionAlphaA',
@@ -456,6 +420,7 @@ class SystemService {
 
   // 解析新格式模板（多Sheet）
   async _parseNewTemplate(workbook, sheetNames) {
+    const XLSX = require('xlsx')
     const TemplateService = require('./TemplateService')
 
     // 判断是原材料还是配合比模板
@@ -495,10 +460,29 @@ class SystemService {
         }
       }
 
+      // 构建用于预览的扁平数据：合并所有sheet的材料数据
+      const previewRows = []
+      for (const [sheetName, records] of Object.entries(allData)) {
+        for (const record of records) {
+          previewRows.push({ ...record, _sheetName: sheetName })
+        }
+      }
+
+      // 从第一个sheet获取列信息用于预览
+      const firstSheetName = Object.keys(allData)[0]
+      const firstRecords = allData[firstSheetName] || []
+      const previewColumns = firstRecords.length > 0
+        ? Object.keys(firstRecords[0]).filter(k => !k.startsWith('_'))
+        : ['name', 'type', 'specification']
+
       return {
         type: 'materials',
         sheets: allData,
-        isNewFormat: true
+        isNewFormat: true,
+        // 预览用数据
+        rows: previewRows,
+        columns: previewColumns,
+        totalSheets: Object.keys(allData).length
       }
     }
 
@@ -656,6 +640,11 @@ class SystemService {
           const records = sheets[sheetName]
 
           for (const row of records) {
+            // 跳过 name 或 type 为空的行
+            if (!row.name || !row.type) {
+              continue
+            }
+
             // 构建材料记录，只包含Material模型存在的字段
             const materialData = {
               name: row.name,
@@ -742,6 +731,10 @@ class SystemService {
       const Material = require('../db/models/Material')
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i]
+        // 跳过 name 或 type 为空的行
+        if (!row.name || !row.type) {
+          continue
+        }
         await Material.create({
           name: row.name,
           type: row.type,

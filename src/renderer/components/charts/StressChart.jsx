@@ -43,10 +43,44 @@ const StressChart = ({
     },
     meta: {
       time: {
-        alias: '时间 (d)',
+        alias: '时间',
       },
       stress: {
-        alias: '应力 (MPa)',
+        alias: '应力',
+      },
+    },
+    xAxis: {
+      title: {
+        text: '时间 (d)',
+        style: {
+          fontSize: 12,
+          fill: '#666',
+        },
+      },
+      grid: {
+        line: {
+          style: {
+            stroke: '#e8e8e8',
+            lineDash: [4, 4],
+          },
+        },
+      },
+    },
+    yAxis: {
+      title: {
+        text: '应力 (MPa)',
+        style: {
+          fontSize: 12,
+          fill: '#666',
+        },
+      },
+      grid: {
+        line: {
+          style: {
+            stroke: '#e8e8e8',
+            lineDash: [4, 4],
+          },
+        },
       },
     },
     title: {

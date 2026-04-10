@@ -27,7 +27,9 @@ export const MATERIAL_FIELDS_CONFIG = {
       { name: 'flexuralStrength3d', label: '3天抗折强度', unit: 'MPa', type: 'number', min: 0 },
       { name: 'flexuralStrength28d', label: '28天抗折强度', unit: 'MPa', type: 'number', min: 0 },
       { name: 'compressiveStrength3d', label: '3天抗压强度', unit: 'MPa', type: 'number', min: 0 },
-      { name: 'compressiveStrength28d', label: '28天抗压强度', unit: 'MPa', type: 'number', min: 0 }
+      { name: 'compressiveStrength28d', label: '28天抗压强度', unit: 'MPa', type: 'number', min: 0 },
+      { name: 'cementHeat3d', label: '3天水化热', unit: 'kJ/kg', type: 'number', min: 0 },
+      { name: 'cementHeat7d', label: '7天水化热', unit: 'kJ/kg', type: 'number', min: 0 }
     ]
   },
 

@@ -572,36 +572,107 @@ class MixDesignService {
   }
 
   // 绝对体积法计算
-  calculateByAbsoluteVolume(materialAmounts, materials) {
+  // 绝对体积法计算
+  // materialAmounts: 各材料用量 (kg/m³)，键名如 water, cement, sand, stone, superplasticizer, sand_1, sand_2, ...
+  // materials: 材料对象，支持 sand/stone 为单一对象或数组
+  // airContent: 含气量百分比（默认1%），传入如 1.5 表示1.5%
+  calculateByAbsoluteVolume(materialAmounts, materials, airContent = 1.0) {
     try {
-      let totalVolume = 0
       const volumes = {}
-      
+      let totalVolume = 0
+
+      // 根据 key 查找对应材料密度的辅助函数
+      const getMaterialDensity = (key) => {
+        // 直接从 materials 对象查找（适用于 water, cement, flyAsh, slag, superplasticizer）
+        const direct = materials[key]
+        if (direct && direct.density) return direct.density
+
+        // 处理 sand_* 键（多种细骨料时）
+        if (key.startsWith('sand_')) {
+          const sandId = key.replace('sand_', '')
+          const sandArr = Array.isArray(materials.sand) ? materials.sand : []
+          const found = sandArr.find(s => String(s.id) === String(sandId))
+          return found?.density || 2.63
+        }
+        // 处理 stone_* 键（多种粗骨料时）
+        if (key.startsWith('stone_')) {
+          const stoneId = key.replace('stone_', '')
+          const stoneArr = Array.isArray(materials.stone) ? materials.stone : []
+          const found = stoneArr.find(s => String(s.id) === String(stoneId))
+          return found?.density || 2.70
+        }
+        // 单一砂或单一石的聚合键（sand, stone）
+        if (key === 'sand') {
+          if (Array.isArray(materials.sand)) return materials.sand[0]?.density || 2.63
+          return materials.sand?.density || 2.63
+        }
+        if (key === 'stone') {
+          if (Array.isArray(materials.stone)) return materials.stone[0]?.density || 2.70
+          return materials.stone?.density || 2.70
+        }
+        return null
+      }
+
       // 计算每种材料的绝对体积
       Object.keys(materialAmounts).forEach((key) => {
         const amount = materialAmounts[key]
-        const material = materials[key]
-        
-        if (material && material.density) {
-          // 绝对体积 = 质量 / 密度（kg/m³ / kg/m³ = m³）
-          const volume = amount / material.density
+        if (amount === undefined || amount === null) {
+          volumes[key] = 0
+          return
+        }
+        const density = getMaterialDensity(key)
+        if (density && density > 0) {
+          const volume = amount / density
           volumes[key] = volume
           totalVolume += volume
         } else {
           volumes[key] = 0
         }
       })
-      
-      // 引入空气体积（默认1%）
-      const airVolume = 0.01
+
+      // 空气体积 = 含气量百分比 / 100
+      const airVolume = airContent / 100
       totalVolume += airVolume
-      
-      console.log('绝对体积法计算:', { volumes, totalVolume })
-      
+
+      console.log('绝对体积法计算 volumes:', volumes)
+
+      // 计算骨料（sand + stone）的当前体积和目标体积
+      // 累加所有 sand_* 和 stone_* 键的体积（多种骨料情况）
+      let currentSandVolume = 0
+      let currentStoneVolume = 0
+      Object.keys(volumes).forEach((key) => {
+        if (key.startsWith('sand_') || key === 'sand') currentSandVolume += volumes[key] || 0
+        if (key.startsWith('stone_') || key === 'stone') currentStoneVolume += volumes[key] || 0
+      })
+      const currentAggregateVolume = currentSandVolume + currentStoneVolume
+
+      // 目标骨料体积 = 1 - 胶凝材料体积 - 水体积 - 外加剂体积 - 空气体积
+      const cementVol = volumes.cement || 0
+      const flyAshVol = volumes.flyAsh || 0
+      const slagVol = volumes.slag || 0
+      const waterVol = volumes.water || 0
+      const spVol = volumes.superplasticizer || 0
+      const targetAggregateVolume = 1 - cementVol - flyAshVol - slagVol - waterVol - spVol - airVolume
+
+      // 缩放比例：骨料需要缩放到的比例
+      const scaleFactor = currentAggregateVolume > 0 && targetAggregateVolume > 0
+        ? targetAggregateVolume / currentAggregateVolume
+        : 1
+
+      console.log('绝对体积法:', {
+        currentAggregateVolume,
+        targetAggregateVolume,
+        scaleFactor,
+        cementVol, flyAshVol, slagVol, waterVol, spVol, airVolume
+      })
+
       return {
         volumes,
         totalVolume,
-        airVolume
+        airVolume,
+        currentAggregateVolume,
+        targetAggregateVolume,
+        scaleFactor
       }
     } catch (error) {
       console.error('绝对体积法计算失败:', error)
@@ -714,10 +785,10 @@ class MixDesignService {
   // 计算配合比
   async calculateMixDesign(params) {
     try {
-      const { strength, slump, environment, tempSettings, materials, calculationMethod, targetDensity, flyAshDosage, slagDosage, sandRatio, waterRatio: inputWaterRatio } = params
-      
+      const { strength, slump, tempSettings, materials, calculationMethod, targetDensity, airContent, flyAshDosage, slagDosage, sandRatio, waterRatio: inputWaterRatio } = params
+
       console.log('开始JGJ 55标准配合比计算...')
-      console.log('输入参数:', { strength, slump, environment, tempSettings, calculationMethod, targetDensity, flyAshDosage, slagDosage, sandRatio })
+      console.log('输入参数:', { strength, slump, tempSettings, calculationMethod, targetDensity, airContent, flyAshDosage, slagDosage, sandRatio })
       console.log('材料对象:', {
         cement: materials?.cement ? { id: materials.cement.id, name: materials.cement.name, price: materials.cement.price } : null,
         flyAsh: materials?.flyAsh ? { id: materials.flyAsh.id, name: materials.flyAsh.name, price: materials.flyAsh.price } : null,
@@ -740,12 +811,33 @@ class MixDesignService {
       const { alphaA, alphaB } = await this.getRegressionCoefficients(tempSettings)
       console.log('回归系数:', { alphaA, alphaB })
       
-      // 4. 计算掺合料影响系数（使用粉煤灰掺量）
-      let influenceFactor = 1.0
-      if (flyAshDosage && materials?.flyAsh) {
-        influenceFactor = this.calculateInfluenceFactor(flyAshDosage, materials.flyAsh)
+      // 4. 计算掺合料影响系数
+      // 根据 JGJ 55-2011，矿物掺合料的影响系数需要分别计算并加权
+      let flyAshInfluenceFactor = 1.0
+      let slagInfluenceFactor = 1.0
+
+      if (flyAshDosage && flyAshDosage > 0 && materials?.flyAsh) {
+        flyAshInfluenceFactor = this.calculateInfluenceFactor(flyAshDosage, materials.flyAsh)
       }
-      console.log('掺合料影响系数:', influenceFactor)
+      if (slagDosage && slagDosage > 0 && materials?.slag) {
+        slagInfluenceFactor = this.calculateInfluenceFactor(slagDosage, materials.slag)
+      }
+
+      // 计算加权影响系数（根据掺量比例加权）
+      const totalAdmixtureDosage = (flyAshDosage || 0) + (slagDosage || 0)
+      let influenceFactor = 1.0
+      if (totalAdmixtureDosage > 0) {
+        influenceFactor = (flyAshInfluenceFactor * (flyAshDosage || 0) + slagInfluenceFactor * (slagDosage || 0)) / totalAdmixtureDosage
+      }
+      // 如果只有一种掺合料，直接使用其影响系数
+      if (flyAshDosage > 0 && slagDosage === 0) {
+        influenceFactor = flyAshInfluenceFactor
+      }
+      if (slagDosage > 0 && flyAshDosage === 0) {
+        influenceFactor = slagInfluenceFactor
+      }
+
+      console.log('粉煤灰影响系数:', flyAshInfluenceFactor, ', 矿渣粉影响系数:', slagInfluenceFactor, ', 加权影响系数:', influenceFactor)
       
       // 5. 计算水胶比 W/B = (α_a × f_b × γ_f) / (f_cu,0 + α_a × α_b × f_b × γ_f)
       // 从水泥原材料获取28天抗压强度
@@ -814,11 +906,13 @@ class MixDesignService {
       }
       
       // 考虑矿渣粉流动度比的影响
+      // 根据JGJ 55-2011，流动度比>100时需水量减少，<100时需水量增加
+      // 公式：slagInfluence = 1 + (100 - fluidityRatio) / 50 * (slagDosage / 100)
       if (slagDosage && slagDosage > 0 && materials?.slag?.fluidityRatio) {
         const slagFluidityRatio = materials.slag.fluidityRatio
-        const slagInfluence = 1 - (1 - 100 / slagFluidityRatio) / 50 * (slagDosage / 100)
+        const slagInfluence = 1 + (100 - slagFluidityRatio) / 50 * (slagDosage / 100)
         waterAmount *= slagInfluence
-        console.log('矿渣粉流动度比影响:', slagInfluence)
+        console.log('矿渣粉流动度比影响:', slagInfluence, '(流动度比:', slagFluidityRatio, '%)')
       }
       
       console.log('实际用水量:', waterAmount)
@@ -858,15 +952,15 @@ class MixDesignService {
         slagPercentage: (slagPercentage * 100).toFixed(1) + '%'
       })
 
-      // 13. 根据计算方法选择计算
+      // 13. 根据计算方法选择计算骨料用量
       let sandAmount, stoneAmount
       if (calculationMethod === 'mass') {
-        // 质量法
+        // 质量法：根据目标容重计算骨料总量，再按砂率分配
         const density = targetDensity || 2400
         const aggregateAmount = density - waterAmount - cementitiousAmount - materialAmounts.superplasticizer
         sandAmount = aggregateAmount * finalSandRatio
         stoneAmount = aggregateAmount - sandAmount
-        
+
         // 调整到目标容重
         const tempMaterialAmounts = {
           ...materialAmounts,
@@ -879,10 +973,82 @@ class MixDesignService {
           stoneAmount = massResult.materialAmounts.stone
         }
       } else {
-        // 绝对体积法（默认）
-        const aggregateAmount = 2400 - waterAmount - cementitiousAmount - materialAmounts.superplasticizer
-        sandAmount = aggregateAmount * finalSandRatio
-        stoneAmount = aggregateAmount - sandAmount
+        // 绝对体积法：使用迭代反馈修正，确保总体积 = 1 m³
+        const usedAirContent = airContent !== undefined && airContent !== null ? airContent : 1.0
+
+        // 获取各材料密度
+        const cementDensity = materials?.cement?.density || 3.15
+        const waterDensity = 1.0
+        const spDensity = materials?.superplasticizer?.density || 1.05
+        const flyAshDensity = materials?.flyAsh?.density || 2.20
+        const slagDensity = materials?.slag?.density || 2.90
+        const getSandDensity = () => {
+          if (Array.isArray(materials.sand)) return materials.sand[0]?.density || 2.63
+          return materials.sand?.density || 2.63
+        }
+        const getStoneDensity = () => {
+          if (Array.isArray(materials.stone)) return materials.stone[0]?.density || 2.70
+          return materials.stone?.density || 2.70
+        }
+        const sandDensity = getSandDensity()
+        const stoneDensity = getStoneDensity()
+
+        // 初始估算骨料总量（基于假设密度 2400 kg/m³）
+        let aggregateAmount = 2400 - waterAmount - cementitiousAmount - materialAmounts.superplasticizer
+        let currentSandAmount = aggregateAmount * finalSandRatio
+        let currentStoneAmount = aggregateAmount - currentSandAmount
+
+        // 迭代修正，使总体积 = 1 m³
+        // 注意：单位必须统一 - 所有材料密度使用 g/cm³ (= kg/L = 1000 kg/m³)
+        // 但这里 materialAmounts 是 kg/m³，密度是 g/cm³，需要换算
+        // 实际上 density (g/cm³) × 1000 = density (kg/m³)，所以直接除是错的
+        // 正确：体积(m³) = 质量(kg/m³) / (密度(g/cm³) × 1000)
+        const toM3 = (kgPerM3, gPerCm3) => kgPerM3 / (gPerCm3 * 1000)
+
+        for (let i = 0; i < 10; i++) {
+          const cementVol = toM3(materialAmounts.cement, cementDensity)
+          const waterVol = toM3(waterAmount, waterDensity)
+          const spVol = toM3(materialAmounts.superplasticizer, spDensity)
+          const flyAshVol = toM3(materialAmounts.flyAsh || 0, flyAshDensity)
+          const slagVol = toM3(materialAmounts.slag || 0, slagDensity)
+          const airVol = usedAirContent / 100
+
+          const currentSandVol = toM3(currentSandAmount, sandDensity)
+          const currentStoneVol = toM3(currentStoneAmount, stoneDensity)
+          const totalVolume = cementVol + waterVol + spVol + flyAshVol + slagVol + currentSandVol + currentStoneVol + airVol
+
+          // 目标骨料体积
+          const targetAggVol = 1 - cementVol - waterVol - spVol - flyAshVol - slagVol - airVol
+
+          // 当前骨料体积
+          const currentAggVol = currentSandVol + currentStoneVol
+
+          // 缩放比例
+          const scaleFactor = currentAggVol > 0 ? targetAggVol / currentAggVol : 1
+
+          if (Math.abs(scaleFactor - 1) < 1e-6) break
+
+          currentSandAmount *= scaleFactor
+          currentStoneAmount *= scaleFactor
+
+          console.log('绝对体积法迭代' + i + ': scaleFactor=' + scaleFactor.toFixed(6) + ', totalVolume=' + totalVolume.toFixed(4) + ', sandAmount=' + currentSandAmount.toFixed(2) + ', stoneAmount=' + currentStoneAmount.toFixed(2))
+        }
+
+        sandAmount = currentSandAmount
+        stoneAmount = currentStoneAmount
+
+        // 验证最终结果
+        const cementVol = toM3(materialAmounts.cement, cementDensity)
+        const waterVol = toM3(waterAmount, waterDensity)
+        const spVol = toM3(materialAmounts.superplasticizer, spDensity)
+        const flyAshVol = toM3(materialAmounts.flyAsh || 0, flyAshDensity)
+        const slagVol = toM3(materialAmounts.slag || 0, slagDensity)
+        const airVol = usedAirContent / 100
+        const sandVol = toM3(sandAmount, sandDensity)
+        const stoneVol = toM3(stoneAmount, stoneDensity)
+        const finalTotalVol = cementVol + waterVol + spVol + flyAshVol + slagVol + sandVol + stoneVol + airVol
+        const finalDensity = materialAmounts.cement + waterAmount + materialAmounts.superplasticizer + (materialAmounts.flyAsh || 0) + (materialAmounts.slag || 0) + sandAmount + stoneAmount
+        console.log('绝对体积法最终: cementVol=' + cementVol.toFixed(4) + ', waterVol=' + waterVol.toFixed(4) + ', spVol=' + spVol.toFixed(4) + ', flyAshVol=' + flyAshVol.toFixed(4) + ', slagVol=' + slagVol.toFixed(4) + ', sandVol=' + sandVol.toFixed(4) + ', stoneVol=' + stoneVol.toFixed(4) + ', airVol=' + airVol.toFixed(4) + ', totalVolume=' + finalTotalVol.toFixed(4) + ', finalDensity=' + finalDensity.toFixed(2))
       }
       
       // 处理多种骨料的情况
@@ -1078,7 +1244,9 @@ class MixDesignService {
       }
 
       // 计算胶凝材料成本（水泥+粉煤灰+矿渣粉）
-      const cementitiousCost = (materialCosts.cement || 0) + (materialCosts.flyAsh || 0) + (materialCosts.slag || 0)
+      cementitiousCost = (materialCosts.cement || 0) + (materialCosts.flyAsh || 0) + (materialCosts.slag || 0)
+    } else {
+      cementitiousCost = 0
     }
     
     console.log('材料成本:', materialCosts)
@@ -1115,6 +1283,8 @@ class MixDesignService {
       waterReducingRate,
       influenceFactor,
       calculationMethod: calculationMethod || 'absolute',
+      targetDensity: calculationMethod === 'mass' ? (targetDensity || 2400) : undefined,
+      airContent: calculationMethod === 'absolute' ? (airContent !== undefined && airContent !== null ? airContent : 1.0) : undefined,
       slump, // 包含用户输入的坍落度值
       fineAggregateBreakdown,
       coarseAggregateBreakdown,
@@ -1237,8 +1407,12 @@ class MixDesignService {
     try {
       const { strength, waterRatio, materials } = mixDesign
 
-      // 1. 验证水胶比
-      const requiredWaterRatio = this.calculateWaterRatio(strength, mixDesign.environment)
+      // 1. 验证水胶比（需根据强度等级重新计算允许的最大水胶比）
+      const stdDev = await this.getStrengthStdDev(strength)
+      const targetStrength = this.calculateTargetStrength(strength, stdDev)
+      const { alphaA, alphaB } = await this.getRegressionCoefficients()
+      const cementStrength = materials?.cement?.compressiveStrength28d || 48.0
+      const requiredWaterRatio = this.calculateWaterRatio(targetStrength, cementStrength, alphaA, alphaB)
       const waterRatioValid = waterRatio <= requiredWaterRatio
 
       // 2. 验证强度

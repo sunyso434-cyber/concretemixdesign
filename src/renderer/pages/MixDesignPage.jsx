@@ -15,6 +15,7 @@ const MixDesignPage = () => {
   const watchedSand = Form.useWatch ? Form.useWatch('sand', form) : null
   const watchedSandRatio = Form.useWatch ? Form.useWatch('sandRatio', form) : null
   const watchedStrength = Form.useWatch ? Form.useWatch('strength', form) : null
+  const watchedCalculationMethod = Form.useWatch ? Form.useWatch('calculationMethod', form) : null
   const [adjustedResult, setAdjustedResult] = useState(null)
   const [seriesResults, setSeriesResults] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -27,23 +28,6 @@ const MixDesignPage = () => {
 
   // 强度等级选项
   const strengthOptions = ['C15', 'C20', 'C25', 'C30', 'C35', 'C40', 'C45', 'C50', 'C55', 'C60']
-
-  // 环境类别选项
-  const environmentOptions = [
-    { value: '1', label: '一类（室内干燥环境）' },
-    { value: '2a', label: '二类a（室内潮湿环境）' },
-    { value: '2b', label: '二类b（严寒和寒冷地区的露天环境）' },
-    { value: '3a', label: '三类a（使用除冰盐的环境）' },
-    { value: '3b', label: '三类b（海水环境）' }
-  ]
-
-  // 工程类型选项
-  const projectTypeOptions = [
-    { value: 'civil', label: '民用建筑' },
-    { value: 'industrial', label: '工业建筑' },
-    { value: 'bridge', label: '桥梁工程' },
-    { value: 'water', label: '水利工程' }
-  ]
 
   // 计算方法选项
   const calculationMethodOptions = [
@@ -171,14 +155,14 @@ const MixDesignPage = () => {
       console.error('实时调整细骨料占比失败:', e)
       setAdjustedResult(null)
     }
-  }, [calculationResult, materials, watchedSand, watchedSandRatio, watchedStrength, tempSettings])
+  }, [calculationResult, materials, watchedSand, watchedSandRatio, watchedStrength, tempSettings, form])
 
   // 当 adjustedResult 变化时，同步到 Redux 缓存
   useEffect(() => {
     if (!cacheRestored) return // 跳过初始渲染和缓存恢复
     if (adjustedResult) {
       dispatch(setCalculationCache({
-        calculationResult: calculationResult,
+        calculationResult: adjustedResult,
         adjustedResult: adjustedResult,
         seriesResults: seriesResults
       }))
@@ -229,8 +213,6 @@ const MixDesignPage = () => {
       const testParams = {
         strength: 'C30',
         slump: 120,
-        environment: '1',
-        projectType: 'civil',
         calculationMethod: 'absolute',
         flyAshDosage: 20,
         slagDosage: 10,
@@ -657,7 +639,7 @@ const MixDesignPage = () => {
 
       <div className="mb-lg">
         <Card className="custom-card" title="设计目标参数">
-          <Form form={form} layout="vertical" initialValues={{ calculationMethod: 'absolute', targetDensity: 2400, projectType: 'civil', flyAshDosage: 20, slagDosage: 10, sandRatio: 35 }}>
+          <Form form={form} layout="vertical" initialValues={{ calculationMethod: 'absolute', targetDensity: 2400, airContent: 1.5, flyAshDosage: 20, slagDosage: 10, sandRatio: 35 }}>
             <div className="grid-2-col">
               <Form.Item name="strength" label="强度等级" rules={[{ required: true, message: '请选择强度等级' }]}>
                 <Select placeholder="请选择强度等级" style={{ width: '100%' }}>
@@ -666,38 +648,42 @@ const MixDesignPage = () => {
                   ))}
                 </Select>
               </Form.Item>
-              
+
               <Form.Item name="slump" label="坍落度 (mm)" rules={[{ required: true, message: '请输入坍落度' }]}>
                 <Input type="number" placeholder="请输入坍落度" style={{ width: '100%' }} />
               </Form.Item>
-              
-              <Form.Item name="environment" label="环境类别" rules={[{ required: true, message: '请选择环境类别' }]}>
-                <Select placeholder="请选择环境类别" style={{ width: '100%' }}>
-                  {environmentOptions.map(env => (
-                    <Option key={env.value} value={env.value}>{env.label}</Option>
-                  ))}
-                </Select>
-              </Form.Item>
-              
-              <Form.Item name="projectType" label="工程类型" rules={[{ required: true, message: '请选择工程类型' }]}>
-                <Select placeholder="请选择工程类型" style={{ width: '100%' }}>
-                  {projectTypeOptions.map(type => (
-                    <Option key={type.value} value={type.value}>{type.label}</Option>
-                  ))}
-                </Select>
-              </Form.Item>
-              
+
               <Form.Item name="flyAshDosage" label="粉煤灰掺量 (%)">
                 <InputNumber style={{ width: '100%' }} placeholder="请输入粉煤灰掺量" min={0} max={50} precision={1} />
               </Form.Item>
-              
+
               <Form.Item name="slagDosage" label="矿渣粉掺量 (%)">
                 <InputNumber style={{ width: '100%' }} placeholder="请输入矿渣粉掺量" min={0} max={60} precision={1} />
               </Form.Item>
-              
+
               <Form.Item name="sandRatio" label="砂率 (%)">
                 <InputNumber style={{ width: '100%' }} placeholder="请输入砂率" min={30} max={50} precision={1} />
               </Form.Item>
+
+              <Form.Item name="calculationMethod" label="计算方法">
+                <Select placeholder="请选择计算方法" style={{ width: '100%' }}>
+                  {calculationMethodOptions.map(method => (
+                    <Option key={method.value} value={method.value}>{method.label}</Option>
+                  ))}
+                </Select>
+              </Form.Item>
+
+              {watchedCalculationMethod === 'mass' && (
+                <Form.Item name="targetDensity" label="容重 (kg/m³)" rules={[{ required: true, message: '请输入容重' }]}>
+                  <InputNumber style={{ width: '100%' }} placeholder="如 2400" min={2000} max={2800} precision={0} />
+                </Form.Item>
+              )}
+
+              {watchedCalculationMethod === 'absolute' && (
+                <Form.Item name="airContent" label="含气量 (%)" rules={[{ required: true, message: '请输入含气量' }]}>
+                  <InputNumber style={{ width: '100%' }} placeholder="如 1.5" min={0} max={10} precision={1} />
+                </Form.Item>
+              )}
             </div>
           </Form>
         </Card>

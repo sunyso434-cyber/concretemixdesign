@@ -1,6 +1,6 @@
 // src/renderer/components/ImportWizard.jsx
 import React, { useState, useRef } from 'react'
-import { Modal, Steps, Radio, Button, Table, Space, Typography, Alert, Card } from 'antd'
+import { Modal, Steps, Radio, Button, Table, Space, Typography, Alert, Card, message } from 'antd'
 import { DownloadOutlined, UploadOutlined, FileExcelFilled } from '@ant-design/icons'
 
 const { Text, Paragraph } = Typography
@@ -39,6 +39,7 @@ const ImportWizard = ({ onClose }) => {
       })
     } catch (e) {
       console.error(e)
+      message.error('生成模板失败：' + (e.message || '未知错误'))
     }
   }
 

@@ -13,6 +13,7 @@ class MaterialHandler {
         const materials = await MaterialService.getAllMaterials()
         return { success: true, data: materials }
       } catch (error) {
+        console.error('getAllMaterials failed:', error)
         return { success: false, error: error.message }
       }
     })
@@ -23,6 +24,7 @@ class MaterialHandler {
         const material = await MaterialService.getMaterialById(id)
         return { success: true, data: material }
       } catch (error) {
+        console.error('getMaterialById failed:', error)
         return { success: false, error: error.message }
       }
     })
@@ -33,6 +35,7 @@ class MaterialHandler {
         const material = await MaterialService.createMaterial(data)
         return { success: true, data: material }
       } catch (error) {
+        console.error('createMaterial failed:', error)
         return { success: false, error: error.message }
       }
     })
@@ -43,6 +46,7 @@ class MaterialHandler {
         const material = await MaterialService.updateMaterial(id, data)
         return { success: true, data: material }
       } catch (error) {
+        console.error('updateMaterial failed:', error)
         return { success: false, error: error.message }
       }
     })
@@ -53,6 +57,7 @@ class MaterialHandler {
         await MaterialService.deleteMaterial(id)
         return { success: true }
       } catch (error) {
+        console.error('deleteMaterial failed:', error)
         return { success: false, error: error.message }
       }
     })
@@ -63,6 +68,7 @@ class MaterialHandler {
         const materials = await MaterialService.getMaterialsByType(type)
         return { success: true, data: materials }
       } catch (error) {
+        console.error('getMaterialsByType failed:', error)
         return { success: false, error: error.message }
       }
     })
@@ -73,6 +79,7 @@ class MaterialHandler {
         await MaterialService.initDefaultMaterials()
         return { success: true }
       } catch (error) {
+        console.error('initDefaultMaterials failed:', error)
         return { success: false, error: error.message }
       }
     })

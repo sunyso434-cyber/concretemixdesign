@@ -21,15 +21,6 @@ const OptimizationPage = () => {
   // 强度等级选项
   const strengthOptions = ['C15', 'C20', 'C25', 'C30', 'C35', 'C40', 'C45', 'C50', 'C55', 'C60']
 
-  // 环境类别选项
-  const environmentOptions = [
-    { value: '1', label: '一类（室内干燥环境）' },
-    { value: '2a', label: '二类 a（室内潮湿环境）' },
-    { value: '2b', label: '二类 b（严寒和寒冷地区的露天环境）' },
-    { value: '3a', label: '三类 a（使用除冰盐的环境）' },
-    { value: '3b', label: '三类 b（海水环境）' }
-  ]
-
   // 坍落度选项
   const slumpOptions = [
     { value: 60, label: '60mm' },
@@ -201,14 +192,12 @@ const OptimizationPage = () => {
         constraints: {
           strength: values.strength,
           slump: values.slump,
-          environment: values.environment,
           materials: materialsMap,
           projectName: values.projectName
         },
         userLimits: {
           flyAshRange: [values.flyAshRange?.[0] ?? 0, values.flyAshRange?.[1] ?? 30],
           slagRange: [values.slagRange?.[0] ?? 0, values.slagRange?.[1] ?? 20],
-          sandRatioRange: [values.sandRatioRange?.[0] ?? 35, values.sandRatioRange?.[1] ?? 45],
           gridStep: values.gridStep || 5
         }
       }
@@ -271,7 +260,6 @@ const OptimizationPage = () => {
         projectName: form.getFieldValue('projectName'),
         strength: form.getFieldValue('strength'),
         slump: form.getFieldValue('slump'),
-        environment: form.getFieldValue('environment'),
         waterRatio: result.waterRatio,
         sandRatio: result.sandRatio,
         materials: result.materials,
@@ -546,19 +534,6 @@ const OptimizationPage = () => {
                 </Select>
               </Form.Item>
             </Col>
-            <Col span={6}>
-              <Form.Item
-                name="environment"
-                label="环境类别"
-                rules={[{ required: true, message: '请选择环境类别' }]}
-              >
-                <Select placeholder="请选择">
-                  {environmentOptions.map(e => (
-                    <Option key={e.value} value={e.value}>{e.label}</Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            </Col>
           </Row>
 
           <Divider orientation="left">原材料选择</Divider>
@@ -666,25 +641,6 @@ const OptimizationPage = () => {
                 initialValue={20}
               >
                 <InputNumber min={0} max={50} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={6}>
-              <Form.Item
-                name={['sandRatioRange', 0]}
-                label="砂率最小值（%）"
-                initialValue={35}
-                tooltip="系统将在此范围内搜索最优砂率"
-              >
-                <InputNumber min={20} max={60} style={{ width: '100%' }} />
-              </Form.Item>
-            </Col>
-            <Col span={6}>
-              <Form.Item
-                name={['sandRatioRange', 1]}
-                label="砂率最大值（%）"
-                initialValue={45}
-              >
-                <InputNumber min={20} max={60} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={6}>

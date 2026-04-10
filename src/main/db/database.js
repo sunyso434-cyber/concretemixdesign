@@ -33,6 +33,9 @@ const sequelize = new Sequelize({
   logging: false
 })
 
+// 立即将sequelize附加到module.exports（解决循环依赖：models导入时能获取到sequelize）
+module.exports.sequelize = sequelize
+
 // 关闭所有连接（用于恢复数据库后刷新连接）
 async function closeAllConnections() {
   try {
@@ -123,8 +126,8 @@ const defaultInsulationMaterials = [
 
 // 同步所有模型并初始化数据
 async function syncModels() {
-  // 同步所有模型到数据库
-  await sequelize.sync()
+  // 同步所有模型到数据库，alter: true 会自动添加新列
+  await sequelize.sync({ alter: true })
   console.log('大体积混凝土模块模型同步完成')
 
   // 检查并初始化默认保温材料
@@ -136,18 +139,15 @@ async function syncModels() {
 }
 
 // 导出sequelize实例、关闭函数、同步函数和所有模型
-module.exports = {
-  sequelize,
-  closeAllConnections,
-  syncModels,
-  Material,
-  MixDesign,
-  SystemParam,
-  OptimizationHistory,
-  InsulationMaterial,
-  MassConcreteScheme,
-  MassConcreteMixDesign,
-  MassConcreteAdiabaticTemp,
-  MassConcreteStress,
-  MassConcreteInsulation
-}
+module.exports.closeAllConnections = closeAllConnections
+module.exports.syncModels = syncModels
+module.exports.Material = Material
+module.exports.MixDesign = MixDesign
+module.exports.SystemParam = SystemParam
+module.exports.OptimizationHistory = OptimizationHistory
+module.exports.InsulationMaterial = InsulationMaterial
+module.exports.MassConcreteScheme = MassConcreteScheme
+module.exports.MassConcreteMixDesign = MassConcreteMixDesign
+module.exports.MassConcreteAdiabaticTemp = MassConcreteAdiabaticTemp
+module.exports.MassConcreteStress = MassConcreteStress
+module.exports.MassConcreteInsulation = MassConcreteInsulation

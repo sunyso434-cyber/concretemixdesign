@@ -61,6 +61,17 @@ const Material = sequelize.define('Material', {
   compressiveStrength28d: {
     type: DataTypes.FLOAT
   },
+  // 水泥水化热字段 (单位: kJ/kg)
+  cementHeat3d: {
+    type: DataTypes.FLOAT,
+    defaultValue: 260,
+    comment: '水泥3天水化热 kJ/kg'
+  },
+  cementHeat7d: {
+    type: DataTypes.FLOAT,
+    defaultValue: 300,
+    comment: '水泥7天水化热 kJ/kg'
+  },
   // 粉煤灰专用字段
   waterDemandRatio: {
     type: DataTypes.FLOAT

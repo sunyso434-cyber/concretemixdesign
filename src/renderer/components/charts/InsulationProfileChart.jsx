@@ -36,10 +36,44 @@ const InsulationProfileChart = ({
     },
     meta: {
       thickness: {
-        alias: '保温层厚度 (m)',
+        alias: '保温层厚度',
       },
       name: {
         alias: '保温方案',
+      },
+    },
+    xAxis: {
+      title: {
+        text: '保温方案',
+        style: {
+          fontSize: 12,
+          fill: '#666',
+        },
+      },
+      grid: {
+        line: {
+          style: {
+            stroke: '#e8e8e8',
+            lineDash: [4, 4],
+          },
+        },
+      },
+    },
+    yAxis: {
+      title: {
+        text: '保温层厚度 (m)',
+        style: {
+          fontSize: 12,
+          fill: '#666',
+        },
+      },
+      grid: {
+        line: {
+          style: {
+            stroke: '#e8e8e8',
+            lineDash: [4, 4],
+          },
+        },
       },
     },
     title: {

@@ -10,14 +10,14 @@ import { PARAM_CONFIG, PARAM_TABS } from '../config/paramConfig'
 
 const { Text } = Typography
 
-const TAB_KEYS = ['配合比参数', 'JGJ55标准', '系统设置', '备份设置']
+const TAB_KEYS = ['JGJ55标准', '系统设置', '备份设置']
 
 const SettingsPage = () => {
   const [params, setParams] = useState([])
   const [modifiedParams, setModifiedParams] = useState({})
   const [loading, setLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState('配合比参数')
+  const [activeTab, setActiveTab] = useState('JGJ55标准')
 
   const [exportWizardVisible, setExportWizardVisible] = useState(false)
   const [importWizardVisible, setImportWizardVisible] = useState(false)

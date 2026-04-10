@@ -54,7 +54,6 @@ class MixDesignOptimizer {
       const calcParams = {
         strength: constraints.strength,
         slump: constraints.slump,
-        environment: constraints.environment,
         waterRatio: waterRatio,
         flyAshDosage: flyAsh,
         slagDosage: slag,
@@ -65,6 +64,16 @@ class MixDesignOptimizer {
 
       const result = await this.mixDesignService.calculateMixDesign(calcParams)
       const isValid = this._validateConstraints(result, constraints, userLimits)
+
+      console.log('[第一层] 计算结果:', {
+        flyAsh: flyAshMat?.name,
+        slag: slagMat?.name,
+        totalCost: result.totalCost,
+        cementitious: (result.materials?.cement || 0) + (result.materials?.flyAsh || 0) + (result.materials?.slag || 0),
+        water: result.materials?.water,
+        waterRatio: result.waterRatio,
+        isValid
+      })
 
       if (isValid) {
         return {
@@ -89,12 +98,10 @@ class MixDesignOptimizer {
    * @param {Object} params.constraints - 性能目标约束
    * @param {string} params.constraints.strength - 强度等级 (e.g., 'C30')
    * @param {number} params.constraints.slump - 坍落度 (mm)
-   * @param {string} params.constraints.environment - 环境类别
    * @param {Object} params.constraints.materials - 候选原材料列表
    * @param {Object} params.userLimits - 用户自定义限值
    * @param {number[]} params.userLimits.flyAshRange - 粉煤灰掺量范围 [%]，如 [0, 30]
    * @param {number[]} params.userLimits.slagRange - 矿渣粉掺量范围 [%]，如 [0, 20]
-   * @param {number[]} params.userLimits.sandRatioRange - 砂率范围 [%]，如 [35, 42]
    * @param {number} params.userLimits.gridStep - 网格搜索步长，默认 5
    * @param {Object} cancellationToken - 取消令牌 { cancelled: boolean }
    * @returns {Promise<Object>} 最优配合比方案
@@ -442,7 +449,6 @@ class MixDesignOptimizer {
           const calcParams = {
             strength: constraints.strength,
             slump: constraints.slump,
-            environment: constraints.environment,
             waterRatio: waterRatio,
             flyAshDosage: flyAsh,
             slagDosage: slag,
@@ -459,6 +465,9 @@ class MixDesignOptimizer {
             slag: materialSelection.slag?.name,
             sp: spMat?.name,
             totalCost: result.totalCost,
+            cementitious: (result.materials?.cement || 0) + (result.materials?.flyAsh || 0) + (result.materials?.slag || 0),
+            water: result.materials?.water,
+            waterRatio: result.waterRatio,
             isValid
           })
 
@@ -596,7 +605,7 @@ _prepareMaterials(materials) {
     if (userLimits.waterRatioRange) {
       const [minWbr, maxWbr] = userLimits.waterRatioRange
       if (result.waterRatio < minWbr || result.waterRatio > maxWbr) {
-        console.log('[验证] 水胶比超出范围:', result.waterRatio)
+        console.log('[验证] 水胶比超出范围:', result.waterRatio, '范围:', minWbr, '-', maxWbr)
         return false
       }
     }
@@ -608,7 +617,7 @@ _prepareMaterials(materials) {
       return false
     }
     if (totalCementitious < 200 || totalCementitious > 600) {
-      console.log('[验证] 胶凝材料用量不合理:', totalCementitious)
+      console.log('[验证] 胶凝材料用量不合理:', totalCementitious, 'kg/m³')
       return false
     }
 
@@ -636,7 +645,6 @@ _prepareMaterials(materials) {
         constraints: {
           strength: constraints.strength,
           slump: constraints.slump,
-          environment: constraints.environment,
           materials: constraints.materials,
           userLimits: constraints.userLimits
         },

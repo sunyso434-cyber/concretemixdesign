@@ -27,30 +27,6 @@ const MassConcretePage = () => {
   const [saveModalVisible, setSaveModalVisible] = useState(false)
   const [exportLoading, setExportLoading] = useState(false)
 
-  // Tab配置
-  const tabItems = [
-    {
-      key: 'mixdesign',
-      label: '配合比设计',
-      children: <MixDesignTab onCalculate={handleMixDesignCalculate} />
-    },
-    {
-      key: 'temprise',
-      label: '温升计算',
-      children: <TempRiseTab onCalculate={handleTempRiseCalculate} />
-    },
-    {
-      key: 'stress',
-      label: '应力计算',
-      children: <StressTab onCalculate={handleStressCalculate} />
-    },
-    {
-      key: 'insulation',
-      label: '保温计算',
-      children: <InsulationTab onCalculate={handleInsulationCalculate} />
-    }
-  ]
-
   // 处理Tab切换
   const handleTabChange = (key) => {
     dispatch(setActiveTab(key))
@@ -77,6 +53,30 @@ const MassConcretePage = () => {
   const handleInsulationCalculate = () => {
     console.log('保温计算完成')
   }
+
+  // Tab配置
+  const tabItems = [
+    {
+      key: 'mixdesign',
+      label: '配合比设计',
+      children: <MixDesignTab onCalculate={handleMixDesignCalculate} />
+    },
+    {
+      key: 'temprise',
+      label: '温升计算',
+      children: <TempRiseTab onCalculate={handleTempRiseCalculate} />
+    },
+    {
+      key: 'stress',
+      label: '应力计算',
+      children: <StressTab onCalculate={handleStressCalculate} />
+    },
+    {
+      key: 'insulation',
+      label: '保温计算',
+      children: <InsulationTab onCalculate={handleInsulationCalculate} />
+    }
+  ]
 
   // 加载方案时恢复数据
   const handleLoadScheme = (scheme) => {

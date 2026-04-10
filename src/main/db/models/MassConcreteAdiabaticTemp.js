@@ -41,7 +41,19 @@ const MassConcreteAdiabaticTemp = sequelize.define('MassConcreteAdiabaticTemp', 
   },
   tempDiffCurveData: {
     type: DataTypes.JSON,
-    comment: '温差曲线数据'
+    comment: '里表温差曲线数据'
+  },
+  surfaceTempDiffCurveData: {
+    type: DataTypes.JSON,
+    comment: '表气温温曲线数据'
+  },
+  tempDistributionData: {
+    type: DataTypes.JSON,
+    comment: '温度分布数据'
+  },
+  tempFieldData: {
+    type: DataTypes.JSON,
+    comment: '温度场数据（时间-位置-温度）'
   }
 }, {
   tableName: 'massConcreteAdiabaticTemps',

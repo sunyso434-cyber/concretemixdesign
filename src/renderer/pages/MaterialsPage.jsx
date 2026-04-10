@@ -40,9 +40,9 @@ const MaterialsPage = () => {
         console.error('MaterialsPage data refresh failed:', err)
       }
     }
-    const listenerId = window.electron.ipcRenderer.on('data-refresh', handleDataRefresh)
+    window.electron.ipcRenderer.on('data-refresh', handleDataRefresh)
     return () => {
-      window.electron.ipcRenderer.removeListener(listenerId)
+      window.electron.ipcRenderer.removeListener('data-refresh', handleDataRefresh)
     }
   }, [])
 
