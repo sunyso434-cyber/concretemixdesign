@@ -100,7 +100,9 @@ class MassConcreteAdiabaticTempService {
    * @param {number} params.totalBinder - 总胶凝材料 kg/m³
    * @param {number} params.totalHeat - 总发热量 kJ/m³
    * @param {number} params.moldingTemp - 入模温度 ℃
+   * @param {number} params.ambientTemp - 环境温度 ℃
    * @param {number} params.concreteThickness - 混凝土厚度 m
+   * @param {number} params.concreteLength - 混凝土长度 m
    * @param {string} params.cementType - 水泥类型
    * @param {number} params.concreteC - 混凝土比热容 kJ/(kg·℃)
    * @param {number} params.concreteRho - 混凝土密度 kg/m³
@@ -112,7 +114,9 @@ class MassConcreteAdiabaticTempService {
       totalBinder,
       totalHeat,
       moldingTemp,
+      ambientTemp,
       concreteThickness,
+      concreteLength,
       cementType,
       concreteC = MassConcreteAdiabaticTempService.DEFAULT_CONCRETE_C,
       concreteRho = MassConcreteAdiabaticTempService.DEFAULT_CONCRETE_RHO
@@ -155,9 +159,9 @@ class MassConcreteAdiabaticTempService {
     const tempDistributionData = MassConcreteAdiabaticTempService.generateTempDistribution(
       maxAdiabaticTemp,
       m0,
-      moldingTemp,
+      ambientTemp,
       concreteThickness,
-      0 // 长度默认为0
+      concreteLength || 0
     )
 
     console.log('[绝热温升计算] 参数:', {
@@ -186,7 +190,9 @@ class MassConcreteAdiabaticTempService {
       totalBinder,
       totalHeat,
       moldingTemp,
+      ambientTemp,
       concreteThickness,
+      concreteLength,
       cementType,
       lambda,
       W,
@@ -221,7 +227,8 @@ class MassConcreteAdiabaticTempService {
         mCoefficient: data.mCoefficient,
         maxAdiabaticTemp: data.maxAdiabaticTemp,
         tempCurveData: data.tempCurveData,
-        tempDiffCurveData: data.tempDiffCurveData
+        tempDiffCurveData: data.tempDiffCurveData,
+        tempDistributionData: data.tempDistributionData
       }
 
       if (adiabaticTemp) {
