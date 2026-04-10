@@ -243,13 +243,13 @@ class MassConcreteTemperatureFieldService {
           // 表面散热边界条件（第三类边界）
           // -λ × (T_n - T_{n-1})/dx = β × (T_a - T_n)
           // 离散化: -Fo×T_{n-2} + (1+Fo)×T_{n-1} = T^n + Fo×Bi×T_a
-          const Bi = beta * dx / lambda
-          const gamma = 1 + Bi
+          const Bi_surface = beta * dx / lambda
+          const gamma = 1 + Bi_surface
 
           a_new[i] = -Fo / gamma
           b_new[i] = (1 + Fo) / gamma
           c_new[i] = 0
-          d_new[i] = T_current[i] + dT_ad * dt + Fo * Bi * ambientTemp / gamma
+          d_new[i] = T_current[i] + dT_ad * dt + Fo * Bi_surface * ambientTemp / gamma
         } else {
           // 内部节点
           a_new[i] = -Fo
