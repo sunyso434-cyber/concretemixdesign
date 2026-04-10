@@ -6,16 +6,32 @@ import { Line } from '@ant-design/plots'
 /**
  * 应力图表组件
  * 用于显示混凝土内部应力随时间的变化曲线
- * @param {Array} data - 应力数据数组 [{time: number, stress: number}]
+ * @param {Array} selfConstraintStress - 自约束应力数据 [{time: number, stress: number}]
+ * @param {Array} externalConstraintStress - 外约束应力数据 [{time: number, stress: number}]
+ * @param {Array} totalStress - 总应力数据 [{time: number, stress: number}]
+ * @param {number} tensileStrength - 抗拉强度值
  * @param {string} title - 图表标题
- * @param {number} allowableStress - 许用应力值
  */
-const StressChart = ({ data = [], title = '应力变化曲线', allowableStress = null }) => {
+const StressChart = ({
+  selfConstraintStress = [],
+  externalConstraintStress = [],
+  totalStress = [],
+  tensileStrength = null,
+  title = '应力变化曲线'
+}) => {
+  // 合并三条曲线数据，添加series字段区分
+  const combinedData = [
+    ...selfConstraintStress.map(item => ({ ...item, series: '自约束应力' })),
+    ...externalConstraintStress.map(item => ({ ...item, series: '外约束应力' })),
+    ...totalStress.map(item => ({ ...item, series: '总应力' }))
+  ]
+
   const config = {
-    data,
+    data: combinedData,
     xField: 'time',
     yField: 'stress',
     smooth: true,
+    seriesField: 'series',
     point: {
       size: 4,
       shape: 'circle',
@@ -41,7 +57,7 @@ const StressChart = ({ data = [], title = '应力变化曲线', allowableStress 
         textAlign: 'center',
       },
     },
-    color: '#fa8c16',
+    color: ['#fa8c16', '#1890ff', '#f5222d'],
     lineStyle: {
       lineWidth: 2,
     },
@@ -61,11 +77,9 @@ const StressChart = ({ data = [], title = '应力变化曲线', allowableStress 
         },
       },
     },
-    legend: allowableStress
-      ? {
-          position: 'top-right',
-        }
-      : undefined,
+    legend: {
+      position: 'top-right',
+    },
     animation: {
       appear: {
         animation: 'wave-in',
@@ -74,20 +88,20 @@ const StressChart = ({ data = [], title = '应力变化曲线', allowableStress 
     },
   }
 
-  // 如果提供了许用应力，添加参考线
-  if (allowableStress !== null) {
+  // 如果提供了抗拉强度，添加参考线
+  if (tensileStrength !== null) {
     config.annotations = [
       {
         type: 'line',
-        start: ['0%', allowableStress],
-        end: ['100%', allowableStress],
+        start: ['0%', tensileStrength],
+        end: ['100%', tensileStrength],
         style: {
           stroke: '#ff4d4f',
           lineWidth: 2,
           lineDash: [8, 4],
         },
         text: {
-          content: `许用应力: ${allowableStress} MPa`,
+          content: `抗拉强度: ${tensileStrength} MPa`,
           position: 'right',
           style: {
             fill: '#ff4d4f',

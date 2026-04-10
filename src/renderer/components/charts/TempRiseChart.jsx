@@ -6,15 +6,27 @@ import { Line } from '@ant-design/plots'
 /**
  * 温度升幅图表组件
  * 用于显示混凝土内部温度随时间的变化曲线
- * @param {Array} data - 温度数据数组 [{time: number, temperature: number}]
+ * @param {Array} tempCurveData - 温度曲线数据 [{time: number, temperature: number}]
+ * @param {Array} tempDiffCurveData - 温差曲线数据 [{time: number, temperature: number}]
  * @param {string} title - 图表标题
  */
-const TempRiseChart = ({ data = [], title = '温度升幅曲线' }) => {
+const TempRiseChart = ({
+  tempCurveData = [],
+  tempDiffCurveData = [],
+  title = '温度升幅曲线'
+}) => {
+  // 合并两条曲线数据，添加series字段区分
+  const combinedData = [
+    ...tempCurveData.map(item => ({ ...item, series: '温度' })),
+    ...tempDiffCurveData.map(item => ({ ...item, series: '温差' }))
+  ]
+
   const config = {
-    data,
+    data: combinedData,
     xField: 'time',
     yField: 'temperature',
     smooth: true,
+    seriesField: 'series',
     point: {
       size: 4,
       shape: 'circle',
@@ -46,7 +58,7 @@ const TempRiseChart = ({ data = [], title = '温度升幅曲线' }) => {
         textAlign: 'center',
       },
     },
-    color: '#1890ff',
+    color: ['#1890ff', '#52c41a'],
     lineStyle: {
       lineWidth: 2,
     },
@@ -65,6 +77,9 @@ const TempRiseChart = ({ data = [], title = '温度升幅曲线' }) => {
           },
         },
       },
+    },
+    legend: {
+      position: 'top-right',
     },
     animation: {
       appear: {

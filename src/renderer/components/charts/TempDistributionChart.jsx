@@ -6,12 +6,15 @@ import { Line } from '@ant-design/plots'
 /**
  * 温度分布图表组件
  * 用于显示混凝土内部温度在不同位置的分布
- * @param {Array} data - 温度分布数据 [{distance: number, temperature: number}]
+ * @param {Array} tempDistributionData - 温度分布数据 [{distance: number, temperature: number}]
  * @param {string} title - 图表标题
  */
-const TempDistributionChart = ({ data = [], title = '温度分布曲线' }) => {
+const TempDistributionChart = ({
+  tempDistributionData = [],
+  title = '温度分布曲线'
+}) => {
   const config = {
-    data,
+    data: tempDistributionData,
     xField: 'distance',
     yField: 'temperature',
     smooth: true,
