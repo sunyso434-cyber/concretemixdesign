@@ -67,7 +67,7 @@ const MassConcreteInsulation = require('./models/MassConcreteInsulation')
 const defaultInsulationMaterials = [
   {
     name: '草袋',
-    thermal_conductivity: 0.08,
+    thermal_conductivity: 0.07,
     heat_storage_coefficient: 9.0,
     thickness: 30,
     unit_price: 5.0,
@@ -103,7 +103,7 @@ const defaultInsulationMaterials = [
   },
   {
     name: '钢模板',
-    thermal_conductivity: 58.0,
+    thermal_conductivity: 50.0,
     heat_storage_coefficient: 200.0,
     thickness: 5,
     unit_price: 80.0,
