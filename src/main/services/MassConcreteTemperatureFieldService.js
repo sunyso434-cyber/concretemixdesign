@@ -228,17 +228,23 @@ class MassConcreteTemperatureFieldService {
           c_new[i] = -2 * Fo
           d_new[i] = T_current[i] + dT_ad * dt
         } else if (i === n - 1) {
-          // 表面散热边界 (第三类边界条件)
-          // 散热系数 β = Bi × λ / dx
+          // ============================================================
+          // 表面散热边界条件（第三类边界）
+          // 物理意义: -λ × ∂T/∂x|ₓ₌L = β × (T(L, t) - T_a)
+          // 左边是混凝土内部导热通量，右边是表面对流散热通量
+          // ============================================================
+          // 散热系数 β (W/(m²·K))
           const beta = Bi * lambda / dx
-          // 边界条件: λ(T_{n-1} - T_n)/dx = β(T_n - T_a)
-          // => T_n = (T_{n-1} + (βdx/λ)T_a) / (1 + βdx/λ)
-          // 代入差分方程整理后得:
-          const coeff = 1 + 2 * Fo + 2 * beta * dx / lambda
-          a_new[i] = 2 * Fo / coeff
+
+          // 边界条件离散化推导:
+          // 隐式差分方程在表面: -Fo×T_{n-2} + (1+2Fo)×T_{n-1} - Fo×T_n = T_{n-1}^k + dT_ad×dt
+          // 第三类边界: -λ × (T_n - T_{n-1})/dx = β × (T_{n-1} - T_a)
+          // 联立求解得:
+          const gamma = 1 + beta * dx / lambda + 2 * Fo
+          a_new[i] = -Fo * (1 - beta * dx / lambda) / gamma
           b_new[i] = 1
           c_new[i] = 0
-          d_new[i] = (T_current[i] + dT_ad * dt + 2 * Fo * beta * ambientTemp / (lambda * coeff)) / (1 - 0)
+          d_new[i] = (T_current[i] + dT_ad * dt) / gamma + 2 * Fo * ambientTemp / gamma
         } else {
           // 内部节点
           a_new[i] = -Fo
