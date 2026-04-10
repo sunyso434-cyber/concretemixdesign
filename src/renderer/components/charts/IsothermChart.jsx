@@ -6,11 +6,27 @@ import { Heatmap } from '@ant-design/plots'
 /**
  * 等温线图（热力图）组件
  * 展示混凝土温度场分布
- * @param {Array} data - 温度场数据 [{position: number, time: number, temperature: number}]
+ * @param {Object} data - 温度场数据 {nodes: number[], times: number[], temperatures: number[][]}
  */
-const IsothermChart = ({ data = [] }) => {
+const IsothermChart = ({ data = {} }) => {
+  const { nodes = [], times = [], temperatures = [] } = data
+
+  // 转换数据：将矩阵转换为扁平数组
+  // TemperatureFieldService 返回 {nodes, times, temperatures}
+  // temperatures[ti][ni] 对应 time=times[ti], position=nodes[ni]
+  const chartData = []
+  times.forEach((t, ti) => {
+    nodes.forEach((n, ni) => {
+      chartData.push({
+        position: n,
+        time: t,
+        temperature: temperatures[ti]?.[ni] ?? null
+      })
+    })
+  })
+
   const config = {
-    data,
+    data: chartData,
     xField: 'position',
     yField: 'time',
     colorField: 'temperature',
@@ -43,7 +59,7 @@ const IsothermChart = ({ data = [] }) => {
     },
     xAxis: {
       title: {
-        text: '位置 (m)',
+        text: '位置 (%)',
         style: {
           fontSize: 12,
           fill: '#666',

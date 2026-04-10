@@ -6,30 +6,21 @@ import { Line } from '@ant-design/plots'
 /**
  * 温度-位置曲线组件
  * 展示不同时刻沿厚度方向的温度分布
- * @param {Object} data - 温度场数据
+ * @param {Object} data - 温度场数据 {nodes: number[], times: number[], temperatures: number[][]}
  */
 const TempPosCurveChart = ({ data = {} }) => {
-  // 转换数据：提取不同时刻的温度分布曲线
+  const { nodes = [], times = [], temperatures = [] } = data
+
+  // 转换数据：将矩阵转换为扁平数组
+  // TemperatureFieldService 返回 {nodes, times, temperatures}
+  // temperatures[ti][ni] 对应 time=times[ti], position=nodes[ni]
   const chartData = []
-  const { temperatureField = [] } = data
-
-  // 按时间分组
-  const timeMap = new Map()
-  temperatureField.forEach(item => {
-    const key = item.time
-    if (!timeMap.has(key)) {
-      timeMap.set(key, [])
-    }
-    timeMap.get(key).push(item)
-  })
-
-  // 转换为图表数据
-  timeMap.forEach((items, time) => {
-    items.forEach(item => {
+  times.forEach((t, ti) => {
+    nodes.forEach((n, ni) => {
       chartData.push({
-        position: item.position,
-        temperature: item.temperature,
-        time: time
+        position: n,
+        time: t,
+        temperature: temperatures[ti]?.[ni] ?? null
       })
     })
   })
@@ -68,7 +59,7 @@ const TempPosCurveChart = ({ data = {} }) => {
     },
     xAxis: {
       title: {
-        text: '位置 (m)',
+        text: '位置 (%)',
         style: {
           fontSize: 12,
           fill: '#666',
