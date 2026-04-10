@@ -1,4 +1,4 @@
-const { Sequelize } = require('sequelize')
+const { Sequelize, DataTypes } = require('sequelize')
 const path = require('path')
 
 // 在 Electron 环境中使用 app.getPath('userData')，否则回退到项目目录下的 data 子目录
@@ -51,5 +51,103 @@ async function closeAllConnections() {
   }
 }
 
-// 导出sequelize实例和关闭函数
-module.exports = { sequelize, closeAllConnections }
+// 导入所有模型
+const Material = require('./models/Material')
+const MixDesign = require('./models/MixDesign')
+const SystemParam = require('./models/SystemParam')
+const OptimizationHistory = require('./models/OptimizationHistory')
+const InsulationMaterial = require('./models/InsulationMaterial')
+const MassConcreteScheme = require('./models/MassConcreteScheme')
+const MassConcreteMixDesign = require('./models/MassConcreteMixDesign')
+const MassConcreteAdiabaticTemp = require('./models/MassConcreteAdiabaticTemp')
+const MassConcreteStress = require('./models/MassConcreteStress')
+const MassConcreteInsulation = require('./models/MassConcreteInsulation')
+
+// 默认保温材料数据
+const defaultInsulationMaterials = [
+  {
+    name: '草袋',
+    thermal_conductivity: 0.08,
+    heat_storage_coefficient: 9.0,
+    thickness: 30,
+    unit_price: 5.0,
+    remarks: '草袋保温，常规做法',
+    is_default: true
+  },
+  {
+    name: '泡沫板',
+    thermal_conductivity: 0.035,
+    heat_storage_coefficient: 3.0,
+    thickness: 20,
+    unit_price: 15.0,
+    remarks: '聚苯乙烯泡沫板，保温效果好',
+    is_default: true
+  },
+  {
+    name: '棉被',
+    thermal_conductivity: 0.06,
+    heat_storage_coefficient: 7.0,
+    thickness: 25,
+    unit_price: 8.0,
+    remarks: '毛毡保温被',
+    is_default: true
+  },
+  {
+    name: '木模板',
+    thermal_conductivity: 0.20,
+    heat_storage_coefficient: 15.0,
+    thickness: 18,
+    unit_price: 30.0,
+    remarks: '木模板散热',
+    is_default: true
+  },
+  {
+    name: '钢模板',
+    thermal_conductivity: 58.0,
+    heat_storage_coefficient: 200.0,
+    thickness: 5,
+    unit_price: 80.0,
+    remarks: '钢模板，散热快',
+    is_default: true
+  },
+  {
+    name: '砂层',
+    thermal_conductivity: 0.50,
+    heat_storage_coefficient: 10.0,
+    thickness: 100,
+    unit_price: 3.0,
+    remarks: '砂层保温',
+    is_default: true
+  }
+]
+
+// 同步所有模型并初始化数据
+async function syncModels() {
+  // 同步所有模型到数据库
+  await sequelize.sync()
+  console.log('大体积混凝土模块模型同步完成')
+
+  // 检查并初始化默认保温材料
+  const count = await InsulationMaterial.count()
+  if (count === 0) {
+    await InsulationMaterial.bulkCreate(defaultInsulationMaterials)
+    console.log('默认保温材料数据已初始化')
+  }
+}
+
+// 导出sequelize实例、关闭函数、同步函数和所有模型
+module.exports = {
+  sequelize,
+  closeAllConnections,
+  syncModels,
+  Material,
+  MixDesign,
+  SystemParam,
+  OptimizationHistory,
+  InsulationMaterial,
+  MassConcreteScheme,
+  MassConcreteMixDesign,
+  MassConcreteAdiabaticTemp,
+  MassConcreteStress,
+  MassConcreteInsulation
+}
