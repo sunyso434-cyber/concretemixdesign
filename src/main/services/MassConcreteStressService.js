@@ -277,13 +277,16 @@ class MassConcreteStressService {
 
     // 6. 计算外约束应力 sigma_x(t)
     // sigma_x(t) = (alpha/(1-μ)) * sum(deltaT2 * E(t) * H(t,τ) * Rx)
+    // Rx = 1 - 1/cosh(sqrt(cx/E) * L/2)，其中 E 为时间-varying E(t)
     const externalConstraintStress = []
     let sigmaX = 0
-    const Rx = MassConcreteStressService.calculateRx(cx, E0, concreteLength)
 
     for (let i = 0; i < timePoints.length; i++) {
       const t = timePoints[i]
       const E = MassConcreteStressService.calculateElasticModulus(t, beta, E0)
+
+      // 计算当前时间步的 Rx (使用时间-varying E(t))
+      const Rx = MassConcreteStressService.calculateRx(cx, E, concreteLength)
 
       // 计算温差变化 deltaT2 (考虑厚度方向)
       let deltaT2 = 0
