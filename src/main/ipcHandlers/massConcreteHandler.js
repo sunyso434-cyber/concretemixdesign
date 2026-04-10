@@ -139,12 +139,48 @@ class MassConcreteHandler {
 
     // ========== 配合比设计 ==========
 
-    // 计算配合比
-    ipcMain.handle('mc_calculateMixDesign', async (_, data) => {
+    // 计算配合比（大体积混凝土版：先调用通用计算，再应用大体积限值）
+    ipcMain.handle('mc_calculateMixDesign', async (_, params) => {
       try {
+        // 1. 调用通用配合比设计计算
+        const MixDesignService = require('../services/MixDesignService')
         const MassConcreteMixDesignService = require('../services/MassConcreteMixDesignService')
-        const result = await MassConcreteMixDesignService.calculateMixDesign(data)
-        return { success: true, data: result }
+
+        // 从 params 中提取大体积混凝土专用参数
+        const { cementHeat3d, cementHeat7d, ...mixParams } = params
+
+        // 保存原始材料对象（包含密度信息）
+        const originalMaterials = mixParams.materials
+
+        const mixResult = await MixDesignService.calculateMixDesign(mixParams)
+
+        // 将原始材料信息附加到结果中，供 applyLimits 使用
+        mixResult.materials._materials = originalMaterials
+
+        // 2. 应用大体积混凝土限值
+        const limitedResult = MassConcreteMixDesignService.applyLimits(mixResult)
+
+        // 3. 计算水化热（如果提供了水化热参数）
+        let hydrationHeat = null
+        if (cementHeat3d && cementHeat7d) {
+          hydrationHeat = MassConcreteMixDesignService.calculateHydrationHeat(
+            limitedResult.materials.cement,
+            limitedResult.materials.flyAsh || 0,
+            limitedResult.materials.slag || 0,
+            cementHeat3d,
+            cementHeat7d
+          )
+        }
+
+        // 4. 组装最终结果
+        const finalResult = {
+          ...limitedResult,
+          hydrationHeat,
+          // 保留原始输入参数
+          inputParams: params
+        }
+
+        return { success: true, data: finalResult }
       } catch (error) {
         console.error('mc_calculateMixDesign failed:', error)
         return { success: false, error: error.message }
@@ -155,7 +191,7 @@ class MassConcreteHandler {
     ipcMain.handle('mc_saveMixDesign', async (_, data) => {
       try {
         const MassConcreteMixDesignService = require('../services/MassConcreteMixDesignService')
-        const result = await MassConcreteMixDesignService.saveMixDesign(data)
+        const result = await MassConcreteMixDesignService.saveMixDesign(data.schemeId, data)
         return { success: true, data: result }
       } catch (error) {
         console.error('mc_saveMixDesign failed:', error)
@@ -175,13 +211,41 @@ class MassConcreteHandler {
       }
     })
 
+    // ========== 原材料 ==========
+
+    // 根据材料ID获取完整材料信息（包含水化热等）
+    ipcMain.handle('mc_getMaterialById', async (_, id) => {
+      try {
+        const Material = require('../db/models/Material')
+        const material = await Material.findByPk(id)
+        return { success: true, data: material ? material.toJSON() : null }
+      } catch (error) {
+        console.error('mc_getMaterialById failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    // 根据材料ID列表批量获取材料信息
+    ipcMain.handle('mc_getMaterialsByIds', async (_, ids) => {
+      try {
+        const Material = require('../db/models/Material')
+        const materials = await Material.findAll({
+          where: { id: ids }
+        })
+        return { success: true, data: materials.map(m => m.toJSON()) }
+      } catch (error) {
+        console.error('mc_getMaterialsByIds failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
     // ========== 绝热温升 ==========
 
     // 计算绝热温升
     ipcMain.handle('mc_calculateAdiabaticTemp', async (_, data) => {
       try {
         const MassConcreteAdiabaticTempService = require('../services/MassConcreteAdiabaticTempService')
-        const result = await MassConcreteAdiabaticTempService.calculateAdiabaticTemp(data)
+        const result = await MassConcreteAdiabaticTempService.calculate(data)
         return { success: true, data: result }
       } catch (error) {
         console.error('mc_calculateAdiabaticTemp failed:', error)
@@ -193,7 +257,7 @@ class MassConcreteHandler {
     ipcMain.handle('mc_saveAdiabaticTemp', async (_, data) => {
       try {
         const MassConcreteAdiabaticTempService = require('../services/MassConcreteAdiabaticTempService')
-        const result = await MassConcreteAdiabaticTempService.saveAdiabaticTemp(data)
+        const result = await MassConcreteAdiabaticTempService.saveResult(data.schemeId, data)
         return { success: true, data: result }
       } catch (error) {
         console.error('mc_saveAdiabaticTemp failed:', error)
@@ -207,7 +271,7 @@ class MassConcreteHandler {
     ipcMain.handle('mc_calculateStress', async (_, data) => {
       try {
         const MassConcreteStressService = require('../services/MassConcreteStressService')
-        const result = await MassConcreteStressService.calculateStress(data)
+        const result = await MassConcreteStressService.calculate(data)
         return { success: true, data: result }
       } catch (error) {
         console.error('mc_calculateStress failed:', error)
@@ -219,7 +283,7 @@ class MassConcreteHandler {
     ipcMain.handle('mc_saveStress', async (_, data) => {
       try {
         const MassConcreteStressService = require('../services/MassConcreteStressService')
-        const result = await MassConcreteStressService.saveStress(data)
+        const result = await MassConcreteStressService.saveResult(data.schemeId, data)
         return { success: true, data: result }
       } catch (error) {
         console.error('mc_saveStress failed:', error)
@@ -233,7 +297,7 @@ class MassConcreteHandler {
     ipcMain.handle('mc_calculateInsulation', async (_, data) => {
       try {
         const MassConcreteInsulationService = require('../services/MassConcreteInsulationService')
-        const result = await MassConcreteInsulationService.calculateInsulation(data)
+        const result = await MassConcreteInsulationService.calculate(data)
         return { success: true, data: result }
       } catch (error) {
         console.error('mc_calculateInsulation failed:', error)
@@ -245,10 +309,24 @@ class MassConcreteHandler {
     ipcMain.handle('mc_saveInsulation', async (_, data) => {
       try {
         const MassConcreteInsulationService = require('../services/MassConcreteInsulationService')
-        const result = await MassConcreteInsulationService.saveInsulation(data)
+        const result = await MassConcreteInsulationService.saveResult(data.schemeId, data)
         return { success: true, data: result }
       } catch (error) {
         console.error('mc_saveInsulation failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    // ========== 温度场 ==========
+
+    // 计算温度场
+    ipcMain.handle('mc_calculateTemperatureField', async (_, data) => {
+      try {
+        const MassConcreteTemperatureFieldService = require('../services/MassConcreteTemperatureFieldService')
+        const result = MassConcreteTemperatureFieldService.calculate(data)
+        return { success: true, data: result }
+      } catch (error) {
+        console.error('mc_calculateTemperatureField failed:', error)
         return { success: false, error: error.message }
       }
     })
