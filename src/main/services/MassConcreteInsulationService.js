@@ -103,16 +103,6 @@ class MassConcreteInsulationService {
   }
 
   /**
-   * 获取保温材料导热系数
-   * @param {number} materialId - 材料ID
-   * @returns {Promise<number>} 导热系数 W/(m·K)
-   */
-  async getMaterialThermalConductivity(materialId) {
-    const material = await InsulationMaterial.findByPk(materialId)
-    return material ? material.thermalConductivity : 0.04 // 默认值
-  }
-
-  /**
    * 获取所有保温材料
    * @returns {Promise<Array>} 保温材料列表
    */
@@ -181,7 +171,7 @@ class MassConcreteInsulationService {
 
     for (const layer of insulationLayers) {
       const material = await InsulationMaterial.findByPk(layer.material_id)
-      const lambda = material ? material.thermalConductivity : 0.04
+      const lambda = material ? material.thermalConductivity : 0.04 // 默认值 0.04 W/(m·K)，常见保温材料导热系数
       const delta = layer.thickness / 1000 // mm 转 m
       const deltaLambda = delta / lambda
       sumDeltaLambda += deltaLambda
@@ -223,7 +213,7 @@ class MassConcreteInsulationService {
     // 取最小保温材料导热系数作为迭代目标
     const minLambda = layerData.length > 0
       ? Math.min(...layerData.map(l => l.thermalConductivity))
-      : 0.04
+      : 0.04 // 默认值 0.04 W/(m·K)，常见保温材料导热系数
 
     while (currentDeltaT1 > targetTempDiff && iterationCount < maxIterations) {
       iterationCount++
@@ -296,7 +286,7 @@ class MassConcreteInsulationService {
       formulas: {
         Rs: 'Rs = sum(delta_i/lambda_i) + 1/beta_t',
         betaS: 'beta_s = 1 / Rs',
-        betaSPrme: "beta_s' = Kb * beta_s",
+        betaSPrime: "beta_s' = Kb * beta_s",
         hPrime: "h' = lambda_0 / beta_s'",
         deltaT1: 'deltaT1 = Tmax * (1 - 1/cosh(beta * h))'
       }
