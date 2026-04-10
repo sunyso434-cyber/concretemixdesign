@@ -42,6 +42,7 @@ const { sequelize, syncModels } = require('./src/main/db/database')
 require('./src/main/ipcHandlers/materialHandler')
 require('./src/main/ipcHandlers/mixDesignHandler')
 require('./src/main/ipcHandlers/mixDesignOptimizerHandler') // 新增：优化器 IPC 处理器
+require('./src/main/ipcHandlers/massConcreteHandler') // 大体积混凝土模块 IPC 处理器
 const SystemHandler = require('./src/main/ipcHandlers/systemHandler')
 const { autoUpdater } = require('electron-updater')
 
