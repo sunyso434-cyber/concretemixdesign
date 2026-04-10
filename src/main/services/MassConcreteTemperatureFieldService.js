@@ -240,11 +240,16 @@ class MassConcreteTemperatureFieldService {
           // 隐式差分方程在表面: -Fo×T_{n-2} + (1+2Fo)×T_{n-1} - Fo×T_n = T_{n-1}^k + dT_ad×dt
           // 第三类边界: -λ × (T_n - T_{n-1})/dx = β × (T_{n-1} - T_a)
           // 联立求解得:
-          const gamma = 1 + beta * dx / lambda + 2 * Fo
-          a_new[i] = -Fo * (1 - beta * dx / lambda) / gamma
-          b_new[i] = 1
+          // 表面散热边界条件（第三类边界）
+          // -λ × (T_n - T_{n-1})/dx = β × (T_a - T_n)
+          // 离散化: -Fo×T_{n-2} + (1+Fo)×T_{n-1} = T^n + Fo×Bi×T_a
+          const Bi = beta * dx / lambda
+          const gamma = 1 + Bi
+
+          a_new[i] = -Fo / gamma
+          b_new[i] = (1 + Fo) / gamma
           c_new[i] = 0
-          d_new[i] = (T_current[i] + dT_ad * dt) / gamma + 2 * Fo * ambientTemp / gamma
+          d_new[i] = T_current[i] + dT_ad * dt + Fo * Bi * ambientTemp / gamma
         } else {
           // 内部节点
           a_new[i] = -Fo
