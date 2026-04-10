@@ -1,7 +1,7 @@
 // src/renderer/components/charts/InsulationProfileChart.jsx
 import React from 'react'
 import { Card } from 'antd'
-import { Line } from '@ant-design/plots'
+import { Bar } from '@ant-design/plots'
 
 /**
  * 保温曲线图表组件
@@ -27,8 +27,8 @@ const InsulationProfileChart = ({
 
   const config = {
     data,
-    xField: 'thickness',
-    yField: 'name',
+    xField: 'name',
+    yField: 'thickness',
     smooth: false,
     point: {
       size: 4,
@@ -80,7 +80,7 @@ const InsulationProfileChart = ({
 
   return (
     <Card size="small" title={infoText}>
-      <Line {...config} style={{ width: '100%', height: 300 }} />
+      <Bar {...config} style={{ width: '100%', height: 300 }} />
     </Card>
   )
 }
