@@ -27,6 +27,10 @@ const OptimizationPage = lazy(() => import('./pages/OptimizationPage').catch(err
   console.error('OptimizationPage 加载失败:', err)
   return { default: () => <div className="custom-empty"><div className="empty-icon">🎯</div><div className="empty-title">加载失败</div><div className="empty-description">OptimizationPage 加载失败：{err.message}</div></div> }
 }))
+const MassConcretePage = lazy(() => import('./pages/MassConcretePage').catch(err => {
+  console.error('MassConcretePage 加载失败:', err)
+  return { default: () => <div className="custom-empty"><div className="empty-icon">🧊</div><div className="empty-title">加载失败</div><div className="empty-description">MassConcretePage 加载失败：{err.message}</div></div> }
+}))
 
 const { Header, Content, Sider } = Layout
 const { Title } = Typography
@@ -119,6 +123,11 @@ const Navigation = ({ activeKey, setActiveKey }) => {
           key: 'optimization',
           label: <Link to="/optimization">成本优化</Link>,
           icon: <span className="nav-icon" aria-label="成本优化">🎯</span>
+        },
+        {
+          key: 'mass-concrete',
+          label: <Link to="/mass-concrete">大体积混凝土</Link>,
+          icon: <span className="nav-icon" aria-label="大体积混凝土">🧊</span>
         },
         {
           key: 'schemes',
@@ -234,6 +243,7 @@ function App() {
                     <Route path="/materials" element={<MaterialsPage />} />
                     <Route path="/mixdesign" element={<MixDesignPage />} />
                     <Route path="/optimization" element={<OptimizationPage />} />
+                    <Route path="/mass-concrete" element={<MassConcretePage />} />
                     <Route path="/schemes" element={<SchemesPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
                   </Routes>
