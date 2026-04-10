@@ -1,3 +1,4 @@
+const { sequelize } = require('../db/database')
 const MassConcreteScheme = require('../db/models/MassConcreteScheme')
 const MassConcreteMixDesign = require('../db/models/MassConcreteMixDesign')
 const MassConcreteAdiabaticTemp = require('../db/models/MassConcreteAdiabaticTemp')
@@ -26,25 +27,13 @@ class MassConcreteSchemeService {
         return null
       }
 
-      // 查询关联的配合比数据
-      const mixDesign = await MassConcreteMixDesign.findOne({
-        where: { schemeId: id }
-      })
-
-      // 查询关联的绝热温升数据
-      const adiabaticTemp = await MassConcreteAdiabaticTemp.findOne({
-        where: { schemeId: id }
-      })
-
-      // 查询关联的应力数据
-      const stress = await MassConcreteStress.findOne({
-        where: { schemeId: id }
-      })
-
-      // 查询关联的保温数据
-      const insulation = await MassConcreteInsulation.findOne({
-        where: { schemeId: id }
-      })
+      // 并行查询所有关联数据
+      const [mixDesign, adiabaticTemp, stress, insulation] = await Promise.all([
+        MassConcreteMixDesign.findOne({ where: { schemeId: id } }),
+        MassConcreteAdiabaticTemp.findOne({ where: { schemeId: id } }),
+        MassConcreteStress.findOne({ where: { schemeId: id } }),
+        MassConcreteInsulation.findOne({ where: { schemeId: id } })
+      ])
 
       return {
         ...scheme.toJSON(),
@@ -93,14 +82,17 @@ class MassConcreteSchemeService {
         throw new Error('方案不存在')
       }
 
-      // 级联删除关联数据
-      await MassConcreteMixDesign.destroy({ where: { schemeId: id } })
-      await MassConcreteAdiabaticTemp.destroy({ where: { schemeId: id } })
-      await MassConcreteStress.destroy({ where: { schemeId: id } })
-      await MassConcreteInsulation.destroy({ where: { schemeId: id } })
+      // 使用事务确保原子性
+      await sequelize.transaction(async (t) => {
+        // 级联删除关联数据
+        await MassConcreteMixDesign.destroy({ where: { schemeId: id }, transaction: t })
+        await MassConcreteAdiabaticTemp.destroy({ where: { schemeId: id }, transaction: t })
+        await MassConcreteStress.destroy({ where: { schemeId: id }, transaction: t })
+        await MassConcreteInsulation.destroy({ where: { schemeId: id }, transaction: t })
 
-      // 删除方案本身
-      await scheme.destroy()
+        // 删除方案本身
+        await scheme.destroy({ transaction: t })
+      })
 
       return { success: true }
     } catch (error) {
