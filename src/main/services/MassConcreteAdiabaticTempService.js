@@ -66,13 +66,12 @@ class MassConcreteAdiabaticTempService {
    * 生成温度分布数据（单一时刻）
    * @param {number} maxTemp - 最高温度 ℃
    * @param {number} m - 温升系数
-   * @param {number} ambientTemp - 环境温度 ℃
    * @param {number} concreteThickness - 混凝土厚度 m
    * @param {number} concreteLength - 混凝土长度 m
    * @param {number} moldingTemp - 入模温度 ℃
    * @returns {Array} 温度分布数据
    */
-  static generateTempDistribution(maxTemp, m, ambientTemp, concreteThickness, concreteLength, moldingTemp) {
+  static generateTempDistribution(maxTemp, m, concreteThickness, concreteLength, moldingTemp) {
     const distribution = []
     const points = 20 // 沿长度方向的采样点数
 
@@ -136,13 +135,12 @@ class MassConcreteAdiabaticTempService {
    * @param {number} maxAdiabaticTemp - 最高绝热温升 ℃
    * @param {number} m0 - 温升系数
    * @param {number} moldingTemp - 入模温度 ℃
-   * @param {number} ambientTemp - 环境温度 ℃
    * @param {number} concreteThickness - 混凝土厚度 m
-   * @returns {Object} {tempDiffCurveData: 里表温差, surfaceTempDiffCurveData: 表气温温}
+   * @returns {Object} {tempDiffCurveData: 里表温差, surfaceTempDiffCurveData: 表气温差}
    */
-  static generateTempDiffData(maxAdiabaticTemp, m0, moldingTemp, ambientTemp, concreteThickness) {
+  static generateTempDiffData(maxAdiabaticTemp, m0, moldingTemp, concreteThickness) {
     const tempDiffCurveData = [] // 里表温差（中心-表面）
-    const surfaceTempDiffCurveData = [] // 表气温温（表面-大气）
+    const surfaceTempDiffCurveData = [] // 表气温差（表面-大气）
 
     const days = [1, 2, 3, 5, 7, 10, 14, 21, 28]
     // 表面节点位于 x = concreteThickness / 2
@@ -153,13 +151,14 @@ class MassConcreteAdiabaticTempService {
       const adiabaticTempRise = maxAdiabaticTemp * (1 - Math.exp(-m0 * day))
       // 混凝土中心温度（简化：中心温度 = 入模温度 + 绝热温升）
       const centerTemp = moldingTemp + adiabaticTempRise
-      // 表面温度：考虑散热后的温度
-      const surfaceTemp = ambientTemp + (centerTemp - ambientTemp) * Math.exp(-m0 * surfaceX)
+      // 表面温度：考虑散热后的温度（使用默认环境温度20℃）
+      const defaultAmbientTemp = 20
+      const surfaceTemp = defaultAmbientTemp + (centerTemp - defaultAmbientTemp) * Math.exp(-m0 * surfaceX)
 
       // 里表温差
       const interiorSurfaceDiff = centerTemp - surfaceTemp
-      // 表气温温
-      const surfaceAirDiff = surfaceTemp - ambientTemp
+      // 表气温差
+      const surfaceAirDiff = surfaceTemp - defaultAmbientTemp
 
       tempDiffCurveData.push({
         day,
@@ -234,7 +233,7 @@ class MassConcreteAdiabaticTempService {
       })
     }
 
-    // 5. 生成温差曲线数据（里表温差和表气温温）
+    // 5. 生成温差曲线数据（里表温差和表气温差）
     const {
       tempDiffCurveData,
       surfaceTempDiffCurveData
@@ -242,7 +241,6 @@ class MassConcreteAdiabaticTempService {
       maxAdiabaticTemp,
       m0,
       moldingTemp,
-      ambientTemp,
       concreteThickness
     )
 
@@ -250,7 +248,6 @@ class MassConcreteAdiabaticTempService {
     const tempDistributionData = MassConcreteAdiabaticTempService.generateTempDistribution(
       maxAdiabaticTemp,
       m0,
-      ambientTemp,
       concreteThickness,
       concreteLength || 0,
       moldingTemp
