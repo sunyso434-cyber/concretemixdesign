@@ -1,140 +1,92 @@
 // src/renderer/components/charts/TempTimeCurveChart.jsx
 import React from 'react'
-import { Card } from 'antd'
-import { Line } from '@ant-design/plots'
+import ReactECharts from 'echarts-for-react'
+import {
+  colors,
+  createXAxis,
+  createYAxis,
+  tooltipConfig,
+  legendConfig,
+} from './chartConfig'
 
 /**
  * 温度-时间曲线组件
  * 展示中心点和表面点温度随时间变化
- * @param {Array} centerHistory - 中心点温度历史 [{day: number, temperature: number}]
- * @param {Array} surfaceHistory - 表面点温度历史 [{day: number, temperature: number}]
+ * @param {Object} centerHistory - 中心点温度历史 {time: number[], temp: number[]}
+ * @param {Object} surfaceHistory - 表面点温度历史 {time: number[], temp: number[]}
  */
 const TempTimeCurveChart = ({
-  centerHistory = [],
-  surfaceHistory = []
+  centerHistory = { time: [], temp: [] },
+  surfaceHistory = { time: [], temp: [] }
 }) => {
-  // 转换数据：合并中心点和表面点数据
-  const chartData = []
-
-  centerHistory.forEach(item => {
-    chartData.push({
-      day: item.day,
-      temperature: item.temperature,
-      location: '中心点'
+  // 处理中心点数据
+  const centerData = []
+  if (Array.isArray(centerHistory.time) && Array.isArray(centerHistory.temp)) {
+    centerHistory.time.forEach((day, i) => {
+      centerData.push([day, centerHistory.temp[i]])
     })
-  })
+  }
 
-  surfaceHistory.forEach(item => {
-    chartData.push({
-      day: item.day,
-      temperature: item.temperature,
-      location: '表面点'
+  // 处理表面点数据
+  const surfaceData = []
+  if (Array.isArray(surfaceHistory.time) && Array.isArray(surfaceHistory.temp)) {
+    surfaceHistory.time.forEach((day, i) => {
+      surfaceData.push([day, surfaceHistory.temp[i]])
     })
-  })
+  }
 
-  const config = {
-    data: chartData,
-    xField: 'day',
-    yField: 'temperature',
-    seriesField: 'location',
-    smooth: true,
-    point: {
-      size: 4,
-      shape: 'circle',
-      style: {
-        fill: 'white',
-        stroke: '#1890ff',
-        lineWidth: 2,
-      },
-    },
-    label: {
-      style: {
-        fontSize: 12,
-        fill: '#666',
-      },
-    },
-    meta: {
-      day: {
-        alias: '时间',
-      },
-      temperature: {
-        alias: '温度 (°C)',
-      },
-      location: {
-        alias: '位置',
-      },
-    },
-    xAxis: {
-      title: {
-        text: '时间 (d)',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
-      },
-      grid: {
-        line: {
-          style: {
-            stroke: '#e8e8e8',
-            lineDash: [4, 4],
-          },
-        },
-      },
-    },
-    yAxis: {
-      title: {
-        text: '温度 (°C)',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
-      },
-      grid: {
-        line: {
-          style: {
-            stroke: '#e8e8e8',
-            lineDash: [4, 4],
-          },
-        },
-      },
-    },
-    legend: {
-      position: 'top-right',
-      title: {
-        text: '位置',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
-      },
-    },
-    color: ['#1890ff', '#ff7a45'],
-    lineStyle: {
-      lineWidth: 2,
-    },
+  const option = {
+    backgroundColor: 'transparent',
     tooltip: {
-      showCrosshairs: true,
-      crosshairs: {
-        line: {
-          style: {
-            stroke: '#666',
-            lineDash: [4, 4],
-          },
-        },
-      },
+      ...tooltipConfig,
+      formatter: function(params) {
+        const data = params[0]
+        return `时间: ${data.axisValue} d<br/>温度: ${data.value[1]} °C`
+      }
     },
-    animation: {
-      appear: {
-        animation: 'wave-in',
-        duration: 1000,
+    legend: legendConfig(['中心点', '表面点']),
+    xAxis: createXAxis('时间 (d)'),
+    yAxis: createYAxis('温度 (°C)'),
+    series: [
+      {
+        name: '中心点',
+        type: 'line',
+        data: centerData,
+        smooth: true,
+        lineStyle: { width: 2, color: colors.primary },
+        itemStyle: { color: colors.primary },
+        emphasis: {
+          focus: 'series',
+          itemStyle: {
+            borderWidth: 2,
+            borderColor: '#fff',
+            shadowBlur: 10,
+            shadowColor: 'rgba(0, 212, 255, 0.5)',
+          }
+        }
       },
-    },
+      {
+        name: '表面点',
+        type: 'line',
+        data: surfaceData,
+        smooth: true,
+        lineStyle: { width: 2, color: colors.secondary },
+        itemStyle: { color: colors.secondary },
+        emphasis: {
+          focus: 'series',
+          itemStyle: {
+            borderWidth: 2,
+            borderColor: '#fff',
+            shadowBlur: 10,
+            shadowColor: 'rgba(24, 144, 255, 0.5)',
+          }
+        }
+      }
+    ]
   }
 
   return (
-    <Card size="small" title="温度-时间曲线">
-      <Line {...config} style={{ width: '100%', height: 300 }} />
-    </Card>
+    <ReactECharts option={option} style={{ width: '100%', height: 300 }} />
   )
 }
 
