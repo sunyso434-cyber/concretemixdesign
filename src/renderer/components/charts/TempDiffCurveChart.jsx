@@ -1,7 +1,13 @@
 // src/renderer/components/charts/TempDiffCurveChart.jsx
 import React from 'react'
-import { Card } from 'antd'
-import { Line } from '@ant-design/plots'
+import ReactECharts from 'echarts-for-react'
+import {
+  colors,
+  createXAxis,
+  createYAxis,
+  tooltipConfig,
+  legendConfig,
+} from './chartConfig'
 
 /**
  * 温差曲线图表组件
@@ -15,121 +21,72 @@ const TempDiffCurveChart = ({
   surfaceAirDiffData = [],
   title = '温差曲线'
 }) => {
-  // 合并两条曲线数据
-  const combinedData = [
-    ...interiorSurfaceDiffData.map(item => ({
-      time: item.day,
-      tempDiff: item.tempDiff,
-      series: '里表温差'
-    })),
-    ...surfaceAirDiffData.map(item => ({
-      time: item.day,
-      tempDiff: item.tempDiff,
-      series: '表气温温'
-    }))
-  ]
+  // 处理里表温差数据
+  const interiorData = interiorSurfaceDiffData.map(item => [item.day, item.tempDiff])
+  // 处理表气温温数据
+  const surfaceData = surfaceAirDiffData.map(item => [item.day, item.tempDiff])
 
-  const config = {
-    data: combinedData,
-    xField: 'time',
-    yField: 'tempDiff',
-    smooth: true,
-    seriesField: 'series',
-    point: {
-      size: 4,
-      shape: 'circle',
-      style: {
-        fill: 'white',
-        stroke: '#fa8c16',
-        lineWidth: 2,
-      },
-    },
-    label: {
-      style: {
-        fontSize: 12,
-        fill: '#666',
-      },
-    },
-    meta: {
-      time: {
-        alias: '时间',
-      },
-      tempDiff: {
-        alias: '温差',
-      },
-    },
-    xAxis: {
-      title: {
-        text: '时间 (d)',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
-      },
-      grid: {
-        line: {
-          style: {
-            stroke: '#e8e8e8',
-            lineDash: [4, 4],
-          },
-        },
-      },
-    },
-    yAxis: {
-      title: {
-        text: '温差 (°C)',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
-      },
-      grid: {
-        line: {
-          style: {
-            stroke: '#e8e8e8',
-            lineDash: [4, 4],
-          },
-        },
-      },
-    },
+  const option = {
+    backgroundColor: 'transparent',
     title: {
       text: title,
-      style: {
-        fontSize: 16,
+      left: 'center',
+      textStyle: {
+        color: colors.dark,
+        fontSize: 14,
         fontWeight: 'bold',
-        textAlign: 'center',
-      },
-    },
-    color: ['#fa8c16', '#1890ff'],
-    lineStyle: {
-      lineWidth: 2,
+      }
     },
     tooltip: {
-      showCrosshairs: true,
-      crosshairs: {
-        line: {
-          style: {
-            stroke: '#fa8c16',
-            lineDash: [4, 4],
-          },
-        },
+      ...tooltipConfig,
+      formatter: function(params) {
+        const data = params[0]
+        return `时间: ${data.axisValue} d<br/>温差: ${data.value[1]} °C`
+      }
+    },
+    legend: legendConfig(['里表温差', '表气温温']),
+    xAxis: createXAxis('时间 (d)'),
+    yAxis: createYAxis('温差 (°C)'),
+    series: [
+      {
+        name: '里表温差',
+        type: 'line',
+        data: interiorData,
+        smooth: true,
+        lineStyle: { width: 2, color: colors.primary },
+        itemStyle: { color: colors.primary },
+        emphasis: {
+          focus: 'series',
+          itemStyle: {
+            borderWidth: 2,
+            borderColor: '#fff',
+            shadowBlur: 10,
+            shadowColor: 'rgba(0, 212, 255, 0.5)',
+          }
+        }
       },
-    },
-    legend: {
-      position: 'top-right',
-    },
-    animation: {
-      appear: {
-        animation: 'wave-in',
-        duration: 1000,
-      },
-    },
+      {
+        name: '表气温温',
+        type: 'line',
+        data: surfaceData,
+        smooth: true,
+        lineStyle: { width: 2, color: colors.secondary },
+        itemStyle: { color: colors.secondary },
+        emphasis: {
+          focus: 'series',
+          itemStyle: {
+            borderWidth: 2,
+            borderColor: '#fff',
+            shadowBlur: 10,
+            shadowColor: 'rgba(24, 144, 255, 0.5)',
+          }
+        }
+      }
+    ]
   }
 
   return (
-    <Card size="small">
-      <Line {...config} style={{ width: '100%', height: 300 }} />
-    </Card>
+    <ReactECharts option={option} style={{ width: '100%', height: 300 }} />
   )
 }
 
