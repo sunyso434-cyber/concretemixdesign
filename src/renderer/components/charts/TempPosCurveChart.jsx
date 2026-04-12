@@ -1,7 +1,13 @@
 // src/renderer/components/charts/TempPosCurveChart.jsx
 import React from 'react'
-import { Card } from 'antd'
-import { Line } from '@ant-design/plots'
+import ReactECharts from 'echarts-for-react'
+import {
+  colors,
+  createXAxis,
+  createYAxis,
+  tooltipConfig,
+  legendConfig,
+} from './chartConfig'
 
 /**
  * 温度-位置曲线组件
@@ -11,119 +17,55 @@ import { Line } from '@ant-design/plots'
 const TempPosCurveChart = ({ data = {} }) => {
   const { nodes = [], times = [], temperatures = [] } = data
 
-  // 转换数据：将矩阵转换为扁平数组
-  // TemperatureFieldService 返回 {nodes, times, temperatures}
-  // temperatures[ti][ni] 对应 time=times[ti], position=nodes[ni]
-  const chartData = []
-  times.forEach((t, ti) => {
-    nodes.forEach((n, ni) => {
-      chartData.push({
-        position: n,
-        time: t,
-        temperature: temperatures[ti]?.[ni] ?? null
-      })
-    })
+  // 处理数据：每条线代表一个时刻
+  const series = times.map((t, ti) => {
+    const lineData = nodes.map((n, ni) => [n, temperatures[ti]?.[ni] ?? null])
+    return {
+      name: `${t.toFixed(1)}d`,
+      type: 'line',
+      data: lineData,
+      smooth: true,
+      lineStyle: { width: 2, color: colors.primary },
+      itemStyle: { color: colors.primary },
+      emphasis: {
+        focus: 'series',
+        itemStyle: {
+          borderWidth: 2,
+          borderColor: '#fff',
+          shadowBlur: 10,
+          shadowColor: 'rgba(0, 212, 255, 0.5)',
+        }
+      }
+    }
   })
 
-  const config = {
-    data: chartData,
-    xField: 'position',
-    yField: 'temperature',
-    seriesField: 'time',
-    smooth: true,
-    point: {
-      size: 3,
-      shape: 'circle',
-      style: {
-        fill: 'white',
-        stroke: '#1890ff',
-        lineWidth: 1,
-      },
-    },
-    label: {
-      style: {
-        fontSize: 10,
-        fill: '#666',
-      },
-    },
-    meta: {
-      position: {
-        alias: '位置',
-      },
-      temperature: {
-        alias: '温度 (°C)',
-      },
-      time: {
-        alias: '时间',
-      },
-    },
-    xAxis: {
-      title: {
-        text: '位置 (%)',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
-      },
-      grid: {
-        line: {
-          style: {
-            stroke: '#e8e8e8',
-            lineDash: [4, 4],
-          },
-        },
-      },
-    },
-    yAxis: {
-      title: {
-        text: '温度 (°C)',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
-      },
-      grid: {
-        line: {
-          style: {
-            stroke: '#e8e8e8',
-            lineDash: [4, 4],
-          },
-        },
-      },
-    },
-    legend: {
-      position: 'top-right',
-      title: {
-        text: '时间 (d)',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
-      },
-    },
+  // 配色循环
+  series.forEach((s, i) => {
+    const colorList = [colors.primary, colors.secondary, colors.tertiary]
+    s.lineStyle.color = colorList[i % colorList.length]
+    s.itemStyle.color = colorList[i % colorList.length]
+  })
+
+  const option = {
+    backgroundColor: 'transparent',
     tooltip: {
-      showCrosshairs: true,
-      crosshairs: {
-        line: {
-          style: {
-            stroke: '#1890ff',
-            lineDash: [4, 4],
-          },
-        },
-      },
+      ...tooltipConfig,
+      formatter: function(params) {
+        const p = params[0]
+        return `位置: ${p.axisValue}%<br/>温度: ${p.value[1]} °C<br/>时间: ${p.seriesName}`
+      }
     },
-    animation: {
-      appear: {
-        animation: 'wave-in',
-        duration: 1000,
-      },
+    legend: legendConfig(times.map(t => `${t.toFixed(1)}d`)),
+    xAxis: {
+      ...createXAxis('位置 (%)'),
+      type: 'value',
     },
+    yAxis: createYAxis('温度 (°C)'),
+    series,
   }
 
   return (
-    <Card size="small" title="温度-位置曲线">
-      <Line {...config} style={{ width: '100%', height: 300 }} />
-    </Card>
+    <ReactECharts option={option} style={{ width: '100%', height: 300 }} />
   )
 }
 
