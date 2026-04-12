@@ -1,7 +1,12 @@
 // src/renderer/components/charts/TempRiseChart.jsx
 import React from 'react'
-import { Card } from 'antd'
-import { Line } from '@ant-design/plots'
+import ReactECharts from 'echarts-for-react'
+import {
+  colors,
+  createXAxis,
+  createYAxis,
+  tooltipConfig,
+} from './chartConfig'
 
 /**
  * 温度升幅图表组件
@@ -13,114 +18,59 @@ const TempRiseChart = ({
   tempCurveData = [],
   title = '温度升幅曲线'
 }) => {
-  // 转换数据：day转为time（前端统一用time表示横轴）
-  const chartData = tempCurveData.map(item => ({
-    time: item.day,
-    temperature: item.temperature
-  }))
+  // 转换数据格式为 [[day, temp], ...]
+  const chartData = tempCurveData.map(item => [item.day, item.temperature])
 
-  const config = {
-    data: chartData,
-    xField: 'time',
-    yField: 'temperature',
-    smooth: true,
-    point: {
-      size: 4,
-      shape: 'circle',
-      style: {
-        fill: 'white',
-        stroke: '#1890ff',
-        lineWidth: 2,
-      },
-    },
-    label: {
-      style: {
-        fontSize: 12,
-        fill: '#666',
-      },
-    },
-    meta: {
-      time: {
-        alias: '时间',
-      },
-      temperature: {
-        alias: '温度',
-      },
-    },
-    xAxis: {
-      title: {
-        text: '时间 (d)',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
-      },
-      grid: {
-        line: {
-          style: {
-            stroke: '#e8e8e8',
-            lineDash: [4, 4],
-          },
-        },
-      },
-    },
-    yAxis: {
-      title: {
-        text: '温度 (°C)',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
-      },
-      grid: {
-        line: {
-          style: {
-            stroke: '#e8e8e8',
-            lineDash: [4, 4],
-          },
-        },
-      },
-    },
+  const option = {
+    backgroundColor: 'transparent',
     title: {
       text: title,
-      style: {
-        fontSize: 16,
+      left: 'center',
+      textStyle: {
+        color: colors.dark,
+        fontSize: 14,
         fontWeight: 'bold',
-        textAlign: 'center',
-      },
-    },
-    color: '#1890ff',
-    lineStyle: {
-      lineWidth: 2,
-    },
-    area: {
-      style: {
-        fill: 'l(270) 0:#1890ff00 1:#1890ff33',
-      },
+      }
     },
     tooltip: {
-      showCrosshairs: true,
-      crosshairs: {
-        line: {
-          style: {
-            stroke: '#1890ff',
-            lineDash: [4, 4],
-          },
-        },
-      },
+      ...tooltipConfig,
+      formatter: function(params) {
+        const data = params[0]
+        return `时间: ${data.axisValue} d<br/>温度: ${data.value[1]} °C`
+      }
     },
-    animation: {
-      appear: {
-        animation: 'wave-in',
-        duration: 1000,
+    xAxis: createXAxis('时间 (d)'),
+    yAxis: createYAxis('温度 (°C)'),
+    series: [{
+      type: 'line',
+      data: chartData,
+      smooth: true,
+      lineStyle: { width: 2, color: colors.primary },
+      itemStyle: { color: colors.primary },
+      areaStyle: {
+        color: {
+          type: 'linear',
+          x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: 'rgba(0, 212, 255, 0.3)' },
+            { offset: 1, color: 'rgba(0, 212, 255, 0.05)' }
+          ]
+        }
       },
-    },
+      emphasis: {
+        focus: 'series',
+        itemStyle: {
+          borderWidth: 2,
+          borderColor: '#fff',
+          shadowBlur: 10,
+          shadowColor: 'rgba(0, 212, 255, 0.5)',
+        }
+      }
+    }]
   }
 
   return (
-    <Card size="small">
-      <Line {...config} style={{ width: '100%', height: 300 }} />
-    </Card>
+    <ReactECharts option={option} style={{ width: '100%', height: 300 }} />
   )
 }
 
