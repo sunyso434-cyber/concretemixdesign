@@ -1,7 +1,14 @@
 // src/renderer/components/charts/TempDistributionChart.jsx
 import React from 'react'
-import { Card, Radio } from 'antd'
-import { Line } from '@ant-design/plots'
+import { Radio } from 'antd'
+import ReactECharts from 'echarts-for-react'
+import {
+  colors,
+  createXAxis,
+  createYAxis,
+  tooltipConfig,
+  legendConfig,
+} from './chartConfig'
 
 /**
  * 温度分布图表组件
@@ -15,110 +22,111 @@ const TempDistributionChart = ({
   tempFieldData = [],
   title = '温度场分布'
 }) => {
-  // viewMode: 'time' 表示时间-温度视图，'position' 表示位置-温度视图
   const [viewMode, setViewMode] = React.useState('time')
 
-  // 获取唯一的时间点
+  // 获取唯一的时间点和位置点
   const uniqueDays = React.useMemo(() => {
     if (!tempFieldData || tempFieldData.length === 0) return []
-    const days = [...new Set(tempFieldData.map(d => d.day))].sort((a, b) => a - b)
-    return days
+    return [...new Set(tempFieldData.map(d => d.day))].sort((a, b) => a - b)
   }, [tempFieldData])
 
-  // 获取唯一的位置点
   const uniquePositions = React.useMemo(() => {
     if (!tempFieldData || tempFieldData.length === 0) return []
-    const positions = [...new Set(tempFieldData.map(d => d.position))].sort((a, b) => a - b)
-    return positions
+    return [...new Set(tempFieldData.map(d => d.position))].sort((a, b) => a - b)
   }, [tempFieldData])
 
-  // 根据视图模式准备图表数据
-  const chartData = React.useMemo(() => {
+  // 准备系列数据
+  const series = React.useMemo(() => {
     if (!tempFieldData || tempFieldData.length === 0) return []
 
-    if (viewMode === 'time') {
-      // 视图1：X轴=时间，Y轴=温度，不同位置=不同曲线
-      return tempFieldData.map(item => ({
-        time: item.day,
-        temperature: item.temperature,
-        series: `位置${item.position.toFixed(0)}%`
-      }))
-    } else {
-      // 视图2：X轴=位置（百分比），Y轴=温度，不同时间=不同曲线
-      return tempFieldData.map(item => ({
-        position: item.position,
-        temperature: item.temperature,
-        series: `${item.day}d`
-      }))
-    }
-  }, [tempFieldData, viewMode])
+    const colorList = [colors.primary, colors.secondary, colors.tertiary, '#52c41a', '#fa8c16']
 
-  const config = {
-    data: chartData,
-    xField: viewMode === 'time' ? 'time' : 'position',
-    yField: 'temperature',
-    smooth: true,
-    seriesField: 'series',
-    point: {
-      size: 3,
-      shape: 'circle',
-      style: {
-        fill: 'white',
-        stroke: '#52c41a',
-        lineWidth: 2,
-      },
-    },
-    meta: {
-      time: { alias: '时间' },
-      position: { alias: '位置' },
-      temperature: { alias: '温度' },
-    },
-    xAxis: {
-      title: {
-        text: viewMode === 'time' ? '时间 (d)' : '距中心距离 (%)',
-        style: { fontSize: 12, fill: '#666' },
-      },
-      grid: {
-        line: {
-          style: { stroke: '#e8e8e8', lineDash: [4, 4] },
-        },
-      },
-    },
-    yAxis: {
-      title: {
-        text: '温度 (°C)',
-        style: { fontSize: 12, fill: '#666' },
-      },
-      grid: {
-        line: {
-          style: { stroke: '#e8e8e8', lineDash: [4, 4] },
-        },
-      },
-    },
+    if (viewMode === 'time') {
+      // 视图1：每条线代表一个位置
+      return uniquePositions.map((pos, i) => {
+        const data = tempFieldData
+          .filter(d => d.position === pos)
+          .map(d => [d.day, d.temperature])
+        return {
+          name: `位置${pos.toFixed(0)}%`,
+          type: 'line',
+          data,
+          smooth: true,
+          lineStyle: { width: 2, color: colorList[i % colorList.length] },
+          itemStyle: { color: colorList[i % colorList.length] },
+          emphasis: {
+            focus: 'series',
+            itemStyle: {
+              borderWidth: 2,
+              borderColor: '#fff',
+              shadowBlur: 10,
+              shadowColor: 'rgba(0, 212, 255, 0.5)',
+            }
+          }
+        }
+      })
+    } else {
+      // 视图2：每条线代表一个时刻
+      return uniqueDays.map((day, i) => {
+        const data = tempFieldData
+          .filter(d => d.day === day)
+          .map(d => [d.position, d.temperature])
+        return {
+          name: `${day}d`,
+          type: 'line',
+          data,
+          smooth: true,
+          lineStyle: { width: 2, color: colorList[i % colorList.length] },
+          itemStyle: { color: colorList[i % colorList.length] },
+          emphasis: {
+            focus: 'series',
+            itemStyle: {
+              borderWidth: 2,
+              borderColor: '#fff',
+              shadowBlur: 10,
+              shadowColor: 'rgba(0, 212, 255, 0.5)',
+            }
+          }
+        }
+      })
+    }
+  }, [tempFieldData, viewMode, uniqueDays, uniquePositions])
+
+  // 计算图例数据
+  const legendData = viewMode === 'time'
+    ? uniquePositions.map(p => `位置${p.toFixed(0)}%`)
+    : uniqueDays.map(d => `${d}d`)
+
+  const option = {
+    backgroundColor: 'transparent',
     title: {
       text: title,
-      style: { fontSize: 16, fontWeight: 'bold', textAlign: 'center' },
+      left: 'center',
+      textStyle: {
+        color: colors.dark,
+        fontSize: 14,
+        fontWeight: 'bold',
+      }
     },
-    color: ['#1890ff', '#52c41a', '#fa8c16', '#f5222d', '#722ed1', '#13c2c2', '#eb2f96', '#000'],
-    lineStyle: { lineWidth: 2 },
     tooltip: {
-      showCrosshairs: true,
-      crosshairs: {
-        line: {
-          style: { stroke: '#52c41a', lineDash: [4, 4] },
-        },
-      },
+      ...tooltipConfig,
+      formatter: function(params) {
+        const data = params[0]
+        const label = viewMode === 'time' ? '时间' : '位置'
+        const unit = viewMode === 'time' ? 'd' : '%'
+        return `${label}: ${data.axisValue}${unit}<br/>温度: ${data.value[1]} °C<br/>${data.seriesName}`
+      }
     },
-    legend: {
-      position: 'top-right',
-    },
-    animation: {
-      appear: { animation: 'wave-in', duration: 1000 },
-    },
+    legend: legendConfig(legendData),
+    xAxis: viewMode === 'time'
+      ? createXAxis('时间 (d)')
+      : { ...createXAxis('距中心距离 (%)'), type: 'value' },
+    yAxis: createYAxis('温度 (°C)'),
+    series,
   }
 
   return (
-    <Card size="small">
+    <div>
       <div style={{ marginBottom: 12, display: 'flex', gap: 16, alignItems: 'center' }}>
         <Radio.Group value={viewMode} onChange={e => setViewMode(e.target.value)}>
           <Radio.Button value="time">时间-温度曲线</Radio.Button>
@@ -135,8 +143,8 @@ const TempDistributionChart = ({
           </span>
         )}
       </div>
-      <Line {...config} style={{ width: '100%', height: 300 }} />
-    </Card>
+      <ReactECharts option={option} style={{ width: '100%', height: 300 }} />
+    </div>
   )
 }
 
