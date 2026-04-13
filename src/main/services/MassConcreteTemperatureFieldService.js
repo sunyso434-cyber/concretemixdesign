@@ -171,7 +171,11 @@ class MassConcreteTemperatureFieldService {
           T_next[i] = T_current[i] + 2 * Fo * (T_current[1] - T_current[i]) + dT_ad
         } else if (i === n - 1) {
           // 表面对流边界节点 (i=n-1)
-          T_next[i] = T_current[i] + 2 * Fo * ((T_current[i - 1] - T_current[i]) + Bi * (ambientTemp - T_current[i])) + dT_ad
+          // 正确的第三类边界条件离散化:
+          // T_next = T + 2*Fo/(1+Bi) * [(T[i-1] - T[i]) + Bi*(Ta - T[i])] + dT_ad
+          // 其中 Bi = beta * dx / lambda
+          const convectionFactor = 2 * Fo / (1 + Bi)
+          T_next[i] = T_current[i] + convectionFactor * ((T_current[i - 1] - T_current[i]) + Bi * (ambientTemp - T_current[i])) + dT_ad
         } else {
           // 内部节点
           T_next[i] = T_current[i] + Fo * (T_current[i - 1] - 2 * T_current[i] + T_current[i + 1]) + dT_ad

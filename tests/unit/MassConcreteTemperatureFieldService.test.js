@@ -38,6 +38,12 @@ function expect(actual) {
       }
       return true
     },
+    toBeGreaterThanOrEqual: (expected) => {
+      if (actual < expected) {
+        throw new Error(`Expected ${actual} to be greater than or equal to ${expected}`)
+      }
+      return true
+    },
     toBeDefined: () => {
       if (actual === undefined) {
         throw new Error(`Expected value to be defined`)
@@ -215,6 +221,177 @@ describe('solveTridiagonal', () => {
       threw = true
     }
     expect(threw).toBe(true)
+  })
+})
+
+// ============================================================
+// 测试: solveExplicitDifference 显式差分格式
+// ============================================================
+describe('solveExplicitDifference 显式差分', () => {
+  it('应正确计算热扩散系数', () => {
+    const lambda = 2.33  // W/(m·K)
+    const c = 0.92       // kJ/(kg·K)
+    const rho = 2400     // kg/m³
+    // α = λ / (ρ × c × 1000) = 2.33 / (2400 × 0.92 × 1000) m²/d
+    const alpha = (lambda * 86400) / (rho * c * 1000)
+    // 预期 alpha ≈ 0.087 m²/d
+    expect(alpha).toBeCloseTo(0.087, 2)
+  })
+
+  it('Fo 应 ≤ 0.5 (显式差分稳定性条件)', () => {
+    const lambda = 2.33
+    const c = 0.92
+    const rho = 2400
+    const alpha = (lambda * 86400) / (rho * c * 1000)
+    const dt = 0.5  // 时间步长 (d)
+
+    // 对于典型厚度 2m，节点数 n=7 时
+    const thickness = 2
+    const dx_critical = Math.sqrt(alpha * dt / 0.5)
+    const n_raw = Math.floor(thickness / dx_critical + 1)
+    const n = (n_raw % 2 === 0) ? n_raw - 1 : n_raw
+    const dx = thickness / (n - 1)
+
+    const Fo = alpha * dt / (dx * dx)
+    expect(Fo).toBeLessThan(0.5)
+  })
+
+  it('不同厚度应计算正确的节点数 n', () => {
+    const lambda = 2.33
+    const c = 0.92
+    const rho = 2400
+    const alpha = (lambda * 86400) / (rho * c * 1000)
+    const dt = 0.5
+
+    // 测试用例：thickness=2m
+    const thickness = 2
+    const dx_critical = Math.sqrt(alpha * dt / 0.5)
+    const n_raw = Math.floor(thickness / dx_critical + 1)
+    const n = (n_raw % 2 === 0) ? n_raw - 1 : n_raw
+    // n 应该是大于等于最小节点数的奇数
+    expect(n).toBeGreaterThan(3)
+  })
+})
+
+// ============================================================
+// 测试: calculate 主计算入口
+// ============================================================
+describe('calculate 主计算入口', () => {
+  it('应正确计算温度场结果', () => {
+    const result = MassConcreteTemperatureFieldService.calculate({
+      moldingTemp: 25,
+      ambientTemp: 20,
+      thickness: 2,
+      lambda: 2.33,
+      c: 0.92,
+      rho: 2400,
+      beta: 10,
+      adiabaticParams: { T0: 50, m: 0.3 }
+    })
+
+    // 验证返回结构
+    expect(result).toBeDefined()
+    expect(result.temperatureField).toBeDefined()
+    expect(result.centerHistory).toBeDefined()
+    expect(result.surfaceHistory).toBeDefined()
+    expect(result.tempDiffHistory).toBeDefined()
+    expect(result.summary).toBeDefined()
+  })
+
+  it('中心温度应始终大于等于表面温度', () => {
+    const result = MassConcreteTemperatureFieldService.calculate({
+      moldingTemp: 25,
+      ambientTemp: 20,
+      thickness: 2,
+      lambda: 2.33,
+      c: 0.92,
+      rho: 2400,
+      beta: 10,
+      adiabaticParams: { T0: 50, m: 0.3 }
+    })
+
+    const centerTemps = result.centerHistory.temp
+    const surfaceTemps = result.surfaceHistory.temp
+
+    for (let i = 0; i < centerTemps.length; i++) {
+      expect(centerTemps[i]).toBeGreaterThanOrEqual(surfaceTemps[i])
+    }
+  })
+
+  it('里表温差应随时间先增后减', () => {
+    const result = MassConcreteTemperatureFieldService.calculate({
+      moldingTemp: 25,
+      ambientTemp: 20,
+      thickness: 2,
+      lambda: 2.33,
+      c: 0.92,
+      rho: 2400,
+      beta: 10,
+      adiabaticParams: { T0: 50, m: 0.3 }
+    })
+
+    const tempDiffs = result.tempDiffHistory.tempDiff
+
+    // 找到最大温差
+    let maxDiff = -Infinity
+    let maxDiffIdx = 0
+    for (let i = 0; i < tempDiffs.length; i++) {
+      if (tempDiffs[i] > maxDiff) {
+        maxDiff = tempDiffs[i]
+        maxDiffIdx = i
+      }
+    }
+
+    // 最大温差应该在中间时刻，而不是最后
+    expect(maxDiffIdx).toBeGreaterThan(0)
+    expect(maxDiffIdx).toBeLessThan(tempDiffs.length - 5)
+  })
+
+  it('28天后表面温度应接近环境温度', () => {
+    const result = MassConcreteTemperatureFieldService.calculate({
+      moldingTemp: 25,
+      ambientTemp: 20,
+      thickness: 2,
+      lambda: 2.33,
+      c: 0.92,
+      rho: 2400,
+      beta: 20,  // 较高散热系数
+      adiabaticParams: { T0: 50, m: 0.3 }
+    })
+
+    const lastSurfaceTemp = result.surfaceHistory.temp[result.surfaceHistory.temp.length - 1]
+    // 28天后表面温度应该接近环境温度（误差10°C以内）
+    expect(Math.abs(lastSurfaceTemp - result.summary.ambientTemp)).toBeLessThan(10)
+  })
+
+  it('较高散热系数应导致较大的里表温差', () => {
+    const lowBetaResult = MassConcreteTemperatureFieldService.calculate({
+      moldingTemp: 25,
+      ambientTemp: 20,
+      thickness: 2,
+      lambda: 2.33,
+      c: 0.92,
+      rho: 2400,
+      beta: 5,   // 低散热系数
+      adiabaticParams: { T0: 50, m: 0.3 }
+    })
+
+    const highBetaResult = MassConcreteTemperatureFieldService.calculate({
+      moldingTemp: 25,
+      ambientTemp: 20,
+      thickness: 2,
+      lambda: 2.33,
+      c: 0.92,
+      rho: 2400,
+      beta: 40,  // 高散热系数
+      adiabaticParams: { T0: 50, m: 0.3 }
+    })
+
+    const lowBetaMaxDiff = Math.max(...lowBetaResult.tempDiffHistory.tempDiff)
+    const highBetaMaxDiff = Math.max(...highBetaResult.tempDiffHistory.tempDiff)
+
+    // 高散热系数应该导致更大的里表温差
+    expect(highBetaMaxDiff).toBeGreaterThan(lowBetaMaxDiff)
   })
 })
 

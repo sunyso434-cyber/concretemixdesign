@@ -1,8 +1,8 @@
 // src/renderer/pages/massConcrete/TempRiseTab.jsx
 import React, { useState, useEffect } from 'react'
-import { Card, Form, Input, Select, Button, InputNumber, message, Divider, Alert, Row, Col } from 'antd'
+import { Card, Form, Input, Select, Button, InputNumber, message, Divider, Alert, Row, Col, Modal, Popconfirm } from 'antd'
 import { useSelector, useDispatch } from 'react-redux'
-import { setAdiabaticTempData, setTemperatureFieldData, setTemperatureFieldStatus } from '../../../store/massConcreteSlice'
+import { setAdiabaticTempData, setTemperatureFieldData, setTemperatureFieldStatus, setHeatDissipationConditions } from '../../../store/massConcreteSlice'
 import TempRiseChart from '../../components/charts/TempRiseChart'
 import TempDiffCurveChart from '../../components/charts/TempDiffCurveChart'
 import TempDistributionChart from '../../components/charts/TempDistributionChart'
@@ -67,6 +67,7 @@ const TempRiseTab = ({ onCalculate }) => {
   const adiabaticTempData = useSelector(state => state.massConcrete.adiabaticTempData)
   const mixDesignData = useSelector(state => state.massConcrete.mixDesignData)
   const temperatureFieldData = useSelector(state => state.massConcrete.temperatureFieldData)
+  const heatDissipationConditions = useSelector(state => state.massConcrete.heatDissipationConditions)
 
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
@@ -76,9 +77,32 @@ const TempRiseTab = ({ onCalculate }) => {
   const [selectedFlyAsh, setSelectedFlyAsh] = useState(null)
   const [selectedSlag, setSelectedSlag] = useState(null)
 
+  // 散热条件相关状态
+  const [selectedCondition, setSelectedCondition] = useState(null)
+  const [editingConditionVisible, setEditingConditionVisible] = useState(false)
+  const [editingCondition, setEditingCondition] = useState(null)
+  const [conditionForm] = Form.useForm()
+
   // 水化热默认值
   const DEFAULT_CEMENT_HEAT_3D = 260
   const DEFAULT_CEMENT_HEAT_7D = 300
+
+  // 加载散热条件列表
+  const loadHeatDissipationConditions = async () => {
+    try {
+      const result = await window.electron.ipcRenderer.invoke('mc_getHeatDissipationConditions')
+      if (result.success) {
+        dispatch(setHeatDissipationConditions(result.data))
+      }
+    } catch (error) {
+      console.error('加载散热条件失败:', error)
+    }
+  }
+
+  // 初始化加载
+  useEffect(() => {
+    loadHeatDissipationConditions()
+  }, [])
 
   // 加载原材料列表
   useEffect(() => {
@@ -127,6 +151,82 @@ const TempRiseTab = ({ onCalculate }) => {
         cementHeat3d: DEFAULT_CEMENT_HEAT_3D,
         cementHeat7d: DEFAULT_CEMENT_HEAT_7D
       })
+    }
+  }
+
+  // 散热条件选择变化时，自动填充散热系数
+  const handleConditionChange = (conditionId) => {
+    if (!conditionId) {
+      setSelectedCondition(null)
+      return
+    }
+
+    const condition = heatDissipationConditions.find(c => c.id === conditionId)
+    if (condition) {
+      setSelectedCondition(condition)
+    }
+  }
+
+  // 打开散热条件编辑对话框
+  const openConditionEditor = (condition = null) => {
+    setEditingCondition(condition)
+    if (condition) {
+      conditionForm.setFieldsValue({
+        name: condition.name,
+        windSpeedRef: condition.windSpeedRef,
+        beta: condition.beta,
+        remarks: condition.remarks
+      })
+    } else {
+      conditionForm.resetFields()
+    }
+    setEditingConditionVisible(true)
+  }
+
+  // 创建或更新散热条件
+  const handleSaveCondition = async () => {
+    try {
+      const values = await conditionForm.validateFields()
+      if (editingCondition) {
+        // 更新
+        const result = await window.electron.ipcRenderer.invoke('mc_updateHeatDissipationCondition', {
+          id: editingCondition.id,
+          ...values
+        })
+        if (result.success) {
+          message.success('散热条件更新成功')
+          await loadHeatDissipationConditions()
+        } else {
+          message.error(result.error || '更新失败')
+        }
+      } else {
+        // 创建
+        const result = await window.electron.ipcRenderer.invoke('mc_createHeatDissipationCondition', values)
+        if (result.success) {
+          message.success('散热条件创建成功')
+          await loadHeatDissipationConditions()
+        } else {
+          message.error(result.error || '创建失败')
+        }
+      }
+      setEditingConditionVisible(false)
+    } catch (error) {
+      console.error('保存散热条件失败:', error)
+    }
+  }
+
+  // 删除散热条件
+  const handleDeleteCondition = async (id) => {
+    try {
+      const result = await window.electron.ipcRenderer.invoke('mc_deleteHeatDissipationCondition', id)
+      if (result.success) {
+        message.success('散热条件删除成功')
+        await loadHeatDissipationConditions()
+      } else {
+        message.error(result.error || '删除失败')
+      }
+    } catch (error) {
+      console.error('删除散热条件失败:', error)
     }
   }
 
@@ -339,6 +439,10 @@ const TempRiseTab = ({ onCalculate }) => {
       const m = adiabaticTempData.mCoefficient
 
       const values = form.getFieldsValue()
+
+      // 从选中的散热条件获取 beta 值
+      const beta = selectedCondition?.beta || 10  // 默认值 10 W/(m²·K)
+
       const params = {
         moldingTemp: Number(values.placementTemp) || 25,
         ambientTemp: Number(values.ambientTemp) || 20,
@@ -346,6 +450,7 @@ const TempRiseTab = ({ onCalculate }) => {
         lambda: 2.33,  // 导热系数默认值
         c: 0.92,       // 比热容默认值
         rho: mixDesignData?.materials?.density || 2400,  // 从配合比获取密度
+        beta,          // 表面散热系数
         adiabaticParams: {
           T0,
           m
@@ -710,6 +815,46 @@ const TempRiseTab = ({ onCalculate }) => {
             </Col>
           </Row>
 
+          <Divider plain>散热条件</Divider>
+
+          <Row gutter={16} align="middle">
+            <Col span={12}>
+              <Form.Item name="heatDissipationConditionId" label="散热条件">
+                <Select
+                  placeholder="选择散热条件"
+                  onChange={handleConditionChange}
+                  allowClear
+                >
+                  {heatDissipationConditions.map(cond => (
+                    <Option key={cond.id} value={cond.id}>
+                      {cond.name} (β={cond.beta} W/(m²·K))
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Button type="link" onClick={() => openConditionEditor(null)}>
+                新增散热条件
+              </Button>
+              {selectedCondition && (
+                <Button type="link" onClick={() => openConditionEditor(selectedCondition)}>
+                  编辑
+                </Button>
+              )}
+            </Col>
+          </Row>
+
+          {selectedCondition && (
+            <Alert
+              message={`当前散热条件: ${selectedCondition.name}`}
+              description={`参考风速: ${selectedCondition.windSpeedRef || '无'}，散热系数 β = ${selectedCondition.beta} W/(m²·K)${selectedCondition.remarks ? '，' + selectedCondition.remarks : ''}`}
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+          )}
+
           <Row gutter={16}>
             <Col span={8}>
               <Form.Item name="memberLength" label="构件长度 (m)">
@@ -791,7 +936,7 @@ const TempRiseTab = ({ onCalculate }) => {
           <Card className="custom-card" title="温度场数值解" style={{ marginTop: 16 }}>
             <Alert
               message="温度场数值解说明"
-              description="基于《GB 50496-2018》附录B，采用隐式差分格式（无条件稳定）计算混凝土温度场分布，考虑单向散热边界条件。"
+              description="基于《GB 50496-2018》附录B，采用显式差分格式计算混凝土温度场分布，根据傅里叶数 Fo 动态调整空间网格，考虑表面散热边界条件。"
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
@@ -812,6 +957,102 @@ const TempRiseTab = ({ onCalculate }) => {
             )}
           </Card>
         </>
+      )}
+
+      {/* 散热条件编辑对话框 */}
+      <Modal
+        title={editingCondition ? '编辑散热条件' : '新增散热条件'}
+        open={editingConditionVisible}
+        onOk={handleSaveCondition}
+        onCancel={() => setEditingConditionVisible(false)}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form
+          form={conditionForm}
+          layout="vertical"
+        >
+          <Form.Item
+            name="name"
+            label="散热条件名称"
+            rules={[{ required: true, message: '请输入散热条件名称' }]}
+          >
+            <Input placeholder="如：室外微风" />
+          </Form.Item>
+
+          <Form.Item
+            name="windSpeedRef"
+            label="参考风速"
+            rules={[{ required: false, message: '请输入参考风速' }]}
+          >
+            <Input placeholder="如：1~2 m/s" />
+          </Form.Item>
+
+          <Form.Item
+            name="beta"
+            label="散热系数 β (W/(m²·K))"
+            rules={[{ required: true, message: '请输入散热系数' }]}
+          >
+            <InputNumber
+              style={{ width: '100%' }}
+              min={0}
+              max={200}
+              precision={1}
+              placeholder="如：10"
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="remarks"
+            label="备注"
+          >
+            <Input.TextArea placeholder="备注信息" rows={2} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 散热条件列表管理 */}
+      {heatDissipationConditions.length > 0 && (
+        <Card className="custom-card" title="散热条件列表" style={{ marginTop: 16 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #f0f0f0' }}>
+                <th style={{ padding: '8px', textAlign: 'left' }}>名称</th>
+                <th style={{ padding: '8px', textAlign: 'left' }}>参考风速</th>
+                <th style={{ padding: '8px', textAlign: 'left' }}>散热系数 β</th>
+                <th style={{ padding: '8px', textAlign: 'left' }}>备注</th>
+                <th style={{ padding: '8px', textAlign: 'center' }}>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {heatDissipationConditions.map(cond => (
+                <tr key={cond.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                  <td style={{ padding: '8px' }}>{cond.name}</td>
+                  <td style={{ padding: '8px' }}>{cond.windSpeedRef || '-'}</td>
+                  <td style={{ padding: '8px' }}>{cond.beta} W/(m²·K)</td>
+                  <td style={{ padding: '8px' }}>{cond.remarks || '-'}</td>
+                  <td style={{ padding: '8px', textAlign: 'center' }}>
+                    <Button type="link" size="small" onClick={() => openConditionEditor(cond)}>
+                      编辑
+                    </Button>
+                    {!cond.isDefault && (
+                      <Popconfirm
+                        title="确定删除该散热条件？"
+                        onConfirm={() => handleDeleteCondition(cond.id)}
+                        okText="确定"
+                        cancelText="取消"
+                      >
+                        <Button type="link" size="small" danger>
+                          删除
+                        </Button>
+                      </Popconfirm>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
       )}
     </div>
   )
