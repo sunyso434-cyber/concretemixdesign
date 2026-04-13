@@ -1,6 +1,5 @@
 // src/renderer/components/charts/InsulationProfileChart.jsx
 import React from 'react'
-import { Bar } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import { colors } from './chartConfig'
 
