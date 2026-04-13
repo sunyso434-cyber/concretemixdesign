@@ -50,7 +50,7 @@ class MassConcreteTemperatureFieldService {
     )
 
     // 生成输出数据
-    return this.generateOutput(temperatureMatrix, { times, moldingTemp, ambientTemp, thickness, n })
+    return this.generateOutput(temperatureMatrix, { moldingTemp, ambientTemp, thickness, n })
   }
 
   /**
@@ -364,27 +364,31 @@ class MassConcreteTemperatureFieldService {
    * @returns {Object} 输出结果
    */
   static generateOutput(temperatureMatrix, params) {
-    const { times, moldingTemp, ambientTemp, thickness, n: actualN } = params
+    const { moldingTemp, ambientTemp, thickness, n: actualN } = params
     // 使用实际的节点数，如果没传则用 SPACE_NODES
     const n = actualN || this.SPACE_NODES
+
+    // 根据温度矩阵行数生成正确的时间序列 (dt=0.5)
+    const dt = 0.5
+    const times = temperatureMatrix.map((_, k) => Math.round(k * dt * 10) / 10)
 
     // 空间节点位置 (0% - 100%)，按实际节点数均匀分布
     const nodes = Array.from({ length: n }, (_, i) => Math.round((i / (n - 1)) * 100))
 
     // 中心点 (i=0) 和表面点 (i=n-1) 的温度历程
     const centerHistory = {
-      time: times.slice(),
+      time: times,
       temp: temperatureMatrix.map(row => row[0])
     }
 
     const surfaceHistory = {
-      time: times.slice(),
+      time: times,
       temp: temperatureMatrix.map(row => row[n - 1])
     }
 
     // 里表温差历程
     const tempDiffHistory = {
-      time: times.slice(),
+      time: times,
       tempDiff: temperatureMatrix.map(row => row[0] - row[n - 1])
     }
 
@@ -394,7 +398,7 @@ class MassConcreteTemperatureFieldService {
     let maxTempDiff = -Infinity
     let maxTempDiffTime = 0
 
-    for (let k = 0; k < times.length; k++) {
+    for (let k = 0; k < temperatureMatrix.length; k++) {
       const centerTemp = temperatureMatrix[k][0]
       const surfaceTemp = temperatureMatrix[k][n - 1]
       const tempDiff = centerTemp - surfaceTemp
