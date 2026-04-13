@@ -1,7 +1,7 @@
 // src/renderer/components/charts/IsothermChart.jsx
 import React from 'react'
-import { Card } from 'antd'
-import { Heatmap } from '@ant-design/plots'
+import ReactECharts from 'echarts-for-react'
+import { colors } from './chartConfig'
 
 /**
  * 等温线图（热力图）组件
@@ -11,118 +11,142 @@ import { Heatmap } from '@ant-design/plots'
 const IsothermChart = ({ data = {} }) => {
   const { nodes = [], times = [], temperatures = [] } = data
 
-  // 转换数据：将矩阵转换为扁平数组
-  // TemperatureFieldService 返回 {nodes, times, temperatures}
-  // temperatures[ti][ni] 对应 time=times[ti], position=nodes[ni]
+  // 转换数据为热力图格式 [[x, y, value], ...]
   const chartData = []
   times.forEach((t, ti) => {
     nodes.forEach((n, ni) => {
-      chartData.push({
-        position: n,
-        time: t,
-        temperature: temperatures[ti]?.[ni] ?? null
-      })
+      chartData.push([n, t, temperatures[ti]?.[ni] ?? null])
     })
   })
 
-  const config = {
-    data: chartData,
-    xField: 'position',
-    yField: 'time',
-    colorField: 'temperature',
-    color: [
-      '#1890ff',
-      '#40a9ff',
-      '#69c0ff',
-      '#91d5ff',
-      '#bae7ff',
-      '#d9f0ff',
-      '#fff7e6',
-      '#ffe58f',
-      '#ffd591',
-      '#ffc069',
-      '#ffa940',
-      '#fa8c16',
-      '#d46b08',
-      '#ad4e00',
-    ],
-    meta: {
-      position: {
-        alias: '位置',
+  // 计算温度范围
+  const allTemps = temperatures.flat().filter(t => t !== null)
+  const minTemp = Math.min(...allTemps)
+  const maxTemp = Math.max(...allTemps)
+
+  const option = {
+    backgroundColor: 'transparent',
+    title: {
+      text: '温度场热力图',
+      left: 'center',
+      textStyle: {
+        color: colors.dark,
+        fontSize: 14,
+        fontWeight: 'bold',
+      }
+    },
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: 'rgba(26, 58, 92, 0.9)',
+      borderColor: 'transparent',
+      borderRadius: 6,
+      padding: [8, 12],
+      textStyle: {
+        color: '#fff',
+        fontSize: 12,
       },
-      time: {
-        alias: '时间',
-      },
-      temperature: {
-        alias: '温度 (°C)',
-      },
+      formatter: function(params) {
+        return `位置: ${params.value[0]}%<br/>时间: ${params.value[1]}d<br/>温度: ${params.value[2]} °C`
+      }
     },
     xAxis: {
-      title: {
-        text: '位置 (%)',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
+      type: 'value',
+      name: '位置 (%)',
+      nameLocation: 'end',
+      nameGap: 8,
+      nameTextStyle: {
+        color: colors.dark,
+        fontSize: 12,
       },
-      grid: {
-        line: {
-          style: {
-            stroke: '#e8e8e8',
-            lineDash: [4, 4],
-          },
-        },
+      axisLine: {
+        lineStyle: { color: colors.dark }
+      },
+      axisTick: {
+        alignWithLabel: true,
+        inside: true,
+      },
+      axisLabel: {
+        color: '#666',
+        fontSize: 11,
+      },
+      splitLine: {
+        lineStyle: {
+          color: colors.grid,
+          type: 'dashed',
+        }
       },
     },
     yAxis: {
-      title: {
-        text: '时间 (d)',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
+      type: 'value',
+      name: '时间 (d)',
+      nameLocation: 'end',
+      nameGap: 8,
+      nameTextStyle: {
+        color: colors.dark,
+        fontSize: 12,
       },
-      grid: {
-        line: {
-          style: {
-            stroke: '#e8e8e8',
-            lineDash: [4, 4],
-          },
-        },
+      axisLine: {
+        lineStyle: { color: colors.dark }
       },
-    },
-    legend: {
-      title: {
-        text: '温度 (°C)',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
+      axisTick: {
+        inside: true,
       },
-    },
-    tooltip: {
-      showCrosshairs: true,
-      crosshairs: {
-        line: {
-          style: {
-            stroke: '#666',
-            lineDash: [4, 4],
-          },
-        },
+      axisLabel: {
+        color: '#666',
+        fontSize: 11,
+      },
+      splitLine: {
+        lineStyle: {
+          color: colors.grid,
+          type: 'dashed',
+        }
       },
     },
-    animation: {
-      appear: {
-        animation: 'fade-in',
-        duration: 800,
+    visualMap: {
+      min: minTemp,
+      max: maxTemp,
+      calculable: true,
+      orient: 'vertical',
+      right: 0,
+      top: 'center',
+      itemHeight: 150,
+      itemWidth: 12,
+      textStyle: {
+        color: colors.dark,
+        fontSize: 11,
       },
+      inRange: {
+        color: [
+          '#1890ff',
+          '#40a9ff',
+          '#69c0ff',
+          '#91d5ff',
+          '#bae7ff',
+          '#d9f0ff',
+          '#fff7e6',
+          '#ffe58f',
+          '#ffd591',
+          '#ffc069',
+          '#ffa940',
+          '#fa8c16',
+          '#d46b08',
+        ]
+      }
     },
+    series: [{
+      type: 'heatmap',
+      data: chartData,
+      emphasis: {
+        itemStyle: {
+          borderColor: '#fff',
+          borderWidth: 1,
+        }
+      }
+    }]
   }
 
   return (
-    <Card size="small" title="温度场热力图">
-      <Heatmap {...config} style={{ width: '100%', height: 300 }} />
-    </Card>
+    <ReactECharts option={option} style={{ width: '100%', height: 300 }} />
   )
 }
 
