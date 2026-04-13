@@ -218,7 +218,7 @@ class MassConcreteTemperatureFieldService {
           // T_n,k+1 = (T_n-1,k + T_n+1,k)/2 × 2Fo - T_n,k × (2Fo - 1) + ΔT_n,k
           // 化简: T_n,k+1 = T_n,k + Fo × (T_n-1,k - 2×T_n,k + T_n+1,k) + ΔT
           // ============================================================
-          T_next[i] = (T_current[i - 1] + T_current[i + 1]) / 2 * 2 * Fo - T_current[i] * (2 * Fo - 1) + dT_ad_full
+          T_next[i] = T_current[i] + Fo * (T_current[i - 1] - 2 * T_current[i] + T_current[i + 1]) + dT_ad_full
         }
       }
 
