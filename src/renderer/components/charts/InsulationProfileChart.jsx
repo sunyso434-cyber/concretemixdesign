@@ -1,7 +1,8 @@
 // src/renderer/components/charts/InsulationProfileChart.jsx
 import React from 'react'
-import { Card } from 'antd'
-import { Bar } from '@ant-design/plots'
+import { Bar } from 'antd'
+import ReactECharts from 'echarts-for-react'
+import { colors } from './chartConfig'
 
 /**
  * 保温曲线图表组件
@@ -19,103 +20,135 @@ const InsulationProfileChart = ({
   meetsRequirement = true,
   title = '保温曲线'
 }) => {
-  // 将保温层数据转换为图表数据
   const data = insulationLayers.map(layer => ({
-    thickness: layer.thickness,
+    value: layer.thickness,
     name: layer.name
   }))
 
-  const config = {
-    data,
-    xField: 'name',
-    yField: 'thickness',
-    smooth: false,
-    point: {
-      size: 4,
-      shape: 'circle',
+  const option = {
+    backgroundColor: 'transparent',
+    title: {
+      text: title,
+      left: 'center',
+      textStyle: {
+        color: colors.dark,
+        fontSize: 14,
+        fontWeight: 'bold',
+      }
     },
-    meta: {
-      thickness: {
-        alias: '保温层厚度',
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: {
+        type: 'shadow',
       },
-      name: {
-        alias: '保温方案',
+      backgroundColor: 'rgba(26, 58, 92, 0.9)',
+      borderColor: 'transparent',
+      borderRadius: 6,
+      padding: [8, 12],
+      textStyle: {
+        color: '#fff',
+        fontSize: 12,
       },
+      formatter: function(params) {
+        const data = params[0]
+        return `保温方案: ${data.name}<br/>保温层厚度: ${data.value} m`
+      }
     },
     xAxis: {
-      title: {
-        text: '保温方案',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
+      type: 'category',
+      data: data.map(d => d.name),
+      name: '保温方案',
+      nameLocation: 'end',
+      nameGap: 8,
+      nameTextStyle: {
+        color: colors.dark,
+        fontSize: 12,
       },
-      grid: {
-        line: {
-          style: {
-            stroke: '#e8e8e8',
-            lineDash: [4, 4],
-          },
-        },
+      axisLine: {
+        lineStyle: { color: colors.dark }
+      },
+      axisTick: {
+        inside: true,
+      },
+      axisLabel: {
+        color: '#666',
+        fontSize: 11,
+      },
+      splitLine: {
+        show: false,
       },
     },
     yAxis: {
-      title: {
-        text: '保温层厚度 (m)',
-        style: {
-          fontSize: 12,
-          fill: '#666',
-        },
+      type: 'value',
+      name: '保温层厚度 (m)',
+      nameLocation: 'end',
+      nameGap: 8,
+      nameTextStyle: {
+        color: colors.dark,
+        fontSize: 12,
       },
-      grid: {
-        line: {
-          style: {
-            stroke: '#e8e8e8',
-            lineDash: [4, 4],
+      axisLine: {
+        lineStyle: { color: colors.dark }
+      },
+      axisTick: {
+        inside: true,
+      },
+      axisLabel: {
+        color: '#666',
+        fontSize: 11,
+      },
+      splitLine: {
+        lineStyle: {
+          color: colors.grid,
+          type: 'dashed',
+        }
+      },
+    },
+    series: [{
+      type: 'bar',
+      data: data.map(d => d.value),
+      barWidth: '50%',
+      itemStyle: {
+        color: {
+          type: 'linear',
+          x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: colors.primary },
+            { offset: 1, color: colors.secondary }
+          ]
+        },
+        borderRadius: [4, 4, 0, 0],
+      },
+      emphasis: {
+        itemStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: colors.secondary },
+              { offset: 1, color: colors.primary }
+            ]
           },
-        },
-      },
-    },
-    title: {
-      text: title,
-      style: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        textAlign: 'center',
-      },
-    },
-    color: ['#1890ff', '#52c41a', '#fa8c16', '#f5222d'],
-    lineStyle: {
-      lineWidth: 2,
-    },
-    tooltip: {
-      showCrosshairs: true,
-      crosshairs: {
-        line: {
-          style: {
-            lineDash: [4, 4],
-          },
-        },
-      },
-    },
-    legend: {
-      position: 'top-right',
-    },
-    animation: {
-      appear: {
-        animation: 'wave-in',
-        duration: 1000,
-      },
-    },
+        }
+      }
+    }]
   }
 
   // 显示虚拟厚度和表面温差信息
   const infoText = `虚拟厚度: ${virtualThickness}m | 表面温差: ${surfaceTempDiff}°C | ${meetsRequirement ? '满足要求' : '不满足要求'}`
 
   return (
-    <Card size="small" title={infoText}>
-      <Bar {...config} style={{ width: '100%', height: 300 }} />
-    </Card>
+    <div>
+      <div style={{
+        textAlign: 'center',
+        marginBottom: 12,
+        color: meetsRequirement ? '#52c41a' : '#f5222d',
+        fontSize: 12
+      }}>
+        {infoText}
+      </div>
+      <ReactECharts option={option} style={{ width: '100%', height: 300 }} />
+    </div>
   )
 }
 
