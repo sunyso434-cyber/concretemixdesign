@@ -157,9 +157,9 @@ class MassConcreteTemperatureFieldService {
 
       // 验证稳定性条件 (GB 50496-2018 附录B)
       // 内部节点稳定性: Fo ≤ 0.5
-      // 表面节点稳定性: Fo * Bi < 1 (第三类边界条件的显式差分稳定性条件)
+      // 表面节点稳定性: Fo * Bi ≤ 1
       const internalStable = tempFo <= 0.5
-      const surfaceStable = tempFo * tempBi < 1
+      const surfaceStable = tempFo * tempBi <= 1
 
       if (internalStable && surfaceStable) {
         n = tempN
@@ -206,11 +206,12 @@ class MassConcreteTemperatureFieldService {
           // ============================================================
           T_next[i] = T_current[i] + 2 * Fo * (T_current[1] - T_current[i]) + dT_ad_full
         } else if (i === n - 1) {
-          // 表面散热节点 (i=n-1): 第三类边界条件（对流散热）
-          // 物理意义: -λ × ∂T/∂x|ₓ₌L = β × (T(L,t) - T_a)
-          // 差分方程:
-          // T_n,k+1 = T_n,k + 2*Fo*Bi*(T_a - T_n,k) + ΔT/2
-          T_next[i] = T_current[i] + 2 * Fo * Bi * (ambientTemp - T_current[i]) + dT_ad_surface
+          // 表面散热节点 (i=n-1): 第三类边界条件
+          // 规范公式: T_{n-1,k+1} = T_{n-1,k} + 2*Fo*(T_{n-2,k} - T_{n-1,k}) + 2*Fo*Bi*(T_a - T_{n-1,k}) + ΔT/2
+          T_next[i] = T_current[i]
+              + 2 * Fo * (T_current[n - 2] - T_current[n - 1])
+              + 2 * Fo * Bi * (ambientTemp - T_current[n - 1])
+              + dT_ad_surface
         } else {
           // ============================================================
           // 内部节点: 公式B.4.2
