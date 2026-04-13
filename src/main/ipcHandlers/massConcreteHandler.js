@@ -1,5 +1,6 @@
 const { ipcMain } = require('electron')
 const InsulationMaterialService = require('../services/InsulationMaterialService')
+const MassConcreteHeatDissipation = require('../db/models/MassConcreteHeatDissipation')
 
 class MassConcreteHandler {
   constructor() {
@@ -313,6 +314,65 @@ class MassConcreteHandler {
         return { success: true, data: result }
       } catch (error) {
         console.error('mc_saveInsulation failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    // ========== 散热条件 ==========
+
+    // 获取所有散热条件
+    ipcMain.handle('mc_getHeatDissipationConditions', async () => {
+      try {
+        const conditions = await MassConcreteHeatDissipation.findAll({
+          order: [['id', 'ASC']]
+        })
+        return { success: true, data: conditions }
+      } catch (error) {
+        console.error('mc_getHeatDissipationConditions failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    // 创建散热条件
+    ipcMain.handle('mc_createHeatDissipationCondition', async (_, data) => {
+      try {
+        const condition = await MassConcreteHeatDissipation.create(data)
+        return { success: true, data: condition }
+      } catch (error) {
+        console.error('mc_createHeatDissipationCondition failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    // 更新散热条件
+    ipcMain.handle('mc_updateHeatDissipationCondition', async (_, { id, ...updates }) => {
+      try {
+        const condition = await MassConcreteHeatDissipation.findByPk(id)
+        if (!condition) {
+          return { success: false, error: '散热条件不存在' }
+        }
+        await condition.update(updates)
+        return { success: true, data: condition }
+      } catch (error) {
+        console.error('mc_updateHeatDissipationCondition failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    // 删除散热条件（非默认）
+    ipcMain.handle('mc_deleteHeatDissipationCondition', async (_, id) => {
+      try {
+        const condition = await MassConcreteHeatDissipation.findByPk(id)
+        if (!condition) {
+          return { success: false, error: '散热条件不存在' }
+        }
+        if (condition.isDefault) {
+          return { success: false, error: '默认条件不能删除' }
+        }
+        await condition.destroy()
+        return { success: true }
+      } catch (error) {
+        console.error('mc_deleteHeatDissipationCondition failed:', error)
         return { success: false, error: error.message }
       }
     })
