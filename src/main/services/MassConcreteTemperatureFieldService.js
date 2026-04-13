@@ -45,7 +45,7 @@ class MassConcreteTemperatureFieldService {
     // 显式差分求解温度场
     const { temperatureMatrix, n } = this.solveExplicitDifference(
       moldingTemp,
-      { thickness, lambda, c, rho, ambientTemp, beta },
+      { thickness, lambda, c, rho, ambientTemp, beta, adiabaticParams },
       adiabaticTemps
     )
 
@@ -125,11 +125,11 @@ class MassConcreteTemperatureFieldService {
    * @param {number} params.rho - 密度 kg/m³
    * @param {number} params.ambientTemp - 环境温度 (°C)
    * @param {number} params.beta - 表面散热系数 W/(m²·K)
-   * @param {number[]} adiabaticTemps - 绝热温升数组
+   * @param {number[]} adiabaticTemps - 绝热温升数组（已废弃，仅保持接口兼容）
    * @returns {Object} { temperatureMatrix, n, dx }
    */
   static solveExplicitDifference(T0, params, adiabaticTemps) {
-    const { thickness, lambda, c, rho, ambientTemp, beta } = params
+    const { thickness, lambda, c, rho, ambientTemp, beta, adiabaticParams } = params
     const dt = this.DT  // 0.5 天
 
     // 热扩散系数 α = λ / (ρ × c × 1000) m²/d
@@ -159,10 +159,11 @@ class MassConcreteTemperatureFieldService {
       const T_current = temperatureMatrix[k]
       const T_next = new Array(n).fill(ambientTemp)
 
-      // 当前时刻的绝热温升增量
-      const T_ad_current = adiabaticTemps[k]
-      const T_ad_next = adiabaticTemps[k + 1]
-      const dT_ad = (T_ad_next - T_ad_current) / dt
+      // 当前时刻的绝热温升增量（直接用解析公式计算，避免数组越界）
+      // 绝热温升: T_ad(t) = T0 * (1 - exp(-m*t))
+      // 差分: dT_ad/dt ≈ (T_ad(t+dt) - T_ad(t)) / dt
+      const t_current = k * dt
+      const dT_ad = adiabaticParams.T0 * adiabaticParams.m * Math.exp(-adiabaticParams.m * t_current)
 
       for (let i = 0; i < n; i++) {
         if (i === 0) {
