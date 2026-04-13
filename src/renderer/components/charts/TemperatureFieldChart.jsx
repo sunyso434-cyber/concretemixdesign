@@ -1,6 +1,6 @@
 // src/renderer/components/charts/TemperatureFieldChart.jsx
 import React from 'react'
-import { Row, Col, Card } from 'antd'
+import { Row, Col } from 'antd'
 import IsothermChart from './IsothermChart'
 import TempPosCurveChart from './TempPosCurveChart'
 import TempTimeCurveChart from './TempTimeCurveChart'
@@ -13,7 +13,17 @@ import TempDiffCurveChart from './TempDiffCurveChart'
  */
 const TemperatureFieldChart = ({ temperatureFieldData }) => {
   if (!temperatureFieldData) {
-    return <Card>暂无温度场数据</Card>
+    return (
+      <div style={{
+        padding: '40px',
+        textAlign: 'center',
+        color: '#666',
+        background: '#f5f5f5',
+        borderRadius: 4
+      }}>
+        暂无温度场数据
+      </div>
+    )
   }
 
   const { temperatureField, centerHistory, surfaceHistory, tempDiffHistory } = temperatureFieldData
