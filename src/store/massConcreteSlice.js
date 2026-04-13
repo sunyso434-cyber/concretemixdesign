@@ -13,7 +13,8 @@ const initialState = {
   activeTab: 'schemes',
   temperatureFieldData: null,
   temperatureFieldStatus: 'idle',
-  temperatureFieldError: null
+  temperatureFieldError: null,
+  heatDissipationConditions: []
 }
 
 // 创建大体积混凝土的slice
@@ -85,6 +86,10 @@ const massConcreteSlice = createSlice({
     setInsulationMaterials: (state, action) => {
       state.insulationMaterials = action.payload
     },
+    // 设置散热条件列表
+    setHeatDissipationConditions: (state, action) => {
+      state.heatDissipationConditions = action.payload
+    },
     // 设置施工参数
     setConstructionParams: (state, action) => {
       state.constructionParams = action.payload
@@ -100,6 +105,7 @@ const massConcreteSlice = createSlice({
       state.stressData = null
       state.insulationData = null
       state.temperatureFieldData = null
+      state.heatDissipationConditions = []
     },
     // 重置状态
     resetState: () => initialState
@@ -118,6 +124,7 @@ export const {
   setStressData,
   setInsulationData,
   setInsulationMaterials,
+  setHeatDissipationConditions,
   setConstructionParams,
   setActiveTab,
   setTemperatureFieldData,
