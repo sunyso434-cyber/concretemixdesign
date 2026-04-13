@@ -1,7 +1,7 @@
 /**
  * 大体积混凝土温度场数值解服务
  * 基于 GB 50496-2018《大体积混凝土施工标准》
- * 采用隐式差分格式（无条件稳定）+ 追赶法求解
+ * 采用显式差分格式（条件稳定）+ 三角追赶法求解
  */
 class MassConcreteTemperatureFieldService {
   // 热工参数默认值
@@ -9,9 +9,11 @@ class MassConcreteTemperatureFieldService {
   static DEFAULT_C = 0.92         // 比热容 kJ/(kg·K)
   static DEFAULT_RHO = 2400        // 密度 kg/m³
 
-  // 离散化参数
-  static SPACE_NODES = 11          // 空间节点数 0%-100%
-  static TIME_NODES = 29           // 时间节点数 0-28天
+  // 离散化参数（显式差分用）
+  static DT = 0.5                  // 时间步长 (d)
+  static MAX_TIME = 28             // 计算时长 (d)
+  static SPACE_NODES = 11          // 空间节点数 0%-100% (仅用于generateOutput)
+  static TIME_NODES = 29           // 时间节点数 0-28天 (仅用于generateOutput)
 
   /**
    * 主计算入口
@@ -26,6 +28,7 @@ class MassConcreteTemperatureFieldService {
       lambda = this.DEFAULT_LAMBDA,
       c = this.DEFAULT_C,
       rho = this.DEFAULT_RHO,
+      beta = 10,                   // 表面散热系数 W/(m²·K)
       adiabaticParams = { T0: 50, m: 0.3 }
     } = params
 
@@ -39,15 +42,15 @@ class MassConcreteTemperatureFieldService {
       times
     )
 
-    // 隐式差分求解温度场
-    const temperatureMatrix = this.solveImplicitDifference(
+    // 显式差分求解温度场
+    const { temperatureMatrix, n } = this.solveExplicitDifference(
       moldingTemp,
-      { thickness, lambda, c, rho, ambientTemp },
+      { thickness, lambda, c, rho, ambientTemp, beta },
       adiabaticTemps
     )
 
     // 生成输出数据
-    return this.generateOutput(temperatureMatrix, { times, moldingTemp, ambientTemp, thickness })
+    return this.generateOutput(temperatureMatrix, { times, moldingTemp, ambientTemp, thickness, n })
   }
 
   /**
@@ -109,6 +112,75 @@ class MassConcreteTemperatureFieldService {
     }
 
     return x
+  }
+
+  /**
+   * 显式差分格式求解温度场
+   * 稳定性条件: Fo = α × dt / dx² ≤ 0.5
+   * @param {number} T0 - 入模温度 (°C)
+   * @param {Object} params - 参数
+   * @param {number} params.thickness - 混凝土厚度 (m)
+   * @param {number} params.lambda - 导热系数 W/(m·K)
+   * @param {number} params.c - 比热容 kJ/(kg·K)
+   * @param {number} params.rho - 密度 kg/m³
+   * @param {number} params.ambientTemp - 环境温度 (°C)
+   * @param {number} params.beta - 表面散热系数 W/(m²·K)
+   * @param {number[]} adiabaticTemps - 绝热温升数组
+   * @returns {Object} { temperatureMatrix, n, dx }
+   */
+  static solveExplicitDifference(T0, params, adiabaticTemps) {
+    const { thickness, lambda, c, rho, ambientTemp, beta } = params
+    const dt = this.DT  // 0.5 天
+
+    // 热扩散系数 α = λ / (ρ × c × 1000) m²/d
+    const alpha = (lambda * 86400) / (rho * c * 1000)
+
+    // 动态计算空间节点数 n（最大奇数满足 Fo ≤ 0.5）
+    const dx_critical = Math.sqrt(alpha * dt / 0.5)
+    const n_raw = Math.floor(thickness / dx_critical + 1)
+    const n = (n_raw % 2 === 0) ? n_raw - 1 : n_raw
+    const dx = thickness / (n - 1)
+
+    // 傅里叶数和比奥数
+    const Fo = alpha * dt / (dx * dx)
+    const Bi = beta * dx / lambda
+
+    // 时间节点数 (0 ~ 28d, dt=0.5d)
+    const m = Math.floor(this.MAX_TIME / dt) + 1  // 57 个时间点
+
+    // 温度矩阵初始化
+    const temperatureMatrix = []
+    for (let t = 0; t < m; t++) {
+      temperatureMatrix.push(new Array(n).fill(T0))
+    }
+
+    // 时间步进
+    for (let k = 0; k < m - 1; k++) {
+      const T_current = temperatureMatrix[k]
+      const T_next = new Array(n).fill(ambientTemp)
+
+      // 当前时刻的绝热温升增量
+      const T_ad_current = adiabaticTemps[k]
+      const T_ad_next = adiabaticTemps[k + 1]
+      const dT_ad = (T_ad_next - T_ad_current) / dt
+
+      for (let i = 0; i < n; i++) {
+        if (i === 0) {
+          // 中心对称节点 (i=0): T_{-1} = T_1
+          T_next[i] = T_current[i] + 2 * Fo * (T_current[1] - T_current[i]) + dT_ad
+        } else if (i === n - 1) {
+          // 表面对流边界节点 (i=n-1)
+          T_next[i] = T_current[i] + 2 * Fo * ((T_current[i - 1] - T_current[i]) + Bi * (ambientTemp - T_current[i])) + dT_ad
+        } else {
+          // 内部节点
+          T_next[i] = T_current[i] + Fo * (T_current[i - 1] - 2 * T_current[i] + T_current[i + 1]) + dT_ad
+        }
+      }
+
+      temperatureMatrix[k + 1] = T_next
+    }
+
+    return { temperatureMatrix, n, dx }
   }
 
   /**
@@ -287,11 +359,12 @@ class MassConcreteTemperatureFieldService {
    * @returns {Object} 输出结果
    */
   static generateOutput(temperatureMatrix, params) {
-    const { times, moldingTemp, ambientTemp, thickness } = params
-    const n = this.SPACE_NODES
+    const { times, moldingTemp, ambientTemp, thickness, n: actualN } = params
+    // 使用实际的节点数，如果没传则用 SPACE_NODES
+    const n = actualN || this.SPACE_NODES
 
-    // 空间节点位置 (0% - 100%)
-    const nodes = Array.from({ length: n }, (_, i) => i * 10)
+    // 空间节点位置 (0% - 100%)，按实际节点数均匀分布
+    const nodes = Array.from({ length: n }, (_, i) => Math.round((i / (n - 1)) * 100))
 
     // 中心点 (i=0) 和表面点 (i=n-1) 的温度历程
     const centerHistory = {
