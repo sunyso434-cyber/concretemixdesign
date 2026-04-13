@@ -326,7 +326,7 @@ class MassConcreteHandler {
         const conditions = await MassConcreteHeatDissipation.findAll({
           order: [['id', 'ASC']]
         })
-        return { success: true, data: conditions }
+        return { success: true, data: conditions.map(c => c.toJSON()) }
       } catch (error) {
         console.error('mc_getHeatDissipationConditions failed:', error)
         return { success: false, error: error.message }
@@ -337,7 +337,7 @@ class MassConcreteHandler {
     ipcMain.handle('mc_createHeatDissipationCondition', async (_, data) => {
       try {
         const condition = await MassConcreteHeatDissipation.create(data)
-        return { success: true, data: condition }
+        return { success: true, data: condition.toJSON() }
       } catch (error) {
         console.error('mc_createHeatDissipationCondition failed:', error)
         return { success: false, error: error.message }
@@ -352,7 +352,7 @@ class MassConcreteHandler {
           return { success: false, error: '散热条件不存在' }
         }
         await condition.update(updates)
-        return { success: true, data: condition }
+        return { success: true, data: condition.toJSON() }
       } catch (error) {
         console.error('mc_updateHeatDissipationCondition failed:', error)
         return { success: false, error: error.message }

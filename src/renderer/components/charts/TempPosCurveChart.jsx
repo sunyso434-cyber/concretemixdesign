@@ -17,8 +17,26 @@ import {
 const TempPosCurveChart = ({ data = {} }) => {
   const { nodes = [], times = [], temperatures = [] } = data
 
-  // 处理数据：每条线代表一个时刻
-  const series = times.map((t, ti) => {
+  // 典型时间点 (天)
+  const typicalDays = [1, 3, 7, 14, 28]
+
+  // 找到最接近典型时间点的索引
+  const typicalIndices = typicalDays.map(d => {
+    let closest = 0
+    let minDiff = Math.abs(times[0] - d)
+    for (let i = 1; i < times.length; i++) {
+      const diff = Math.abs(times[i] - d)
+      if (diff < minDiff) {
+        minDiff = diff
+        closest = i
+      }
+    }
+    return closest
+  })
+
+  // 处理数据：只保留典型时间点
+  const series = typicalIndices.map((ti, si) => {
+    const t = times[ti]
     const lineData = nodes.map((n, ni) => [n, temperatures[ti]?.[ni] ?? null])
     return {
       name: `${t.toFixed(1)}d`,

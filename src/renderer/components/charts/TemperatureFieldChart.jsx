@@ -26,7 +26,7 @@ const TemperatureFieldChart = ({ temperatureFieldData }) => {
     )
   }
 
-  const { temperatureField, centerHistory, surfaceHistory, tempDiffHistory } = temperatureFieldData
+  const { temperatureField, centerHistory, surfaceHistory, tempDiffHistory, surfaceAirDiffHistory } = temperatureFieldData
 
   return (
     <Row gutter={16}>
@@ -48,6 +48,10 @@ const TemperatureFieldChart = ({ temperatureFieldData }) => {
             day: t,
             tempDiff: tempDiffHistory.tempDiff[i]
           }))}
+          surfaceAirDiffData={surfaceAirDiffHistory ? surfaceAirDiffHistory.time.map((t, i) => ({
+            day: t,
+            tempDiff: surfaceAirDiffHistory.tempDiff[i]
+          })) : []}
         />
       </Col>
     </Row>
