@@ -325,19 +325,31 @@ class InverseCalculationService {
       return { optimalSlagFactor: (a + b) / 2, rss: Math.min(rssC, rssD) }
     }
 
-    // 交替精修：先精修 flyAshFactor，再精修 slagFactor
-    const refinedFlyAsh = refineFlyAsh(bestSlagFactor)
-    bestFlyAshFactor = refinedFlyAsh.optimalFlyAshFactor
-    bestRss = refinedFlyAsh.rss
+    // 交替精修：直到 RSS 收敛
+    const refineTol = 1e-8
+    let refineCount = 0
+    const maxRefineIterations = 10
 
-    const refinedSlag = refineSlag(bestFlyAshFactor)
-    bestSlagFactor = refinedSlag.optimalSlagFactor
-    bestRss = refinedSlag.rss
+    while (refineCount < maxRefineIterations) {
+      const oldRss = bestRss
 
-    // 再精修一次 flyAshFactor
-    const refinedFlyAsh2 = refineFlyAsh(bestSlagFactor)
-    bestFlyAshFactor = refinedFlyAsh2.optimalFlyAshFactor
-    bestRss = refinedFlyAsh2.rss
+      // 精修 flyAshFactor
+      const refinedFlyAsh = refineFlyAsh(bestSlagFactor)
+      bestFlyAshFactor = refinedFlyAsh.optimalFlyAshFactor
+      bestRss = refinedFlyAsh.rss
+
+      // 精修 slagFactor
+      const refinedSlag = refineSlag(bestFlyAshFactor)
+      bestSlagFactor = refinedSlag.optimalSlagFactor
+      bestRss = refinedSlag.rss
+
+      refineCount++
+
+      // 检查 RSS 变化是否足够小
+      if (Math.abs(bestRss - oldRss) < refineTol) {
+        break
+      }
+    }
 
     return {
       flyAshFactor: bestFlyAshFactor,
@@ -369,6 +381,11 @@ class InverseCalculationService {
       alphaA = 0.53,
       alphaB = 0.20
     } = params
+
+    // 空样本数组检查
+    if (!samples || samples.length === 0) {
+      throw new Error('样本数组不能为空')
+    }
 
     // 默认约束条件
     const defaultConstraints = {
@@ -405,10 +422,15 @@ class InverseCalculationService {
     let outerIterations = 0
     const maxOuterIter = 50
     let prevFce = 0
+    let prevFlyAshFactor = 1.0
+    let prevSlagFactor = 1.0
     let convergence = false
+    const convergenceTol = 1e-6
 
     while (outerIterations < maxOuterIter) {
       prevFce = currentFce
+      prevFlyAshFactor = currentFlyAshFactor
+      prevSlagFactor = currentSlagFactor
 
       // 3. 内层循环：固定 fce，求最优 γ
       const gammaResult = this.searchOptimalGamma(
@@ -434,8 +456,12 @@ class InverseCalculationService {
 
       outerIterations++
 
-      // 检查收敛
-      if (Math.abs(currentFce - prevFce) < 1e-6) {
+      // 检查收敛：同时判断 fce 和 γ 的变化量
+      const fceConverged = Math.abs(currentFce - prevFce) < convergenceTol
+      const flyAshConverged = Math.abs(currentFlyAshFactor - prevFlyAshFactor) < convergenceTol
+      const slagConverged = Math.abs(currentSlagFactor - prevSlagFactor) < convergenceTol
+
+      if (fceConverged && flyAshConverged && slagConverged) {
         convergence = true
         break
       }
