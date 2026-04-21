@@ -15,7 +15,7 @@ export const MATERIAL_FIELDS_CONFIG = {
   '水泥': {
     required: ['name', 'type', 'specification', 'manufacturer'],
     optional: [
-      { name: 'density', label: '密度', unit: 'kg/m³', type: 'number', min: 0 },
+      { name: 'density', label: '密度', unit: 'g/cm³', type: 'number', min: 0 },
       { name: 'fineness', label: '细度', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'waterContent', label: '含水量', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'specification', label: '规格', type: 'text' },
@@ -38,7 +38,7 @@ export const MATERIAL_FIELDS_CONFIG = {
     optional: [
       { name: 'specification', label: '规格', type: 'text' },
       { name: 'manufacturer', label: '生产厂家', type: 'text' },
-      { name: 'density', label: '密度', unit: 'kg/m³', type: 'number', min: 0 },
+      { name: 'density', label: '密度', unit: 'g/cm³', type: 'number', min: 0 },
       { name: 'fineness', label: '细度', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'lossOnIgnition', label: '烧失量', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'waterDemandRatio', label: '需水量比', unit: '%', type: 'number', min: 0, max: 100 },
@@ -47,7 +47,12 @@ export const MATERIAL_FIELDS_CONFIG = {
       { name: 'influenceFactor_20', label: '20%掺量影响系数', type: 'number', min: 0 },
       { name: 'influenceFactor_30', label: '30%掺量影响系数', type: 'number', min: 0 },
       { name: 'influenceFactor_40', label: '40%掺量影响系数', type: 'number', min: 0 },
-      { name: 'influenceFactor_50', label: '50%掺量影响系数', type: 'number', min: 0 }
+      { name: 'influenceFactor_50', label: '50%掺量影响系数', type: 'number', min: 0 },
+      { name: 'cementitiousFactor_10', label: '10%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_20', label: '20%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_30', label: '30%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_40', label: '40%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_50', label: '50%掺量胶凝系数', type: 'number', disabled: true }
     ]
   },
 
@@ -56,7 +61,7 @@ export const MATERIAL_FIELDS_CONFIG = {
     optional: [
       { name: 'specification', label: '规格', type: 'text' },
       { name: 'manufacturer', label: '生产厂家', type: 'text' },
-      { name: 'density', label: '密度', unit: 'kg/m³', type: 'number', min: 0 },
+      { name: 'density', label: '密度', unit: 'g/cm³', type: 'number', min: 0 },
       { name: 'specificSurfaceArea', label: '比表面积', unit: 'm²/g', type: 'number', min: 0 },
       { name: 'lossOnIgnition', label: '烧失量', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'fluidityRatio', label: '流动度比', unit: '%', type: 'number', min: 0 },
@@ -66,7 +71,12 @@ export const MATERIAL_FIELDS_CONFIG = {
       { name: 'influenceFactor_20', label: '20%掺量影响系数', type: 'number', min: 0 },
       { name: 'influenceFactor_30', label: '30%掺量影响系数', type: 'number', min: 0 },
       { name: 'influenceFactor_40', label: '40%掺量影响系数', type: 'number', min: 0 },
-      { name: 'influenceFactor_50', label: '50%掺量影响系数', type: 'number', min: 0 }
+      { name: 'influenceFactor_50', label: '50%掺量影响系数', type: 'number', min: 0 },
+      { name: 'cementitiousFactor_10', label: '10%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_20', label: '20%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_30', label: '30%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_40', label: '40%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_50', label: '50%掺量胶凝系数', type: 'number', disabled: true }
     ]
   },
 
@@ -75,7 +85,7 @@ export const MATERIAL_FIELDS_CONFIG = {
     optional: [
       { name: 'specification', label: '规格', type: 'text' },
       { name: 'manufacturer', label: '生产厂家', type: 'text' },
-      { name: 'density', label: '密度', unit: 'kg/m³', type: 'number', min: 0 },
+      { name: 'density', label: '密度', unit: 'g/cm³', type: 'number', min: 0 },
       { name: 'mudContent', label: '含泥量', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'mbValue', label: 'MB值', type: 'number', min: 0 },
       { name: 'sieve_4_75', label: '4.75mm筛余', unit: '%', type: 'number', min: 0, max: 100 },
@@ -93,7 +103,7 @@ export const MATERIAL_FIELDS_CONFIG = {
     optional: [
       { name: 'specification', label: '规格', type: 'text' },
       { name: 'manufacturer', label: '生产厂家', type: 'text' },
-      { name: 'density', label: '密度', unit: 'kg/m³', type: 'number', min: 0 },
+      { name: 'density', label: '密度', unit: 'g/cm³', type: 'number', min: 0 },
       { name: 'mudContent', label: '含泥量', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'sieve_37_5', label: '37.5mm筛余', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'sieve_31_5', label: '31.5mm筛余', unit: '%', type: 'number', min: 0, max: 100 },
@@ -111,7 +121,7 @@ export const MATERIAL_FIELDS_CONFIG = {
       { name: 'specification', label: '规格', type: 'text' },
       { name: 'manufacturer', label: '生产厂家', type: 'text' },
       { name: 'recommendedDosage', label: '推荐掺量', unit: '%', type: 'number', min: 0 },
-      { name: 'density', label: '密度', unit: 'kg/m³', type: 'number', min: 0 },
+      { name: 'density', label: '密度', unit: 'g/cm³', type: 'number', min: 0 },
       { name: 'waterReducingRate', label: '减水率', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'solidContent', label: '固含量', unit: '%', type: 'number', min: 0, max: 100 }
     ]
@@ -122,7 +132,7 @@ export const MATERIAL_FIELDS_CONFIG = {
     optional: [
       { name: 'specification', label: '规格', type: 'text' },
       { name: 'manufacturer', label: '生产厂家', type: 'text' },
-      { name: 'density', label: '密度', unit: 'kg/m³', type: 'number', min: 0 }
+      { name: 'density', label: '密度', unit: 'g/cm³', type: 'number', min: 0 }
     ]
   }
 }

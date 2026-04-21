@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { Card, Form, Input, Select, Button, Table, Space, message, Modal, InputNumber, Divider } from 'antd'
+import { Card, Form, Input, Select, Button, Table, Space, message, Modal, InputNumber, Divider, Collapse } from 'antd'
 import { useSelector, useDispatch } from 'react-redux'
 import { setCalculationCache, clearCalculationCache } from '../../store/mixDesignSlice'
+
+const { Panel } = Collapse
 
 const { Option } = Select
 
@@ -25,6 +27,32 @@ const MixDesignPage = () => {
   const [saveForm] = Form.useForm()
   const [tempSettings, setTempSettings] = useState(null)
   const [cacheRestored, setCacheRestored] = useState(false)
+
+  // 保存表单值到 localStorage
+  const saveFormToStorage = (values) => {
+    try {
+      localStorage.setItem('mixDesignFormValues', JSON.stringify(values))
+    } catch (e) {
+      console.error('保存表单失败:', e)
+    }
+  }
+
+  // 从 localStorage 恢复表单值
+  const restoreFormFromStorage = () => {
+    try {
+      const saved = localStorage.getItem('mixDesignFormValues')
+      if (saved) {
+        const values = JSON.parse(saved)
+        form.setFieldsValue(values)
+        return true
+      }
+    } catch (e) {
+      console.error('恢复表单失败:', e)
+    }
+    return false
+  }
+
+  // 监听表单值变化，自动保存
 
   // 强度等级选项
   const strengthOptions = ['C15', 'C20', 'C25', 'C30', 'C35', 'C40', 'C45', 'C50', 'C55', 'C60']
@@ -199,11 +227,17 @@ const MixDesignPage = () => {
       setSeriesResults(calculationCache.seriesResults)
       setCacheRestored(true)
       console.log('[MixDesignPage] 从缓存恢复状态')
-    } else {
-      // 无缓存，加载材料
-      loadMaterials()
     }
+    // 加载材料并恢复表单值
+    loadMaterials().then(() => {
+      restoreFormFromStorage()
+    })
   }, [calculationCache, cacheRestored])
+
+  // 表单值变化时自动保存到 localStorage
+  const onFormValuesChange = (_, allValues) => {
+    saveFormToStorage(allValues)
+  }
 
   // 快速测试计算
   const quickTest = async () => {
@@ -639,7 +673,7 @@ const MixDesignPage = () => {
 
       <div className="mb-lg">
         <Card className="custom-card" title="设计目标参数">
-          <Form form={form} layout="vertical" initialValues={{ calculationMethod: 'absolute', targetDensity: 2400, airContent: 1.5, flyAshDosage: 20, slagDosage: 10, sandRatio: 35 }}>
+          <Form form={form} layout="vertical" onValuesChange={onFormValuesChange} initialValues={{ calculationMethod: 'absolute', targetDensity: 2400, airContent: 1.5, flyAshDosage: 20, slagDosage: 10, sandRatio: 35 }}>
             <div className="grid-2-col">
               <Form.Item name="strength" label="强度等级" rules={[{ required: true, message: '请选择强度等级' }]}>
                 <Select placeholder="请选择强度等级" style={{ width: '100%' }}>
@@ -691,7 +725,7 @@ const MixDesignPage = () => {
 
       <div className="mb-lg">
         <Card className="custom-card" title="原材料选择">
-          <Form form={form} layout="vertical">
+          <Form form={form} layout="vertical" onValuesChange={onFormValuesChange}>
             <div className="grid-2-col">
               <Form.Item name="cement" label="水泥" rules={[{ required: true, message: '请选择水泥' }]}>
                 <Select placeholder="请选择水泥" style={{ width: '100%' }}>
@@ -798,6 +832,29 @@ const MixDesignPage = () => {
                   <p>减水率: <strong>{String(displayResult.waterReducingRate || 0)}%</strong></p>
                 </div>
               </div>
+
+              {/* 计算步骤详情 */}
+              {displayResult.calculationSteps && displayResult.calculationSteps.length > 0 && (
+                <Collapse style={{ marginTop: 16 }} ghost>
+                  <Panel header={<span style={{ fontWeight: 600 }}>📝 查看详细计算步骤</span>} key="calc-steps">
+                    {displayResult.calculationSteps.map((step, idx) => (
+                      <div key={idx} style={{ marginBottom: 16, padding: '12px', background: '#f5f5f5', borderRadius: 6 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 8, color: '#1890ff' }}>
+                          步骤{step.step}：{step.title}
+                        </div>
+                        {step.details && step.details.map((detail, dIdx) => (
+                          <div key={dIdx} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 13 }}>
+                            <span style={{ color: '#666' }}>{detail.label}:</span>
+                            <span style={{ fontWeight: detail.highlight ? 600 : 400, color: detail.highlight ? '#1890ff' : '#333' }}>
+                              {detail.value}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </Panel>
+                </Collapse>
+              )}
             </Card>
           ) : (
             <Card className="custom-card" title="计算结果">

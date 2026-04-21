@@ -207,6 +207,22 @@ const MaterialsPage = () => {
                 )
               }
 
+              // 处理影响系数字段，自动计算胶凝系数
+              const influenceMatch = name.match(/^influenceFactor_(\d+)$/)
+              const onChange = influenceMatch
+                ? (value) => {
+                    const dosage = parseInt(influenceMatch[1]) / 100
+                    const factor = parseFloat(value) || 0
+                    const cementitiousKey = `cementitiousFactor_${influenceMatch[1]}`
+                    // 胶凝系数 = (影响系数 - (1 - 掺量)) / (影响系数 × 掺量)
+                    let cementitiousFactor = null
+                    if (factor > 0 && dosage > 0) {
+                      cementitiousFactor = (factor - (1 - dosage)) / (factor * dosage)
+                    }
+                    form.setFieldValue(cementitiousKey, cementitiousFactor !== null ? Math.round(cementitiousFactor * 10000) / 10000 : null)
+                  }
+                : undefined
+
               return (
                 <Form.Item key={name} name={name} label={`${label}${unit ? ` (${unit})` : ''}`}>
                   <InputNumber
@@ -216,6 +232,7 @@ const MaterialsPage = () => {
                     precision={2}
                     placeholder={`输入${label}`}
                     style={{ width: '100%' }}
+                    onChange={onChange}
                   />
                 </Form.Item>
               )

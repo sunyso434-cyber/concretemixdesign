@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react'
 import { Card, Table, Button, Space, Input, InputNumber, Upload, message, Divider, Tag } from 'antd'
-import { UploadOutlined, DeleteOutlined, CalculateOutlined, ExportOutlined } from '@ant-design/icons'
+import { UploadOutlined, DeleteOutlined, ExperimentOutlined, ExportOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 
 // 必要的列名
@@ -373,7 +373,7 @@ const InverseCalculationPage = () => {
               <div style={{ textAlign: 'center', marginTop: 16 }}>
                 <Button
                   type="primary"
-                  icon={<CalculateOutlined />}
+                  icon={<ExperimentOutlined />}
                   onClick={handleCalculate}
                   loading={loading}
                   disabled={dataSource.length === 0}

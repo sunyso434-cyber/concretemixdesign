@@ -210,6 +210,12 @@ class SystemHandler {
       const { app } = require('electron')
       return { success: true, data: app.getVersion() }
     })
+
+    // 获取数据库就绪状态
+    ipcMain.handle('get-database-ready', async () => {
+      const getDatabaseReadyStatus = require('../../../main')
+      return { success: true, data: getDatabaseReadyStatus() }
+    })
   }
 }
 
