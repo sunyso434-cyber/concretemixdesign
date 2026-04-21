@@ -78,5 +78,9 @@ contextBridge.exposeInMainWorld('electron', {
         listenerCache.clear()
       }
     }
+  },
+  inverseCalculation: {
+    importExcel: (filePath) => ipcRenderer.invoke('inverseCalculation.importExcel', { filePath }),
+    calculate: (params) => ipcRenderer.invoke('inverseCalculation.calculate', params)
   }
 })

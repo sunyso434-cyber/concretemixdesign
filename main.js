@@ -43,8 +43,15 @@ require('./src/main/ipcHandlers/materialHandler')
 require('./src/main/ipcHandlers/mixDesignHandler')
 require('./src/main/ipcHandlers/mixDesignOptimizerHandler') // 新增：优化器 IPC 处理器
 require('./src/main/ipcHandlers/massConcreteHandler') // 大体积混凝土模块 IPC 处理器
+require('./src/main/ipcHandlers/inverseCalculationHandler') // 原材料参数反算 IPC 处理器
 const SystemHandler = require('./src/main/ipcHandlers/systemHandler')
 // const { autoUpdater } = require('electron-updater')
+
+// 数据库就绪状态
+let isDatabaseReady = false
+module.exports.getDatabaseReadyStatus = function() {
+  return isDatabaseReady
+}
 
 // 初始化数据库（在后台执行，不阻塞UI）
 async function initializeDatabase() {
@@ -60,7 +67,16 @@ async function initializeDatabase() {
     // 初始化系统参数
     const SystemService = require('./src/main/services/SystemService')
     await SystemService.initDefaultParams()
+
+    // 标记数据库就绪
+    isDatabaseReady = true
     console.log('数据库初始化完成')
+
+    // 通知渲染进程数据库已就绪
+    const windows = BrowserWindow.getAllWindows()
+    if (windows.length > 0) {
+      windows[0].webContents.send('database-ready')
+    }
   } catch (err) {
     console.error('数据库初始化失败:', err)
   }
@@ -200,7 +216,7 @@ app.whenReady().then(async () => {
     protocol.interceptFileProtocol('file', (request, callback) => {
       const urlPath = request.url.substr(7) // 去掉 'file://'
       const decodedUrl = decodeURI(urlPath)
-      
+
       // 如果请求以 /assets 开头，从 build/renderer 目录获取
       if (decodedUrl.includes('assets/')) {
         // 从 /assets/... 中提取 assets/... 部分
@@ -219,14 +235,17 @@ app.whenReady().then(async () => {
       }
     })
   }
-  
-  // 先初始化数据库，确保表结构创建完成
-  console.log('开始初始化数据库...')
-  await initializeDatabase()
-  console.log('数据库初始化完成')
-  
-  // 然后创建窗口
+
+  // 先创建窗口，不等待数据库初始化
+  console.log('开始创建窗口...')
   await createWindow()
+  console.log('窗口创建完成')
+
+  // 数据库初始化放在后台进行，不阻塞UI
+  console.log('数据库初始化开始（后台）...')
+  initializeDatabase().then(() => {
+    console.log('数据库初始化完成（后台）')
+  })
 
   app.on('activate', async function () {
     if (BrowserWindow.getAllWindows().length === 0) await createWindow()
