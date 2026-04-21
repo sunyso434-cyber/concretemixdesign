@@ -1,7 +1,11 @@
-import React, { useState } from 'react'
+import React, { useState, useCallback } from 'react'
 import { Card, Table, Button, Space, Input, InputNumber, Upload, message, Divider, Tag } from 'antd'
 import { UploadOutlined, DeleteOutlined, CalculateOutlined, ExportOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
+
+// 必要的列名
+const REQUIRED_COLUMNS = ['名称', '水泥kg', '粉煤灰%', '矿渣粉%', '砂率%', '用水量', '强度MPa']
+const REQUIRED_COLUMNS_ALT = ['name', 'cement', 'flyAshPercent', 'slagPercent', 'sandRatio', 'waterAmount', 'strength']
 
 const InverseCalculationPage = () => {
   const [dataSource, setDataSource] = useState([])
@@ -29,6 +33,28 @@ const InverseCalculationPage = () => {
         const worksheet = workbook.Sheets[sheetName]
         const jsonData = XLSX.utils.sheet_to_json(worksheet)
 
+        if (jsonData.length === 0) {
+          message.error('Excel文件为空或格式不正确')
+          return false
+        }
+
+        // 检查必要的列是否存在
+        const firstRow = jsonData[0]
+        const firstRowKeys = Object.keys(firstRow)
+        const missingColumns = REQUIRED_COLUMNS.filter(col => !firstRowKeys.includes(col))
+          .filter(col => !firstRowKeys.includes(col.replace('名称', 'name')
+            .replace('水泥kg', 'cement')
+            .replace('粉煤灰%', 'flyAshPercent')
+            .replace('矿渣粉%', 'slagPercent')
+            .replace('砂率%', 'sandRatio')
+            .replace('用水量', 'waterAmount')
+            .replace('强度MPa', 'strength')))
+
+        if (missingColumns.length > 0) {
+          message.error(`缺少必要的列: ${missingColumns.join(', ')}`)
+          return false
+        }
+
         // 转换为标准字段格式
         const formatted = jsonData.map((row, index) => ({
           key: index.toString(),
@@ -54,13 +80,19 @@ const InverseCalculationPage = () => {
     return false // 阻止默认上传行为
   }
 
-  // 删除单条数据
-  const handleDelete = (index) => {
-    const newData = [...dataSource]
-    newData.splice(index, 1)
-    // 重新生成key
-    setDataSource(newData.map((item, idx) => ({ ...item, key: idx.toString() })))
-  }
+  // 删除单条数据（使用filter保持不可变性）
+  const handleDelete = useCallback((index) => {
+    setDataSource(prevData => prevData
+      .filter((_, idx) => idx !== index)
+      .map((item, idx) => ({ ...item, key: idx.toString() })))
+  }, [])
+
+  // 更新字段值（提取为独立方法）
+  const updateField = useCallback((index, field, value) => {
+    setDataSource(prevData => prevData.map((item, idx) =>
+      idx === index ? { ...item, [field]: value } : item
+    ))
+  }, [])
 
   // 清空所有数据
   const handleClear = () => {
@@ -79,6 +111,35 @@ const InverseCalculationPage = () => {
     if (dataSource.length < 3) {
       message.warning('样本数量不足，请至少提供3组数据进行回归计算')
       return
+    }
+
+    // 数据校验：检查负数和超出合理范围的值
+    for (let i = 0; i < dataSource.length; i++) {
+      const row = dataSource[i]
+      if (row.cement < 0 || row.cement > 2000) {
+        message.warning(`第${i + 1}行：水泥用量 ${row.cement} 不在合理范围 (0-2000kg) 内`)
+        return
+      }
+      if (row.flyAshPercent < 0 || row.flyAshPercent > 100) {
+        message.warning(`第${i + 1}行：粉煤灰比例 ${row.flyAshPercent}% 不在合理范围 (0-100%) 内`)
+        return
+      }
+      if (row.slagPercent < 0 || row.slagPercent > 100) {
+        message.warning(`第${i + 1}行：矿渣粉比例 ${row.slagPercent}% 不在合理范围 (0-100%) 内`)
+        return
+      }
+      if (row.sandRatio < 0 || row.sandRatio > 100) {
+        message.warning(`第${i + 1}行：砂率 ${row.sandRatio}% 不在合理范围 (0-100%) 内`)
+        return
+      }
+      if (row.waterAmount < 0 || row.waterAmount > 500) {
+        message.warning(`第${i + 1}行：用水量 ${row.waterAmount} 不在合理范围 (0-500kg) 内`)
+        return
+      }
+      if (row.strength < 0 || row.strength > 100) {
+        message.warning(`第${i + 1}行：强度 ${row.strength} MPa 不在合理范围 (0-100 MPa) 内`)
+        return
+      }
     }
 
     setLoading(true)
@@ -120,11 +181,7 @@ const InverseCalculationPage = () => {
       render: (text, record, index) => (
         <Input
           value={text}
-          onChange={(e) => {
-            const newData = [...dataSource]
-            newData[index] = { ...newData[index], name: e.target.value }
-            setDataSource(newData)
-          }}
+          onChange={(e) => updateField(index, 'name', e.target.value)}
           placeholder="样本名称"
         />
       )
@@ -138,11 +195,7 @@ const InverseCalculationPage = () => {
       render: (text, record, index) => (
         <InputNumber
           value={text}
-          onChange={(value) => {
-            const newData = [...dataSource]
-            newData[index] = { ...newData[index], cement: value || 0 }
-            setDataSource(newData)
-          }}
+          onChange={(value) => updateField(index, 'cement', value || 0)}
           min={0}
           precision={1}
           style={{ width: '100%' }}
@@ -158,11 +211,7 @@ const InverseCalculationPage = () => {
       render: (text, record, index) => (
         <InputNumber
           value={text}
-          onChange={(value) => {
-            const newData = [...dataSource]
-            newData[index] = { ...newData[index], flyAshPercent: value || 0 }
-            setDataSource(newData)
-          }}
+          onChange={(value) => updateField(index, 'flyAshPercent', value || 0)}
           min={0}
           max={100}
           precision={1}
@@ -179,11 +228,7 @@ const InverseCalculationPage = () => {
       render: (text, record, index) => (
         <InputNumber
           value={text}
-          onChange={(value) => {
-            const newData = [...dataSource]
-            newData[index] = { ...newData[index], slagPercent: value || 0 }
-            setDataSource(newData)
-          }}
+          onChange={(value) => updateField(index, 'slagPercent', value || 0)}
           min={0}
           max={100}
           precision={1}
@@ -200,11 +245,7 @@ const InverseCalculationPage = () => {
       render: (text, record, index) => (
         <InputNumber
           value={text}
-          onChange={(value) => {
-            const newData = [...dataSource]
-            newData[index] = { ...newData[index], sandRatio: value || 0 }
-            setDataSource(newData)
-          }}
+          onChange={(value) => updateField(index, 'sandRatio', value || 0)}
           min={0}
           max={100}
           precision={1}
@@ -221,11 +262,7 @@ const InverseCalculationPage = () => {
       render: (text, record, index) => (
         <InputNumber
           value={text}
-          onChange={(value) => {
-            const newData = [...dataSource]
-            newData[index] = { ...newData[index], waterAmount: value || 0 }
-            setDataSource(newData)
-          }}
+          onChange={(value) => updateField(index, 'waterAmount', value || 0)}
           min={0}
           precision={1}
           style={{ width: '100%' }}
@@ -241,11 +278,7 @@ const InverseCalculationPage = () => {
       render: (text, record, index) => (
         <InputNumber
           value={text}
-          onChange={(value) => {
-            const newData = [...dataSource]
-            newData[index] = { ...newData[index], strength: value || 0 }
-            setDataSource(newData)
-          }}
+          onChange={(value) => updateField(index, 'strength', value || 0)}
           min={0}
           precision={1}
           style={{ width: '100%' }}
