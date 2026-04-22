@@ -1,10 +1,11 @@
-import React, { useState, Suspense, lazy, useEffect } from 'react'
-import { HashRouter as Router, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom'
-import { ConfigProvider, Menu, Layout, Spin, Typography, Space, Divider } from 'antd'
+import React, { Suspense, lazy } from 'react'
+import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { ConfigProvider, Layout, Spin } from 'antd'
 import zhCN from 'antd/lib/locale/zh_CN'
 import 'antd/dist/reset.css'
 import './index.css'
 import BackgroundTaskBar from './components/BackgroundTaskBar'
+import NavRail from './components/NavRail'
 
 // 页面组件 - 使用 lazy 加载
 const MaterialsPage = lazy(() => import('./pages/MaterialsPage').catch(err => {
@@ -36,8 +37,7 @@ const MassConcretePage = lazy(() => import('./pages/MassConcretePage').catch(err
   return { default: () => <div className="custom-empty"><div className="empty-icon">🧊</div><div className="empty-title">加载失败</div><div className="empty-description">MassConcretePage 加载失败：{err.message}</div></div> }
 }))
 
-const { Header, Content, Sider } = Layout
-const { Title } = Typography
+const { Header, Content } = Layout
 
 // 加载中的占位符
 const LoadingFallback = () => (
@@ -84,123 +84,26 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// 导航组件
-const Navigation = ({ activeKey, setActiveKey }) => {
-  const location = useLocation()
-
-  useEffect(() => {
-    // 根据当前路径更新活动菜单项
-    const path = location.pathname.replace('/', '')
-    if (path) {
-      setActiveKey(path)
-    }
-  }, [location.pathname, setActiveKey])
-
-  const handleMenuClick = (e) => {
-    console.log('菜单点击:', e.key)
-    setActiveKey(e.key)
-  }
-
-  return (
-    <Menu
-      mode="horizontal"
-      selectedKeys={[activeKey]}
-      style={{
-        flex: 1,
-        minWidth: 0,
-        background: 'transparent',
-        borderBottom: 'none'
-      }}
-      onClick={handleMenuClick}
-      items={[
-        {
-          key: 'materials',
-          label: <Link to="/materials">原材料管理</Link>,
-          icon: <span className="nav-icon" aria-label="原材料">📦</span>
-        },
-        {
-          key: 'mixdesign',
-          label: <Link to="/mixdesign">配合比设计</Link>,
-          icon: <span className="nav-icon" aria-label="配合比设计">📝</span>
-        },
-        {
-          key: 'optimization',
-          label: <Link to="/optimization">成本优化</Link>,
-          icon: <span className="nav-icon" aria-label="成本优化">🎯</span>
-        },
-        {
-          key: 'inverse-calculation',
-          label: <Link to="/inverse-calculation">参数反算</Link>,
-          icon: <span className="nav-icon" aria-label="参数反算">🔢</span>
-        },
-        {
-          key: 'mass-concrete',
-          label: <Link to="/mass-concrete">大体积混凝土</Link>,
-          icon: <span className="nav-icon" aria-label="大体积混凝土">🧊</span>
-        },
-        {
-          key: 'schemes',
-          label: <Link to="/schemes">方案管理</Link>,
-          icon: <span className="nav-icon" aria-label="方案管理">📋</span>
-        },
-        {
-          key: 'settings',
-          label: <Link to="/settings">系统管理</Link>,
-          icon: <span className="nav-icon" aria-label="系统设置">⚙️</span>
-        }
-      ]}
-    />
-  )
-}
-
 function App() {
-  const [activeKey, setActiveKey] = useState('materials')
-
   return (
     <ConfigProvider
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: '#1E56A0',
-          colorSuccess: '#009966',
-          colorWarning: '#ff9900',
-          colorError: '#cc0033',
-          colorInfo: '#666666',
+          colorPrimary: '#334155',
+          colorSuccess: '#10B981',
+          colorWarning: '#F59E0B',
+          colorError: '#EF4444',
           fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-          borderRadius: 4,
-          transitionDuration: '0.33s',
+          borderRadius: 6,
         },
         components: {
-          Menu: {
-            itemBorderRadius: 4,
-            itemHoverBg: '#F4F4F4',
-            itemSelectedBg: '#F4F4F4',
-            itemSelectedColor: '#1E56A0',
-            horizontalItemHoverColor: '#171A20',
-            horizontalItemSelectedColor: '#3E6AE1',
-            itemColor: '#171A20',
-          },
-          Button: {
-            borderRadius: 4,
-            controlHeight: 40,
-          },
-          Card: {
-            borderRadius: 12,
-          },
-          Input: {
-            borderRadius: 4,
-            controlHeight: 40,
-          },
-          Select: {
-            borderRadius: 4,
-            controlHeight: 40,
-          },
-          Table: {
-            borderRadius: 12,
-          },
-          Modal: {
-            borderRadius: 12,
-          },
+          Button: { borderRadius: 6, controlHeight: 40 },
+          Card: { borderRadius: 8 },
+          Input: { borderRadius: 6, controlHeight: 40 },
+          Select: { borderRadius: 6, controlHeight: 40 },
+          Table: { borderRadius: 8 },
+          Modal: { borderRadius: 8 },
         },
       }}
     >
@@ -208,38 +111,43 @@ function App() {
         <Layout style={{ minHeight: '100vh' }}>
           <Header style={{
             background: '#FFFFFF',
-            borderBottom: '1px solid #EEEEEE',
-            padding: '0 32px',
-            position: 'sticky',
+            borderBottom: '1px solid #E2E8F0',
+            padding: '0 24px',
+            height: 64,
+            lineHeight: '64px',
+            position: 'fixed',
             top: 0,
-            zIndex: 100
+            left: 0,
+            right: 0,
+            zIndex: 100,
           }}>
-            <a href="#main-content" className="skip-to-content">跳转到主要内容</a>
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              height: '64px'
+              height: '100%'
             }}>
               <div style={{
-                fontSize: '17px',
-                fontWeight: '500',
-                color: '#171A20',
-                marginRight: '48px',
+                fontSize: 17,
+                fontWeight: 500,
+                color: '#334155',
                 display: 'flex',
                 alignItems: 'center',
-                letterSpacing: 'normal'
               }}>
-                <span style={{ marginRight: '8px' }}>🏗️</span>
+                <span style={{ marginRight: 8, fontSize: 24 }}>🏗️</span>
                 混凝土配合比设计系统
               </div>
-              <Navigation activeKey={activeKey} setActiveKey={setActiveKey} />
             </div>
           </Header>
+
+          <NavRail />
+
           <Content style={{
             padding: '32px',
-            background: '#FFFFFF',
-            minHeight: 'calc(100vh - 64px)'
-          }} id="main-content">
+            background: '#F8FAFC',
+            minHeight: 'calc(100vh - 64px)',
+            marginLeft: 48,
+            transition: 'margin-left 200ms ease',
+          }}>
             <div style={{
               maxWidth: '1383px',
               margin: '0 auto',
