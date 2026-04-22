@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useCallback } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import './NavRail.css'
 
@@ -16,13 +16,18 @@ function NavRail() {
   const [isExpanded, setIsExpanded] = useState(false)
   const location = useLocation()
 
-  const isActive = (path) => location.pathname === path
+  const handleMouseEnter = useCallback(() => setIsExpanded(true), [])
+  const handleMouseLeave = useCallback(() => setIsExpanded(false), [])
+
+  const isActive = useCallback((path) => location.pathname === path, [location.pathname])
 
   return (
     <nav
       className={`nav-rail ${isExpanded ? 'expanded' : ''}`}
-      onMouseEnter={() => setIsExpanded(true)}
-      onMouseLeave={() => setIsExpanded(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      role="navigation"
+      aria-label="主导航"
     >
       <div className="nav-rail-inner">
         {navItems.map((item) => (
@@ -30,6 +35,8 @@ function NavRail() {
             key={item.key}
             to={item.path}
             className={`nav-rail-item ${isActive(item.path) ? 'active' : ''}`}
+            aria-current={isActive(item.path) ? 'page' : undefined}
+            tabIndex={0}
           >
             <span className="nav-rail-icon">{item.icon}</span>
             <span className="nav-rail-label">{item.label}</span>
