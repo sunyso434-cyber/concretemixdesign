@@ -939,6 +939,7 @@ if (!window.electron) {
       send: () => {},
       on: () => {},
       once: () => {},
+      removeListener: () => {},
       removeAllListeners: () => {}
     }
   }
