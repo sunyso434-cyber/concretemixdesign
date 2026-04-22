@@ -56,9 +56,9 @@ const BackgroundTaskBar = () => {
       }
     }
 
-    const listenerId = window.electron.ipcRenderer.on('background-task-progress', handler)
+    window.electron.ipcRenderer.on('background-task-progress', handler)
     return () => {
-      window.electron.ipcRenderer.removeListener(listenerId)
+      window.electron.ipcRenderer.removeListener('background-task-progress', handler)
     }
   }, [])
 
