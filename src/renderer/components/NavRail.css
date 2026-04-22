@@ -1,0 +1,77 @@
+.nav-rail {
+  position: fixed;
+  left: 0;
+  top: 64px;
+  bottom: 0;
+  width: 48px;
+  background: #FFFFFF;
+  border-right: 1px solid #E2E8F0;
+  z-index: 99;
+  transition: width 200ms ease;
+  overflow: hidden;
+}
+
+.nav-rail.expanded {
+  width: 220px;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.08);
+}
+
+.nav-rail-inner {
+  display: flex;
+  flex-direction: column;
+  padding: 16px 0;
+}
+
+.nav-rail-item {
+  display: flex;
+  align-items: center;
+  height: 56px;
+  padding: 0 14px;
+  color: #64748B;
+  text-decoration: none;
+  transition: all 150ms ease;
+  position: relative;
+  white-space: nowrap;
+}
+
+.nav-rail-item:hover {
+  background: #F1F5F9;
+  color: #334155;
+}
+
+.nav-rail-item.active {
+  background: #F1F5F9;
+  color: #334155;
+}
+
+.nav-rail-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #334155;
+}
+
+.nav-rail-icon {
+  font-size: 20px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nav-rail-label {
+  font-size: 14px;
+  font-weight: 500;
+  margin-left: 12px;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.nav-rail.expanded .nav-rail-label {
+  opacity: 1;
+}
