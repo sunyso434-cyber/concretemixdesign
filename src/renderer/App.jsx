@@ -39,6 +39,48 @@ const MassConcretePage = lazy(() => import('./pages/MassConcretePage').catch(err
 
 const { Header, Content } = Layout
 
+// 静态样式对象 - 避免每次渲染时重新创建
+const headerStyle = {
+  background: '#FFFFFF',
+  borderBottom: '1px solid #E2E8F0',
+  padding: '0 24px',
+  height: 64,
+  lineHeight: '64px',
+  position: 'fixed',
+  top: 0,
+  left: 0,
+  right: 0,
+  zIndex: 100,
+}
+
+const headerInnerStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  height: '100%',
+}
+
+const headerTitleStyle = {
+  fontSize: 17,
+  fontWeight: 500,
+  color: '#334155',
+  display: 'flex',
+  alignItems: 'center',
+}
+
+const contentStyle = {
+  padding: '32px',
+  background: '#F8FAFC',
+  minHeight: 'calc(100vh - 64px)',
+  marginLeft: 48,
+  transition: 'margin-left 200ms ease',
+}
+
+const contentWrapperStyle = {
+  maxWidth: 1383,
+  margin: '0 auto',
+  minHeight: '100%',
+}
+
 // 加载中的占位符
 const LoadingFallback = () => (
   <div className="custom-loading">
@@ -109,30 +151,9 @@ function App() {
     >
       <Router>
         <Layout style={{ minHeight: '100vh' }}>
-          <Header style={{
-            background: '#FFFFFF',
-            borderBottom: '1px solid #E2E8F0',
-            padding: '0 24px',
-            height: 64,
-            lineHeight: '64px',
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            zIndex: 100,
-          }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              height: '100%'
-            }}>
-              <div style={{
-                fontSize: 17,
-                fontWeight: 500,
-                color: '#334155',
-                display: 'flex',
-                alignItems: 'center',
-              }}>
+          <Header style={headerStyle}>
+            <div style={headerInnerStyle}>
+              <div style={headerTitleStyle}>
                 <span style={{ marginRight: 8, fontSize: 24 }}>🏗️</span>
                 混凝土配合比设计系统
               </div>
@@ -141,18 +162,8 @@ function App() {
 
           <NavRail />
 
-          <Content style={{
-            padding: '32px',
-            background: '#F8FAFC',
-            minHeight: 'calc(100vh - 64px)',
-            marginLeft: 48,
-            transition: 'margin-left 200ms ease',
-          }}>
-            <div style={{
-              maxWidth: '1383px',
-              margin: '0 auto',
-              minHeight: '100%'
-            }}>
+          <Content style={contentStyle}>
+            <div style={contentWrapperStyle}>
               <ErrorBoundary>
                 <Suspense fallback={<LoadingFallback />}>
                   <Routes>
