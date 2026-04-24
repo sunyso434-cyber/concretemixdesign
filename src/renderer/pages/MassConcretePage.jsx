@@ -69,12 +69,12 @@ const MassConcretePage = () => {
     {
       key: 'stress',
       label: '应力计算',
-      children: <StressTab onCalculate={handleStressCalculate} />
+      children: <StressTab onCalculate={handleStressCalculate} onNavigate={handleTabChange} />
     },
     {
       key: 'insulation',
       label: '保温计算',
-      children: <InsulationTab onCalculate={handleInsulationCalculate} />
+      children: <InsulationTab onCalculate={handleInsulationCalculate} onNavigate={handleTabChange} />
     }
   ]
 

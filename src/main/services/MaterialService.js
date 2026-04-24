@@ -80,6 +80,14 @@ class MaterialService {
   // 初始化预设材料
   async initDefaultMaterials() {
     try {
+      // 检查是否已完成初始化（避免每次启动都重复添加）
+      const SystemParam = require('../db/models/SystemParam')
+      const initialized = await SystemParam.findOne({ where: { paramName: 'materialsInitialized' } })
+      if (initialized) {
+        console.log('预设材料已初始化，跳过')
+        return
+      }
+
       console.log('开始初始化预设材料...')
 
       const defaultMaterials = [
@@ -100,7 +108,8 @@ class MaterialService {
           flexuralStrength28d: 8.5,
           compressiveStrength3d: 28.0,
           compressiveStrength28d: 48.0,
-          status: '正常'
+          status: '正常',
+          isSystem: true
         },
         {
           name: 'P·II 52.5R水泥',
@@ -118,7 +127,8 @@ class MaterialService {
           flexuralStrength28d: 9.0,
           compressiveStrength3d: 32.0,
           compressiveStrength28d: 55.0,
-          status: '正常'
+          status: '正常',
+          isSystem: true
         },
         // 粉煤灰 - 2条
         {
@@ -132,7 +142,8 @@ class MaterialService {
           waterDemandRatio: 92,
           lossOnIgnition: 2.5,
           activityIndex28d: 88,
-          status: '正常'
+          status: '正常',
+          isSystem: true
         },
         {
           name: 'II级粉煤灰',
@@ -145,7 +156,8 @@ class MaterialService {
           waterDemandRatio: 98,
           lossOnIgnition: 4.5,
           activityIndex28d: 78,
-          status: '正常'
+          status: '正常',
+          isSystem: true
         },
         // 矿渣粉 - 2条
         {
@@ -160,7 +172,8 @@ class MaterialService {
           lossOnIgnition: 0.8,
           activityIndex7d: 75,
           activityIndex28d: 98,
-          status: '正常'
+          status: '正常',
+          isSystem: true
         },
         {
           name: 'S105矿渣粉',
@@ -174,7 +187,8 @@ class MaterialService {
           lossOnIgnition: 0.5,
           activityIndex7d: 82,
           activityIndex28d: 105,
-          status: '正常'
+          status: '正常',
+          isSystem: true
         },
         // 细骨料 - 2条
         {
@@ -195,7 +209,8 @@ class MaterialService {
           sieve_0_15: 97,
           mbValue: 0.6,
           finenessModulus: 2.8,
-          status: '正常'
+          status: '正常',
+          isSystem: true
         },
         {
           name: '河砂',
@@ -215,7 +230,8 @@ class MaterialService {
           sieve_0_15: 88,
           mbValue: 0.4,
           finenessModulus: 2.3,
-          status: '正常'
+          status: '正常',
+          isSystem: true
         },
         // 粗骨料 - 2条
         {
@@ -238,7 +254,8 @@ class MaterialService {
           sieve_9_50: 78,
           sieve_4_75: 98,
           grading: '5-25mm',
-          status: '正常'
+          status: '正常',
+          isSystem: true
         },
         {
           name: '卵石',
@@ -260,7 +277,8 @@ class MaterialService {
           sieve_9_50: 85,
           sieve_4_75: 100,
           grading: '5-20mm',
-          status: '正常'
+          status: '正常',
+          isSystem: true
         },
         // 外加剂 - 2条
         {
@@ -274,7 +292,8 @@ class MaterialService {
           waterReducingRate: 25.0,
           airContent: 3.5,
           recommendedDosage: 1.5,
-          status: '正常'
+          status: '正常',
+          isSystem: true
         },
         {
           name: '聚羧酸减水剂（缓凝型）',
@@ -287,7 +306,8 @@ class MaterialService {
           waterReducingRate: 28.0,
           airContent: 2.8,
           recommendedDosage: 1.8,
-          status: '正常'
+          status: '正常',
+          isSystem: true
         }
       ]
 
@@ -312,6 +332,12 @@ class MaterialService {
       const allMaterials = await Material.findAll()
       console.log('数据库中材料总数:', allMaterials.length)
       console.log('材料列表:', allMaterials.map(m => ({ id: m.id, name: m.name, type: m.type })))
+
+      // 标记初始化完成（避免每次启动重复添加）
+      await SystemParam.findOrCreate({
+        where: { paramName: 'materialsInitialized' },
+        defaults: { paramName: 'materialsInitialized', paramValue: 'true', description: '原材料预设数据初始化标记' }
+      })
 
       console.log('预设材料初始化完成')
     } catch (error) {

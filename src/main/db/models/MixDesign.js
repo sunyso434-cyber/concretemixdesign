@@ -27,7 +27,7 @@ const MixDesign = sequelize.define('MixDesign', {
   },
   environment: {
     type: DataTypes.STRING,
-    allowNull: false
+    allowNull: true
   },
   waterRatio: {
     type: DataTypes.FLOAT

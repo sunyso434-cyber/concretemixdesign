@@ -21,6 +21,17 @@ class MassConcreteHandler {
       }
     })
 
+    // 获取按类别分组的保温材料
+    ipcMain.handle('mc_getInsulationMaterialsGrouped', async () => {
+      try {
+        const materials = await InsulationMaterialService.getAllMaterialsGrouped()
+        return { success: true, data: materials }
+      } catch (error) {
+        console.error('mc_getInsulationMaterialsGrouped failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
     // 获取默认保温材料
     ipcMain.handle('mc_getDefaultInsulationMaterials', async () => {
       try {
@@ -292,6 +303,20 @@ class MassConcreteHandler {
       }
     })
 
+    // ========== 裂缝风险评估 ==========
+
+    // 计算裂缝风险
+    ipcMain.handle('mc_calculateCrackRisk', async (_, params) => {
+      try {
+        const CrackRiskService = require('../services/CrackRiskService')
+        const result = CrackRiskService.calculate(params)
+        return { success: true, data: result }
+      } catch (error) {
+        console.error('mc_calculateCrackRisk failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
     // ========== 保温计算 ==========
 
     // 计算保温
@@ -302,6 +327,46 @@ class MassConcreteHandler {
         return { success: true, data: result }
       } catch (error) {
         console.error('mc_calculateInsulation failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    // 计算双向保温
+    ipcMain.handle('mc_calculateBidirectionalInsulation', async (_, params) => {
+      try {
+        const BidirectionalInsulationService = require('../services/BidirectionalInsulationService')
+        const result = await BidirectionalInsulationService.calculate(params)
+        return { success: true, data: result }
+      } catch (error) {
+        console.error('mc_calculateBidirectionalInsulation failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    // ========== 气象影响评估 ==========
+
+    // 评估气象影响
+    ipcMain.handle('mc_evaluateWeatherImpact', async (_, params) => {
+      try {
+        const WeatherImpactService = require('../services/WeatherImpactService')
+        const result = WeatherImpactService.evaluate(params)
+        return { success: true, data: result }
+      } catch (error) {
+        console.error('mc_evaluateWeatherImpact failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    // ========== 蓄温水养护 ==========
+
+    // 计算蓄温水养护
+    ipcMain.handle('mc_calculateWaterRetention', async (_, params) => {
+      try {
+        const WaterRetentionService = require('../services/WaterRetentionService')
+        const result = WaterRetentionService.calculate(params)
+        return { success: true, data: result }
+      } catch (error) {
+        console.error('mc_calculateWaterRetention failed:', error)
         return { success: false, error: error.message }
       }
     })

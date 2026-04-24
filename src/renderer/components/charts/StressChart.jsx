@@ -19,12 +19,36 @@ const StressChart = ({
   tensileStrength = null,
   title = '应力变化曲线'
 }) => {
+  // 过滤掉空数据
+  const validSelfData = (selfConstraintStress || []).filter(item => item && typeof item.time === 'number')
+  const validExternalData = (externalConstraintStress || []).filter(item => item && typeof item.time === 'number')
+  const validTotalData = (totalStress || []).filter(item => item && typeof item.time === 'number')
+
   // 合并三条曲线数据，添加series字段区分
   const combinedData = [
-    ...selfConstraintStress.map(item => ({ ...item, series: '自约束应力' })),
-    ...externalConstraintStress.map(item => ({ ...item, series: '外约束应力' })),
-    ...totalStress.map(item => ({ ...item, series: '总应力' }))
+    ...validSelfData.map(item => ({ ...item, series: '自约束应力' })),
+    ...validExternalData.map(item => ({ ...item, series: '外约束应力' })),
+    ...validTotalData.map(item => ({ ...item, series: '总应力' }))
   ]
+
+  console.log('[StressChart] 渲染:', {
+    validSelfLength: validSelfData.length,
+    validExternalLength: validExternalData.length,
+    validTotalLength: validTotalData.length,
+    combinedDataLength: combinedData.length,
+    firstItem: combinedData[0]
+  })
+
+  // 如果没有数据，渲染空状态
+  if (combinedData.length === 0) {
+    return (
+      <Card size="small">
+        <div style={{ textAlign: 'center', color: '#999', height: 300, lineHeight: '300px' }}>
+          暂无数据
+        </div>
+      </Card>
+    )
+  }
 
   const config = {
     data: combinedData,
@@ -122,33 +146,33 @@ const StressChart = ({
     },
   }
 
-  // 如果提供了抗拉强度，添加参考线
-  if (tensileStrength !== null) {
-    config.annotations = [
-      {
-        type: 'line',
-        start: ['0%', tensileStrength],
-        end: ['100%', tensileStrength],
-        style: {
-          stroke: '#ff4d4f',
-          lineWidth: 2,
-          lineDash: [8, 4],
-        },
-        text: {
-          content: `抗拉强度: ${tensileStrength} MPa`,
-          position: 'right',
-          style: {
-            fill: '#ff4d4f',
-            fontSize: 12,
-          },
-        },
-      },
-    ]
-  }
+  // 如果提供了抗拉强度，添加参考线（暂时禁用，因为可能导致图表渲染错误）
+  // if (tensileStrength !== null) {
+  //   config.annotations = [
+  //     {
+  //       type: 'line',
+  //       start: ['0%', tensileStrength],
+  //       end: ['100%', tensileStrength],
+  //       style: {
+  //         stroke: '#ff4d4f',
+  //         lineWidth: 2,
+  //         lineDash: [8, 4],
+  //       },
+  //       text: {
+  //         content: `抗拉强度: ${tensileStrength} MPa`,
+  //         position: 'right',
+  //         style: {
+  //           fill: '#ff4d4f',
+  //           fontSize: 12,
+  //         },
+  //       },
+  //     },
+  //   ]
+  // }
 
   return (
     <Card size="small">
-      <Line {...config} style={{ width: '100%', height: 300 }} />
+      <Line {...config} containerStyle={{ width: '100%', height: 300 }} />
     </Card>
   )
 }

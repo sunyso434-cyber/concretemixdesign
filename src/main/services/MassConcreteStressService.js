@@ -65,6 +65,52 @@ class MassConcreteStressService {
     'C50': 2.64
   }
 
+  // CEB-FIP 1978 徐变系数参数
+  static PHI_F = 2.0  // 徐变终极值
+
+  /**
+   * 指数松弛模型
+   * R(t, τ) = exp(-H(t - τ))
+   */
+  static calculateExponentialRelaxation(t, tau, H = 0.3) {
+    const deltaT = t - tau
+    if (deltaT <= 0) return 1.0
+    return Math.exp(-H * deltaT)
+  }
+
+  /**
+   * CEB-FIP 1978 松弛模型
+   * R(t, τ) = 1 / (1 + φ(t, τ))
+   */
+  static calculateCEBFIPRelaxation(t, tau, humidity = 70, sectionThickness = 500) {
+    // 加载龄期函数
+    const betaTau = 1.0 / (0.1 + Math.pow(tau, 0.3))
+    const phiF = MassConcreteStressService.PHI_F * betaTau
+
+    // 名义徐变系数
+    const tTau = Math.max(0.1, t - tau)
+    const phi = phiF * (1 + Math.pow(3 * tTau / tau, 0.3)) / (5 + Math.pow(3 * tTau / tau, 0.3))
+
+    return 1 / (1 + phi)
+  }
+
+  /**
+   * 计算松弛系数（根据模型选择）
+   */
+  static calculateRelaxationFactor(t, tau, model = 'exponential', params = {}) {
+    if (model === 'CEB_FIP_1978') {
+      return MassConcreteStressService.calculateCEBFIPRelaxation(
+        t, tau,
+        params.humidity || 70,
+        params.sectionThickness || 500
+      )
+    }
+    return MassConcreteStressService.calculateExponentialRelaxation(
+      t, tau,
+      params.relaxationRate || 0.3
+    )
+  }
+
   /**
    * 从表格插值计算系数
    * @param {number} value - 查表值
@@ -164,6 +210,107 @@ class MassConcreteStressService {
   }
 
   /**
+   * 温度-应力耦合计算（基于完整温度场）
+   * @param {Object} params - 计算参数
+   * @returns {Object} 应力场分布
+   */
+  calculateCoupled(params) {
+    const {
+      temperatureField,
+      concreteLength,
+      concreteThickness,
+      strengthGrade,
+      flyAshRatio = 0,
+      slagRatio = 0,
+      externalConstraintType = '软黏土',
+      cxMin,
+      cxMax,
+      creepModel = 'exponential',
+      relaxationRate,
+      humidity,
+      sectionThickness
+    } = params
+
+    // 1. 解析温度场数据
+    const { nodes, times, temperatures } = temperatureField
+    const n = nodes.length
+    const m = times.length
+
+    if (!n || !m || !temperatures) {
+      throw new Error('温度场数据不完整，需要 nodes, times, temperatures')
+    }
+
+    // 2. 计算基础参数
+    const E0 = MassConcreteStressService.getE0(strengthGrade)
+    const beta = MassConcreteStressService.calculateBeta(flyAshRatio, slagRatio)
+    const cx = MassConcreteStressService.getCxValue(externalConstraintType, cxMin, cxMax)
+    const alpha = MassConcreteStressService.ALPHA
+    const mu = MassConcreteStressService.MU
+
+    // 3. 构建松弛系数矩阵
+    const relaxationMatrix = []
+    for (let j = 0; j < m; j++) {
+      const t = times[j]
+      const row = []
+      for (let i = 0; i < n; i++) {
+        const tau = times[Math.max(0, i - 1)] || 0.1
+        const R = MassConcreteStressService.calculateRelaxationFactor(t, tau, creepModel, {
+          relaxationRate,
+          humidity,
+          sectionThickness
+        })
+        row.push(R)
+      }
+      relaxationMatrix.push(row)
+    }
+
+    // 4. 逐点计算自约束应力 sigma_z
+    // sigma_z(t) = ∫ α × E(τ) × R(t,τ) × dT(τ)
+    const sigmaZ = []
+    for (let j = 0; j < m; j++) {
+      const t = times[j]
+      const E = MassConcreteStressService.calculateElasticModulus(t, beta, E0)
+      const pointStress = []
+
+      for (let i = 0; i < n; i++) {
+        let stress = 0
+        // 积分计算（累加）
+        for (let k = 1; k <= j; k++) {
+          const dT = temperatures[j][i] - temperatures[Math.max(0, j - 1)][i]
+          stress += alpha * E * relaxationMatrix[j][k] * dT
+        }
+        pointStress.push(Math.abs(stress))
+      }
+      sigmaZ.push(pointStress)
+    }
+
+    // 5. 计算外约束应力 sigma_x
+    const Rx = MassConcreteStressService.calculateRx(cx, E0, concreteLength)
+    const sigmaX = sigmaZ.map(row => row.map(sz => sz * Rx / (1 - mu)))
+
+    // 6. 计算等效应力（简化 Mises）
+    const sigmaEqv = sigmaZ.map(row => row.map(sz => sz))
+
+    // 7. 查找最大值
+    const maxSigmaZ = Math.max(...sigmaZ.flat().map(Math.abs))
+    const criticalIdx = sigmaZ.findIndex(row => row.some(v => Math.abs(v) === maxSigmaZ))
+    const criticalTime = times[criticalIdx] || times[0]
+
+    return {
+      nodes,
+      times,
+      sigmaZ,
+      sigmaX,
+      sigmaEqv,
+      elasticModulus: times.map(t => MassConcreteStressService.calculateElasticModulus(t, beta, E0)),
+      maxSigmaZ,
+      criticalTime,
+      Rx,
+      creepModel
+    }
+  }
+
+  /**
    * 计算外约束系数 Rx
    * @param {number} cx - 约束系数 (N/mm³)
    * @param {number} E - 弹性模量 (N/mm²)
@@ -192,6 +339,18 @@ class MassConcreteStressService {
    * @returns {Object} 计算结果
    */
   calculate(params) {
+    console.log('[MassConcreteStressService] calculate 被调用，params:', JSON.stringify({
+      strengthGrade: params.strengthGrade,
+      elasticModulus: params.elasticModulus,
+      tensileStrength: params.tensileStrength,
+      thermalCoefficient: params.thermalCoefficient,
+      relaxationCoefficient: params.relaxationCoefficient,
+      concreteLength: params.concreteLength,
+      concreteThickness: params.concreteThickness,
+      tempDiffCurveDataLength: params.tempDiffCurveData?.length || 0,
+      tempDiffCurveDataSample: params.tempDiffCurveData?.slice(0, 3)
+    }))
+
     const {
       strengthGrade,
       flyAshRatio = 0,
@@ -202,8 +361,32 @@ class MassConcreteStressService {
       concreteThickness = 0,
       externalConstraintType = '软黏土',
       cxMin,
-      cxMax
+      cxMax,
+      creepModel = 'exponential',      // 新增
+      relaxationRate,                  // 新增
+      humidity,                         // 新增
+      sectionThickness,                 // 新增
+      temperatureField                   // 新增：完整温度场
     } = params
+
+    // 如果提供了完整温度场，使用耦合计算
+    if (temperatureField && temperatureField.temperatures) {
+      return this.calculateCoupled({
+        temperatureField,
+        concreteLength,
+        concreteThickness,
+        strengthGrade,
+        flyAshRatio,
+        slagRatio,
+        externalConstraintType,
+        cxMin,
+        cxMax,
+        creepModel,
+        relaxationRate,
+        humidity,
+        sectionThickness
+      })
+    }
 
     // 1. 计算基础参数
     const E0 = MassConcreteStressService.getE0(strengthGrade)
@@ -253,18 +436,37 @@ class MassConcreteStressService {
     const selfConstraintStress = []
     let sigmaZ = 0
 
+    // 预处理：根据 day 值查找 tempDiffCurveData
+    const getTempDiffByDay = (day) => {
+      // 精确匹配
+      const exact = tempDiffCurveData.find(d => d.day === day)
+      if (exact) return exact.tempDiff
+      // 线性插值
+      const sorted = [...tempDiffCurveData].sort((a, b) => a.day - b.day)
+      for (let i = 0; i < sorted.length - 1; i++) {
+        if (day > sorted[i].day && day < sorted[i + 1].day) {
+          const t = (day - sorted[i].day) / (sorted[i + 1].day - sorted[i].day)
+          return sorted[i].tempDiff + t * (sorted[i + 1].tempDiff - sorted[i].tempDiff)
+        }
+      }
+      // 边界值
+      if (day <= sorted[0]?.day) return sorted[0]?.tempDiff || 0
+      if (day >= sorted[sorted.length - 1]?.day) return sorted[sorted.length - 1]?.tempDiff || 0
+      return 0
+    }
+
     for (let i = 0; i < timePoints.length; i++) {
       const t = timePoints[i]
       const E = MassConcreteStressService.calculateElasticModulus(t, beta, E0)
 
-      // 计算温度变化 deltaT
+      // 计算温度变化 deltaT（基于实际 day 值查找）
       let deltaT = 0
       if (i > 0 && tempDiffCurveData.length > 0) {
-        const prevIdx = Math.floor(i * step / step)
-        const currIdx = i
-        if (currIdx < tempDiffCurveData.length && prevIdx < tempDiffCurveData.length) {
-          deltaT = Math.abs(tempDiffCurveData[currIdx]?.tempDiff - tempDiffCurveData[prevIdx]?.tempDiff) || 0
-        }
+        const prevDay = timePoints[i - 1]
+        const currDay = t
+        const prevDiff = getTempDiffByDay(prevDay)
+        const currDiff = getTempDiffByDay(currDay)
+        deltaT = Math.abs(currDiff - prevDiff)
       }
 
       // 累积自约束应力
@@ -280,6 +482,7 @@ class MassConcreteStressService {
     // Rx = 1 - 1/cosh(sqrt(cx/E) * L/2)，其中 E 为时间-varying E(t)
     const externalConstraintStress = []
     let sigmaX = 0
+    let lastRx = 0
 
     for (let i = 0; i < timePoints.length; i++) {
       const t = timePoints[i]
@@ -287,6 +490,7 @@ class MassConcreteStressService {
 
       // 计算当前时间步的 Rx (使用时间-varying E(t))
       const Rx = MassConcreteStressService.calculateRx(cx, E, concreteLength)
+      lastRx = Rx
 
       // 计算温差变化 deltaT2 (考虑厚度方向)
       let deltaT2 = 0
@@ -352,7 +556,21 @@ class MassConcreteStressService {
       criticalDaySelf,
       criticalDayExt,
       criticalDayTotal,
-      Rx: Rx.toFixed(4)
+      Rx: lastRx.toFixed(4)
+    })
+
+    console.log('[MassConcreteStressService] 计算完成，返回结果:', {
+      hasSelfConstraintStress: !!selfConstraintStress,
+      selfConstraintStressLength: selfConstraintStress?.length,
+      selfConstraintStressSample: selfConstraintStress?.slice(0, 3),
+      hasExternalConstraintStress: !!externalConstraintStress,
+      externalConstraintStressLength: externalConstraintStress?.length,
+      hasTotalStress: !!totalStress,
+      totalStressLength: totalStress?.length,
+      totalStressSample: totalStress?.slice(0, 3),
+      maxSelfStress,
+      maxExternalStress: maxExtStress,
+      maxTotalStress
     })
 
     return {
@@ -387,10 +605,10 @@ class MassConcreteStressService {
       criticalDaySelf,
       criticalDayExternal: criticalDayExt,
       criticalDayTotal,
-      Rx,
+      Rx: lastRx,
 
       // 防裂安全系数
-      safetyFactor: K,
+      correctedSafetyFactor: K,
       allowableStress: ftk / K
     }
   }

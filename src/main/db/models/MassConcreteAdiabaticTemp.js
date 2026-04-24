@@ -27,7 +27,7 @@ const MassConcreteAdiabaticTemp = sequelize.define('MassConcreteAdiabaticTemp', 
     type: DataTypes.FLOAT,
     comment: '混凝土长度 m'
   },
-  mCoefficient: {
+  hydrationRateCoefficient: {
     type: DataTypes.FLOAT,
     comment: 'M系数'
   },

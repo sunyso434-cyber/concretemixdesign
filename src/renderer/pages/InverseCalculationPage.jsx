@@ -1,10 +1,10 @@
 import React, { useState, useCallback } from 'react'
 import { Card, Table, Button, Space, Input, InputNumber, Upload, message, Divider, Tag } from 'antd'
-import { UploadOutlined, DeleteOutlined, ExperimentOutlined, ExportOutlined } from '@ant-design/icons'
+import { UploadOutlined, DeleteOutlined, ExperimentOutlined, ExportOutlined, PlusOutlined, DownloadOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 
 // 必要的列名
-const REQUIRED_COLUMNS = ['名称', '水泥kg', '粉煤灰%', '矿渣粉%', '砂率%', '用水量', '强度MPa']
+const REQUIRED_COLUMNS = ['名称', '胶材总量kg', '粉煤灰%', '矿渣粉%', '砂率%', '用水量', '强度MPa']
 const REQUIRED_COLUMNS_ALT = ['name', 'cement', 'flyAshPercent', 'slagPercent', 'sandRatio', 'waterAmount', 'strength']
 
 const InverseCalculationPage = () => {
@@ -38,28 +38,44 @@ const InverseCalculationPage = () => {
           return false
         }
 
-        // 检查必要的列是否存在
+        // 检查必要的列是否存在（支持新旧列名）
         const firstRow = jsonData[0]
         const firstRowKeys = Object.keys(firstRow)
-        const missingColumns = REQUIRED_COLUMNS.filter(col => !firstRowKeys.includes(col))
-          .filter(col => !firstRowKeys.includes(col.replace('名称', 'name')
-            .replace('水泥kg', 'cement')
-            .replace('粉煤灰%', 'flyAshPercent')
-            .replace('矿渣粉%', 'slagPercent')
-            .replace('砂率%', 'sandRatio')
-            .replace('用水量', 'waterAmount')
-            .replace('强度MPa', 'strength')))
+        const columnMapping = {
+          '名称': 'name',
+          '胶材总量kg': 'cement',
+          '水泥kg': 'cement', // 兼容旧列名
+          '粉煤灰%': 'flyAshPercent',
+          '矿渣粉%': 'slagPercent',
+          '砂率%': 'sandRatio',
+          '用水量': 'waterAmount',
+          '强度MPa': 'strength'
+        }
+        // 检查是否有至少一组必需的列
+        const hasRequiredColumns = REQUIRED_COLUMNS.every(col => {
+          const alias = col === '胶材总量kg' ? ['胶材总量kg', '水泥kg'] : [col]
+          return alias.some(aliasCol => firstRowKeys.includes(aliasCol))
+        })
+
+        if (!hasRequiredColumns) {
+          const missingColumns = REQUIRED_COLUMNS.filter(col => {
+            const alias = col === '胶材总量kg' ? ['胶材总量kg', '水泥kg'] : [col]
+            return !alias.some(aliasCol => firstRowKeys.includes(aliasCol))
+          })
+          message.error(`缺少必要的列: ${missingColumns.join(', ')}`)
+          return false
+        }
 
         if (missingColumns.length > 0) {
           message.error(`缺少必要的列: ${missingColumns.join(', ')}`)
           return false
         }
 
-        // 转换为标准字段格式
+        // 转换为标准字段格式（兼容新旧列名）
         const formatted = jsonData.map((row, index) => ({
           key: index.toString(),
           name: row['名称'] || row['name'] || `样本${index + 1}`,
-          cement: parseFloat(row['水泥kg']) || 0,
+          cement: parseFloat(row['胶材总量kg'] || row['水泥kg']) || 0,
           flyAshPercent: parseFloat(row['粉煤灰%']) || 0,
           slagPercent: parseFloat(row['矿渣粉%']) || 0,
           sandRatio: parseFloat(row['砂率%']) || 0,
@@ -99,6 +115,51 @@ const InverseCalculationPage = () => {
     setDataSource([])
     setResult(null)
     message.info('已清空数据')
+  }
+
+  // 手动添加一行数据
+  const handleAddRow = () => {
+    const newRow = {
+      key: dataSource.length.toString(),
+      name: `样本${dataSource.length + 1}`,
+      cement: 0,
+      flyAshPercent: 0,
+      slagPercent: 0,
+      sandRatio: 0,
+      waterAmount: 0,
+      strength: 0
+    }
+    setDataSource([...dataSource, newRow])
+    message.info('已添加一行数据')
+  }
+
+  // 下载Excel模板
+  const handleDownloadTemplate = () => {
+    const templateData = [
+      {
+        '名称': '样本1',
+        '胶材总量kg': 400,
+        '粉煤灰%': 20,
+        '矿渣粉%': 10,
+        '砂率%': 38,
+        '用水量': 160,
+        '强度MPa': 35.5
+      },
+      {
+        '名称': '样本2',
+        '胶材总量kg': 420,
+        '粉煤灰%': 25,
+        '矿渣粉%': 15,
+        '砂率%': 37,
+        '用水量': 155,
+        '强度MPa': 38.2
+      }
+    ]
+    const ws = XLSX.utils.json_to_sheet(templateData)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '反算数据模板')
+    XLSX.writeFile(wb, 'inverse_calculation_template.xlsx')
+    message.success('模板已下载：inverse_calculation_template.xlsx')
   }
 
   // 调用回归计算
@@ -187,7 +248,7 @@ const InverseCalculationPage = () => {
       )
     },
     {
-      title: '水泥kg',
+      title: '胶材总量kg',
       dataIndex: 'cement',
       key: 'cement',
       width: 100,
@@ -199,6 +260,7 @@ const InverseCalculationPage = () => {
           min={0}
           precision={1}
           style={{ width: '100%' }}
+          placeholder="胶材总量"
         />
       )
     },
@@ -339,7 +401,7 @@ const InverseCalculationPage = () => {
         <div style={{ flex: 2, minWidth: '400px' }}>
           <Card className="custom-card" title="数据导入">
             <Space direction="vertical" style={{ width: '100%' }} size="middle">
-              <div>
+              <Space wrap>
                 <Upload
                   accept=".xlsx,.xls"
                   beforeUpload={handleExcelImport}
@@ -347,9 +409,15 @@ const InverseCalculationPage = () => {
                 >
                   <Button icon={<UploadOutlined />}>导入Excel文件</Button>
                 </Upload>
-                <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
-                  Excel列名：名称、水泥kg、粉煤灰%、矿渣粉%、砂率%、用水量、强度MPa
-                </div>
+                <Button icon={<DownloadOutlined />} onClick={handleDownloadTemplate}>
+                  下载模板
+                </Button>
+                <Button type="link" icon={<PlusOutlined />} onClick={handleAddRow}>
+                  手动添加
+                </Button>
+              </Space>
+              <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
+                Excel列名：名称、胶材总量kg（或水泥kg）、粉煤灰%、矿渣粉%、砂率%、用水量、强度MPa
               </div>
 
               <Divider style={{ margin: '12px 0' }} />
@@ -532,7 +600,7 @@ const InverseCalculationPage = () => {
               </div>
               <div>
                 <span style={{ color: '#666' }}>残差标准差: </span>
-                <strong>{result.residualStdDev.toFixed(2)} MPa</strong>
+                <strong>{result.residualStdDev != null ? `${result.residualStdDev.toFixed(2)} MPa` : 'N/A'}</strong>
               </div>
               <div>
                 <span style={{ color: '#666' }}>样本数: </span>
@@ -548,9 +616,9 @@ const InverseCalculationPage = () => {
               <>
                 <Divider orientation="left">各样本残差 (MPa)</Divider>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {result.residuals.map((residual, index) => (
-                    <Tag key={index} color={Math.abs(residual) < 2 ? 'success' : 'warning'}>
-                      样本{index + 1}: {residual.toFixed(2)}
+                  {result.residuals.map((item, index) => (
+                    <Tag key={index} color={Math.abs(item.residual) < 2 ? 'success' : 'warning'}>
+                      {item.name}: {item.residual.toFixed(2)}
                     </Tag>
                   ))}
                 </div>

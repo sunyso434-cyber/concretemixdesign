@@ -27,6 +27,26 @@ const MassConcreteInsulation = sequelize.define('MassConcreteInsulation', {
     type: DataTypes.FLOAT,
     comment: '总热阻 m²·K/W'
   },
+  topInsulationLayers: {
+    type: DataTypes.JSON,
+    comment: '顶面保温层配置'
+  },
+  sideInsulationLayers: {
+    type: DataTypes.JSON,
+    comment: '侧面保温层配置'
+  },
+  topTempDiff: {
+    type: DataTypes.FLOAT,
+    comment: '顶面温差计算值'
+  },
+  sideTempDiff: {
+    type: DataTypes.FLOAT,
+    comment: '侧面温差计算值'
+  },
+  bottomBoundaryType: {
+    type: DataTypes.STRING,
+    comment: '底面边界条件: basement/exposed/heated'
+  },
   totalHeatTransfer: {
     type: DataTypes.FLOAT,
     comment: '总传热系数 W/(m²·K)'

@@ -1,0 +1,39 @@
+<h2>内容区域布局</h2>
+<p class="subtitle">确定内容区域的组织方式</p>
+
+<div class="options">
+  <div class="option" data-choice="compact" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>紧凑表格型</h3>
+      <p>数据优先，表格占据主要空间，操作按钮紧凑排列，适合数据管理类页面</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="card-grid" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>卡片网格型</h3>
+      <p>统计卡片 + 内容卡片组合，视觉层次清晰，适合 dashboard 型页面</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="master-detail" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>主从布局型</h3>
+      <p>左侧列表 + 右侧详情/编辑，常见于配置类页面，信息密度高</p>
+    </div>
+  </div>
+
+  <div class="option" data-choice="tab" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>分tab切换型</h3>
+      <p>顶部 Tab 切换不同模块内容，减少页面跳转，适合功能关联紧密的场景</p>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top: 32px">说明</h3>
+<p class="subtitle">您的系统不同页面可能需要不同布局，比如原材料页面适合表格型，成本优化页面可能需要卡片网格，大体积混凝土页面可能需要分 tab</p>

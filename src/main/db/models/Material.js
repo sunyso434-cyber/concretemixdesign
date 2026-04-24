@@ -216,6 +216,11 @@ const Material = sequelize.define('Material', {
   price: {
     type: DataTypes.FLOAT, // 原材料单价（元/吨）
     allowNull: true
+  },
+  isSystem: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    comment: '是否系统预设材料，true表示系统预设，false表示用户添加'
   }
 }, {
   tableName: 'materials',

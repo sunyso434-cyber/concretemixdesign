@@ -180,7 +180,11 @@ class MassConcreteAdiabaticTempService {
   /**
    * 计算绝热温升
    * @param {Object} params - 计算参数
+   * @param {string} params.strengthGrade - 强度等级（新增）
    * @param {number} params.cementContent - 水泥用量 kg/m³
+   * @param {number} params.cementConsumption - 水泥用量 kg/m³（alias for cementContent）
+   * @param {number} params.flyAshConsumption - 粉煤灰用量 kg/m³（新增）
+   * @param {number} params.slagConsumption - 矿渣粉用量 kg/m³（新增）
    * @param {number} params.totalBinder - 总胶凝材料 kg/m³
    * @param {number} params.totalHeat - 总发热量 kJ/m³
    * @param {number} params.moldingTemp - 入模温度 ℃
@@ -194,7 +198,11 @@ class MassConcreteAdiabaticTempService {
    */
   calculate(params) {
     const {
+      strengthGrade = 'C30',
       cementContent,
+      cementConsumption,
+      flyAshConsumption = 0,
+      slagConsumption = 0,
       totalBinder,
       totalHeat,
       moldingTemp,
@@ -206,9 +214,17 @@ class MassConcreteAdiabaticTempService {
       concreteRho = MassConcreteAdiabaticTempService.DEFAULT_CONCRETE_RHO
     } = params
 
-    // 1. 计算 W = lambda * cementContent
+    // 实际水泥用量：优先使用 cementContent，否则使用 cementConsumption
+    const actualCementContent = cementContent || cementConsumption || 0
+
+    // 计算胶材总量和掺量比例（新增）
+    const binderTotal = (flyAshConsumption || 0) + (slagConsumption || 0) + actualCementContent
+    const flyAshRatio = binderTotal > 0 ? ((flyAshConsumption || 0) / binderTotal) * 100 : 0
+    const slagRatio = binderTotal > 0 ? ((slagConsumption || 0) / binderTotal) * 100 : 0
+
+    // 1. 计算 W = lambda * actualCementContent
     const lambda = MassConcreteAdiabaticTempService.CEMENT_LAMBDA
-    const W = lambda * cementContent
+    const W = lambda * actualCementContent
 
     // 2. 计算 m0 = A * W + B
     const { A, B } = MassConcreteAdiabaticTempService.getM0Coefficients(moldingTemp)
@@ -285,7 +301,22 @@ class MassConcreteAdiabaticTempService {
     })
 
     return {
-      cementContent,
+      // === 配合比继承（新增）===
+      strengthGrade,
+      mixDesignSummary: {
+        cement: { name: cementType || '普通硅酸盐水泥', consumption: actualCementContent },
+        flyAsh: { consumption: flyAshConsumption || 0 },
+        slag: { consumption: slagConsumption || 0 }
+      },
+      binderTotal,
+      flyAshRatio,
+      slagRatio,
+
+      // === 原有字段 ===
+      cementContent: actualCementContent,
+      cementConsumption: actualCementContent,
+      flyAshConsumption: flyAshConsumption || 0,
+      slagConsumption: slagConsumption || 0,
       totalBinder,
       totalHeat,
       moldingTemp,
@@ -295,7 +326,7 @@ class MassConcreteAdiabaticTempService {
       cementType,
       lambda,
       W,
-      mCoefficient: m0,
+      hydrationRateCoefficient: m0,
       maxAdiabaticTemp,
       concreteC,
       concreteRho,
@@ -325,7 +356,7 @@ class MassConcreteAdiabaticTempService {
         ambientTemp: data.ambientTemp || 20,
         concreteThickness: data.concreteThickness,
         concreteLength: data.concreteLength || 0,
-        mCoefficient: data.mCoefficient,
+        hydrationRateCoefficient: data.hydrationRateCoefficient,
         maxAdiabaticTemp: data.maxAdiabaticTemp,
         tempCurveData: data.tempCurveData,
         tempDiffCurveData: data.tempDiffCurveData,

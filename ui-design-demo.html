@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>混凝土配合比设计系统 · 现代工业风 UI Demo</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      /* Modern Industrial Palette */
+      --bg-primary: #FAFBFC;
+      --bg-card: #FFFFFF;
+      --bg-elevated: #F3F4F6;
+      --bg-hover: #E5E7EB;
+
+      --primary: #1D4ED8;
+      --primary-hover: #1E40AF;
+      --primary-light: #DBEAFE;
+      --primary-subtle: #EFF6FF;
+
+      --text-primary: #111827;
+      --text-secondary: #4B5563;
+      --text-tertiary: #9CA3AF;
+
+      --border: #E5E7EB;
+      --border-strong: #D1D5DB;
+
+      --success: #059669;
+      --success-bg: #D1FAE5;
+      --warning: #D97706;
+      --warning-bg: #FEF3C7;
+      --error: #DC2626;
+      --error-bg: #FEE2E2;
+
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+      --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+
+      --font-sans: 'Noto Sans SC', 'Inter', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-size: 14px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ========== Layout ========== */
+    .demo-container {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 32px;
+    }
+
+    .demo-header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .demo-header h1 {
+      font-size: 28px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+
+    .demo-header p {
+      color: var(--text-secondary);
+      font-size: 15px;
+    }
+
+    .demo-badge {
+      display: inline-block;
+      background: var(--primary);
+      color: white;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin-bottom: 16px;
+      letter-spacing: 0.5px;
+    }
+
+    /* ========== Navigation Rail ========== */
+    .nav-rail {
+      position: fixed;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 64px;
+      background: var(--bg-card);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 16px 0;
+      z-index: 100;
+      transition: width 200ms ease;
+    }
+
+    .nav-rail:hover {
+      width: 200px;
+    }
+
+    .nav-rail-item {
+      display: flex;
+      align-items: center;
+      height: 48px;
+      padding: 0 20px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: all 150ms ease;
+      border-left: 3px solid transparent;
+      gap: 12px;
+    }
+
+    .nav-rail-item:hover {
+      background: var(--primary-subtle);
+      color: var(--primary);
+      border-left-color: var(--primary);
+    }
+
+    .nav-rail-item.active {
+      background: var(--primary-subtle);
+      color: var(--primary);
+      font-weight: 500;
+      border-left-color: var(--primary);
+    }
+
+    .nav-rail-icon {
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .nav-rail-icon svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .nav-rail-label {
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 200ms ease;
+      font-size: 13px;
+    }
+
+    .nav-rail:hover .nav-rail-label {
+      opacity: 1;
+    }
+
+    /* ========== App Header ========== */
+    .app-header {
+      position: fixed;
+      top: 0;
+      left: 64px;
+      right: 0;
+      height: 56px;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      z-index: 99;
+    }
+
+    .app-header-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .app-header-logo {
+      width: 28px;
+      height: 28px;
+      background: var(--primary);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .app-header-logo svg {
+      width: 16px;
+      height: 16px;
+      color: white;
+    }
+
+    /* ========== Main Content ========== */
+    .main-content {
+      margin-left: 64px;
+      padding-top: 56px;
+      min-height: 100vh;
+    }
+
+    .content-area {
+      padding: 32px;
+      max-width: 1380px;
+      margin: 0 auto;
+    }
+
+    /* ========== Page Title ========== */
+    .page-title {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .page-subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 24px;
+    }
+
+    /* ========== Cards ========== */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      transition: box-shadow 200ms ease;
+    }
+
+    .card:hover {
+      box-shadow: var(--shadow-sm);
+    }
+
+    .card-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .card-body {
+      padding: 20px;
+    }
+
+    .card.primary {
+      border-color: var(--primary-light);
+      background: linear-gradient(135deg, var(--bg-card) 0%, var(--primary-subtle) 100%);
+    }
+
+    /* ========== Buttons ========== */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      height: 38px;
+      padding: 0 16px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: var(--radius-md);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 150ms ease;
+      font-family: inherit;
+    }
+
+    .btn svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-hover);
+      border-color: var(--primary-hover);
+    }
+
+    .btn-secondary {
+      background: var(--bg-card);
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-elevated);
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-secondary);
+      border-color: transparent;
+    }
+
+    .btn-ghost:hover {
+      background: var(--bg-elevated);
+      color: var(--primary);
+    }
+
+    /* ========== Action Bar ========== */
+    .action-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      background: var(--bg-elevated);
+      border-radius: var(--radius-lg);
+      margin-bottom: 20px;
+    }
+
+    /* ========== Form ========== */
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+
+    .form-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .form-label .required {
+      color: var(--error);
+      margin-left: 2px;
+    }
+
+    .form-input {
+      height: 40px;
+      padding: 0 12px;
+      font-size: 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--bg-card);
+      color: var(--text-primary);
+      transition: all 150ms ease;
+      font-family: inherit;
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-light);
+    }
+
+    .form-input::placeholder {
+      color: var(--text-tertiary);
+    }
+
+    .form-select {
+      height: 40px;
+      padding: 0 12px;
+      font-size: 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--bg-card);
+      color: var(--text-primary);
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239CA3AF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 36px;
+    }
+
+    /* ========== Table ========== */
+    .table-wrapper {
+      overflow-x: auto;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .table th {
+      text-align: left;
+      padding: 12px 16px;
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      font-weight: 500;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-secondary);
+    }
+
+    .table tr:hover td {
+      background: var(--primary-subtle);
+    }
+
+    .table .text-primary {
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+
+    .table .mono {
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    /* ========== Stats ========== */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+    }
+
+    .stat-card.highlight {
+      background: linear-gradient(135deg, var(--primary) 0%, #3B82F6 100%);
+      border: none;
+    }
+
+    .stat-card.highlight .stat-label,
+    .stat-card.highlight .stat-value {
+      color: white;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 600;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+    }
+
+    .stat-suffix {
+      font-size: 14px;
+      font-weight: 400;
+      margin-left: 2px;
+    }
+
+    .stat-change {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      margin-top: 8px;
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+
+    .stat-change.up {
+      color: var(--success);
+      background: var(--success-bg);
+    }
+
+    .stat-change.down {
+      color: var(--error);
+      background: var(--error-bg);
+    }
+
+    /* ========== Tags ========== */
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: 6px;
+      gap: 4px;
+    }
+
+    .tag-default {
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+    }
+
+    .tag-primary {
+      background: var(--primary-light);
+      color: var(--primary);
+    }
+
+    .tag-success {
+      background: var(--success-bg);
+      color: var(--success);
+    }
+
+    .tag-warning {
+      background: var(--warning-bg);
+      color: var(--warning);
+    }
+
+    /* ========== Badges ========== */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 10px;
+      background: var(--primary);
+      color: white;
+    }
+
+    /* ========== Section Divider ========== */
+    .section {
+      margin-bottom: 32px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    /* ========== Result Display ========== */
+    .result-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 24px;
+    }
+
+    .result-main {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .result-side {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .param-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .param-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: var(--bg-elevated);
+      border-radius: var(--radius-md);
+    }
+
+    .param-label {
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .param-value {
+      font-family: var(--font-mono);
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    /* ========== Chart Placeholder ========== */
+    .chart-box {
+      height: 280px;
+      background: var(--bg-elevated);
+      border-radius: var(--radius-md);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .chart-box::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background:
+        linear-gradient(90deg, var(--border) 1px, transparent 1px),
+        linear-gradient(var(--border) 1px, transparent 1px);
+      background-size: 40px 40px;
+      opacity: 0.5;
+    }
+
+    .chart-box-content {
+      position: relative;
+      z-index: 1;
+    }
+
+    .chart-box svg {
+      width: 48px;
+      height: 48px;
+      color: var(--text-tertiary);
+    }
+
+    .chart-box-text {
+      font-size: 13px;
+      color: var(--text-tertiary);
+    }
+
+    /* ========== Data Flow ========== */
+    .data-flow {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 20px;
+      background: var(--bg-elevated);
+      border-radius: var(--radius-lg);
+      margin-bottom: 16px;
+    }
+
+    .data-flow-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .data-flow-arrow {
+      color: var(--text-tertiary);
+    }
+
+    /* ========== Materials Grid ========== */
+    .materials-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .material-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      transition: all 150ms ease;
+    }
+
+    .material-item:hover {
+      border-color: var(--primary);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .material-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--primary-subtle);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .material-icon svg {
+      width: 18px;
+      height: 18px;
+      color: var(--primary);
+    }
+
+    .material-info {
+      flex: 1;
+    }
+
+    .material-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .material-meta {
+      font-size: 12px;
+      color: var(--text-tertiary);
+    }
+
+    /* ========== Cost Breakdown ========== */
+    .cost-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .cost-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .cost-item:last-child {
+      border-bottom: none;
+    }
+
+    .cost-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .cost-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .cost-value {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .cost-total {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px;
+      background: var(--primary-subtle);
+      border-radius: var(--radius-md);
+      margin-top: 8px;
+    }
+
+    .cost-total .cost-label {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .cost-total .cost-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--primary);
+    }
+
+    /* ========== Empty State ========== */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px;
+      text-align: center;
+    }
+
+    .empty-state svg {
+      width: 64px;
+      height: 64px;
+      color: var(--text-tertiary);
+      margin-bottom: 16px;
+    }
+
+    .empty-state-title {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 4px;
+    }
+
+    .empty-state-desc {
+      font-size: 13px;
+      color: var(--text-tertiary);
+      margin-bottom: 16px;
+    }
+
+    /* ========== Page Demos Grid ========== */
+    .demos-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 32px;
+    }
+
+    .demo-box {
+      border: 2px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+
+    .demo-box-header {
+      padding: 12px 16px;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .demo-box-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .demo-box-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: var(--primary-light);
+      color: var(--primary);
+      font-weight: 500;
+    }
+
+    .demo-box-content {
+      background: var(--bg-primary);
+      min-height: 500px;
+    }
+
+    /* ========== Footer ========== */
+    .demo-footer {
+      text-align: center;
+      margin-top: 48px;
+      padding: 24px;
+      color: var(--text-tertiary);
+      font-size: 13px;
+    }
+
+    .demo-footer a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+
+    /* ========== Comparison Section ========== */
+    .comparison-section {
+      margin-top: 48px;
+      padding-top: 48px;
+      border-top: 1px solid var(--border);
+    }
+
+    .comparison-header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .comparison-title {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+    }
+
+    .comparison-desc {
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-container">
+    <header class="demo-header">
+      <span class="demo-badge">UI DESIGN · 现代工业风</span>
+      <h1>混凝土配合比设计系统</h1>
+      <p>Private Enterprise Edition · 私有企业版</p>
+    </header>
+
+    <div class="demos-grid">
+      <!-- Demo 1: Materials Page -->
+      <div class="demo-box">
+        <div class="demo-box-header">
+          <span class="demo-box-title">原材料管理</span>
+          <span class="demo-box-badge">Materials</span>
+        </div>
+        <div class="demo-box-content" style="padding: 24px;">
+          <!-- Nav Rail Demo -->
+          <div style="display: flex; gap: 24px; margin-bottom: 24px;">
+            <nav class="nav-rail" style="position: relative; width: 64px; height: 300px; border: 1px solid var(--border); border-radius: 8px;">
+              <div style="padding: 12px 0;">
+                <a class="nav-rail-item active" style="border-left-color: var(--primary);">
+                  <span class="nav-rail-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                  </span>
+                  <span class="nav-rail-label">原材料管理</span>
+                </a>
+                <a class="nav-rail-item" style="border-left-color: transparent;">
+                  <span class="nav-rail-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                  </span>
+                  <span class="nav-rail-label">配合比设计</span>
+                </a>
+                <a class="nav-rail-item" style="border-left-color: transparent;">
+                  <span class="nav-rail-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                  </span>
+                  <span class="nav-rail-label">成本优化</span>
+                </a>
+              </div>
+            </nav>
+
+            <div style="flex: 1;">
+              <div style="margin-bottom: 16px;">
+                <h2 class="page-title" style="display: flex; align-items: center; gap: 8px;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+                  原材料管理
+                </h2>
+                <p class="page-subtitle">管理混凝土配合比设计所需的各种原材料信息</p>
+              </div>
+
+              <div class="action-bar">
+                <button class="btn btn-primary">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v16m8-8H4"/></svg>
+                  新增材料
+                </button>
+                <button class="btn btn-secondary">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                  刷新
+                </button>
+              </div>
+
+              <div class="card">
+                <div class="table-wrapper">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th>ID</th>
+                        <th>名称</th>
+                        <th>类型</th>
+                        <th>规格</th>
+                        <th>单价</th>
+                        <th>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td class="mono">001</td>
+                        <td class="text-primary">P.O 42.5R 水泥</td>
+                        <td><span class="tag tag-primary">水泥</span></td>
+                        <td>42.5R</td>
+                        <td class="mono">480.00 元/吨</td>
+                        <td>
+                          <button class="btn btn-ghost" style="height: 28px; padding: 0 8px;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                          </button>
+                          <button class="btn btn-ghost" style="height: 28px; padding: 0 8px; color: var(--error);">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                          </button>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td class="mono">002</td>
+                        <td class="text-primary">一级粉煤灰</td>
+                        <td><span class="tag tag-default">粉煤灰</span></td>
+                        <td>I级</td>
+                        <td class="mono">180.00 元/吨</td>
+                        <td>
+                          <button class="btn btn-ghost" style="height: 28px; padding: 0 8px;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                          </button>
+                          <button class="btn btn-ghost" style="height: 28px; padding: 0 8px; color: var(--error);">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                          </button>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td class="mono">003</td>
+                        <td class="text-primary">粗砂 (M3.2)</td>
+                        <td><span class="tag tag-default">细骨料</span></td>
+                        <td>M3.2</td>
+                        <td class="mono">95.00 元/吨</td>
+                        <td>
+                          <button class="btn btn-ghost" style="height: 28px; padding: 0 8px;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                          </button>
+                          <button class="btn btn-ghost" style="height: 28px; padding: 0 8px; color: var(--error);">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                          </button>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td class="mono">004</td>
+                        <td class="text-primary">5-25mm 碎石</td>
+                        <td><span class="tag tag-default">粗骨料</span></td>
+                        <td>5-25mm</td>
+                        <td class="mono">85.00 元/吨</td>
+                        <td>
+                          <button class="btn btn-ghost" style="height: 28px; padding: 0 8px;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                          </button>
+                          <button class="btn btn-ghost" style="height: 28px; padding: 0 8px; color: var(--error);">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Demo 2: Mix Design Page -->
+      <div class="demo-box">
+        <div class="demo-box-header">
+          <span class="demo-box-title">配合比设计</span>
+          <span class="demo-box-badge">Mix Design</span>
+        </div>
+        <div class="demo-box-content" style="padding: 24px;">
+          <div style="margin-bottom: 16px;">
+            <h2 class="page-title" style="display: flex; align-items: center; gap: 8px;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+              配合比设计
+            </h2>
+            <p class="page-subtitle">根据JGJ 55-2011标准计算混凝土配合比</p>
+          </div>
+
+          <!-- Stats -->
+          <div class="stats-grid">
+            <div class="stat-card highlight">
+              <div class="stat-label">C30 水泥用量</div>
+              <div class="stat-value">285<span class="stat-suffix">kg/m³</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">水胶比</div>
+              <div class="stat-value">0.48</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">砂率</div>
+              <div class="stat-value">41<span class="stat-suffix">%</span></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">总成本</div>
+              <div class="stat-value" style="color: var(--success);">486.32<span class="stat-suffix">元/m³</span></div>
+            </div>
+          </div>
+
+          <!-- Form -->
+          <div class="card" style="margin-bottom: 16px;">
+            <div class="card-header">
+              <span class="card-title">设计目标参数</span>
+            </div>
+            <div class="card-body">
+              <div class="form-grid">
+                <div class="form-item">
+                  <label class="form-label">强度等级 <span class="required">*</span></label>
+                  <select class="form-select">
+                    <option selected>C30</option>
+                    <option>C25</option>
+                    <option>C35</option>
+                    <option>C40</option>
+                  </select>
+                </div>
+                <div class="form-item">
+                  <label class="form-label">坍落度 (mm) <span class="required">*</span></label>
+                  <input type="text" class="form-input" value="120" placeholder="请输入坍落度">
+                </div>
+                <div class="form-item">
+                  <label class="form-label">粉煤灰掺量 (%)</label>
+                  <input type="text" class="form-input" value="20">
+                </div>
+                <div class="form-item">
+                  <label class="form-label">砂率 (%)</label>
+                  <input type="text" class="form-input" value="35">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Result -->
+          <div class="result-grid">
+            <div class="result-main">
+              <div class="card">
+                <div class="card-header">
+                  <span class="card-title">计算结果</span>
+                  <span class="tag tag-success">✓ 计算完成</span>
+                </div>
+                <div class="card-body">
+                  <div class="table-wrapper">
+                    <table class="table">
+                      <thead>
+                        <tr>
+                          <th>材料</th>
+                          <th style="text-align: right;">用量</th>
+                          <th style="text-align: right;">单位</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td class="text-primary">水泥</td>
+                          <td class="mono" style="text-align: right;">285.0</td>
+                          <td style="text-align: right; color: var(--text-tertiary);">kg/m³</td>
+                        </tr>
+                        <tr>
+                          <td class="text-primary">粉煤灰</td>
+                          <td class="mono" style="text-align: right;">80.0</td>
+                          <td style="text-align: right; color: var(--text-tertiary);">kg/m³</td>
+                        </tr>
+                        <tr>
+                          <td class="text-primary">砂</td>
+                          <td class="mono" style="text-align: right;">720.0</td>
+                          <td style="text-align: right; color: var(--text-tertiary);">kg/m³</td>
+                        </tr>
+                        <tr>
+                          <td class="text-primary">碎石</td>
+                          <td class="mono" style="text-align: right;">1060.0</td>
+                          <td style="text-align: right; color: var(--text-tertiary);">kg/m³</td>
+                        </tr>
+                        <tr>
+                          <td class="text-primary">水</td>
+                          <td class="mono" style="text-align: right;">175.0</td>
+                          <td style="text-align: right; color: var(--text-tertiary);">kg/m³</td>
+                        </tr>
+                        <tr>
+                          <td class="text-primary">减水剂</td>
+                          <td class="mono" style="text-align: right;">5.84</td>
+                          <td style="text-align: right; color: var(--text-tertiary);">kg/m³</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div style="margin-top: 20px; padding: 16px; background: var(--bg-elevated); border-radius: 8px;">
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+                      <div class="param-item">
+                        <span class="param-label">配置强度</span>
+                        <span class="param-value">38.2 MPa</span>
+                      </div>
+                      <div class="param-item">
+                        <span class="param-label">水胶比</span>
+                        <span class="param-value">0.48</span>
+                      </div>
+                      <div class="param-item">
+                        <span class="param-label">容重</span>
+                        <span class="param-value">2400 kg/m³</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="result-side">
+              <div class="card">
+                <div class="card-header">
+                  <span class="card-title">成本分析</span>
+                </div>
+                <div class="card-body">
+                  <div class="cost-list">
+                    <div class="cost-item">
+                      <span class="cost-label"><span class="cost-dot" style="background: #3B82F6;"></span>水泥</span>
+                      <span class="cost-value">136.80 元</span>
+                    </div>
+                    <div class="cost-item">
+                      <span class="cost-label"><span class="cost-dot" style="background: #10B981;"></span>粉煤灰</span>
+                      <span class="cost-value">14.40 元</span>
+                    </div>
+                    <div class="cost-item">
+                      <span class="cost-label"><span class="cost-dot" style="background: #F59E0B;"></span>砂</span>
+                      <span class="cost-value">68.40 元</span>
+                    </div>
+                    <div class="cost-item">
+                      <span class="cost-label"><span class="cost-dot" style="background: #6366F1;"></span>碎石</span>
+                      <span class="cost-value">90.10 元</span>
+                    </div>
+                    <div class="cost-item">
+                      <span class="cost-label"><span class="cost-dot" style="background: #EC4899;"></span>减水剂</span>
+                      <span class="cost-value">87.60 元</span>
+                    </div>
+                    <div class="cost-total">
+                      <span class="cost-label">总成本</span>
+                      <span class="cost-value">486.32 元/m³</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Chart Placeholder -->
+              <div class="card">
+                <div class="card-header">
+                  <span class="card-title">温度曲线</span>
+                </div>
+                <div class="card-body">
+                  <div class="chart-box" style="height: 180px;">
+                    <div class="chart-box-content">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 9l-5 5-4-4-3 3"/></svg>
+                      <span class="chart-box-text">图表区域</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comparison Section -->
+    <section class="comparison-section">
+      <div class="comparison-header">
+        <h2 class="comparison-title">设计对比</h2>
+        <p class="comparison-desc">当前版本 vs 现代工业风升级版</p>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+        <div class="card">
+          <div class="card-header" style="background: #FEF2F2;">
+            <span class="card-title" style="color: var(--error);">❌ 当前问题</span>
+          </div>
+          <div class="card-body">
+            <ul style="list-style: none; display: flex; flex-direction: column; gap: 12px;">
+              <li style="display: flex; align-items: flex-start; gap: 8px;">
+                <span style="color: var(--error);">●</span>
+                <span style="color: var(--text-secondary);">Emoji图标缺乏专业感，跨平台渲染不一致</span>
+              </li>
+              <li style="display: flex; align-items: flex-start; gap: 8px;">
+                <span style="color: var(--error);">●</span>
+                <span style="color: var(--text-secondary);">Inter字体偏互联网风格，工程软件权威感不足</span>
+              </li>
+              <li style="display: flex; align-items: flex-start; gap: 8px;">
+                <span style="color: var(--error);">●</span>
+                <span style="color: var(--text-secondary);">色彩系统单薄，缺少数据可视化色板</span>
+              </li>
+              <li style="display: flex; align-items: flex-start; gap: 8px;">
+                <span style="color: var(--error);">●</span>
+                <span style="color: var(--text-secondary);">卡片层级不清，主次信息混淆</span>
+              </li>
+              <li style="display: flex; align-items: flex-start; gap: 8px;">
+                <span style="color: var(--error);">●</span>
+                <span style="color: var(--text-secondary);">表格设计粗糙，hover效果弱</span>
+              </li>
+              <li style="display: flex; align-items: flex-start; gap: 8px;">
+                <span style="color: var(--error);">●</span>
+                <span style="color: var(--text-secondary);">数字展示没有等宽字体规范</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header" style="background: #ECFDF5;">
+            <span class="card-title" style="color: var(--success);">✓ 改进方案</span>
+          </div>
+          <div class="card-body">
+            <ul style="list-style: none; display: flex; flex-direction: column; gap: 12px;">
+              <li style="display: flex; align-items: flex-start; gap: 8px;">
+                <span style="color: var(--success);">●</span>
+                <span style="color: var(--text-secondary);">SVG图标系统，统一且专业</span>
+              </li>
+              <li style="display: flex; align-items: flex-start; gap: 8px;">
+                <span style="color: var(--success);">●</span>
+                <span style="color: var(--text-secondary);">Noto Sans SC + JetBrains Mono，工程+数据展示</span>
+              </li>
+              <li style="display: flex; align-items: flex-start; gap: 8px;">
+                <span style="color: var(--success);">●</span>
+                <span style="color: var(--text-secondary);">6色数据可视化色板 + 功能色系统</span>
+              </li>
+              <li style="display: flex; align-items: flex-start; gap: 8px;">
+                <span style="color: var(--success);">●</span>
+                <span style="color: var(--text-secondary);">卡片分层：主卡/标准卡/信息卡视觉权重明确</span>
+              </li>
+              <li style="display: flex; align-items: flex-start; gap: 8px;">
+                <span style="color: var(--success);">●</span>
+                <span style="color: var(--text-secondary);">表头规范 + hover状态 + 对齐方式</span>
+              </li>
+              <li style="display: flex; align-items: flex-start; gap: 8px;">
+                <span style="color: var(--success);">●</span>
+                <span style="color: var(--text-secondary);">等宽字体用于所有数字展示</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="demo-footer">
+      <p>混凝土配合比设计系统 · 现代工业风 UI Demo</p>
+      <p style="margin-top: 8px; opacity: 0.7;">Designed by Huashu-Design</p>
+    </footer>
+  </div>
+</body>
+</html>

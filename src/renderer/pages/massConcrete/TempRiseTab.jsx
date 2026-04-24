@@ -4,8 +4,6 @@ import { Card, Form, Input, Select, Button, InputNumber, message, Divider, Alert
 import { useSelector, useDispatch } from 'react-redux'
 import { setAdiabaticTempData, setTemperatureFieldData, setTemperatureFieldStatus, setHeatDissipationConditions } from '../../../store/massConcreteSlice'
 import TempRiseChart from '../../components/charts/TempRiseChart'
-import TempDiffCurveChart from '../../components/charts/TempDiffCurveChart'
-import TempDistributionChart from '../../components/charts/TempDistributionChart'
 import TemperatureFieldChart from '../../components/charts/TemperatureFieldChart'
 
 const { Option } = Select
@@ -396,8 +394,17 @@ const TempRiseTab = ({ onCalculate }) => {
     try {
       const values = await form.validateFields()
 
+      // 从配合比数据或表单获取强度等级
+      const strengthGrade = mixDesignData?.strength || values.strengthGrade || 'C30'
+
       const params = {
-        cementContent: Number(values.cementConsumption),
+        // === 配合比继承（新增）===
+        strengthGrade,
+        cementConsumption: Number(values.cementConsumption),
+        flyAshConsumption: Number(values.flyAshConsumption) || 0,
+        slagConsumption: Number(values.slagConsumption) || 0,
+
+        // === 原有字段 ===
         totalBinder: Number(values.totalBinder || values.cementConsumption),
         totalHeat: Number(values.totalHeat),
         moldingTemp: Number(values.placementTemp) || 25,
@@ -436,7 +443,7 @@ const TempRiseTab = ({ onCalculate }) => {
 
       // 从绝热温升结果获取 T0 和 m
       const T0 = adiabaticTempData.maxAdiabaticTemp
-      const m = adiabaticTempData.mCoefficient
+      const m = adiabaticTempData.hydrationRateCoefficient
 
       const values = form.getFieldsValue()
 
@@ -896,28 +903,13 @@ const TempRiseTab = ({ onCalculate }) => {
             />
           </Card>
 
-          <Card className="custom-card" title="温差曲线" style={{ marginTop: 16 }}>
-            <TempDiffCurveChart
-              interiorSurfaceDiffData={adiabaticTempData.tempDiffCurveData || []}
-              surfaceAirDiffData={adiabaticTempData.surfaceTempDiffCurveData || []}
-              title="里表温差与表气温温"
-            />
-          </Card>
-
-          <Card className="custom-card" title="温度分布" style={{ marginTop: 16 }}>
-            <TempDistributionChart
-              tempFieldData={adiabaticTempData.tempFieldData || []}
-              title="温度场分布"
-            />
-          </Card>
-
           <Card className="custom-card" title="温度计算结果" style={{ marginTop: 16 }}>
             <div className="grid-2-col">
               <div>
                 <h4>温升参数</h4>
                 <ul>
                   <li>最高温度: {adiabaticTempData.maxAdiabaticTemp ? adiabaticTempData.maxAdiabaticTemp.toFixed(1) : '-'} °C</li>
-                  <li>温升系数m0: {adiabaticTempData.mCoefficient ? adiabaticTempData.mCoefficient.toFixed(4) : '-'} </li>
+                  <li>温升系数m0: {adiabaticTempData.hydrationRateCoefficient ? adiabaticTempData.hydrationRateCoefficient.toFixed(4) : '-'} </li>
                   <li>总发热量: {adiabaticTempData.totalHeat ? Number(adiabaticTempData.totalHeat).toFixed(2) : '-'} kJ/m³</li>
                 </ul>
               </div>

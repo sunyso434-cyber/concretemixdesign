@@ -33,6 +33,11 @@ const InsulationMaterial = sequelize.define('InsulationMaterial', {
   isDefault: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
+  },
+  category: {
+    type: DataTypes.ENUM('organic', 'inorganic', 'composite'),
+    defaultValue: 'organic',
+    comment: '材料类别'
   }
 }, {
   tableName: 'insulationMaterials',

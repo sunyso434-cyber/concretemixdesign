@@ -85,6 +85,39 @@ class InsulationMaterialService {
       throw error
     }
   }
+
+  /**
+   * 获取所有保温材料（按类别分组）
+   * @returns {Promise<Object>} { organic: [], inorganic: [], composite: [] }
+   */
+  async getAllMaterialsGrouped() {
+    try {
+      const materials = await InsulationMaterial.findAll({
+        order: [
+          ['category', 'ASC'],
+          ['name', 'ASC']
+        ]
+      })
+
+      const grouped = {
+        organic: [],
+        inorganic: [],
+        composite: []
+      }
+
+      materials.forEach(m => {
+        const cat = m.category || 'organic'
+        if (grouped[cat]) {
+          grouped[cat].push(m.toJSON())
+        }
+      })
+
+      return grouped
+    } catch (error) {
+      console.error('获取保温材料列表失败:', error)
+      throw error
+    }
+  }
 }
 
 module.exports = new InsulationMaterialService()

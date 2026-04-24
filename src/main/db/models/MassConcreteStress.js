@@ -38,6 +38,23 @@ const MassConcreteStress = sequelize.define('MassConcreteStress', {
   tensileStrengthCurve: {
     type: DataTypes.JSON,
     comment: '抗拉强度曲线数据'
+  },
+  crackRiskIndex: {
+    type: DataTypes.FLOAT,
+    comment: '裂缝风险指数 0-100'
+  },
+  riskLevel: {
+    type: DataTypes.ENUM('low', 'medium', 'high', 'extreme'),
+    comment: '风险等级'
+  },
+  creepModel: {
+    type: DataTypes.ENUM('exponential', 'CEB_FIP_1978'),
+    defaultValue: 'exponential',
+    comment: '徐变模型选择'
+  },
+  stressField: {
+    type: DataTypes.JSON,
+    comment: '应力场分布数据'
   }
 }, {
   tableName: 'massConcreteStresses',

@@ -259,7 +259,8 @@ class MassConcreteInsulationService {
       // 热工计算参数
       thermal: {
         concreteLambda: MassConcreteInsulationService.CONCRETE_LAMBDA,
-        betaT,
+        concreteSurfaceHeatTransferCoeff: betaT,  // 表面传热系数 W/(m²·K)
+        insulationThermalConductivity: minLambda,  // 等效保温层导热系数 W/(m·K)
         Kb,
         Rs,
         betaS,
