@@ -10,6 +10,84 @@ const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions'
 class DeepSeekService {
   constructor(apiKey) {
     this.apiKey = apiKey
+    this.conversationHistory = []
+  }
+
+  /**
+   * 与AI对话
+   * @param {string} message - 用户消息
+   * @param {Array} context - 上下文数据（配合比数据等）
+   * @returns {Promise<Object>} - AI返回的对话响应
+   */
+  async chat(message, context = null) {
+    if (!this.apiKey) {
+      throw new Error('DeepSeek API密钥未配置')
+    }
+
+    // 构建系统提示
+    const systemPrompt = `你是一个混凝土配合比分析专家，擅长分析材料性能参数对混凝土性能的影响。
+你可以回答关于混凝土配合比设计、材料选择、性能优化、成本控制等各方面的问题。
+请用专业的知识帮助用户解答疑问。`
+
+    // 添加上下文到消息中
+    let userMessage = message
+    if (context) {
+      userMessage = `用户问题是：${message}\n\n相关配合比数据背景：\n${JSON.stringify(context, null, 2)}`
+    }
+
+    try {
+      const response = await axios.post(
+        DEEPSEEK_API_URL,
+        {
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...this.conversationHistory,
+            { role: 'user', content: userMessage }
+          ],
+          temperature: 0.7,
+          max_tokens: 2048
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.apiKey}`
+          },
+          timeout: 120000
+        }
+      )
+
+      const content = response.data.choices[0].message.content
+
+      // 保存对话历史
+      this.conversationHistory.push({ role: 'user', content: userMessage })
+      this.conversationHistory.push({ role: 'assistant', content: content })
+
+      return { reply: content }
+    } catch (error) {
+      if (error.response) {
+        const status = error.response.status
+        const data = error.response.data
+        if (status === 401) {
+          throw new Error('DeepSeek API密钥无效')
+        } else if (status === 429) {
+          throw new Error('DeepSeek API请求频率超限，请稍后重试')
+        } else {
+          throw new Error(`DeepSeek API错误: ${data.error?.message || status}`)
+        }
+      } else if (error.code === 'ECONNABORTED') {
+        throw new Error('DeepSeek API请求超时，请检查网络连接')
+      } else {
+        throw new Error(`DeepSeek API调用失败: ${error.message}`)
+      }
+    }
+  }
+
+  /**
+   * 清空对话历史
+   */
+  clearHistory() {
+    this.conversationHistory = []
   }
 
   /**

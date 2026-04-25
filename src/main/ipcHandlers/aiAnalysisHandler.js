@@ -66,11 +66,42 @@ const checkApiStatus = async () => {
 }
 
 /**
+ * 与AI对话
+ */
+const chatWithAI = async (event, { message, context }) => {
+  const service = await getDeepSeekService()
+  if (!service) {
+    throw new Error('DeepSeek API未配置，请在系统设置中配置API密钥')
+  }
+
+  try {
+    const result = await service.chat(message, context)
+    return result
+  } catch (error) {
+    console.error('AI对话失败:', error)
+    throw error
+  }
+}
+
+/**
+ * 清空对话历史
+ */
+const clearChatHistory = async () => {
+  const service = await getDeepSeekService()
+  if (service) {
+    service.clearHistory()
+  }
+  return { success: true }
+}
+
+/**
  * 注册IPC处理器
  */
 const registerHandlers = (ipcMain) => {
   ipcMain.handle('aiAnalysis:analyze', analyzeMixDesign)
   ipcMain.handle('aiAnalysis:checkStatus', checkApiStatus)
+  ipcMain.handle('aiAnalysis:chat', chatWithAI)
+  ipcMain.handle('aiAnalysis:clearHistory', clearChatHistory)
   console.log('AI Analysis IPC handlers registered')
 }
 
@@ -81,5 +112,7 @@ registerHandlers(ipcMain)
 module.exports = {
   register: registerHandlers,
   analyzeMixDesign,
-  checkApiStatus
+  checkApiStatus,
+  chatWithAI,
+  clearChatHistory
 }

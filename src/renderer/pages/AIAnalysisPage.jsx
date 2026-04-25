@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
-import { Tabs, Button, message, Upload, Table, Select, Space, Card, Tag, Alert, Descriptions, Divider, Form, InputNumber, Row, Col } from 'antd'
-import { DownloadOutlined, UploadOutlined, ExperimentOutlined, SettingOutlined } from '@ant-design/icons'
+import React, { useState, useEffect, useRef } from 'react'
+import { Tabs, Button, message, Upload, Table, Select, Space, Card, Tag, Alert, Descriptions, Divider, Form, InputNumber, Row, Col, Input, List, Avatar } from 'antd'
+import { DownloadOutlined, UploadOutlined, ExperimentOutlined, SettingOutlined, SendOutlined, ClearOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import { getMaterialsByType, getAllMaterials, matchMaterialByName } from '../services/MaterialService'
 
@@ -287,6 +287,10 @@ const AIAnalysisPage = () => {
   const [loading, setLoading] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisResult, setAnalysisResult] = useState(null)
+  const [chatMessages, setChatMessages] = useState([]) // [{role: 'user'|'assistant', content: string}]
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const chatEndRef = useRef(null)
 
   // 加载所有材料
   const loadMaterials = async () => {
@@ -485,6 +489,54 @@ const AIAnalysisPage = () => {
       setAnalyzing(false)
     }
   }
+
+  // 发送聊天消息
+  const handleSendChat = async () => {
+    if (!chatInput.trim() || chatLoading) return
+
+    const userMessage = chatInput.trim()
+    setChatInput('')
+    setChatMessages(prev => [...prev, { role: 'user', content: userMessage }])
+    setChatLoading(true)
+
+    try {
+      // 构建上下文数据
+      const context = {
+        mixDesignsCount: mixDesigns.length,
+        analysisResult: analysisResult,
+        mixDesigns: mixDesigns.slice(0, 5) // 只传前5条作为上下文
+      }
+
+      const result = await window.electronAPI.invoke('aiAnalysis:chat', {
+        message: userMessage,
+        context: context
+      })
+
+      setChatMessages(prev => [...prev, { role: 'assistant', content: result.reply }])
+    } catch (error) {
+      message.error('发送消息失败: ' + error.message)
+      // 移除失败的用户消息
+      setChatMessages(prev => prev.slice(0, -1))
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
+  // 清空聊天历史
+  const handleClearChat = async () => {
+    try {
+      await window.electronAPI.invoke('aiAnalysis:clearHistory')
+      setChatMessages([])
+      message.success('对话已清空')
+    } catch (error) {
+      console.error('清空对话失败:', error)
+    }
+  }
+
+  // 自动滚动到底部
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chatMessages])
 
   // 手动添加配合比数据
   const handleManualAdd = (values) => {
@@ -860,6 +912,91 @@ const AIAnalysisPage = () => {
             )}
           </div>
           <AnalysisReport result={analysisResult} />
+
+          {/* 继续与AI对话 */}
+          <Card
+            className="custom-card mt-l"
+            title={
+              <Space>
+                <RobotOutlined />
+                <span>继续与AI对话</span>
+              </Space>
+            }
+            extra={
+              <Button
+                icon={<ClearOutlined />}
+                onClick={handleClearChat}
+                disabled={chatMessages.length === 0}
+                size="small"
+              >
+                清空对话
+              </Button>
+            }
+          >
+            <div style={{ maxHeight: 400, overflowY: 'auto', marginBottom: 16 }}>
+              {chatMessages.length === 0 ? (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="暂无对话记录"
+                  description="完成AI分析后，可以在这里继续与AI讨论相关问题"
+                />
+              ) : (
+                <List
+                  dataSource={chatMessages}
+                  renderItem={(item) => (
+                    <List.Item
+                      style={{
+                        justifyContent: item.role === 'user' ? 'flex-end' : 'flex-start',
+                        border: 'none',
+                        padding: '8px 0'
+                      }}
+                    >
+                      <Space align="start">
+                        {item.role === 'assistant' && (
+                          <Avatar icon={<RobotOutlined />} style={{ backgroundColor: '#1890ff' }} />
+                        )}
+                        <div
+                          style={{
+                            maxWidth: '70%',
+                            padding: '12px 16px',
+                            borderRadius: 12,
+                            backgroundColor: item.role === 'user' ? '#1890ff' : '#f5f5f5',
+                            color: item.role === 'user' ? '#fff' : '#333'
+                          }}
+                        >
+                          {item.content}
+                        </div>
+                        {item.role === 'user' && (
+                          <Avatar icon={<UserOutlined />} style={{ backgroundColor: '#52c41a' }} />
+                        )}
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            <Space.Compact style={{ width: '100%' }}>
+              <Input
+                placeholder="输入您的问题，与AI讨论配合比相关问题..."
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onPressEnter={handleSendChat}
+                disabled={chatLoading}
+              />
+              <Button
+                type="primary"
+                icon={<SendOutlined />}
+                onClick={handleSendChat}
+                loading={chatLoading}
+                disabled={!chatInput.trim()}
+              >
+                发送
+              </Button>
+            </Space.Compact>
+          </Card>
         </div>
       ),
     },
