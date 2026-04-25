@@ -60,12 +60,6 @@ const MixDesign = require('./models/MixDesign')
 const SystemParam = require('./models/SystemParam')
 const OptimizationHistory = require('./models/OptimizationHistory')
 const InsulationMaterial = require('./models/InsulationMaterial')
-const MassConcreteScheme = require('./models/MassConcreteScheme')
-const MassConcreteMixDesign = require('./models/MassConcreteMixDesign')
-const MassConcreteAdiabaticTemp = require('./models/MassConcreteAdiabaticTemp')
-const MassConcreteStress = require('./models/MassConcreteStress')
-const MassConcreteInsulation = require('./models/MassConcreteInsulation')
-const MassConcreteHeatDissipation = require('./models/MassConcreteHeatDissipation')
 
 // 默认保温材料数据
 const defaultInsulationMaterials = [
@@ -125,29 +119,11 @@ const defaultInsulationMaterials = [
   }
 ]
 
-// 默认散热条件数据
-const defaultHeatDissipationConditions = [
-  { name: '室内自然对流', windSpeedRef: '0', beta: 5, isDefault: true, remarks: '室内无风环境' },
-  { name: '室外微风', windSpeedRef: '1~2', beta: 10, isDefault: true, remarks: '微风环境' },
-  { name: '室外一般风速', windSpeedRef: '3~5', beta: 20, isDefault: true, remarks: '一般通风环境' },
-  { name: '室外强风', windSpeedRef: '6~10', beta: 40, isDefault: true, remarks: '强风环境' }
-]
-
-// 初始化散热条件数据
-async function initHeatDissipationConditions() {
-  for (const cond of defaultHeatDissipationConditions) {
-    await MassConcreteHeatDissipation.findOrCreate({
-      where: { name: cond.name },
-      defaults: cond
-    })
-  }
-}
-
 // 同步所有模型并初始化数据
 async function syncModels() {
   // 同步所有模型到数据库，alter: true 会自动添加新列
   await sequelize.sync({ alter: true })
-  console.log('大体积混凝土模块模型同步完成')
+  console.log('数据库模型同步完成')
 
   // 检查并初始化默认保温材料
   const count = await InsulationMaterial.count()
@@ -155,9 +131,6 @@ async function syncModels() {
     await InsulationMaterial.bulkCreate(defaultInsulationMaterials)
     console.log('默认保温材料数据已初始化')
   }
-
-  // 初始化散热条件数据
-  await initHeatDissipationConditions()
 }
 
 // 导出sequelize实例、关闭函数、同步函数和所有模型
@@ -168,9 +141,3 @@ module.exports.MixDesign = MixDesign
 module.exports.SystemParam = SystemParam
 module.exports.OptimizationHistory = OptimizationHistory
 module.exports.InsulationMaterial = InsulationMaterial
-module.exports.MassConcreteScheme = MassConcreteScheme
-module.exports.MassConcreteMixDesign = MassConcreteMixDesign
-module.exports.MassConcreteAdiabaticTemp = MassConcreteAdiabaticTemp
-module.exports.MassConcreteStress = MassConcreteStress
-module.exports.MassConcreteInsulation = MassConcreteInsulation
-module.exports.MassConcreteHeatDissipation = MassConcreteHeatDissipation

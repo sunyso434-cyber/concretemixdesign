@@ -7,7 +7,7 @@ const navItems = [
   { key: 'mixdesign', path: '/mixdesign', label: '配合比设计', icon: '📝' },
   { key: 'optimization', path: '/optimization', label: '成本优化', icon: '🎯' },
   { key: 'inverse-calculation', path: '/inverse-calculation', label: '参数反算', icon: '🔢' },
-  { key: 'mass-concrete', path: '/mass-concrete', label: '大体积混凝土', icon: '🧊' },
+  { key: 'ai-analysis', path: '/ai-analysis', label: 'AI分析', icon: '🤖' },
   { key: 'schemes', path: '/schemes', label: '方案管理', icon: '📋' },
   { key: 'settings', path: '/settings', label: '系统管理', icon: '⚙️' },
 ]

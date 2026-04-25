@@ -73,6 +73,17 @@ class MaterialHandler {
       }
     })
 
+    // 根据名称匹配原材料
+    ipcMain.handle('matchMaterialByName', async (_, { type, name }) => {
+      try {
+        const material = await MaterialService.matchMaterialByName(type, name)
+        return { success: true, data: material }
+      } catch (error) {
+        console.error('matchMaterialByName failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
     // 初始化预设材料
     ipcMain.handle('initDefaultMaterials', async () => {
       try {

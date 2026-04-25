@@ -32,9 +32,9 @@ const InverseCalculationPage = lazy(() => import('./pages/InverseCalculationPage
   console.error('InverseCalculationPage 加载失败:', err)
   return { default: () => <div className="custom-empty"><div className="empty-icon">🔢</div><div className="empty-title">加载失败</div><div className="empty-description">InverseCalculationPage 加载失败：{err.message}</div></div> }
 }))
-const MassConcretePage = lazy(() => import('./pages/MassConcretePage').catch(err => {
-  console.error('MassConcretePage 加载失败:', err)
-  return { default: () => <div className="custom-empty"><div className="empty-icon">🧊</div><div className="empty-title">加载失败</div><div className="empty-description">MassConcretePage 加载失败：{err.message}</div></div> }
+const AIAnalysisPage = lazy(() => import('./pages/AIAnalysisPage').catch(err => {
+  console.error('AIAnalysisPage 加载失败:', err)
+  return { default: () => <div className="custom-empty"><div className="empty-icon">🤖</div><div className="empty-title">加载失败</div><div className="empty-description">AIAnalysisPage 加载失败：{err.message}</div></div> }
 }))
 
 const { Header, Content } = Layout
@@ -172,9 +172,9 @@ function App() {
                     <Route path="/mixdesign" element={<MixDesignPage />} />
                     <Route path="/optimization" element={<OptimizationPage />} />
                     <Route path="/inverse-calculation" element={<InverseCalculationPage />} />
-                    <Route path="/mass-concrete" element={<MassConcretePage />} />
                     <Route path="/schemes" element={<SchemesPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
+                    <Route path="/ai-analysis" element={<AIAnalysisPage />} />
                   </Routes>
                 </Suspense>
               </ErrorBoundary>

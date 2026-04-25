@@ -42,9 +42,9 @@ const { sequelize, syncModels } = require('./src/main/db/database')
 require('./src/main/ipcHandlers/materialHandler')
 require('./src/main/ipcHandlers/mixDesignHandler')
 require('./src/main/ipcHandlers/mixDesignOptimizerHandler') // 新增：优化器 IPC 处理器
-require('./src/main/ipcHandlers/massConcreteHandler') // 大体积混凝土模块 IPC 处理器
 require('./src/main/ipcHandlers/inverseCalculationHandler') // 原材料参数反算 IPC 处理器
 const SystemHandler = require('./src/main/ipcHandlers/systemHandler')
+require('./src/main/ipcHandlers/aiAnalysisHandler')
 // const { autoUpdater } = require('electron-updater')
 
 // 数据库就绪状态
@@ -58,7 +58,7 @@ async function initializeDatabase() {
   try {
     await sequelize.authenticate()
     console.log('数据库连接成功')
-    // 同步所有模型（包括大体积混凝土模块）
+    // 同步所有模型
     await syncModels()
     console.log('数据库表同步完成')
     // 初始化预设材料

@@ -77,6 +77,50 @@ class MaterialService {
     }
   }
 
+  // 根据名称匹配原材料
+  // type: 材料类型 (如 '水泥', '粉煤灰', '细骨料' 等)
+  // name: 材料名称 (可能是不完整的名称)
+  async matchMaterialByName(type, name) {
+    if (!name || !type) {
+      return null
+    }
+
+    try {
+      // 先尝试精确匹配
+      let material = await Material.findOne({ where: { type, name } })
+      if (material) {
+        return material.toJSON()
+      }
+
+      // 尝试模糊匹配 (名称包含)
+      const materials = await Material.findAll({
+        where: {
+          type,
+          name: {
+            [require('sequelize').Op.like]: `%${name}%`
+          }
+        }
+      })
+
+      if (materials.length > 0) {
+        // 返回第一个匹配的结果
+        return materials[0].toJSON()
+      }
+
+      // 尝试反向模糊匹配 (传入的名称包含数据库中的名称)
+      const allMaterials = await Material.findAll({ where: { type } })
+      const matched = allMaterials.find(m => name.includes(m.name))
+      if (matched) {
+        return matched.toJSON()
+      }
+
+      return null
+    } catch (error) {
+      console.error('根据名称匹配原材料失败:', error)
+      throw error
+    }
+  }
+
   // 初始化预设材料
   async initDefaultMaterials() {
     try {
