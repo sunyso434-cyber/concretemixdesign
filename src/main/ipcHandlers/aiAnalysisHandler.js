@@ -3,7 +3,7 @@
  * 处理前端发送的AI分析请求
  */
 
-const DeepSeekService = require('../../services/DeepSeekService')
+const DeepSeekService = require('../services/DeepSeekService')
 const SystemService = require('../services/SystemService')
 
 // 从系统参数获取API密钥
