@@ -717,7 +717,7 @@ const AIAnalysisPage = () => {
       key: 'data-import',
       label: '数据导入',
       children: (
-        <div style={{ padding: '24px 0' }}>
+        <div>
           <Button
             type="primary"
             icon={<DownloadOutlined />}
@@ -871,7 +871,7 @@ const AIAnalysisPage = () => {
       key: 'data-list',
       label: '数据列表',
       children: (
-        <div style={{ padding: '24px 0' }}>
+        <div>
           {mixDesigns.length > 0 ? (
             <Table
               columns={dataListColumns}
@@ -894,7 +894,7 @@ const AIAnalysisPage = () => {
       key: 'analysis-report',
       label: '分析报告',
       children: (
-        <div style={{ padding: '24px 0' }}>
+        <div>
           <div className="mb-m">
             <Button
               type="primary"
