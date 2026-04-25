@@ -192,6 +192,12 @@ class SystemService {
           paramValue: '7',
           paramType: 'backup',
           description: '备份间隔(天)'
+        },
+        {
+          paramName: 'deepseekApiKey',
+          paramValue: '',
+          paramType: 'ai',
+          description: 'DeepSeek API 密钥'
         }
       ]
 

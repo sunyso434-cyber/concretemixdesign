@@ -10,7 +10,7 @@ import { PARAM_CONFIG, PARAM_TABS } from '../config/paramConfig'
 
 const { Text } = Typography
 
-const TAB_KEYS = ['JGJ55标准', '系统设置', '备份设置']
+const TAB_KEYS = ['JGJ55标准', '系统设置', '备份设置', 'AI设置']
 
 const SettingsPage = () => {
   const [params, setParams] = useState([])

@@ -138,6 +138,12 @@ export const PARAM_CONFIG = {
     step: 1,
     description: '自动备份执行间隔（天）',
   },
+  // ===== AI 设置 =====
+  deepseekApiKey: {
+    label: 'DeepSeek API 密钥',
+    type: 'input',
+    description: '用于 AI 配合比分析的 DeepSeek API 密钥',
+  },
 }
 
 /**
@@ -150,4 +156,5 @@ export const PARAM_TABS = {
     'superplasticizerDosage_C50', 'waterReducingRatePer01Dosage'],
   '系统设置': [],
   '备份设置': ['autoBackup', 'backupInterval'],
+  'AI设置': ['deepseekApiKey'],
 }

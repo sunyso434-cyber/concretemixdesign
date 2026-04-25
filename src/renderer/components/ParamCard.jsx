@@ -1,6 +1,6 @@
 // src/renderer/components/ParamCard.jsx
 import React, { useState, useEffect } from 'react'
-import { Slider, InputNumber, Select, Switch, Typography } from 'antd'
+import { Slider, InputNumber, Select, Switch, Input, Typography } from 'antd'
 
 const { Text } = Typography
 
@@ -61,6 +61,15 @@ const ParamCard = ({ paramName, config, value, onChange }) => {
       case 'switch':
         return (
           <Switch checked={localValue === 'true' || localValue === true} onChange={handleChange} />
+        )
+      case 'input':
+        return (
+          <Input.Password
+            value={localValue}
+            onChange={(e) => handleChange(e.target.value)}
+            placeholder="请输入"
+            style={{ width: 300 }}
+          />
         )
       default:
         return <Text>{localValue}</Text>
