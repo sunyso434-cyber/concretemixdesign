@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Tabs, Button, message, Upload, Table, Select, Space, Card, Tag, Alert, Descriptions, Divider, Form, InputNumber, Row, Col, Option } from 'antd'
+import { Tabs, Button, message, Upload, Table, Select, Space, Card, Tag, Alert, Descriptions, Divider, Form, InputNumber, Row, Col } from 'antd'
 import { DownloadOutlined, UploadOutlined, ExperimentOutlined, SettingOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import { getMaterialsByType, getAllMaterials, matchMaterialByName } from '../services/MaterialService'
@@ -608,13 +608,11 @@ const AIAnalysisPage = () => {
             filterOption={(input, option) =>
               option.children?.toLowerCase?.().includes?.(input.toLowerCase()) ?? true
             }
-          >
-            {options.map(mat => (
-              <Select.Option key={mat.id} value={mat.id}>
-                {mat.name} - {mat.manufacturer || '未知厂家'}
-              </Select.Option>
-            ))}
-          </Select>
+            options={options.map(mat => ({
+              value: mat.id,
+              label: `${mat.name} - ${mat.manufacturer || '未知厂家'}`
+            }))}
+          />
         )
       }
     })),
@@ -718,15 +716,15 @@ const AIAnalysisPage = () => {
             <Row gutter={16}>
               <Col span={8}>
                 <Form.Item name="strengthGrade" label="强度等级">
-                  <Select>
-                    <Option value="C20">C20</Option>
-                    <Option value="C25">C25</Option>
-                    <Option value="C30">C30</Option>
-                    <Option value="C35">C35</Option>
-                    <Option value="C40">C40</Option>
-                    <Option value="C45">C45</Option>
-                    <Option value="C50">C50</Option>
-                  </Select>
+                  <Select options={[
+                    { value: 'C20', label: 'C20' },
+                    { value: 'C25', label: 'C25' },
+                    { value: 'C30', label: 'C30' },
+                    { value: 'C35', label: 'C35' },
+                    { value: 'C40', label: 'C40' },
+                    { value: 'C45', label: 'C45' },
+                    { value: 'C50', label: 'C50' },
+                  ]} />
                 </Form.Item>
               </Col>
               <Col span={8}>
