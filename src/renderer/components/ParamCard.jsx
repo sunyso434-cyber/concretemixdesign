@@ -38,15 +38,17 @@ const ParamCard = ({ paramName, config, value, onChange }) => {
               tooltip={{ formatter: (v) => `${v}${unit}` }}
               style={{ flex: 1 }}
             />
-            <InputNumber
-              min={min}
-              max={max}
-              step={step}
-              value={localValue}
-              onChange={handleChange}
-              style={{ width: 80 }}
-              addonAfter={unit}
-            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <InputNumber
+                min={min}
+                max={max}
+                step={step}
+                value={localValue}
+                onChange={handleChange}
+                style={{ width: 80 }}
+              />
+              <Text type="secondary">{unit}</Text>
+            </div>
           </div>
         )
       case 'select':
