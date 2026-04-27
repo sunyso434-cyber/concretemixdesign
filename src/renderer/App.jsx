@@ -1,10 +1,19 @@
 import React, { Suspense, lazy } from 'react'
-import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import { ConfigProvider, Layout, Spin } from 'antd'
+import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { ConfigProvider, Layout, Menu, Spin } from 'antd'
 import zhCN from 'antd/lib/locale/zh_CN'
 import 'antd/dist/reset.css'
 import './index.css'
 import BackgroundTaskBar from './components/BackgroundTaskBar'
+import {
+  ExperimentOutlined,
+  AimOutlined,
+  CalculatorOutlined,
+  RobotOutlined,
+  FileTextOutlined,
+  SettingOutlined,
+  InboxOutlined,
+} from '@ant-design/icons'
 
 // 页面组件 - 使用 lazy 加载
 const MaterialsPage = lazy(() => import('./pages/MaterialsPage').catch(err => {
@@ -83,6 +92,70 @@ const contentWrapperStyle = {
 }
 
 // 加载中的占位符
+// 导航菜单配置
+const menuItems = [
+  {
+    key: '/materials',
+    icon: <InboxOutlined />,
+    label: '原材料管理',
+  },
+  {
+    key: '/mixdesign',
+    icon: <ExperimentOutlined />,
+    label: '配合比设计',
+  },
+  {
+    key: '/optimization',
+    icon: <AimOutlined />,
+    label: '成本优化',
+  },
+  {
+    key: '/inverse-calculation',
+    icon: <CalculatorOutlined />,
+    label: '参数反算',
+  },
+  {
+    key: '/ai-analysis',
+    icon: <RobotOutlined />,
+    label: 'AI分析',
+  },
+  {
+    key: '/schemes',
+    icon: <FileTextOutlined />,
+    label: '方案管理',
+  },
+  {
+    key: '/settings',
+    icon: <SettingOutlined />,
+    label: '系统设置',
+  },
+]
+
+// 导航菜单组件
+const NavigationMenu = () => {
+  const location = useLocation()
+  const selectedKey = menuItems.find(item => location.pathname.startsWith(item.key))?.key || '/materials'
+
+  return (
+    <Menu
+      theme="dark"
+      mode="horizontal"
+      selectedKeys={[selectedKey]}
+      items={menuItems}
+      style={{
+        background: 'transparent',
+        borderBottom: 'none',
+        lineHeight: '64px',
+        flex: 1,
+      }}
+      onClick={({ key }) => {
+        window.location.hash = key
+      }}
+    />
+  )
+}
+
+// 加载中的占位符
 const LoadingFallback = () => (
   <div className="custom-loading">
     <Spin size="large" />
@@ -157,6 +230,7 @@ function App() {
               <div style={headerTitleStyle}>
                 混凝土配合比设计系统
               </div>
+              <NavigationMenu />
             </div>
           </Header>
 
