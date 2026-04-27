@@ -264,15 +264,17 @@ const SchemesPage = () => {
 
   return (
     <div className="fade-in">
-      <div className="mb-xl">
-        <h2 className="page-title">📋 方案管理</h2>
-        <p className="page-subtitle">管理混凝土配合比设计方案，包括查看、编辑、复制和删除操作。</p>
+      <div className="page-container">
+        <header className="page-header">
+          <h1 className="page-title">方案管理</h1>
+          <p className="page-subtitle">管理混凝土配合比设计方案，包括查看、编辑、复制和删除操作。</p>
+        </header>
       </div>
 
       <div className="action-bar">
         <Link to="/mixdesign">
-          <Button 
-            type="primary" 
+          <Button
+            type="primary"
             className="custom-btn"
           >
             新建方案
@@ -298,7 +300,7 @@ const SchemesPage = () => {
 
       <div className="mt-lg">
         <div className="custom-card">
-          <div style={{ padding: 'var(--spacing-md)', background: 'var(--primary-light)', borderRadius: 'var(--border-radius-md)', marginBottom: 'var(--spacing-md)' }}>
+          <div className="selected-schemes-bar">
             <p>已选择 <strong>{selectedSchemes.length}</strong> 个方案</p>
           </div>
           <Button 
@@ -325,13 +327,13 @@ const SchemesPage = () => {
       >
         {currentScheme && (
           <div>
-            <h3 style={{ marginBottom: 'var(--spacing-md)', fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)' }}>{currentScheme.name}</h3>
-            <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: 'var(--spacing-lg)' }}>项目名称: {currentScheme.projectName || '无'}</p>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-lg)', marginBottom: 'var(--spacing-lg)' }}>
-              <div style={{ padding: 'var(--spacing-md)', background: 'var(--primary-light)', borderRadius: 'var(--border-radius-md)' }}>
-                <h4 style={{ marginBottom: 'var(--spacing-md)', fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)' }}>基本信息</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 'var(--spacing-sm)' }}>
+            <h3 className="scheme-detail-title">{currentScheme.name}</h3>
+            <p className="scheme-detail-subtitle">项目名称: {currentScheme.projectName || '无'}</p>
+
+            <div className="scheme-detail-grid">
+              <div className="scheme-detail-card">
+                <h4 className="scheme-detail-card-title">基本信息</h4>
+                <div className="scheme-detail-card-content">
                   <p>强度等级: <strong>{currentScheme.strength}</strong></p>
                   <p>坍落度: <strong>{currentScheme.slump !== null && currentScheme.slump !== undefined ? `${currentScheme.slump}mm` : '未设置'}</strong></p>
                   <p>环境类别: <strong>{currentScheme.environment}</strong></p>
@@ -341,8 +343,8 @@ const SchemesPage = () => {
                   <p>状态: <strong>{renderStatusTag(currentScheme.status)}</strong></p>
                 </div>
               </div>
-              <div style={{ padding: 'var(--spacing-md)', background: 'var(--primary-light)', borderRadius: 'var(--border-radius-md)' }}>
-                <h4 style={{ marginBottom: 'var(--spacing-md)', fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)' }}>材料用量</h4>
+              <div className="scheme-detail-card">
+                <h4 className="scheme-detail-card-title">材料用量</h4>
                 {currentScheme.materials && (() => {
                   const mats = currentScheme.materials || {}
                   const fine = currentScheme.fineAggregateBreakdown || []
@@ -376,9 +378,9 @@ const SchemesPage = () => {
                   if (mats.superplasticizer !== undefined) items.push({ key: 'superplasticizer', label: '减水剂', amount: mats.superplasticizer })
 
                   return (
-                    <ul style={{ listStyle: 'none', padding: 0 }}>
+                    <ul className="scheme-detail-materials-list">
                       {items.map(item => (
-                        <li key={item.key} style={{ marginBottom: 'var(--spacing-sm)', display: 'flex', justifyContent: 'space-between' }}>
+                        <li key={item.key} className="scheme-detail-item">
                           <span>{item.label}:</span>
                           <span><strong>{typeof item.amount === 'number' ? item.amount.toFixed(1) : 'N/A'} kg/m³</strong></span>
                         </li>
@@ -386,13 +388,13 @@ const SchemesPage = () => {
                     </ul>
                   )
                 })()}
-                
+
                 {currentScheme.fineAggregateBreakdown && currentScheme.fineAggregateBreakdown.length > 0 && (
-                  <div style={{ marginTop: 'var(--spacing-md)' }}>
-                    <h5 style={{ marginBottom: 'var(--spacing-sm)', fontSize: '12px', fontWeight: '600', color: 'var(--primary-dark)' }}>细骨料详细分配</h5>
-                    <ul style={{ listStyle: 'none', padding: 0 }}>
+                  <div className="scheme-detail-section">
+                    <h5 className="scheme-detail-section-title">细骨料详细分配</h5>
+                    <ul className="scheme-detail-small-list">
                       {currentScheme.fineAggregateBreakdown.map((item) => (
-                        <li key={item.id} style={{ marginBottom: 'var(--spacing-xs)', display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                        <li key={item.id}>
                           <span>{item.name} ({(item.ratio * 100).toFixed(1)}%):</span>
                           <span><strong>{item.amount.toFixed(1)} kg/m³</strong></span>
                         </li>
@@ -400,13 +402,13 @@ const SchemesPage = () => {
                     </ul>
                   </div>
                 )}
-                
+
                 {currentScheme.coarseAggregateBreakdown && currentScheme.coarseAggregateBreakdown.length > 0 && (
-                  <div style={{ marginTop: 'var(--spacing-md)' }}>
-                    <h5 style={{ marginBottom: 'var(--spacing-sm)', fontSize: '12px', fontWeight: '600', color: 'var(--primary-dark)' }}>粗骨料详细分配</h5>
-                    <ul style={{ listStyle: 'none', padding: 0 }}>
+                  <div className="scheme-detail-section">
+                    <h5 className="scheme-detail-section-title">粗骨料详细分配</h5>
+                    <ul className="scheme-detail-small-list">
                       {currentScheme.coarseAggregateBreakdown.map((item) => (
-                        <li key={item.id} style={{ marginBottom: 'var(--spacing-xs)', display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
+                        <li key={item.id}>
                           <span>{item.name} ({(item.ratio * 100).toFixed(1)}%):</span>
                           <span><strong>{item.amount.toFixed(1)} kg/m³</strong></span>
                         </li>
@@ -416,7 +418,7 @@ const SchemesPage = () => {
                 )}
               </div>
             </div>
-            
+
             {currentScheme.materialDetails && (() => {
               const details = currentScheme.materialDetails || {}
               const blocks = []
@@ -441,17 +443,17 @@ const SchemesPage = () => {
               if (details.superplasticizer) blocks.push({ key: 'superplasticizer', title: '外加剂', material: details.superplasticizer })
 
               return (
-                <div style={{ marginTop: 'var(--spacing-lg)', padding: 'var(--spacing-md)', background: 'var(--primary-light)', borderRadius: 'var(--border-radius-md)' }}>
-                  <h4 style={{ marginBottom: 'var(--spacing-md)', fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)' }}>原材料信息</h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-md)' }}>
+                <div className="scheme-info-block">
+                  <h4 className="scheme-info-block-title">原材料信息</h4>
+                  <div className="scheme-info-block-grid">
                     {blocks.map(b => (
                       b.material && (
-                        <div key={b.key} style={{ padding: 'var(--spacing-sm)', background: 'var(--card-bg)', borderRadius: 'var(--border-radius-sm)', boxShadow: 'var(--shadow-sm)' }}>
-                          <p style={{ fontWeight: '600', marginBottom: 'var(--spacing-xs)' }}>{b.title}</p>
-                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>名称: {b.material.name || 'N/A'}</p>
-                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>规格: {b.material.specification || 'N/A'}</p>
-                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>单价: {b.material.price ? `¥${b.material.price}/吨` : 'N/A'}</p>
-                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>厂家: {b.material.manufacturer || 'N/A'}</p>
+                        <div key={b.key} className="scheme-info-item">
+                          <p className="scheme-info-item-title">{b.title}</p>
+                          <p className="scheme-info-item-detail">名称: {b.material.name || 'N/A'}</p>
+                          <p className="scheme-info-item-detail">规格: {b.material.specification || 'N/A'}</p>
+                          <p className="scheme-info-item-detail">单价: {b.material.price ? `¥${b.material.price}/吨` : 'N/A'}</p>
+                          <p className="scheme-info-item-detail">厂家: {b.material.manufacturer || 'N/A'}</p>
                         </div>
                       )
                     ))}
@@ -459,7 +461,7 @@ const SchemesPage = () => {
                 </div>
               )
             })()}
-            
+
             {currentScheme.materialCosts && (() => {
               const costs = currentScheme.materialCosts || {}
               const details = currentScheme.materialDetails || {}
@@ -495,33 +497,33 @@ const SchemesPage = () => {
               const displayedTotal = computeNormalizedTotal(costs)
 
               return (
-                <div style={{ marginTop: 'var(--spacing-lg)', padding: 'var(--spacing-md)', background: 'var(--primary-light)', borderRadius: 'var(--border-radius-md)' }}>
-                  <h4 style={{ marginBottom: 'var(--spacing-md)', fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)' }}>成本信息</h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--spacing-md)' }}>
+                <div className="scheme-info-block">
+                  <h4 className="scheme-info-block-title">成本信息</h4>
+                  <div className="scheme-info-block-grid">
                     {entries.map(e => (
-                      <div key={e.key} style={{ padding: 'var(--spacing-sm)', background: 'var(--card-bg)', borderRadius: 'var(--border-radius-sm)', boxShadow: 'var(--shadow-sm)' }}>
-                        <p style={{ fontWeight: '600', marginBottom: 'var(--spacing-xs)' }}>
+                      <div key={e.key} className="scheme-cost-item">
+                        <p className="scheme-cost-item-title">
                           {e.materialName ? `${e.label} (${e.materialName})` : e.label}
                         </p>
                         {e.price ? (
-                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '2px' }}>单价: <strong>{e.price} 元/吨</strong></p>
+                          <p className="scheme-info-item-detail">单价: <strong>{e.price} 元/吨</strong></p>
                         ) : null}
-                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>成本: <strong>{typeof e.cost === 'number' ? e.cost.toFixed(2) : 'N/A'} 元/m³</strong></p>
+                        <p className="scheme-info-item-detail">成本: <strong>{typeof e.cost === 'number' ? e.cost.toFixed(2) : 'N/A'} 元/m³</strong></p>
                       </div>
                     ))}
                   </div>
                   {displayedTotal !== null && (
-                    <div style={{ marginTop: 'var(--spacing-md)', padding: 'var(--spacing-sm)', background: 'var(--card-bg)', borderRadius: 'var(--spacing-sm)', boxShadow: 'var(--shadow-sm)' }}>
-                      <p style={{ fontWeight: '600', fontSize: '14px', textAlign: 'right' }}>总成本: <strong style={{ color: '#1890ff' }}>{(displayedTotal || 0).toFixed(2)} 元/m³</strong></p>
+                    <div className="scheme-cost-total">
+                      <p className="text-right font-semibold">总成本: <strong style={{ color: 'var(--color-primary)' }}>{(displayedTotal || 0).toFixed(2)} 元/m³</strong></p>
                     </div>
                   )}
                 </div>
               )
             })()}
-            
+
             {currentScheme.description && (
-              <div style={{ marginTop: 'var(--spacing-lg)', padding: 'var(--spacing-md)', background: 'var(--primary-light)', borderRadius: 'var(--border-radius-md)' }}>
-                <h4 style={{ marginBottom: 'var(--spacing-sm)', fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)' }}>描述</h4>
+              <div className="scheme-info-block">
+                <h4 className="scheme-info-block-title">描述</h4>
                 <p>{currentScheme.description}</p>
               </div>
             )}
