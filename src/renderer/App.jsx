@@ -5,7 +5,6 @@ import zhCN from 'antd/lib/locale/zh_CN'
 import 'antd/dist/reset.css'
 import './index.css'
 import BackgroundTaskBar from './components/BackgroundTaskBar'
-import NavRail from './components/NavRail'
 
 // 页面组件 - 使用 lazy 加载
 const MaterialsPage = lazy(() => import('./pages/MaterialsPage').catch(err => {
@@ -159,8 +158,6 @@ function App() {
               </div>
             </div>
           </Header>
-
-          <NavRail />
 
           <Content style={contentStyle}>
             <div style={contentWrapperStyle}>
