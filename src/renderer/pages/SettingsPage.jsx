@@ -1,23 +1,23 @@
 // src/renderer/pages/SettingsPage.jsx
 import React, { useState, useEffect, useCallback } from 'react'
-import { Card, Tabs, Button, message, Space, Typography } from 'antd'
-import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons'
+import { Card, Tabs, Button, message, Space, Typography, Alert, Divider, List, Tag } from 'antd'
+import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined, BookOutlined, ExperimentOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, AppstoreOutlined, WarningOutlined } from '@ant-design/icons'
 import ParamCard from '../components/ParamCard'
 import ExportWizard from '../components/ExportWizard'
 import ImportWizard from '../components/ImportWizard'
 import RestoreConfirmModal from '../components/RestoreConfirmModal'
 import { PARAM_CONFIG, PARAM_TABS } from '../config/paramConfig'
 
-const { Text } = Typography
+const { Text, Paragraph } = Typography
 
-const TAB_KEYS = ['JGJ55标准', '系统设置', '备份设置', 'AI设置']
+const TAB_KEYS = ['使用帮助', 'JGJ55标准', '系统设置', '备份设置', 'AI设置']
 
 const SettingsPage = () => {
   const [params, setParams] = useState([])
   const [modifiedParams, setModifiedParams] = useState({})
   const [loading, setLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState('JGJ55标准')
+  const [activeTab, setActiveTab] = useState('使用帮助')
 
   const [exportWizardVisible, setExportWizardVisible] = useState(false)
   const [importWizardVisible, setImportWizardVisible] = useState(false)
@@ -158,7 +158,7 @@ const SettingsPage = () => {
       return <Text type="secondary">该分类下暂无参数</Text>
     }
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 16 }}>
+      <div className="param-cards-grid">
         {tabParams.map(p => {
           if (!p.config) return null
           return (
@@ -176,23 +176,23 @@ const SettingsPage = () => {
   }
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ marginBottom: 24 }}>
-        <h2 className="page-title">系统设置</h2>
+    <div className="page-container settings-page">
+      <div className="page-header">
+        <h1 className="page-title">系统设置</h1>
         <p className="page-subtitle">管理配合比参数和系统数据</p>
       </div>
 
-      <Card className="custom-card" style={{ marginBottom: 24 }}>
+      <Card className="custom-card mb-lg">
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}
           items={TAB_KEYS.map(key => ({
             key,
             label: key,
-            children: (
+            children: key === '使用帮助' ? <HelpContent /> : (
               <div>
                 {renderParamCards()}
-                <div style={{ marginTop: 24, display: 'flex', gap: 12 }}>
+                <div className="param-actions">
                   <Button icon={<ReloadOutlined />} onClick={handleResetCurrentTab}>
                     重置当前页
                   </Button>
@@ -206,7 +206,7 @@ const SettingsPage = () => {
         />
       </Card>
 
-      <Card className="custom-card" title="数据管理" style={{ marginBottom: 24 }}>
+      <Card className="custom-card mb-lg" title="数据管理">
         <Space direction="vertical" style={{ width: '100%' }}>
           <Text type="secondary">操作会覆盖现有数据，建议操作前先备份数据库</Text>
           <Space wrap>
@@ -255,11 +255,133 @@ const AppVersionInfo = () => {
     })
   }, [])
   return (
-    <div style={{ padding: '16px', background: '#f9f9f9', borderRadius: 8 }}>
-      <p style={{ marginBottom: 8 }}>混凝土配合比设计软件</p>
-      <p style={{ marginBottom: 8 }}>版本：{version}</p>
-      <p style={{ marginBottom: 8 }}>基于 Electron + React + SQLite 开发</p>
+    <div className="settings-about-box">
+      <p className="settings-about-line">混凝土配合比设计软件</p>
+      <p className="settings-about-line">版本：{version}</p>
+      <p className="settings-about-line">基于 Electron + React + SQLite 开发</p>
       <p>依据标准：JGJ 55, GB 50010-2010, GB 50204-2015, JGJ/T 193-2009</p>
+    </div>
+  )
+}
+
+// 使用帮助内容组件
+const HelpContent = () => {
+  return (
+    <div className="help-content">
+      {/* 软件简介 */}
+      <Card size="small" className="help-card">
+        <Paragraph>
+          <BookOutlined style={{ marginRight: 8 }} />
+          <strong>混凝土配合比设计软件</strong>是一款专业的混凝土配合比管理工具，支持配合比设计、成本优化、AI智能分析等功能，帮助用户高效管理混凝土配合比数据。
+        </Paragraph>
+      </Card>
+
+      {/* 功能模块说明 */}
+      <Card size="small" title="功能模块说明" className="help-card">
+        <List
+          size="small"
+          dataSource={[
+            {
+              icon: <ExperimentOutlined />,
+              title: '配合比设计',
+              desc: '根据设计要求，计算并生成混凝土配合比。支持水泥、粉煤灰、矿渣粉、砂、骨料、外加剂等多种材料的配比计算。'
+            },
+            {
+              icon: <AppstoreOutlined />,
+              title: '方案管理',
+              desc: '管理和查看所有配合比方案。可查看方案详情、进行强度验证、对比不同方案的性能和成本。'
+            },
+            {
+              icon: <DatabaseOutlined />,
+              title: '材料管理',
+              desc: '管理水泥、粉煤灰、矿渣粉、细骨料、粗骨料、外加剂等材料库。支持材料的增删改查，包含价格和性能参数。'
+            },
+            {
+              icon: <SettingOutlined />,
+              title: '成本优化',
+              desc: '基于数学优化算法，在满足强度、坍落度等约束条件下，自动寻找最低成本的配合比方案。',
+              tag: '数学优化'
+            },
+            {
+              icon: <RobotOutlined />,
+              title: 'AI分析',
+              desc: '基于大模型AI技术，分析配合比数据，提供材料性能影响分析、配合比参数影响分析、最优配合比推荐、参数调整建议和综合评价。',
+              tag: 'AI智能'
+            },
+            {
+              icon: <SettingOutlined />,
+              title: '系统设置',
+              desc: '配置配合比计算参数、管理数据库备份和恢复、设置AI模型参数等。'
+            }
+          ]}
+          renderItem={(item) => (
+            <List.Item>
+              <List.Item.Meta
+                avatar={item.icon}
+                title={
+                  <Space>
+                    {item.title}
+                    {item.tag && <Tag color="blue">{item.tag}</Tag>}
+                  </Space>
+                }
+                description={item.desc}
+              />
+            </List.Item>
+          )}
+        />
+      </Card>
+
+      {/* 快速开始 */}
+      <Card size="small" title="快速开始" className="help-card">
+        <Alert
+          message="建议按以下步骤操作，以获得最佳使用体验"
+          type="info"
+          showIcon
+          className="help-alert"
+        />
+        <List
+          size="small"
+          dataSource={[
+            { step: '步骤1：录入材料库', desc: '在"材料管理"中添加水泥、砂、石、外加剂等材料，填写价格和性能参数。' },
+            { step: '步骤2：设计配合比', desc: '在"配合比设计"中输入设计要求，系统自动计算配合比。' },
+            { step: '步骤3：保存方案', desc: '将配合比保存为方案，便于后续管理和查看。' },
+            { step: '步骤4：成本优化（可选）', desc: '在"成本优化"中设置约束条件，系统自动寻找满足条件的最低成本方案。' },
+            { step: '步骤5：AI分析（可选）', desc: '在"AI分析"中导入配合比数据，获取AI提供的优化建议和综合评价。' }
+          ]}
+          renderItem={(item) => (
+            <List.Item>
+              <Text strong>{item.step}</Text>
+              <br />
+              <Text type="secondary">{item.desc}</Text>
+            </List.Item>
+          )}
+        />
+      </Card>
+
+      {/* 注意事项 */}
+      <Card size="small" title="注意事项">
+        <Alert
+          message="数据安全"
+          description="建议定期备份数据库，操作路径：系统设置 → 数据管理 → 备份数据库"
+          type="warning"
+          showIcon
+          icon={<WarningOutlined />}
+          className="help-alert"
+        />
+        <Alert
+          message="AI分析"
+          description="使用AI分析功能需要配置DeepSeek API密钥，配置路径：系统设置 → AI设置"
+          type="info"
+          showIcon
+          className="help-alert"
+        />
+        <Alert
+          message="参数配置"
+          description="JGJ55标准参数影响配合比计算结果，请根据实际工程要求合理设置"
+          type="info"
+          showIcon
+        />
+      </Card>
     </div>
   )
 }

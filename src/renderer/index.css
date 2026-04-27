@@ -1438,6 +1438,49 @@ body {
   margin-bottom: var(--space-md);
 }
 
+/* ========== SettingsPage ========== */
+.settings-page {
+  padding: var(--space-lg);
+}
+
+.settings-about-box {
+  padding: var(--space-md);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+}
+
+.settings-about-line {
+  margin-bottom: var(--space-sm);
+}
+
+.param-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: var(--space-md);
+}
+
+.param-actions {
+  margin-top: var(--space-lg);
+  display: flex;
+  gap: var(--space-md);
+}
+
+.help-card {
+  margin-bottom: var(--space-md);
+}
+
+.help-card:last-child {
+  margin-bottom: 0;
+}
+
+.help-alert {
+  margin-bottom: var(--space-md);
+}
+
+.help-alert:last-child {
+  margin-bottom: 0;
+}
+
 /* ========== SchemesPage Modal Styles ========== */
 .scheme-detail-title {
   margin-bottom: var(--space-md);
