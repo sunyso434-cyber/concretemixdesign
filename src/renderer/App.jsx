@@ -40,8 +40,10 @@ const { Header, Content } = Layout
 
 // 静态样式对象 - 避免每次渲染时重新创建
 const headerStyle = {
-  background: '#FFFFFF',
-  borderBottom: '1px solid #E2E8F0',
+  background: 'rgba(0, 0, 0, 0.8)',
+  backdropFilter: 'saturate(180%) blur(20px)',
+  WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+  borderBottom: 'none',
   padding: '0 24px',
   height: 64,
   lineHeight: '64px',
@@ -49,7 +51,7 @@ const headerStyle = {
   top: 0,
   left: 0,
   right: 0,
-  zIndex: 100,
+  zIndex: 1000,
 }
 
 const headerInnerStyle = {
@@ -61,14 +63,14 @@ const headerInnerStyle = {
 const headerTitleStyle = {
   fontSize: 17,
   fontWeight: 500,
-  color: '#334155',
+  color: '#ffffff',
   display: 'flex',
   alignItems: 'center',
 }
 
 const contentStyle = {
   padding: '32px',
-  background: '#F8FAFC',
+  background: 'var(--color-bg)',
   minHeight: 'calc(100vh - 64px)',
   marginLeft: 48,
   transition: 'margin-left 200ms ease',
@@ -107,7 +109,7 @@ class ErrorBoundary extends React.Component {
     if (this.state.hasError) {
       return (
         <div className="custom-empty">
-          <div className="empty-icon">⚠️</div>
+          <div className="empty-icon">!</div>
           <div className="empty-title">页面加载出错</div>
           <div className="empty-description">
             {this.state.error?.message}
@@ -131,18 +133,18 @@ function App() {
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: '#334155',
-          colorSuccess: '#10B981',
-          colorWarning: '#F59E0B',
-          colorError: '#EF4444',
-          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-          borderRadius: 6,
+          colorPrimary: '#0071e3',
+          colorSuccess: '#34C759',
+          colorWarning: '#FF9500',
+          colorError: '#FF3B30',
+          fontFamily: "'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+          borderRadius: 8,
         },
         components: {
-          Button: { borderRadius: 6, controlHeight: 40 },
+          Button: { borderRadius: 8, controlHeight: 40 },
           Card: { borderRadius: 8 },
-          Input: { borderRadius: 6, controlHeight: 40 },
-          Select: { borderRadius: 6, controlHeight: 40 },
+          Input: { borderRadius: 8, controlHeight: 40 },
+          Select: { borderRadius: 8, controlHeight: 40 },
           Table: { borderRadius: 8 },
           Modal: { borderRadius: 8 },
         },
@@ -153,7 +155,6 @@ function App() {
           <Header style={headerStyle}>
             <div style={headerInnerStyle}>
               <div style={headerTitleStyle}>
-                <span style={{ marginRight: 8, fontSize: 24 }}>🏗️</span>
                 混凝土配合比设计系统
               </div>
             </div>
