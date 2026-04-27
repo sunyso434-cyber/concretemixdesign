@@ -3,7 +3,7 @@ import { Table, Button, Modal, Form, Input, InputNumber, Select, Space, message,
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
 import { getFieldsForType, calculateFinenessModulus, autoMatchGrading } from '../utils/materialFieldsConfig'
 
-const MATERIAL_TYPES = ['水泥', '粉煤灰', '矿渣粉', '细骨料', '粗骨料', '减水剂', '其他']
+const MATERIAL_TYPES = ['水泥', '粉煤灰', '矿渣粉', '锂渣', '复合粉', '细骨料', '粗骨料', '减水剂', '其他']
 
 const MaterialsPage = () => {
   const [form] = Form.useForm()
@@ -325,11 +325,11 @@ const MaterialsPage = () => {
   ]
 
   return (
-    <div className="fade-in">
-      <div className="mb-xl">
-        <h2 className="page-title">📦 原材料管理</h2>
+    <div className="page-container">
+      <header className="page-header">
+        <h1 className="page-title">原材料管理</h1>
         <p className="page-subtitle">管理混凝土配合比设计所需的各种原材料信息，包括水泥、粉煤灰、矿渣粉、骨料和外加剂等。</p>
-      </div>
+      </header>
 
       <div className="action-bar">
         <Button type="primary" icon={<PlusOutlined />} onClick={handleAddNew} className="custom-btn">
@@ -366,12 +366,6 @@ const MaterialsPage = () => {
         }}
         confirmLoading={saving}
         width={900}
-        styles={{
-          body: {
-            maxHeight: '70vh',
-            overflow: 'auto'
-          }
-        }}
         className="custom-modal"
       >
         <Form form={form} layout="vertical" onFinish={handleSave} className="custom-form">

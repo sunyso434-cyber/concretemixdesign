@@ -556,6 +556,8 @@ body {
 
 .custom-modal .ant-modal-body {
   padding: var(--space-lg);
+  max-height: 70vh;
+  overflow: auto;
 }
 
 .custom-modal .ant-modal-footer {
