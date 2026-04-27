@@ -1067,11 +1067,27 @@ body {
 .mt-lg { margin-top: var(--space-lg); }
 .mt-xl { margin-top: var(--space-xl); }
 
+.my-12 { margin-top: 12px; margin-bottom: 12px; }
+.mx-12 { margin-left: 12px; margin-right: 12px; }
+
 .p-xs { padding: var(--space-xs); }
 .p-sm { padding: var(--space-sm); }
 .p-md { padding: var(--space-md); }
 .p-lg { padding: var(--space-lg); }
 .p-xl { padding: var(--space-xl); }
+
+.w-full { width: 100%; }
+.h-full { height: 100%; }
+
+.text-center { text-align: center; }
+.text-left { text-align: left; }
+.text-right { text-align: right; }
+
+.text-caption { font-size: 12px; color: var(--color-text-secondary); }
+.text-hint { font-size: 12px; color: var(--color-text-secondary); margin-top: 8px; }
+
+.flex-1 { flex: 1; min-width: 300px; }
+.flex-2 { flex: 2; min-width: 400px; }
 
 /* ========== BackgroundTaskBar ========== */
 .task-bar-container {
@@ -1343,6 +1359,74 @@ body {
 
 .fade-in {
   animation: fadeIn var(--transition-normal);
+}
+
+/* ========== InverseCalculationPage ========== */
+.result-stat-card {
+  padding: 16px;
+  background: var(--color-bg);
+  border-radius: 8px;
+  text-align: center;
+}
+
+/* ========== OptimizationPage ========== */
+.optim-result-card {
+  margin-top: 16px;
+}
+
+.optim-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.optim-materials-info {
+  margin-bottom: 16px;
+}
+
+.optim-progress-info {
+  margin-top: 8px;
+  min-width: 300;
+}
+
+.optim-progress-message {
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.optim-table-footer {
+  display: flex;
+  justify-content: space-between;
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.result-stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--color-primary);
+  font-family: 'Roboto Mono', monospace;
+}
+
+.result-stat-label {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+}
+
+.result-info-box {
+  background: var(--color-bg);
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.8;
+}
+
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
 }
 
 /* ========== Responsive ========== */

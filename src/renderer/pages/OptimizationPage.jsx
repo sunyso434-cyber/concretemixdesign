@@ -168,6 +168,18 @@ const OptimizationPage = () => {
           materialsMap.slag.push(m)
         }
 
+        // 锂渣（多选）
+        if (Array.isArray(values.lithiumSlag) && values.lithiumSlag.includes(m.id)) {
+          if (!materialsMap.lithiumSlag) materialsMap.lithiumSlag = []
+          materialsMap.lithiumSlag.push(m)
+        }
+
+        // 复合粉（多选）
+        if (Array.isArray(values.compositePowder) && values.compositePowder.includes(m.id)) {
+          if (!materialsMap.compositePowder) materialsMap.compositePowder = []
+          materialsMap.compositePowder.push(m)
+        }
+
         // 细骨料（多选）
         if (Array.isArray(values.sand) && values.sand.includes(m.id)) {
           if (!materialsMap.sand) materialsMap.sand = []
@@ -198,6 +210,8 @@ const OptimizationPage = () => {
         userLimits: {
           flyAshRange: [values.flyAshRange?.[0] ?? 0, values.flyAshRange?.[1] ?? 30],
           slagRange: [values.slagRange?.[0] ?? 0, values.slagRange?.[1] ?? 20],
+          lithiumSlagRange: [values.lithiumSlagRange?.[0] ?? 0, values.lithiumSlagRange?.[1] ?? 20],
+          compositePowderRange: [values.compositePowderRange?.[0] ?? 0, values.compositePowderRange?.[1] ?? 20],
           gridStep: values.gridStep || 5
         }
       }
@@ -487,9 +501,14 @@ const OptimizationPage = () => {
   }
 
   return (
-    <div>
+    <div className="page-container">
+      <header className="page-header">
+        <h1 className="page-title">成本优化</h1>
+        <p className="page-subtitle">基于数学优化算法，在满足强度、坍落度等约束条件下，自动寻找最低成本的配合比方案。</p>
+      </header>
+
       <Card className="custom-card" title="成本优化配合比设计">
-        <div style={{ marginBottom: 16, color: '#666' }}>
+        <div className="optim-materials-info" style={{ color: '#666' }}>
           <Space>
             <span>本功能可自动寻找成本最优的配合比方案。</span>
             <Link to="/materials">前往管理原材料</Link>
@@ -564,6 +583,24 @@ const OptimizationPage = () => {
                 tooltip="可选择多种矿渣粉，系统会优化组合比例"
               >
                 {renderMaterialSelect('矿渣粉', 'multiple')}
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item
+                name="lithiumSlag"
+                label="锂渣（可选，可多选）"
+                tooltip="可选择多种锂渣，系统会优化组合比例"
+              >
+                {renderMaterialSelect('锂渣', 'multiple')}
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item
+                name="compositePowder"
+                label="复合粉（可选，可多选）"
+                tooltip="可选择多种复合粉，系统会优化组合比例"
+              >
+                {renderMaterialSelect('复合粉', 'multiple')}
               </Form.Item>
             </Col>
             <Col span={6}>
@@ -643,6 +680,46 @@ const OptimizationPage = () => {
                 <InputNumber min={0} max={50} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={6}>
+              <Form.Item
+                name={['lithiumSlagRange', 0]}
+                label="锂渣掺量最小值（%）"
+                initialValue={0}
+                tooltip="系统将在此范围内搜索最优掺量"
+              >
+                <InputNumber min={0} max={50} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item
+                name={['lithiumSlagRange', 1]}
+                label="锂渣掺量最大值（%）"
+                initialValue={20}
+              >
+                <InputNumber min={0} max={50} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item
+                name={['compositePowderRange', 0]}
+                label="复合粉掺量最小值（%）"
+                initialValue={0}
+                tooltip="系统将在此范围内搜索最优掺量"
+              >
+                <InputNumber min={0} max={50} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item
+                name={['compositePowderRange', 1]}
+                label="复合粉掺量最大值（%）"
+                initialValue={20}
+              >
+                <InputNumber min={0} max={50} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
             <Col span={6}>
               <Form.Item
                 name="gridStep"
@@ -659,7 +736,7 @@ const OptimizationPage = () => {
 
           {/* 优化进度条 */}
           {optimizing && progress && (
-            <div style={{ marginBottom: 16 }}>
+            <div className="optim-materials-info">
               <Progress
                 percent={Math.round((progress.current / progress.total) * 100)}
                 status="active"
@@ -700,8 +777,8 @@ const OptimizationPage = () => {
                 )}
               </Space>
               {progress && (
-                <div style={{ marginTop: 8, minWidth: 300 }}>
-                  <div style={{ color: '#666', marginBottom: 4 }}>
+                <div className="optim-progress-info">
+                  <div className="optim-progress-message">
                     {progress.message || '优化中...'} ({progress.current}/{progress.total})
                   </div>
                   <Progress percent={Math.round((progress.current / progress.total) * 100)} status="active" />
@@ -714,7 +791,7 @@ const OptimizationPage = () => {
 
       {/* 优化结果 */}
       {result && (
-        <Card className="custom-card" title="最优方案" style={{ marginTop: 16 }} role="region" aria-label="优化结果">
+        <Card className="custom-card optim-result-card" title="最优方案" role="region" aria-label="优化结果">
           <Row gutter={16}>
             <Col span={8}>
               <div className="stat-block stat-block-cost">
@@ -744,7 +821,7 @@ const OptimizationPage = () => {
 
           <Divider />
 
-          <div style={{ marginBottom: 16 }}>
+          <div className="optim-materials-info">
             <strong>优化参数：</strong>
             <Tag color="blue">粉煤灰 {result.params?.flyAsh || 0}%</Tag>
             <Tag color="green">矿渣粉 {result.params?.slag || 0}%</Tag>
@@ -758,7 +835,7 @@ const OptimizationPage = () => {
             )}
           </div>
 
-          <div style={{ marginBottom: 16 }}>
+          <div className="optim-materials-info">
             <strong>原材料信息：</strong>
             {(() => {
               const mats = result.materials || {}
@@ -799,7 +876,7 @@ const OptimizationPage = () => {
             footer={() => {
               const totalAmount = buildResultTableData().reduce((sum, item) => sum + (item.amount || 0), 0)
               return (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '16px' }}>
+                <div className="optim-table-footer">
                   <span>材料用量合计：{totalAmount.toFixed(1)} kg/m³</span>
                   <span>容重：{result.density?.toFixed(1)} kg/m³</span>
                   <span>总成本：¥{result.totalCost?.toFixed(2)} /m³</span>
