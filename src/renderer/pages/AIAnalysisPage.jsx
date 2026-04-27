@@ -9,6 +9,8 @@ const MATERIAL_TYPE_MAP = {
   cement: '水泥',
   flyAsh: '粉煤灰',
   slag: '矿渣粉',
+  lithiumSlag: '锂渣',
+  compositePowder: '复合粉',
   fineAggregate1: '细骨料',
   fineAggregate2: '细骨料',
   coarseAggregate: '粗骨料',
@@ -40,7 +42,7 @@ const AnalysisReport = ({ result }) => {
                 </span>
               }
               description={item.description}
-              style={{ marginBottom: 12 }}
+              className="mb-alert"
             />
           ))}
         </Card>
@@ -64,7 +66,7 @@ const AnalysisReport = ({ result }) => {
                 </span>
               }
               description={item.description}
-              style={{ marginBottom: 12 }}
+              className="mb-alert"
             />
           ))}
         </Card>
@@ -111,7 +113,7 @@ const AnalysisReport = ({ result }) => {
                   showIcon
                   message={`配合比 ${comp.id}`}
                   description={`28d强度: ${comp.strength28d} MPa | 成本: ¥${comp.cost}/m³ | ${comp.advantage}`}
-                  style={{ marginBottom: 8 }}
+                  className="mb-sm"
                 />
               ))}
             </>
@@ -418,14 +420,108 @@ const AIAnalysisPage = () => {
 
   const handleDownloadTemplate = () => {
     try {
-      const templatePath = '/templates/mix-design-analysis-template.xlsx'
-      const link = document.createElement('a')
-      link.href = templatePath
-      link.download = '配合比分析模板.xlsx'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      message.success('模板下载成功')
+      // 创建配合比分析模板数据
+      const templateData = [
+        {
+          '编号': 'M001',
+          '强度等级': 'C30',
+          '用水量': 165,
+          '水泥用量': 280,
+          '粉煤灰用量': 60,
+          '矿渣粉用量': 0,
+          '复合粉用量': 0,
+          '锂渣用量': 0,
+          '砂1用量': 700,
+          '砂2用量': 100,
+          '碎石用量': 1050,
+          '减水剂掺量': 1.8,
+          '减水剂用量': 6.12,
+          '水胶比': 0.49,
+          '材料-水泥': 'P.O 42.5',
+          '材料-粉煤灰': 'I级粉煤灰',
+          '材料-矿渣粉': '',
+          '材料-砂1': '河砂',
+          '材料-砂2': '机制砂',
+          '材料-碎石': '5-25mm',
+          '材料-减水剂': '聚羧酸减水剂'
+        },
+        {
+          '编号': 'M002',
+          '强度等级': 'C30',
+          '用水量': 160,
+          '水泥用量': 260,
+          '粉煤灰用量': 80,
+          '矿渣粉用量': 0,
+          '复合粉用量': 0,
+          '锂渣用量': 0,
+          '砂1用量': 680,
+          '砂2用量': 120,
+          '碎石用量': 1060,
+          '减水剂掺量': 2.0,
+          '减水剂用量': 6.8,
+          '水胶比': 0.47,
+          '材料-水泥': 'P.O 42.5',
+          '材料-粉煤灰': 'II级粉煤灰',
+          '材料-矿渣粉': '',
+          '材料-砂1': '河砂',
+          '材料-砂2': '机制砂',
+          '材料-碎石': '5-25mm',
+          '材料-减水剂': '聚羧酸减水剂'
+        }
+      ]
+
+      // 试验结果模板（第二张Sheet）
+      const testResultData = [
+        {
+          '编号': 'M001',
+          '表观密度': 2380,
+          '初始坍落度': 200,
+          '初始扩展度': 500,
+          '初始T500': 5,
+          '1h坍落度': 190,
+          '1h扩展度': 460,
+          '1hT500': 6,
+          '2h坍落度': 180,
+          '2h扩展度': 420,
+          '2hT500': 8,
+          'R3强度': 25.5,
+          'R7强度': 32.8,
+          'R28强度': 42.5,
+          'R60强度': 48.2
+        },
+        {
+          '编号': 'M002',
+          '表观密度': 2390,
+          '初始坍落度': 210,
+          '初始扩展度': 520,
+          '初始T500': 4.5,
+          '1h坍落度': 200,
+          '1h扩展度': 480,
+          '1hT500': 5.5,
+          '2h坍落度': 185,
+          '2h扩展度': 440,
+          '2hT500': 7,
+          'R3强度': 27.2,
+          'R7强度': 35.1,
+          'R28强度': 44.8,
+          'R60强度': 50.5
+        }
+      ]
+
+      // 创建工作簿
+      const wb = XLSX.utils.book_new()
+
+      // 第一个Sheet：配合比数据
+      const ws1 = XLSX.utils.json_to_sheet(templateData)
+      XLSX.utils.book_append_sheet(wb, ws1, '配合比数据')
+
+      // 第二个Sheet：试验结果
+      const ws2 = XLSX.utils.json_to_sheet(testResultData)
+      XLSX.utils.book_append_sheet(wb, ws2, '试验结果')
+
+      // 下载文件
+      XLSX.writeFile(wb, '配合比分析模板.xlsx')
+      message.success('模板已下载：配合比分析模板.xlsx')
     } catch (error) {
       message.error('模板下载失败')
     }
@@ -559,6 +655,8 @@ const AIAnalysisPage = () => {
         cement: values.materialCement || '',
         flyAsh: values.materialFlyAsh || '',
         slag: values.materialSlag || '',
+        lithiumSlag: values.materialLithiumSlag || '',
+        compositePowder: values.materialCompositePowder || '',
         fineAggregate1: values.materialFineAggregate1 || '',
         fineAggregate2: values.materialFineAggregate2 || '',
         coarseAggregate: values.materialCoarseAggregate || '',
@@ -614,6 +712,8 @@ const AIAnalysisPage = () => {
     { key: 'cement', label: '水泥', type: '水泥' },
     { key: 'flyAsh', label: '粉煤灰', type: '粉煤灰' },
     { key: 'slag', label: '矿渣粉', type: '矿渣粉' },
+    { key: 'lithiumSlag', label: '锂渣', type: '锂渣' },
+    { key: 'compositePowder', label: '复合粉', type: '复合粉' },
     { key: 'fineAggregate1', label: '砂1', type: '细骨料' },
     { key: 'fineAggregate2', label: '砂2', type: '细骨料' },
     { key: 'coarseAggregate', label: '碎石', type: '粗骨料' },
@@ -681,6 +781,18 @@ const AIAnalysisPage = () => {
       width: 100,
     },
     {
+      title: '锂渣用量',
+      dataIndex: 'lithiumSlag',
+      key: 'lithiumSlag',
+      width: 100,
+    },
+    {
+      title: '复合粉用量',
+      dataIndex: 'compositePowder',
+      key: 'compositePowder',
+      width: 100,
+    },
+    {
       title: '粉煤灰用量',
       dataIndex: 'flyAsh',
       key: 'flyAsh',
@@ -717,7 +829,7 @@ const AIAnalysisPage = () => {
       key: 'data-import',
       label: '数据导入',
       children: (
-        <div>
+        <div className="p-lg">
           <Button
             type="primary"
             icon={<DownloadOutlined />}
@@ -746,6 +858,7 @@ const AIAnalysisPage = () => {
           <Divider>或手动输入配合比数据</Divider>
 
           <Form
+            className="custom-form"
             layout="vertical"
             onFinish={handleManualAdd}
             initialValues={{
@@ -760,8 +873,10 @@ const AIAnalysisPage = () => {
               fineAggregate2: 0,
               coarseAggregate: 1050,
               waterReducerDosage: 1.8,
+              waterBinderRatio: 0.49,
               initialSlump: 200,
               initialSlumpFlow: 500,
+              initialT500: 5,
               strengthR28: 40
             }}
           >
@@ -791,17 +906,22 @@ const AIAnalysisPage = () => {
               </Col>
             </Row>
             <Row gutter={16}>
-              <Col span={8}>
+              <Col span={6}>
                 <Form.Item name="flyAsh" label="粉煤灰 (kg/m³)">
                   <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col span={6}>
                 <Form.Item name="slag" label="矿渣粉 (kg/m³)">
                   <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col span={6}>
+                <Form.Item name="compositePowder" label="复合粉 (kg/m³)">
+                  <InputNumber min={0} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
                 <Form.Item name="lithiumSlag" label="锂渣 (kg/m³)">
                   <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
@@ -831,6 +951,16 @@ const AIAnalysisPage = () => {
                 </Form.Item>
               </Col>
               <Col span={8}>
+                <Form.Item name="waterBinderRatio" label="水胶比">
+                  <InputNumber min={0} max={1} precision={3} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Divider>试验结果</Divider>
+
+            <Row gutter={16}>
+              <Col span={8}>
                 <Form.Item name="initialSlump" label="初始坍落度 (mm)">
                   <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
@@ -840,21 +970,16 @@ const AIAnalysisPage = () => {
                   <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
-            </Row>
-            <Row gutter={16}>
               <Col span={8}>
                 <Form.Item name="initialT500" label="初始T500 (s)">
                   <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
+            </Row>
+            <Row gutter={16}>
               <Col span={8}>
                 <Form.Item name="strengthR28" label="R28强度 (MPa)" rules={[{ required: true, message: '请输入R28强度' }]}>
                   <InputNumber min={0} style={{ width: '100%' }} />
-                </Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item name="waterBinderRatio" label="水胶比">
-                  <InputNumber min={0} max={1} precision={3} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
             </Row>
@@ -874,6 +999,7 @@ const AIAnalysisPage = () => {
         <div>
           {mixDesigns.length > 0 ? (
             <Table
+              className="custom-table"
               columns={dataListColumns}
               dataSource={mixDesigns}
               rowKey="id"
@@ -906,7 +1032,7 @@ const AIAnalysisPage = () => {
               {analyzing ? '分析中...' : '开始AI分析'}
             </Button>
             {mixDesigns.length === 0 && (
-              <span className="ml-m" style={{ color: '#999' }}>
+              <span className="ml-m text-tertiary">
                 请先在"数据导入"中导入配合比数据
               </span>
             )}
@@ -933,7 +1059,7 @@ const AIAnalysisPage = () => {
               </Button>
             }
           >
-            <div style={{ maxHeight: 400, overflowY: 'auto', marginBottom: 16 }}>
+            <div className="chat-container">
               {chatMessages.length === 0 ? (
                 <Alert
                   type="info"
@@ -946,29 +1072,17 @@ const AIAnalysisPage = () => {
                   dataSource={chatMessages}
                   renderItem={(item) => (
                     <List.Item
-                      style={{
-                        justifyContent: item.role === 'user' ? 'flex-end' : 'flex-start',
-                        border: 'none',
-                        padding: '8px 0'
-                      }}
+                      className={item.role === 'user' ? 'chat-item-user' : 'chat-item-assistant'}
                     >
                       <Space align="start">
                         {item.role === 'assistant' && (
-                          <Avatar icon={<RobotOutlined />} style={{ backgroundColor: '#1890ff' }} />
+                          <Avatar icon={<RobotOutlined />} className="chat-avatar" />
                         )}
-                        <div
-                          style={{
-                            maxWidth: '70%',
-                            padding: '12px 16px',
-                            borderRadius: 12,
-                            backgroundColor: item.role === 'user' ? '#1890ff' : '#f5f5f5',
-                            color: item.role === 'user' ? '#fff' : '#333'
-                          }}
-                        >
+                        <div className={`chat-message ${item.role === 'user' ? 'chat-message-user' : 'chat-message-assistant'}`}>
                           {item.content}
                         </div>
                         {item.role === 'user' && (
-                          <Avatar icon={<UserOutlined />} style={{ backgroundColor: '#52c41a' }} />
+                          <Avatar icon={<UserOutlined />} className="chat-avatar-user" />
                         )}
                       </Space>
                     </List.Item>
@@ -1003,11 +1117,11 @@ const AIAnalysisPage = () => {
   ]
 
   return (
-    <div className="fade-in">
-      <div className="mb-xl">
-        <h2 className="page-title">🤖 AI分析</h2>
+    <div className="page-container">
+      <header className="page-header">
+        <h1 className="page-title">AI分析</h1>
         <p className="page-subtitle">智能分析混凝土配合比数据，提供优化建议和决策支持。</p>
-      </div>
+      </header>
 
       <div className="custom-card">
         <Tabs
