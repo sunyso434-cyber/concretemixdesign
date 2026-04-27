@@ -3,17 +3,36 @@
 
 /* ========== CSS Variables ========== */
 :root {
-  /* Background Colors */
+  /* Apple 风格亮色模式 */
+  --color-bg: #f5f5f7;
+  --color-surface: #ffffff;
+  --color-primary: #0071e3;
+  --color-primary-hover: #0077ED;
+  --color-text: #1d1d1f;
+  --color-text-body: rgba(0, 0, 0, 0.8);
+  --color-text-secondary: rgba(0, 0, 0, 0.48);
+  --color-border: rgba(0, 0, 0, 0.1);
+  --color-success: #34C759;
+  --color-warning: #FF9500;
+  --color-error: #FF3B30;
+
+  /* 导航栏 */
+  --nav-bg: rgba(0, 0, 0, 0.8);
+  --nav-text: #ffffff;
+  --nav-hover: rgba(255, 255, 255, 0.1);
+  --nav-active: #0071e3;
+
+  /* Background Colors (保留兼容性) */
   --bg-primary: #F8FAFC;
   --bg-card: #FFFFFF;
   --bg-surface: #F1F5F9;
 
-  /* Primary Colors */
+  /* Primary Colors (保留兼容性) */
   --primary: #334155;
   --primary-hover: #475569;
   --primary-active: #1E293B;
 
-  /* Text Colors */
+  /* Text Colors (保留兼容性) */
   --text-primary: #334155;
   --text-secondary: #64748B;
   --text-tertiary: #94A3B8;
@@ -55,6 +74,19 @@
   --font-mono: 'Roboto Mono', monospace;
 }
 
+/* ========== 暗色模式变量 ========== */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #000000;
+    --color-surface: #1d1d1f;
+    --color-text: #ffffff;
+    --color-text-body: rgba(255, 255, 255, 0.8);
+    --color-text-secondary: rgba(255, 255, 255, 0.48);
+    --color-border: rgba(255, 255, 255, 0.1);
+    --nav-bg: rgba(0, 0, 0, 0.9);
+  }
+}
+
 /* ========== Base Styles ========== */
 * {
   box-sizing: border-box;
@@ -70,6 +102,90 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ========== 字体层级类 ========== */
+.text-display {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.28px;
+  color: var(--color-text);
+}
+
+.text-heading {
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.19;
+  letter-spacing: 0.231px;
+  color: var(--color-text);
+}
+
+.text-body {
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.47;
+  letter-spacing: -0.374px;
+  color: var(--color-text-body);
+}
+
+.text-label {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.224px;
+  color: var(--color-text-body);
+}
+
+.text-caption {
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: -0.12px;
+  color: var(--color-text-secondary);
+}
+
+.text-mono {
+  font-family: 'Roboto Mono', monospace;
+}
+
+/* ========== 数值展示类 ========== */
+.value-display {
+  font-size: 24px;
+  font-weight: 600;
+  font-family: 'Roboto Mono', monospace;
+  color: var(--color-primary);
+}
+
+.value-label {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.value-small {
+  font-size: 16px;
+  font-family: 'Roboto Mono', monospace;
+  color: var(--color-text-body);
+}
+
+/* ========== 页面结构类 ========== */
+.page-container {
+  animation: fadeIn 200ms ease;
+}
+
+.page-header {
+  margin-bottom: 32px;
+}
+
+.page-title {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 8px;
+}
+
+.page-subtitle {
+  font-size: 17px;
+  color: var(--color-text-secondary);
+  margin-bottom: 0;
 }
 
 /* ========== Header ========== */
@@ -273,6 +389,48 @@ body {
 .ant-btn-default:hover {
   border-color: var(--primary) !important;
   color: var(--primary) !important;
+}
+
+/* Apple 风格按钮类 */
+.btn-primary {
+  background: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+  border-radius: 8px;
+  font-weight: 500;
+  height: 40px;
+  padding: 4px 16px;
+  transition: background-color 150ms ease !important;
+}
+
+.btn-primary:hover {
+  background: var(--color-primary-hover) !important;
+  border-color: var(--color-primary-hover) !important;
+}
+
+.btn-secondary {
+  background: transparent !important;
+  border-color: var(--color-border) !important;
+  border-radius: 8px;
+  font-weight: 500;
+  height: 40px;
+  padding: 4px 16px;
+  color: var(--color-text) !important;
+}
+
+.btn-secondary:hover {
+  background: rgba(0, 0, 0, 0.05) !important;
+}
+
+.btn-ghost {
+  background: transparent !important;
+  border: none !important;
+  color: var(--color-text-body) !important;
+  height: 40px;
+  padding: 4px 16px;
+}
+
+.btn-ghost:hover {
+  background: rgba(0, 0, 0, 0.05) !important;
 }
 
 /* ========== Tables ========== */
@@ -491,6 +649,19 @@ body {
   margin-bottom: var(--space-sm);
 }
 
+/* Apple 风格统计卡片类 */
+.stat-card-value {
+  font-size: 24px;
+  font-weight: 600;
+  font-family: 'Roboto Mono', monospace;
+  color: var(--color-primary);
+}
+
+.stat-card-label {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
 /* ========== Stat Blocks ========== */
 .stat-block {
   text-align: center;
@@ -541,6 +712,110 @@ body {
   font-size: 12px;
   font-weight: 500;
   padding: 2px 8px;
+}
+
+/* Apple 风格标签类 */
+.tag-positive {
+  background: rgba(52, 199, 89, 0.1);
+  color: var(--color-success);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.tag-negative {
+  background: rgba(255, 59, 48, 0.1);
+  color: var(--color-error);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.tag-neutral {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--color-text-secondary);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ========== 导航栏毛玻璃样式 ========== */
+.nav-rail {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 48px;
+  background: var(--nav-bg);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 0;
+  transition: width 200ms ease;
+}
+
+.nav-rail.expanded {
+  width: 200px;
+}
+
+.nav-rail-item {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 14px;
+  color: rgba(255, 255, 255, 0.72);
+  text-decoration: none;
+  transition: all 150ms ease;
+  position: relative;
+  white-space: nowrap;
+}
+
+.nav-rail-item:hover {
+  background: var(--nav-hover);
+  color: var(--nav-text);
+}
+
+.nav-rail-item.active {
+  color: var(--nav-active);
+}
+
+.nav-rail-icon {
+  font-size: 18px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: inherit;
+}
+
+.nav-rail-label {
+  font-size: 14px;
+  font-weight: 500;
+  margin-left: 12px;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.nav-rail.expanded .nav-rail-label {
+  opacity: 1;
+}
+
+/* ========== 暗色模式导航栏 ========== */
+@media (prefers-color-scheme: dark) {
+  .nav-rail-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .nav-rail-item.active {
+    color: var(--color-primary);
+  }
 }
 
 /* ========== Loading ========== */
@@ -667,6 +942,41 @@ body {
   background: var(--bg-surface);
   font-weight: 500;
   color: var(--text-primary);
+}
+
+/* Apple 风格表格类 */
+.data-table-header th {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-weight: 500;
+  padding: 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.data-table-row td {
+  padding: 16px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-body);
+}
+
+.data-table-row:hover td {
+  background: var(--color-bg);
+}
+
+/* ========== 表单类 ========== */
+.form-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+  margin-bottom: 8px;
+  display: block;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-top: 4px;
 }
 
 /* ========== Grid Layouts ========== */
