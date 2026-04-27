@@ -1073,6 +1073,202 @@ body {
 .p-lg { padding: var(--space-lg); }
 .p-xl { padding: var(--space-xl); }
 
+/* ========== BackgroundTaskBar ========== */
+.task-bar-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
+  width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-card {
+  background: var(--color-surface);
+  border-radius: 8px;
+  padding: 12px 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--color-border);
+}
+
+.task-card-error {
+  border: 1px solid var(--color-error);
+}
+
+.task-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.task-card-success-icon {
+  color: var(--color-success);
+}
+
+.task-card-error-icon {
+  color: var(--color-error);
+}
+
+.task-card-overflow {
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+/* ========== MixDesignPage 特定样式 ========== */
+.calc-result-card .ant-card-head {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.calc-steps-panel {
+  margin-top: 16px;
+}
+
+.calc-step-item {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: var(--color-bg);
+  border-radius: 6px;
+}
+
+.calc-step-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--color-primary);
+}
+
+.calc-step-detail {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+  font-size: 13px;
+}
+
+.calc-step-label {
+  color: var(--color-text-secondary);
+}
+
+.calc-step-value {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.calc-step-value-highlight {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.calc-result-params {
+  margin-top: 24px;
+  padding: 16px;
+  background: var(--color-bg);
+  border-radius: 8px;
+}
+
+.calc-result-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.calc-result-empty {
+  text-align: center;
+  padding: 48px 0;
+}
+
+.calc-result-empty-text {
+  color: var(--color-text-secondary);
+}
+
+.calc-cost-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.calc-cost-total {
+  font-size: 16px;
+  font-weight: bold;
+  text-align: right;
+}
+
+.calc-cost-total-value {
+  color: var(--color-primary);
+}
+
+.calc-series-table-wrapper {
+  overflow-x: auto;
+}
+
+.calc-series-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.calc-series-table-header th {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 2px solid #e8e8e8;
+}
+
+.calc-series-table-row td {
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.calc-series-detail-row td {
+  background-color: #fafafa;
+}
+
+.calc-series-label {
+  font-weight: bold;
+  color: #666;
+}
+
+.calc-series-value-blue {
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.calc-batch-info {
+  margin-bottom: 16px;
+  padding: 12px;
+  background-color: #e6f7ff;
+  border: 1px solid #91d5ff;
+  border-radius: 4px;
+}
+
+.calc-batch-info-title {
+  margin: 0;
+  color: #0050b3;
+}
+
+.calc-batch-info-desc {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #666;
+}
+
+.calc-result-flex {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.calc-result-flex-main {
+  flex: 2;
+  min-width: 300px;
+}
+
+.calc-result-flex-side {
+  flex: 1;
+  min-width: 300px;
+}
+
 /* ========== Animations ========== */
 @keyframes fadeIn {
   from { opacity: 0; }

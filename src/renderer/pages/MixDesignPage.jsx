@@ -68,6 +68,8 @@ const MixDesignPage = () => {
     cement: '水泥',
     flyAsh: '粉煤灰',
     slag: '矿渣粉',
+    lithiumSlag: '锂渣',
+    compositePowder: '复合粉',
     sand: '细骨料',
     stone: '粗骨料',
     superplasticizer: '外加剂'
@@ -289,17 +291,19 @@ const MixDesignPage = () => {
       
       // 重新加载材料列表，确保使用最新的材料数据
       const latestMaterials = await loadMaterials()
-      
+
       // 构建材料对象
       const materialsObj = {
         cement: latestMaterials.find(m => m.id === values.cement),
         flyAsh: latestMaterials.find(m => m.id === values.flyAsh),
         slag: latestMaterials.find(m => m.id === values.slag),
+        lithiumSlag: latestMaterials.find(m => m.id === values.lithiumSlag),
+        compositePowder: latestMaterials.find(m => m.id === values.compositePowder),
         sand: Array.isArray(values.sand) ? latestMaterials.filter(m => values.sand.some(sid => String(sid) === String(m.id))) : latestMaterials.find(m => m.id === values.sand),
         stone: Array.isArray(values.stone) ? latestMaterials.filter(m => values.stone.some(sid => String(sid) === String(m.id))) : latestMaterials.find(m => m.id === values.stone),
         superplasticizer: latestMaterials.find(m => m.id === values.superplasticizer)
       }
-      
+
       console.log('材料对象:', materialsObj)
       
       // 检查材料对象是否都存在
@@ -381,6 +385,8 @@ const MixDesignPage = () => {
         cement: latestMaterials.find(m => m.id === values.cement),
         flyAsh: latestMaterials.find(m => m.id === values.flyAsh),
         slag: latestMaterials.find(m => m.id === values.slag),
+        lithiumSlag: latestMaterials.find(m => m.id === values.lithiumSlag),
+        compositePowder: latestMaterials.find(m => m.id === values.compositePowder),
         sand: Array.isArray(values.sand) ? latestMaterials.filter(m => values.sand.includes(m.id)) : latestMaterials.find(m => m.id === values.sand),
         stone: Array.isArray(values.stone) ? latestMaterials.filter(m => values.stone.includes(m.id)) : latestMaterials.find(m => m.id === values.stone),
         superplasticizer: latestMaterials.find(m => m.id === values.superplasticizer)
@@ -489,6 +495,8 @@ const MixDesignPage = () => {
         cement: latestMaterials.find(m => m.id === values.cement),
         flyAsh: latestMaterials.find(m => m.id === values.flyAsh),
         slag: latestMaterials.find(m => m.id === values.slag),
+        lithiumSlag: latestMaterials.find(m => m.id === values.lithiumSlag),
+        compositePowder: latestMaterials.find(m => m.id === values.compositePowder),
         sand: Array.isArray(values.sand) ? latestMaterials.filter(m => values.sand.some(sid => String(sid) === String(m.id))) : latestMaterials.find(m => m.id === values.sand),
         stone: Array.isArray(values.stone) ? latestMaterials.filter(m => values.stone.some(sid => String(sid) === String(m.id))) : latestMaterials.find(m => m.id === values.stone),
         superplasticizer: latestMaterials.find(m => m.id === values.superplasticizer)
@@ -573,7 +581,9 @@ const MixDesignPage = () => {
     const result = [
       { key: '1', material: '水泥', amount: (materialsAmounts.cement || 0).toFixed(1), unit: 'kg/m³' },
       { key: '2', material: '粉煤灰', amount: (materialsAmounts.flyAsh || 0).toFixed(1), unit: 'kg/m³' },
-      { key: '3', material: '矿渣粉', amount: (materialsAmounts.slag || 0).toFixed(1), unit: 'kg/m³' }
+      { key: '3', material: '矿渣粉', amount: (materialsAmounts.slag || 0).toFixed(1), unit: 'kg/m³' },
+      { key: '3.5', material: '锂渣', amount: (materialsAmounts.lithiumSlag || 0).toFixed(1), unit: 'kg/m³' },
+      { key: '3.6', material: '复合粉', amount: (materialsAmounts.compositePowder || 0).toFixed(1), unit: 'kg/m³' }
     ]
     
     // 处理多种细骨料
@@ -665,15 +675,15 @@ const MixDesignPage = () => {
   const displayResult = adjustedResult || calculationResult
 
   return (
-    <div>
-      <div className="mb-lg">
-        <h2 className="page-title">配合比设计</h2>
+    <div className="page-container">
+      <header className="page-header">
+        <h1 className="page-title">配合比设计</h1>
         <p className="page-subtitle">根据JGJ 55-2011标准计算混凝土配合比</p>
-      </div>
+      </header>
 
       <div className="mb-lg">
         <Card className="custom-card" title="设计目标参数">
-          <Form form={form} layout="vertical" onValuesChange={onFormValuesChange} initialValues={{ calculationMethod: 'absolute', targetDensity: 2400, airContent: 1.5, flyAshDosage: 20, slagDosage: 10, sandRatio: 35 }}>
+          <Form form={form} layout="vertical" onValuesChange={onFormValuesChange} initialValues={{ calculationMethod: 'absolute', targetDensity: 2400, airContent: 1.5, flyAshDosage: 20, slagDosage: 10, lithiumSlagDosage: 0, compositePowderDosage: 0, sandRatio: 35 }}>
             <div className="grid-2-col">
               <Form.Item name="strength" label="强度等级" rules={[{ required: true, message: '请选择强度等级' }]}>
                 <Select placeholder="请选择强度等级" style={{ width: '100%' }}>
@@ -693,6 +703,14 @@ const MixDesignPage = () => {
 
               <Form.Item name="slagDosage" label="矿渣粉掺量 (%)">
                 <InputNumber style={{ width: '100%' }} placeholder="请输入矿渣粉掺量" min={0} max={60} precision={1} />
+              </Form.Item>
+
+              <Form.Item name="lithiumSlagDosage" label="锂渣掺量 (%)">
+                <InputNumber style={{ width: '100%' }} placeholder="请输入锂渣掺量" min={0} max={60} precision={1} />
+              </Form.Item>
+
+              <Form.Item name="compositePowderDosage" label="复合粉掺量 (%)">
+                <InputNumber style={{ width: '100%' }} placeholder="请输入复合粉掺量" min={0} max={60} precision={1} />
               </Form.Item>
 
               <Form.Item name="sandRatio" label="砂率 (%)">
@@ -750,7 +768,23 @@ const MixDesignPage = () => {
                   ))}
                 </Select>
               </Form.Item>
-              
+
+              <Form.Item name="lithiumSlag" label="锂渣">
+                <Select placeholder="请选择锂渣" style={{ width: '100%' }}>
+                  {getMaterialsByType('lithiumSlag').map(material => (
+                    <Option key={material.id} value={material.id}>{material.name}</Option>
+                  ))}
+                </Select>
+              </Form.Item>
+
+              <Form.Item name="compositePowder" label="复合粉">
+                <Select placeholder="请选择复合粉" style={{ width: '100%' }}>
+                  {getMaterialsByType('compositePowder').map(material => (
+                    <Option key={material.id} value={material.id}>{material.name}</Option>
+                  ))}
+                </Select>
+              </Form.Item>
+
               <Form.Item name="sand" label="细骨料" rules={[{ required: true, message: '请选择细骨料' }]}>
                 <Select placeholder="请选择细骨料" style={{ width: '100%' }} mode="multiple">
                   {getMaterialsByType('sand').map(material => (
@@ -779,7 +813,7 @@ const MixDesignPage = () => {
         </Card>
       </div>
 
-      <div className="action-bar" style={{ marginBottom: 24 }}>
+      <div className="action-bar">
         <Button 
           type="primary" 
           className="custom-btn"
@@ -810,10 +844,10 @@ const MixDesignPage = () => {
         </Button>
       </div>
 
-      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-        <div style={{ flex: 2, minWidth: '300px' }}>
+      <div className="calc-result-flex">
+        <div className="calc-result-flex-main">
           {displayResult ? (
-            <Card className="custom-card" title="计算结果">
+            <Card className="custom-card calc-result-card" title="计算结果">
               <Table
                 dataSource={buildCalculationResult()}
                 columns={columns}
@@ -821,9 +855,9 @@ const MixDesignPage = () => {
                 className="custom-table"
                 aria-label="配合比计算结果"
               />
-              <div style={{ marginTop: 24, padding: '16px', background: 'var(--bg-ash)', borderRadius: '8px' }} role="region" aria-label="配合比参数">
-                <h4 style={{ marginBottom: 16, fontSize: '14px', fontWeight: '600' }}>配合比参数</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="calc-result-params" role="region" aria-label="配合比参数">
+                <h4 className="calc-step-title">配合比参数</h4>
+                <div className="calc-result-grid">
                   <p>配置强度f_cu,0: <strong>{String(displayResult.targetStrength || 0)} MPa</strong></p>
                   <p>水胶比: <strong>{String(displayResult.waterRatio || 0)}</strong></p>
                   <p>砂率: <strong>{String((displayResult.sandRatio || 0) * 100)}%</strong></p>
@@ -835,17 +869,17 @@ const MixDesignPage = () => {
 
               {/* 计算步骤详情 */}
               {displayResult.calculationSteps && displayResult.calculationSteps.length > 0 && (
-                <Collapse style={{ marginTop: 16 }} ghost>
+                <Collapse className="calc-steps-panel" ghost>
                   <Panel header={<span style={{ fontWeight: 600 }}>📝 查看详细计算步骤</span>} key="calc-steps">
                     {displayResult.calculationSteps.map((step, idx) => (
-                      <div key={idx} style={{ marginBottom: 16, padding: '12px', background: '#f5f5f5', borderRadius: 6 }}>
-                        <div style={{ fontWeight: 600, marginBottom: 8, color: '#1890ff' }}>
+                      <div key={idx} className="calc-step-item">
+                        <div className="calc-step-title">
                           步骤{step.step}：{step.title}
                         </div>
                         {step.details && step.details.map((detail, dIdx) => (
-                          <div key={dIdx} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 13 }}>
-                            <span style={{ color: '#666' }}>{detail.label}:</span>
-                            <span style={{ fontWeight: detail.highlight ? 600 : 400, color: detail.highlight ? '#1890ff' : '#333' }}>
+                          <div key={dIdx} className="calc-step-detail">
+                            <span className="calc-step-label">{detail.label}:</span>
+                            <span className={detail.highlight ? 'calc-step-value-highlight' : 'calc-step-value'}>
                               {detail.value}
                             </span>
                           </div>
@@ -858,22 +892,24 @@ const MixDesignPage = () => {
             </Card>
           ) : (
             <Card className="custom-card" title="计算结果">
-              <div style={{ textAlign: 'center', padding: '48px 0' }}>
-                <p style={{ color: '#999' }}>请填写设计参数并点击计算配合比按钮</p>
+              <div className="calc-result-empty">
+                <p className="calc-result-empty-text">请填写设计参数并点击计算配合比按钮</p>
               </div>
             </Card>
           )}
         </div>
-        
-        <div style={{ flex: 1, minWidth: '300px' }}>
+
+        <div className="calc-result-flex-side">
           {displayResult && displayResult.materialCosts && (
             <Card className="custom-card" title="成本分析" role="region" aria-label="成本分析">
-              <div style={{ marginTop: 16 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="mt-md">
+                <div className="calc-cost-grid">
                   <p>水泥成本: <strong>{String((displayResult.materialCosts.cement || 0).toFixed(2))} 元/m³</strong></p>
                   <p>粉煤灰成本: <strong>{String((displayResult.materialCosts.flyAsh || 0).toFixed(2))} 元/m³</strong></p>
                   <p>矿渣粉成本: <strong>{String((displayResult.materialCosts.slag || 0).toFixed(2))} 元/m³</strong></p>
-                  
+                  <p>锂渣成本: <strong>{String((displayResult.materialCosts.lithiumSlag || 0).toFixed(2))} 元/m³</strong></p>
+                  <p>复合粉成本: <strong>{String((displayResult.materialCosts.compositePowder || 0).toFixed(2))} 元/m³</strong></p>
+
                   {/* 处理多种细骨料的成本 */}
                   {Object.keys(displayResult.materialCosts).filter(key => key.startsWith('sand_')).map((key, index) => {
                     const materialId = key.replace('sand_', '')
@@ -882,12 +918,12 @@ const MixDesignPage = () => {
                       <p key={key}>{`砂 - ${material.name} 成本:`} <strong>{String((displayResult.materialCosts[key] || 0).toFixed(2))} 元/m³</strong></p>
                     )
                   })}
-                  
+
                   {/* 处理单一细骨料的成本 */}
                   {!Object.keys(displayResult.materialCosts).some(key => key.startsWith('sand_')) && (
                     <p>砂成本: <strong>{String((displayResult.materialCosts.sand || 0).toFixed(2))} 元/m³</strong></p>
                   )}
-                  
+
                   {/* 处理多种粗骨料的成本 */}
                   {Object.keys(displayResult.materialCosts).filter(key => key.startsWith('stone_')).map((key, index) => {
                     const materialId = key.replace('stone_', '')
@@ -896,16 +932,16 @@ const MixDesignPage = () => {
                       <p key={key}>{`石 - ${material.name} 成本:`} <strong>{String((displayResult.materialCosts[key] || 0).toFixed(2))} 元/m³</strong></p>
                     )
                   })}
-                  
+
                   {/* 处理单一粗骨料的成本 */}
                   {!Object.keys(displayResult.materialCosts).some(key => key.startsWith('stone_')) && (
                     <p>石成本: <strong>{String((displayResult.materialCosts.stone || 0).toFixed(2))} 元/m³</strong></p>
                   )}
-                  
+
                   <p>减水剂成本: <strong>{String((displayResult.materialCosts.superplasticizer || 0).toFixed(2))} 元/m³</strong></p>
                 </div>
                 <Divider />
-                <p style={{ fontSize: '16px', fontWeight: 'bold', textAlign: 'right' }}>总成本: <strong style={{ color: '#1890ff' }}>{String((displayResult.totalCost || 0).toFixed(2))} 元/m³</strong></p>
+                <p className="calc-cost-total">总成本: <strong className="calc-cost-total-value">{String((displayResult.totalCost || 0).toFixed(2))} 元/m³</strong></p>
               </div>
             </Card>
           )}
@@ -951,23 +987,23 @@ const MixDesignPage = () => {
 
       {/* 系列配合比结果 */}
       {seriesResults && seriesResults.length > 0 && (
-        <div style={{ marginTop: 24 }}>
+        <div className="mt-lg">
           <Card className="custom-card" title="系列配合比结果">
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <div className="calc-series-table-wrapper">
+              <table className="calc-series-table">
                 <thead>
-                  <tr style={{ borderBottom: '2px solid #e8e8e8' }}>
-                    <th style={{ padding: '12px', textAlign: 'left' }}>强度等级</th>
-                    <th style={{ padding: '12px', textAlign: 'right' }}>水泥</th>
-                    <th style={{ padding: '12px', textAlign: 'right' }}>粉煤灰</th>
-                    <th style={{ padding: '12px', textAlign: 'right' }}>矿渣粉</th>
-                    <th style={{ padding: '12px', textAlign: 'right' }}>细骨料</th>
-                    <th style={{ padding: '12px', textAlign: 'right' }}>粗骨料</th>
-                    <th style={{ padding: '12px', textAlign: 'right' }}>水</th>
-                    <th style={{ padding: '12px', textAlign: 'right' }}>减水剂</th>
-                    <th style={{ padding: '12px', textAlign: 'right' }}>砂率</th>
-                    <th style={{ padding: '12px', textAlign: 'right' }}>目标 FM</th>
-                    <th style={{ padding: '12px', textAlign: 'right' }}>成本</th>
+                  <tr className="calc-series-table-header">
+                    <th>强度等级</th>
+                    <th style={{ textAlign: 'right' }}>水泥</th>
+                    <th style={{ textAlign: 'right' }}>粉煤灰</th>
+                    <th style={{ textAlign: 'right' }}>矿渣粉</th>
+                    <th style={{ textAlign: 'right' }}>细骨料</th>
+                    <th style={{ textAlign: 'right' }}>粗骨料</th>
+                    <th style={{ textAlign: 'right' }}>水</th>
+                    <th style={{ textAlign: 'right' }}>减水剂</th>
+                    <th style={{ textAlign: 'right' }}>砂率</th>
+                    <th style={{ textAlign: 'right' }}>目标 FM</th>
+                    <th style={{ textAlign: 'right' }}>成本</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -980,49 +1016,49 @@ const MixDesignPage = () => {
 
                     return (
                       <React.Fragment key={item.strength}>
-                        <tr style={{ borderBottom: '1px solid #f0f0f0' }}>
-                          <td style={{ padding: '12px', fontWeight: 'bold' }}>{item.strength}</td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>{(item.data.materials.cement || 0).toFixed(1)}</td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>{(item.data.materials.flyAsh || 0).toFixed(1)}</td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>{(item.data.materials.slag || 0).toFixed(1)}</td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>
+                        <tr className="calc-series-table-row">
+                          <td style={{ fontWeight: 'bold' }}>{item.strength}</td>
+                          <td style={{ textAlign: 'right' }}>{(item.data.materials.cement || 0).toFixed(1)}</td>
+                          <td style={{ textAlign: 'right' }}>{(item.data.materials.flyAsh || 0).toFixed(1)}</td>
+                          <td style={{ textAlign: 'right' }}>{(item.data.materials.slag || 0).toFixed(1)}</td>
+                          <td style={{ textAlign: 'right' }}>
                             {hasMultipleSand ? (
-                              <span style={{ color: '#1890ff', cursor: 'pointer' }} title="点击查看详情">
+                              <span className="calc-series-value-blue" title="点击查看详情">
                                 {(item.data.materials.sand || 0).toFixed(1)} (共{ sandKeys.length}种)
                               </span>
                             ) : (
                               (item.data.materials.sand || 0).toFixed(1)
                             )}
                           </td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>
+                          <td style={{ textAlign: 'right' }}>
                             {hasMultipleStone ? (
-                              <span style={{ color: '#1890ff', cursor: 'pointer' }} title="点击查看详情">
+                              <span className="calc-series-value-blue" title="点击查看详情">
                                 {(item.data.materials.stone || 0).toFixed(1)} (共{stoneKeys.length}种)
                               </span>
                             ) : (
                               (item.data.materials.stone || 0).toFixed(1)
                             )}
                           </td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>{(item.data.materials.water || 0).toFixed(1)}</td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>{(item.data.materials.superplasticizer || 0).toFixed(1)}</td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>{(item.data.sandRatio * 100).toFixed(1)}</td>
-                          <td style={{ padding: '12px', textAlign: 'right' }}>{(item.data.targetFinenessModulus || 0).toFixed(2)}</td>
-                          <td style={{ padding: '12px', textAlign: 'right', color: '#1890ff' }}>{(item.data.totalCost || 0).toFixed(2)}</td>
+                          <td style={{ textAlign: 'right' }}>{(item.data.materials.water || 0).toFixed(1)}</td>
+                          <td style={{ textAlign: 'right' }}>{(item.data.materials.superplasticizer || 0).toFixed(1)}</td>
+                          <td style={{ textAlign: 'right' }}>{(item.data.sandRatio * 100).toFixed(1)}</td>
+                          <td style={{ textAlign: 'right' }}>{(item.data.targetFinenessModulus || 0).toFixed(2)}</td>
+                          <td style={{ textAlign: 'right', color: 'var(--color-primary)' }}>{(item.data.totalCost || 0).toFixed(2)}</td>
                         </tr>
                         {/* 细骨料详细用量行 */}
                         {hasMultipleSand && (
-                          <tr style={{ borderBottom: '1px solid #f0f0f0', backgroundColor: '#fafafa' }}>
-                            <td colSpan={4} style={{ padding: '8px 12px', fontWeight: 'bold', color: '#666' }}>
+                          <tr className="calc-series-detail-row">
+                            <td colSpan={4} style={{ fontWeight: 'bold', color: '#666' }}>
                               细骨料明细：
                             </td>
-                            <td colSpan={7} style={{ padding: '8px 12px' }}>
+                            <td colSpan={7}>
                               <Space size="large">
                                 {sandKeys.map(key => {
                                   const materialId = key.replace('sand_', '')
                                   const material = materials.find(m => String(m.id) === String(materialId))
                                   return (
                                     <span key={key}>
-                                      <span style={{ color: '#1890ff' }}>{material?.name || `细骨料${materialId}`}</span>
+                                      <span className="calc-series-value-blue">{material?.name || `细骨料${materialId}`}</span>
                                       : {(item.data.materials[key] || 0).toFixed(1)} kg/m³
                                       {item.data.fineAggregateBreakdown?.find(b => String(b.id) === String(materialId)) &&
                                         ` (${(item.data.fineAggregateBreakdown.find(b => String(b.id) === String(materialId)).ratio * 100).toFixed(1)}%)`
@@ -1036,18 +1072,18 @@ const MixDesignPage = () => {
                         )}
                         {/* 粗骨料详细用量行 */}
                         {hasMultipleStone && (
-                          <tr style={{ borderBottom: '1px solid #f0f0f0', backgroundColor: '#fafafa' }}>
-                            <td colSpan={5} style={{ padding: '8px 12px', fontWeight: 'bold', color: '#666' }}>
+                          <tr className="calc-series-detail-row">
+                            <td colSpan={5} style={{ fontWeight: 'bold', color: '#666' }}>
                               粗骨料明细：
                             </td>
-                            <td colSpan={6} style={{ padding: '8px 12px' }}>
+                            <td colSpan={6}>
                               <Space size="large">
                                 {stoneKeys.map(key => {
                                   const materialId = key.replace('stone_', '')
                                   const material = materials.find(m => String(m.id) === String(materialId))
                                   return (
                                     <span key={key}>
-                                      <span style={{ color: '#1890ff' }}>{material?.name || `粗骨料${materialId}`}</span>
+                                      <span className="calc-series-value-blue">{material?.name || `粗骨料${materialId}`}</span>
                                       : {(item.data.materials[key] || 0).toFixed(1)} kg/m³
                                     </span>
                                   )
@@ -1076,11 +1112,11 @@ const MixDesignPage = () => {
         width={600}
       >
         {seriesResults && seriesResults.length > 0 && (
-          <div style={{ marginBottom: 16, padding: '12px', backgroundColor: '#e6f7ff', border: '1px solid #91d5ff', borderRadius: 4 }}>
-            <p style={{ margin: 0, color: '#0050b3' }}>
+          <div className="calc-batch-info">
+            <p className="calc-batch-info-title">
               即将批量保存 <strong>{seriesResults.length}</strong> 个系列配合比方案（C15-C60）
             </p>
-            <p style={{ margin: '8px 0 0', fontSize: 12, color: '#666' }}>
+            <p className="calc-batch-info-desc">
               每个方案将使用相同的材料配置和参数，强度等级各不相同。
             </p>
           </div>
