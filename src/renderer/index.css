@@ -1722,3 +1722,46 @@ body {
     color: var(--text-primary);
   }
 }
+
+/* ========== Workspace Tabs ========== */
+.workspace-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 0;
+  padding: 0 12px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.workspace-tab {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  font-weight: 400;
+  color: #999;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.workspace-tab:hover {
+  color: #666;
+}
+
+.workspace-tab.active {
+  color: #007AFF;
+  font-weight: 600;
+  border-bottom-color: #007AFF;
+}
+
+.workspace-tab-label {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  color: #333;
+  white-space: nowrap;
+}
