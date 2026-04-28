@@ -245,14 +245,6 @@ const MaterialsPage = () => {
 
   const columns = [
     {
-      title: 'ID',
-      dataIndex: 'id',
-      key: 'id',
-      width: 50,
-      sorter: (a, b) => a.id - b.id,
-      onHeaderCell: () => ({ scope: 'col' })
-    },
-    {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
@@ -281,23 +273,6 @@ const MaterialsPage = () => {
       dataIndex: 'manufacturer',
       key: 'manufacturer',
       width: 150,
-      onHeaderCell: () => ({ scope: 'col' })
-    },
-    {
-      title: '密度',
-      dataIndex: 'density',
-      key: 'density',
-      width: 80,
-      sorter: (a, b) => (a.density || 0) - (b.density || 0),
-      onHeaderCell: () => ({ scope: 'col' })
-    },
-    {
-      title: '单价',
-      dataIndex: 'price',
-      key: 'price',
-      width: 100,
-      sorter: (a, b) => (a.price || 0) - (b.price || 0),
-      render: (price) => price ? `${price} 元/吨` : '-',
       onHeaderCell: () => ({ scope: 'col' })
     },
     {
@@ -346,7 +321,7 @@ const MaterialsPage = () => {
             showSizeChanger: true,
             showTotal: (total) => `共 ${total} 条`
           }}
-          scroll={{ x: 880 }}
+          scroll={{ x: 650 }}
           className="custom-table"
         />
       </div>

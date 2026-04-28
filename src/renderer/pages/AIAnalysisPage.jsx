@@ -873,11 +873,22 @@ const AIAnalysisPage = () => {
               fineAggregate2: 0,
               coarseAggregate: 1050,
               waterReducerDosage: 1.8,
+              waterReducerAmount: 6.12,
               waterBinderRatio: 0.49,
+              apparentDensity: 2380,
               initialSlump: 200,
               initialSlumpFlow: 500,
               initialT500: 5,
-              strengthR28: 40
+              slump1h: 190,
+              slumpFlow1h: 460,
+              t5001h: 6,
+              slump2h: 180,
+              slumpFlow2h: 420,
+              t5002h: 8,
+              strengthR3: 27,
+              strengthR7: 35,
+              strengthR28: 43,
+              strengthR60: 50
             }}
           >
             <Row gutter={16}>
@@ -951,6 +962,11 @@ const AIAnalysisPage = () => {
                 </Form.Item>
               </Col>
               <Col span={8}>
+                <Form.Item name="waterReducerAmount" label="减水剂用量 (kg/m³)">
+                  <InputNumber min={0} precision={2} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
                 <Form.Item name="waterBinderRatio" label="水胶比">
                   <InputNumber min={0} max={1} precision={3} style={{ width: '100%' }} />
                 </Form.Item>
@@ -960,26 +976,80 @@ const AIAnalysisPage = () => {
             <Divider>试验结果</Divider>
 
             <Row gutter={16}>
-              <Col span={8}>
+              <Col span={6}>
+                <Form.Item name="apparentDensity" label="表观密度 (kg/m³)">
+                  <InputNumber min={0} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
                 <Form.Item name="initialSlump" label="初始坍落度 (mm)">
                   <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col span={6}>
                 <Form.Item name="initialSlumpFlow" label="初始扩展度 (mm)">
                   <InputNumber min={0} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col span={6}>
                 <Form.Item name="initialT500" label="初始T500 (s)">
-                  <InputNumber min={0} style={{ width: '100%' }} />
+                  <InputNumber min={0} precision={1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
             </Row>
             <Row gutter={16}>
               <Col span={8}>
-                <Form.Item name="strengthR28" label="R28强度 (MPa)" rules={[{ required: true, message: '请输入R28强度' }]}>
+                <Form.Item name="slump1h" label="1h坍落度 (mm)">
                   <InputNumber min={0} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="slumpFlow1h" label="1h扩展度 (mm)">
+                  <InputNumber min={0} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="t5001h" label="1h T500 (s)">
+                  <InputNumber min={0} precision={1} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item name="slump2h" label="2h坍落度 (mm)">
+                  <InputNumber min={0} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="slumpFlow2h" label="2h扩展度 (mm)">
+                  <InputNumber min={0} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="t5002h" label="2h T500 (s)">
+                  <InputNumber min={0} precision={1} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={6}>
+                <Form.Item name="strengthR3" label="R3强度 (MPa)">
+                  <InputNumber min={0} precision={1} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="strengthR7" label="R7强度 (MPa)">
+                  <InputNumber min={0} precision={1} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="strengthR28" label="R28强度 (MPa)" rules={[{ required: true, message: '请输入R28强度' }]}>
+                  <InputNumber min={0} precision={1} style={{ width: '100%' }} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="strengthR60" label="R60强度 (MPa)">
+                  <InputNumber min={0} precision={1} style={{ width: '100%' }} />
                 </Form.Item>
               </Col>
             </Row>
