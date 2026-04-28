@@ -1,204 +1,25 @@
 import React, { Suspense, lazy } from 'react'
-import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { ConfigProvider, Layout, Menu, Spin } from 'antd'
+import { ConfigProvider, Spin } from 'antd'
 import zhCN from 'antd/lib/locale/zh_CN'
 import 'antd/dist/reset.css'
 import './index.css'
-import BackgroundTaskBar from './components/BackgroundTaskBar'
-import {
-  ExperimentOutlined,
-  AimOutlined,
-  CalculatorOutlined,
-  RobotOutlined,
-  FileTextOutlined,
-  SettingOutlined,
-  InboxOutlined,
-} from '@ant-design/icons'
 
-// 页面组件 - 使用 lazy 加载
-const MaterialsPage = lazy(() => import('./pages/MaterialsPage').catch(err => {
-  console.error('MaterialsPage 加载失败:', err)
-  return { default: () => <div className="custom-empty"><div className="empty-icon">📦</div><div className="empty-title">加载失败</div><div className="empty-description">MaterialsPage 加载失败：{err.message}</div></div> }
-}))
-const MixDesignPage = lazy(() => import('./pages/MixDesignPage').catch(err => {
-  console.error('MixDesignPage 加载失败:', err)
-  return { default: () => <div className="custom-empty"><div className="empty-icon">📝</div><div className="empty-title">加载失败</div><div className="empty-description">MixDesignPage 加载失败：{err.message}</div></div> }
-}))
-const SchemesPage = lazy(() => import('./pages/SchemesPage').catch(err => {
-  console.error('SchemesPage 加载失败:', err)
-  return { default: () => <div className="custom-empty"><div className="empty-icon">📋</div><div className="empty-title">加载失败</div><div className="empty-description">SchemesPage 加载失败：{err.message}</div></div> }
-}))
-const SettingsPage = lazy(() => import('./pages/SettingsPage').catch(err => {
-  console.error('SettingsPage 加载失败:', err)
-  return { default: () => <div className="custom-empty"><div className="empty-icon">⚙️</div><div className="empty-title">加载失败</div><div className="empty-description">SettingsPage 加载失败：{err.message}</div></div> }
-}))
-const OptimizationPage = lazy(() => import('./pages/OptimizationPage').catch(err => {
-  console.error('OptimizationPage 加载失败:', err)
-  return { default: () => <div className="custom-empty"><div className="empty-icon">🎯</div><div className="empty-title">加载失败</div><div className="empty-description">OptimizationPage 加载失败：{err.message}</div></div> }
-}))
-const InverseCalculationPage = lazy(() => import('./pages/InverseCalculationPage').catch(err => {
-  console.error('InverseCalculationPage 加载失败:', err)
-  return { default: () => <div className="custom-empty"><div className="empty-icon">🔢</div><div className="empty-title">加载失败</div><div className="empty-description">InverseCalculationPage 加载失败：{err.message}</div></div> }
-}))
-const AIAnalysisPage = lazy(() => import('./pages/AIAnalysisPage').catch(err => {
-  console.error('AIAnalysisPage 加载失败:', err)
-  return { default: () => <div className="custom-empty"><div className="empty-icon">🤖</div><div className="empty-title">加载失败</div><div className="empty-description">AIAnalysisPage 加载失败：{err.message}</div></div> }
-}))
+const WorkspacePage = lazy(() => import('./pages/WorkspacePage'))
 
-const { Header, Content } = Layout
-
-// 静态样式对象 - 避免每次渲染时重新创建
-const headerStyle = {
-  background: 'rgba(0, 0, 0, 0.8)',
-  backdropFilter: 'saturate(180%) blur(20px)',
-  WebkitBackdropFilter: 'saturate(180%) blur(20px)',
-  borderBottom: 'none',
-  padding: '0 24px',
-  height: 64,
-  lineHeight: '64px',
-  position: 'fixed',
-  top: 0,
-  left: 0,
-  right: 0,
-  zIndex: 1000,
-}
-
-const headerInnerStyle = {
-  display: 'flex',
-  alignItems: 'center',
-  height: '100%',
-}
-
-const headerTitleStyle = {
-  fontSize: 17,
-  fontWeight: 500,
-  color: '#ffffff',
-  display: 'flex',
-  alignItems: 'center',
-}
-
-const contentStyle = {
-  padding: '32px',
-  background: 'var(--color-bg)',
-  minHeight: 'calc(100vh - 64px)',
-  marginLeft: 48,
-  transition: 'margin-left 200ms ease',
-}
-
-const contentWrapperStyle = {
-  maxWidth: 1383,
-  margin: '0 auto',
-  minHeight: '100%',
-}
-
-// 加载中的占位符
-// 导航菜单配置
-const menuItems = [
-  {
-    key: '/materials',
-    icon: <InboxOutlined />,
-    label: '原材料管理',
-  },
-  {
-    key: '/mixdesign',
-    icon: <ExperimentOutlined />,
-    label: '配合比设计',
-  },
-  {
-    key: '/optimization',
-    icon: <AimOutlined />,
-    label: '成本优化',
-  },
-  {
-    key: '/inverse-calculation',
-    icon: <CalculatorOutlined />,
-    label: '参数反算',
-  },
-  {
-    key: '/ai-analysis',
-    icon: <RobotOutlined />,
-    label: 'AI分析',
-  },
-  {
-    key: '/schemes',
-    icon: <FileTextOutlined />,
-    label: '方案管理',
-  },
-  {
-    key: '/settings',
-    icon: <SettingOutlined />,
-    label: '系统设置',
-  },
-]
-
-// 导航菜单组件
-const NavigationMenu = () => {
-  const location = useLocation()
-  const selectedKey = menuItems.find(item => location.pathname.startsWith(item.key))?.key || '/materials'
-
-  return (
-    <Menu
-      theme="dark"
-      mode="horizontal"
-      selectedKeys={[selectedKey]}
-      items={menuItems}
-      style={{
-        background: 'transparent',
-        borderBottom: 'none',
-        lineHeight: '64px',
-        flex: 1,
-      }}
-      onClick={({ key }) => {
-        window.location.hash = key
-      }}
-    />
-  )
-}
-
-// 加载中的占位符
-const LoadingFallback = () => (
-  <div className="custom-loading">
+const SplashFallback = () => (
+  <div style={{
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100vh',
+    gap: 16,
+    background: '#f5f5f7'
+  }}>
     <Spin size="large" />
-    <div className="loading-text">加载中，请稍候...</div>
+    <div style={{ color: '#999', fontSize: 14 }}>加载中，请稍候...</div>
   </div>
 )
-
-// 错误边界组件
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props)
-    this.state = { hasError: false, error: null }
-  }
-
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error }
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.error('React Error:', error, errorInfo)
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="custom-empty">
-          <div className="empty-icon">!</div>
-          <div className="empty-title">页面加载出错</div>
-          <div className="empty-description">
-            {this.state.error?.message}
-            <details style={{ marginTop: '16px', textAlign: 'left' }}>
-              <summary>错误详情</summary>
-              <pre style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
-                {this.state.error?.stack}
-              </pre>
-            </details>
-          </div>
-        </div>
-      )
-    }
-    return this.props.children
-  }
-}
 
 function App() {
   return (
@@ -223,38 +44,9 @@ function App() {
         },
       }}
     >
-      <Router>
-        <Layout style={{ minHeight: '100vh' }}>
-          <Header style={headerStyle}>
-            <div style={headerInnerStyle}>
-              <div style={headerTitleStyle}>
-                混凝土配合比设计系统
-              </div>
-              <NavigationMenu />
-            </div>
-          </Header>
-
-          <Content style={contentStyle}>
-            <div style={contentWrapperStyle}>
-              <ErrorBoundary>
-                <Suspense fallback={<LoadingFallback />}>
-                  <Routes>
-                    <Route path="/" element={<Navigate to="/materials" replace />} />
-                    <Route path="/materials" element={<MaterialsPage />} />
-                    <Route path="/mixdesign" element={<MixDesignPage />} />
-                    <Route path="/optimization" element={<OptimizationPage />} />
-                    <Route path="/inverse-calculation" element={<InverseCalculationPage />} />
-                    <Route path="/schemes" element={<SchemesPage />} />
-                    <Route path="/settings" element={<SettingsPage />} />
-                    <Route path="/ai-analysis" element={<AIAnalysisPage />} />
-                  </Routes>
-                </Suspense>
-              </ErrorBoundary>
-            </div>
-          </Content>
-        </Layout>
-      </Router>
-      <BackgroundTaskBar />
+      <Suspense fallback={<SplashFallback />}>
+        <WorkspacePage />
+      </Suspense>
     </ConfigProvider>
   )
 }
