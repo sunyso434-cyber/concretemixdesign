@@ -943,6 +943,24 @@ if (!window.electron) {
       removeAllListeners: () => {}
     }
   }
+  // 模拟 electronAPI（preload 暴露的 contextBridge API）
+  window.electronAPI = {
+    invoke: async (channel, ...args) => {
+      return window.electron.ipcRenderer.invoke(channel, args[0])
+    },
+    on: (channel, func) => {
+      window.electron.ipcRenderer.on(channel, func)
+    },
+    once: (channel, func) => {
+      window.electron.ipcRenderer.once(channel, func)
+    },
+    removeListener: (id) => {
+      window.electron.ipcRenderer.removeListener(id)
+    },
+    removeAllListeners: (channel) => {
+      window.electron.ipcRenderer.removeAllListeners(channel)
+    }
+  }
   console.log('已加载模拟Electron API（包含完整JGJ 55标准计算），用于浏览器开发测试')
 }
 
