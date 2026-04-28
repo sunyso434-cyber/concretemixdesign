@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Card, Button, Table, Space, message, Modal, Form, Input, Select, Tag } from 'antd'
-import { Link } from 'react-router-dom'
+
 
 const { Option } = Select
 
@@ -268,14 +268,12 @@ const SchemesPage = () => {
       </div>
 
       <div className="action-bar">
-        <Link to="/mixdesign">
-          <Button
-            type="primary"
-            className="custom-btn"
-          >
-            新建方案
-          </Button>
-        </Link>
+        <Button
+          type="primary"
+          className="custom-btn"
+        >
+          新建方案
+        </Button>
       </div>
 
       <div className="custom-card">

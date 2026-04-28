@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Card, Form, Input, Select, Button, Table, Space, message, Divider, Row, Col, Tag, InputNumber, Progress } from 'antd'
-import { Link } from 'react-router-dom'
+
 import { useSelector, useDispatch } from 'react-redux'
 import { setOptimizationTask, clearOptimizationTask } from '../../store/mixDesignSlice'
 
@@ -505,8 +505,7 @@ const OptimizationPage = () => {
       <Card className="custom-card" title="成本优化配合比设计">
         <div className="optim-materials-info" style={{ color: '#666' }}>
           <Space>
-            <span>本功能可自动寻找成本最优的配合比方案。</span>
-            <Link to="/materials">前往管理原材料</Link>
+            <span>本功能可自动寻找成本最优的配合比方案。原材料在左侧面板统一管理。</span>
           </Space>
         </div>
 
