@@ -391,11 +391,6 @@ const InverseCalculationPage = () => {
 
   return (
     <div>
-      <div className="mb-lg">
-        <h2 className="page-title">参数反算</h2>
-        <p className="page-subtitle">基于配合比试验数据进行回归分析，反算水泥胶砂强度和矿物掺合料影响系数</p>
-      </div>
-
       <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
         {/* 左侧：数据导入 + 数据预览表格 */}
         <div style={{ flex: 2, minWidth: '400px' }}>

@@ -676,11 +676,6 @@ const MixDesignPage = () => {
 
   return (
     <div className="page-container">
-      <header className="page-header">
-        <h1 className="page-title">配合比设计</h1>
-        <p className="page-subtitle">根据JGJ 55-2011标准计算混凝土配合比</p>
-      </header>
-
       <div className="mb-lg">
         <Card className="custom-card" title="设计目标参数">
           <Form form={form} layout="vertical" onValuesChange={onFormValuesChange} initialValues={{ calculationMethod: 'absolute', targetDensity: 2400, airContent: 1.5, flyAshDosage: 20, slagDosage: 10, lithiumSlagDosage: 0, compositePowderDosage: 0, sandRatio: 35 }}>

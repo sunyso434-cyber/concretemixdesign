@@ -326,11 +326,6 @@ const MaterialsPage = () => {
 
   return (
     <div className="page-container">
-      <header className="page-header">
-        <h1 className="page-title">原材料管理</h1>
-        <p className="page-subtitle">管理混凝土配合比设计所需的各种原材料信息，包括水泥、粉煤灰、矿渣粉、骨料和外加剂等。</p>
-      </header>
-
       <div className="action-bar">
         <Button type="primary" icon={<PlusOutlined />} onClick={handleAddNew} className="custom-btn">
           新增材料

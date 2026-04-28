@@ -1118,10 +1118,6 @@ const AIAnalysisPage = () => {
 
   return (
     <div className="page-container">
-      <header className="page-header">
-        <h1 className="page-title">AI分析</h1>
-        <p className="page-subtitle">智能分析混凝土配合比数据，提供优化建议和决策支持。</p>
-      </header>
 
       <div className="custom-card">
         <Tabs

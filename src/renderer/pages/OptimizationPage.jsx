@@ -502,11 +502,6 @@ const OptimizationPage = () => {
 
   return (
     <div className="page-container">
-      <header className="page-header">
-        <h1 className="page-title">成本优化</h1>
-        <p className="page-subtitle">基于数学优化算法，在满足强度、坍落度等约束条件下，自动寻找最低成本的配合比方案。</p>
-      </header>
-
       <Card className="custom-card" title="成本优化配合比设计">
         <div className="optim-materials-info" style={{ color: '#666' }}>
           <Space>

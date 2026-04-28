@@ -265,10 +265,6 @@ const SchemesPage = () => {
   return (
     <div className="fade-in">
       <div className="page-container">
-        <header className="page-header">
-          <h1 className="page-title">方案管理</h1>
-          <p className="page-subtitle">管理混凝土配合比设计方案，包括查看、编辑、复制和删除操作。</p>
-        </header>
       </div>
 
       <div className="action-bar">

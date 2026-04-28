@@ -177,11 +177,6 @@ const SettingsPage = () => {
 
   return (
     <div className="page-container settings-page">
-      <div className="page-header">
-        <h1 className="page-title">系统设置</h1>
-        <p className="page-subtitle">管理配合比参数和系统数据</p>
-      </div>
-
       <Card className="custom-card mb-lg">
         <Tabs
           activeKey={activeTab}
