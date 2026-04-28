@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useState, useCallback } from 'react'
+import React, { Suspense, lazy, useState, useCallback, useEffect } from 'react'
 import { Spin } from 'antd'
 import ResizablePanels from '../components/ResizablePanels'
 import WorkspaceTabs from '../components/WorkspaceTabs'
@@ -46,6 +46,41 @@ const LoadingFallback = () => (
 export default function WorkspacePage() {
   const [middleTab, setMiddleTab] = useState(() => loadTab('middleActiveTab', 'mixdesign'))
   const [rightTab, setRightTab] = useState(() => loadTab('rightActiveTab', 'schemes'))
+  const [hasTasks, setHasTasks] = useState(false)
+
+  useEffect(() => {
+    const loadTasks = async () => {
+      try {
+        const result = await window.electron.ipcRenderer.invoke('get-all-tasks')
+        if (result && result.success && Array.isArray(result.data)) {
+          const running = result.data.some(t => t && t.status === 'running')
+          setHasTasks(running)
+        }
+      } catch (err) {
+        console.error('WorkspacePage: load tasks error:', err)
+      }
+    }
+    loadTasks()
+
+    const handler = (...args) => {
+      try {
+        const task = args[0]
+        if (!task || !task.id) return
+        if (task.status === 'running') {
+          setHasTasks(true)
+        } else if (task.status === 'completed' || task.status === 'failed') {
+          setHasTasks(false)
+        }
+      } catch (err) {
+        console.error('WorkspacePage: task progress error:', err)
+      }
+    }
+
+    window.electron.ipcRenderer.on('background-task-progress', handler)
+    return () => {
+      window.electron.ipcRenderer.removeListener('background-task-progress', handler)
+    }
+  }, [])
 
   const handleMiddleChange = useCallback((key) => {
     setMiddleTab(key)
@@ -124,7 +159,7 @@ export default function WorkspacePage() {
         <span className="topbar-title">混凝土配合比设计系统</span>
         <div className="topbar-right">
           <span className="topbar-version">v3.1.0</span>
-          <span className="topbar-task-dot" id="task-indicator" />
+          <span className={`topbar-task-dot${hasTasks ? ' has-tasks' : ''}`} />
         </div>
       </header>
       <ResizablePanels left={leftContent} middle={middleContent} right={rightContent} />
