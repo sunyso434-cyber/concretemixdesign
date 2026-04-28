@@ -769,6 +769,17 @@ const OptimizationPage = () => {
                     保存最优方案
                   </Button>
                 )}
+                {result && (
+                  <Button
+                    size="large"
+                    onClick={() => {
+                      setResult(null)
+                      setProgress(null)
+                    }}
+                  >
+                    清除结果
+                  </Button>
+                )}
               </Space>
               {progress && (
                 <div className="optim-progress-info">

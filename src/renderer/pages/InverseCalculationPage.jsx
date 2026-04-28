@@ -444,6 +444,15 @@ const InverseCalculationPage = () => {
                 >
                   执行回归计算
                 </Button>
+                {result && (
+                  <Button
+                    size="large"
+                    onClick={() => setResult(null)}
+                    style={{ marginLeft: 8 }}
+                  >
+                    清除结果
+                  </Button>
+                )}
               </div>
             </Space>
           </Card>

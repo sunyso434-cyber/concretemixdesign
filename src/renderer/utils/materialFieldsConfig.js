@@ -115,6 +115,53 @@ export const MATERIAL_FIELDS_CONFIG = {
     ]
   },
 
+  '锂渣': {
+    required: ['name', 'type'],
+    optional: [
+      { name: 'specification', label: '规格', type: 'text' },
+      { name: 'manufacturer', label: '生产厂家', type: 'text' },
+      { name: 'density', label: '密度', unit: 'g/cm³', type: 'number', min: 0 },
+      { name: 'specificSurfaceArea', label: '比表面积', unit: 'm²/g', type: 'number', min: 0 },
+      { name: 'lossOnIgnition', label: '烧失量', unit: '%', type: 'number', min: 0, max: 100 },
+      { name: 'waterDemandRatio', label: '需水量比', unit: '%', type: 'number', min: 0, max: 100 },
+      { name: 'activityIndex28d', label: '28天活性指数', unit: '%', type: 'number', min: 0, max: 100 },
+      { name: 'influenceFactor_10', label: '10%掺量影响系数', type: 'number', min: 0 },
+      { name: 'influenceFactor_20', label: '20%掺量影响系数', type: 'number', min: 0 },
+      { name: 'influenceFactor_30', label: '30%掺量影响系数', type: 'number', min: 0 },
+      { name: 'influenceFactor_40', label: '40%掺量影响系数', type: 'number', min: 0 },
+      { name: 'influenceFactor_50', label: '50%掺量影响系数', type: 'number', min: 0 },
+      { name: 'cementitiousFactor_10', label: '10%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_20', label: '20%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_30', label: '30%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_40', label: '40%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_50', label: '50%掺量胶凝系数', type: 'number', disabled: true }
+    ]
+  },
+
+  '复合粉': {
+    required: ['name', 'type'],
+    optional: [
+      { name: 'specification', label: '规格', type: 'text' },
+      { name: 'manufacturer', label: '生产厂家', type: 'text' },
+      { name: 'density', label: '密度', unit: 'g/cm³', type: 'number', min: 0 },
+      { name: 'specificSurfaceArea', label: '比表面积', unit: 'm²/g', type: 'number', min: 0 },
+      { name: 'lossOnIgnition', label: '烧失量', unit: '%', type: 'number', min: 0, max: 100 },
+      { name: 'fluidityRatio', label: '流动度比', unit: '%', type: 'number', min: 0 },
+      { name: 'activityIndex7d', label: '7天活性指数', unit: '%', type: 'number', min: 0, max: 100 },
+      { name: 'activityIndex28d', label: '28天活性指数', unit: '%', type: 'number', min: 0, max: 100 },
+      { name: 'influenceFactor_10', label: '10%掺量影响系数', type: 'number', min: 0 },
+      { name: 'influenceFactor_20', label: '20%掺量影响系数', type: 'number', min: 0 },
+      { name: 'influenceFactor_30', label: '30%掺量影响系数', type: 'number', min: 0 },
+      { name: 'influenceFactor_40', label: '40%掺量影响系数', type: 'number', min: 0 },
+      { name: 'influenceFactor_50', label: '50%掺量影响系数', type: 'number', min: 0 },
+      { name: 'cementitiousFactor_10', label: '10%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_20', label: '20%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_30', label: '30%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_40', label: '40%掺量胶凝系数', type: 'number', disabled: true },
+      { name: 'cementitiousFactor_50', label: '50%掺量胶凝系数', type: 'number', disabled: true }
+    ]
+  },
+
   '减水剂': {
     required: ['name', 'type'],
     optional: [

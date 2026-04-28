@@ -837,6 +837,16 @@ const MixDesignPage = () => {
         >
           保存方案
         </Button>
+        <Button
+          className="custom-btn"
+          onClick={() => {
+            setCalculationResult(null)
+            setAdjustedResult(null)
+            setSeriesResults(null)
+          }}
+        >
+          清除结果
+        </Button>
       </div>
 
       <div className="calc-result-flex">

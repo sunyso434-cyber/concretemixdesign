@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Tabs, Button, message, Upload, Table, Select, Space, Card, Tag, Alert, Descriptions, Divider, Form, InputNumber, Row, Col, Input, List, Avatar } from 'antd'
-import { DownloadOutlined, UploadOutlined, ExperimentOutlined, SettingOutlined, SendOutlined, ClearOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons'
+import { DownloadOutlined, UploadOutlined, ExperimentOutlined, SettingOutlined, SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, DeleteOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import { getMaterialsByType, getAllMaterials, matchMaterialByName } from '../services/MaterialService'
 
@@ -684,6 +684,16 @@ const AIAnalysisPage = () => {
     message.success('配合比数据添加成功')
   }
 
+  const handleDeleteRow = (id) => {
+    setMixDesigns(prev => prev.filter(item => item.id !== id))
+    setMaterialMapping(prev => {
+      const updated = { ...prev }
+      delete updated[id]
+      return updated
+    })
+    message.success('已删除该条数据')
+  }
+
   const handleImportExcel = async (file) => {
     const isExcel = file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
       file.type === 'application/vnd.ms-excel'
@@ -821,6 +831,19 @@ const AIAnalysisPage = () => {
       dataIndex: 'waterReducerAmount',
       key: 'waterReducerAmount',
       width: 100,
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 60,
+      render: (_, record) => (
+        <Button
+          danger
+          size="small"
+          icon={<DeleteOutlined />}
+          onClick={() => handleDeleteRow(record.id)}
+        />
+      ),
     },
   ]
 
