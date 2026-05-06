@@ -74,12 +74,10 @@ const checkApiStatus = async () => {
  * @param {object} args - 工具参数
  * @returns {Promise<object>} 执行结果
  */
-const materialService = new MaterialService()
-
 const executeToolCall = async (toolName, args) => {
   switch (toolName) {
     case 'list_available_materials': {
-      const materials = await materialService.getAllMaterials()
+      const materials = await MaterialService.getAllMaterials()
       if (args.type) {
         const filtered = materials.filter(m => m.type === args.type)
         return { success: true, count: filtered.length, materials: filtered }
@@ -94,7 +92,7 @@ const executeToolCall = async (toolName, args) => {
         return { success: false, missingParams: missing, hint: `缺少必填参数: ${missing.join(', ')}，请向用户追问。` }
       }
 
-      const allMaterials = await materialService.getAllMaterials()
+      const allMaterials = await MaterialService.getAllMaterials()
       const findById = (id) => allMaterials.find(m => m.id === id)
 
       const materials = {}
@@ -156,7 +154,7 @@ const executeToolCall = async (toolName, args) => {
         return { success: false, missingParams: missing, hint: `缺少必填参数: ${missing.join(', ')}` }
       }
 
-      const allMaterials = await materialService.getAllMaterials()
+      const allMaterials = await MaterialService.getAllMaterials()
       const findById = (id) => allMaterials.find(m => m.id === id)
 
       const constraints = {
@@ -223,7 +221,7 @@ const executeToolCall = async (toolName, args) => {
         return { success: false, missingParams: missing, hint: `缺少必填参数: ${missing.join(', ')}` }
       }
 
-      const allMaterials = await materialService.getAllMaterials()
+      const allMaterials = await MaterialService.getAllMaterials()
       const findById = (id) => allMaterials.find(m => m.id === id)
       const bp = args.baseParams
 
