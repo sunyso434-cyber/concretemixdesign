@@ -113,8 +113,8 @@ const TOOLS = [
               slagDosage: { type: 'number' },
               lithiumSlagDosage: { type: 'number' },
               compositePowderDosage: { type: 'number' },
-              sandRatio: { type: 'number' },
-              calculationMethod: { type: 'string' }
+              sandRatio: { type: 'number', description: '砂率(%)，不填则根据规范自动计算' },
+              calculationMethod: { type: 'string', enum: ['absolute', 'mass'], description: '计算方法：absolute=绝对体积法(默认), mass=质量法' }
             }
           },
           candidateIds: { type: 'array', items: { type: 'integer' }, description: '候选材料ID列表' },
