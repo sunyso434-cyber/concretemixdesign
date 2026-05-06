@@ -13,8 +13,8 @@ const MixDesignOptimizer = require('../services/MixDesignOptimizer')
 const getDeepSeekApiKey = async () => {
   try {
     const result = await SystemService.getParamByName('deepseekApiKey')
-    if (result && result.paramValue) {
-      return result.paramValue
+    if (result && result.value) {
+      return result.value
     }
     return null
   } catch (error) {
@@ -42,14 +42,14 @@ const getDeepSeekService = async () => {
 /**
  * 分析配合比数据
  */
-const analyzeMixDesign = async (event, data) => {
+const analyzeMixDesign = async (event, { data, customPrompt }) => {
   const service = await getDeepSeekService()
   if (!service) {
     throw new Error('DeepSeek API未配置，请在系统设置中配置API密钥')
   }
 
   try {
-    const result = await service.analyzeMixDesign(data)
+    const result = await service.analyzeMixDesign(data, customPrompt || '')
     return result
   } catch (error) {
     console.error('AI分析失败:', error)

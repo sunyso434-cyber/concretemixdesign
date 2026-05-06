@@ -591,7 +591,7 @@ if (!window.electron) {
 
   // 计算配合比 - JGJ 55标准版本（增强：支持多细/粗骨料分配与成本）
   const calculateMixDesignMock = (params) => {
-    const { strength, slump, environment, tempSettings, materials, calculationMethod, targetDensity, flyAshDosage, slagDosage, sandRatio } = params
+    const { strength, slump, environment, tempSettings, materials, calculationMethod, targetDensity, flyAshDosage, slagDosage, lithiumSlagDosage, compositePowderDosage, sandRatio } = params
 
     console.log('开始JGJ 55标准配合比计算（模拟 - 多骨料支持）...')
 
@@ -604,8 +604,14 @@ if (!window.electron) {
     const alphaB = (tempSettings && tempSettings.regressionAlphaB) ? parseFloat(tempSettings.regressionAlphaB) : globalSettings.regressionAlphaB
 
     const flyAshMaterial = materials?.flyAsh || mockMaterials.find(m => m.type === '粉煤灰')
+    const slagMaterial = materials?.slag || mockMaterials.find(m => m.type === '矿渣粉')
+    const lithiumSlagMaterial = materials?.lithiumSlag || mockMaterials.find(m => m.type === '锂渣')
+    const compositePowderMaterial = materials?.compositePowder || mockMaterials.find(m => m.type === '复合粉')
     let influenceFactor = 1.0
-    if (flyAshDosage && flyAshMaterial) influenceFactor = calculateInfluenceFactor(flyAshDosage, flyAshMaterial)
+    if (flyAshDosage && flyAshMaterial) influenceFactor *= calculateInfluenceFactor(flyAshDosage, flyAshMaterial)
+    if (slagDosage && slagMaterial) influenceFactor *= calculateInfluenceFactor(slagDosage, slagMaterial)
+    if (lithiumSlagDosage && lithiumSlagMaterial) influenceFactor *= calculateInfluenceFactor(lithiumSlagDosage, lithiumSlagMaterial)
+    if (compositePowderDosage && compositePowderMaterial) influenceFactor *= calculateInfluenceFactor(compositePowderDosage, compositePowderMaterial)
 
     const cementMaterial = materials?.cement || mockMaterials.find(m => m.type === '水泥')
     const cementStrength = (cementMaterial?.compressiveStrength28d || 48.0) * influenceFactor
@@ -671,8 +677,18 @@ if (!window.electron) {
     }
     if (slagDosage && materials?.slag?.fluidityRatio) {
       const slagFluidityRatio = materials.slag.fluidityRatio
-      const slagInfluence = 1 - (1 - 100 / slagFluidityRatio) / 50 * (slagDosage / 100)
+      const slagInfluence = 1 + (100 - slagFluidityRatio) / 50 * (slagDosage / 100)
       waterAmount *= slagInfluence
+    }
+    if (lithiumSlagDosage && materials?.lithiumSlag?.waterDemandRatio) {
+      const lithiumSlagWaterDemandRatio = materials.lithiumSlag.waterDemandRatio
+      const lithiumSlagInfluence = 1 - (100 - lithiumSlagWaterDemandRatio) / 30 * (lithiumSlagDosage / 100)
+      waterAmount *= lithiumSlagInfluence
+    }
+    if (compositePowderDosage && materials?.compositePowder?.fluidityRatio) {
+      const compositePowderFluidityRatio = materials.compositePowder.fluidityRatio
+      const compositePowderInfluence = 1 + (100 - compositePowderFluidityRatio) / 50 * (compositePowderDosage / 100)
+      waterAmount *= compositePowderInfluence
     }
 
     const cementitiousAmount = waterAmount / waterRatio
@@ -683,13 +699,17 @@ if (!window.electron) {
     // 初始材料用量
     const flyAshPercentage = (flyAshDosage || 0) / 100
     const slagPercentage = (slagDosage || 0) / 100
-    const cementPercentage = 1 - flyAshPercentage - slagPercentage
+    const lithiumSlagPercentage = (lithiumSlagDosage || 0) / 100
+    const compositePowderPercentage = (compositePowderDosage || 0) / 100
+    const cementPercentage = 1 - flyAshPercentage - slagPercentage - lithiumSlagPercentage - compositePowderPercentage
 
     let materialAmounts = {
       water: waterAmount,
       cement: cementitiousAmount * Math.max(0, cementPercentage),
       flyAsh: cementitiousAmount * flyAshPercentage,
       slag: cementitiousAmount * slagPercentage,
+      lithiumSlag: cementitiousAmount * lithiumSlagPercentage,
+      compositePowder: cementitiousAmount * compositePowderPercentage,
       sand: 0,
       stone: 0,
       superplasticizer: cementitiousAmount * (finalDosage / 100)
@@ -752,6 +772,14 @@ if (!window.electron) {
       if (materials.slag && materials.slag.price) {
         materialCosts.slag = (materialAmounts.slag * materials.slag.price) / 1000
         totalCost += materialCosts.slag
+      }
+      if (materials.lithiumSlag && materials.lithiumSlag.price) {
+        materialCosts.lithiumSlag = (materialAmounts.lithiumSlag * materials.lithiumSlag.price) / 1000
+        totalCost += materialCosts.lithiumSlag
+      }
+      if (materials.compositePowder && materials.compositePowder.price) {
+        materialCosts.compositePowder = (materialAmounts.compositePowder * materials.compositePowder.price) / 1000
+        totalCost += materialCosts.compositePowder
       }
 
       // 细骨料

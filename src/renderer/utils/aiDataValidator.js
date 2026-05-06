@@ -221,6 +221,8 @@ const MATERIAL_VALIDATE_KEYS = [
   { key: 'fineAggregate2', type: '细骨料' },
   { key: 'coarseAggregate', type: '粗骨料' },
   { key: 'waterReducer', type: '外加剂' },
+  { key: 'lithiumSlag', type: '锂渣' },
+  { key: 'compositePowder', type: '复合粉' },
 ]
 
 /**

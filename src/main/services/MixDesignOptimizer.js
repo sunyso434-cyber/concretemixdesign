@@ -32,12 +32,12 @@ class MixDesignOptimizer {
    * @returns {Object|null} 计算结果或null
    */
   async _processSingleTask(task, screeningMaterials, screeningSp, waterRatio, constraints, userLimits) {
-    const { flyAshMat, slagMat, flyAsh, slag, fineAggregateRatio } = task
+    const { flyAshMat, slagMat, lithiumSlagMat, compositePowderMat, flyAsh, slag, lithiumSlag, compositePowder, fineAggregateRatio } = task
 
     try {
       // 构建混合砂材料
       const iterationMaterials = this._buildIterationMaterials(
-        { ...screeningMaterials, flyAsh: flyAshMat, slag: slagMat },
+        { ...screeningMaterials, flyAsh: flyAshMat, slag: slagMat, lithiumSlag: lithiumSlagMat, compositePowder: compositePowderMat },
         { sand: fineAggregateRatio }
       )
 
@@ -57,6 +57,8 @@ class MixDesignOptimizer {
         waterRatio: waterRatio,
         flyAshDosage: flyAsh,
         slagDosage: slag,
+        lithiumSlagDosage: lithiumSlag,
+        compositePowderDosage: compositePowder,
         sandRatio: calculatedSandRatio * 100, // 转换为百分比
         materials: iterationMaterials,
         tempSettings: constraints.tempSettings
@@ -68,8 +70,10 @@ class MixDesignOptimizer {
       console.log('[第一层] 计算结果:', {
         flyAsh: flyAshMat?.name,
         slag: slagMat?.name,
+        lithiumSlag: lithiumSlagMat?.name,
+        compositePowder: compositePowderMat?.name,
         totalCost: result.totalCost,
-        cementitious: (result.materials?.cement || 0) + (result.materials?.flyAsh || 0) + (result.materials?.slag || 0),
+        cementitious: (result.materials?.cement || 0) + (result.materials?.flyAsh || 0) + (result.materials?.slag || 0) + (result.materials?.lithiumSlag || 0) + (result.materials?.compositePowder || 0),
         water: result.materials?.water,
         waterRatio: result.waterRatio,
         isValid
@@ -78,10 +82,12 @@ class MixDesignOptimizer {
       if (isValid) {
         return {
           ...result,
-          params: { flyAsh, slag, sandRatio: calculatedSandRatio * 100, fineAggregateRatio },
+          params: { flyAsh, slag, lithiumSlag, compositePowder, sandRatio: calculatedSandRatio * 100, fineAggregateRatio },
           materialSelection: {
             flyAsh: flyAshMat,
             slag: slagMat,
+            lithiumSlag: lithiumSlagMat,
+            compositePowder: compositePowderMat,
             superplasticizer: screeningSp
           }
         }
@@ -123,6 +129,8 @@ class MixDesignOptimizer {
     // 2. 确定网格搜索范围（砂率由公式计算，不搜索）
     const flyAshRange = this._createRange(userLimits.flyAshRange || [0, 30], userLimits.gridStep || 5)
     const slagRange = this._createRange(userLimits.slagRange || [0, 20], userLimits.gridStep || 5)
+    const lithiumSlagRange = this._createRange(userLimits.lithiumSlagRange || [0, 20], userLimits.gridStep || 5)
+    const compositePowderRange = this._createRange(userLimits.compositePowderRange || [0, 20], userLimits.gridStep || 5)
 
     // 3. 预处理材料（不过滤，只是浅拷贝）
     const materials = this._prepareMaterials(constraints.materials)
@@ -140,6 +148,8 @@ class MixDesignOptimizer {
       waterRatio: waterRatioResult.waterRatio,
       flyAshRange,
       slagRange,
+      lithiumSlagRange,
+      compositePowderRange,
       fineAggregateRatios,
       constraints,
       userLimits,
@@ -167,7 +177,9 @@ class MixDesignOptimizer {
     // 7. 添加胶凝材料成本
     const cementitiousCost = (bestSolution.materialCosts?.cement || 0) +
       (bestSolution.materialCosts?.flyAsh || 0) +
-      (bestSolution.materialCosts?.slag || 0)
+      (bestSolution.materialCosts?.slag || 0) +
+      (bestSolution.materialCosts?.lithiumSlag || 0) +
+      (bestSolution.materialCosts?.compositePowder || 0)
 
     const bestSolutionWithCost = {
       ...bestSolution,
@@ -178,13 +190,17 @@ class MixDesignOptimizer {
       ...alt,
       cementitiousCost: (alt.materialCosts?.cement || 0) +
         (alt.materialCosts?.flyAsh || 0) +
-        (alt.materialCosts?.slag || 0)
+        (alt.materialCosts?.slag || 0) +
+        (alt.materialCosts?.lithiumSlag || 0) +
+        (alt.materialCosts?.compositePowder || 0)
     }))
 
     // 8. 确保 bestSolution 包含 selectedMaterials
     bestSolutionWithCost.selectedMaterials = {
       flyAsh: bestSolution.materialSelection?.flyAsh,
       slag: bestSolution.materialSelection?.slag,
+      lithiumSlag: bestSolution.materialSelection?.lithiumSlag,
+      compositePowder: bestSolution.materialSelection?.compositePowder,
       superplasticizer: bestSolution.materialSelection?.superplasticizer
     }
 
@@ -308,7 +324,7 @@ class MixDesignOptimizer {
    * @returns {Array} Top5 组合（按总成本排序）
    */
   async _firstLayerFilter(params) {
-    const { materials, waterRatio, flyAshRange, slagRange, fineAggregateRatios, constraints, userLimits } = params
+    const { materials, waterRatio, flyAshRange, slagRange, lithiumSlagRange, compositePowderRange, fineAggregateRatios, constraints, userLimits } = params
 
     // 1. 选择筛选用减水剂（最便宜的一种，如果没有则使用默认）
     let screeningSp = null
@@ -342,22 +358,35 @@ class MixDesignOptimizer {
     const results = []
     const flyAshList = this._getMaterialList(materials.flyAsh)
     const slagList = this._getMaterialList(materials.slag)
+    const lithiumSlagList = this._getMaterialList(materials.lithiumSlag)
+    const compositePowderList = this._getMaterialList(materials.compositePowder)
 
-    console.log('[第一层粗筛] flyAshList数量:', flyAshList.length, ', slagList数量:', slagList.length)
-    console.log('[第一层粗筛] flyAshRange:', flyAshRange, ', slagRange:', slagRange)
+    console.log('[第一层粗筛] flyAshList数量:', flyAshList.length, ', slagList数量:', slagList.length, ', lithiumSlagList数量:', lithiumSlagList.length, ', compositePowderList数量:', compositePowderList.length)
+    console.log('[第一层粗筛] flyAshRange:', flyAshRange, ', slagRange:', slagRange, ', lithiumSlagRange:', lithiumSlagRange, ', compositePowderRange:', compositePowderRange)
     console.log('[第一层粗筛] fineAggregateRatios数量:', fineAggregateRatios.length)
 
     // 构建所有任务（砂率由公式计算，不搜索）
+    // 总掺量上限50%，超过则跳过
     const tasks = []
     for (const flyAshMat of flyAshList) {
       if (!flyAshMat) continue
       for (const slagMat of slagList) {
         if (!slagMat) continue
-        for (const flyAsh of flyAshRange) {
-          for (const slag of slagRange) {
-            if (flyAsh + slag > 50) continue
-            for (const fineAggregateRatio of fineAggregateRatios) {
-              tasks.push({ flyAshMat, slagMat, flyAsh, slag, fineAggregateRatio })
+        for (const lithiumSlagMat of lithiumSlagList) {
+          if (!lithiumSlagMat) continue
+          for (const compositePowderMat of compositePowderList) {
+            if (!compositePowderMat) continue
+            for (const flyAsh of flyAshRange) {
+              for (const slag of slagRange) {
+                for (const lithiumSlag of lithiumSlagRange) {
+                  for (const compositePowder of compositePowderRange) {
+                    if (flyAsh + slag + lithiumSlag + compositePowder > 50) continue
+                    for (const fineAggregateRatio of fineAggregateRatios) {
+                      tasks.push({ flyAshMat, slagMat, lithiumSlagMat, compositePowderMat, flyAsh, slag, lithiumSlag, compositePowder, fineAggregateRatio })
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -430,7 +459,7 @@ class MixDesignOptimizer {
       }
 
       const { params: comboParams, materialSelection } = combo
-      const { flyAsh, slag, sandRatio, fineAggregateRatio } = comboParams
+      const { flyAsh, slag, lithiumSlag, compositePowder, sandRatio, fineAggregateRatio } = comboParams
 
       // 尝试每种减水剂
       for (const spMat of spList) {
@@ -442,7 +471,7 @@ class MixDesignOptimizer {
         try {
           // 构建当前迭代的材料对象
           const iterationMaterials = this._buildIterationMaterials(
-            { ...materials, flyAsh: materialSelection.flyAsh, slag: materialSelection.slag, superplasticizer: spMat },
+            { ...materials, flyAsh: materialSelection.flyAsh, slag: materialSelection.slag, lithiumSlag: materialSelection.lithiumSlag, compositePowder: materialSelection.compositePowder, superplasticizer: spMat },
             { sand: fineAggregateRatio }
           )
 
@@ -452,6 +481,8 @@ class MixDesignOptimizer {
             waterRatio: waterRatio,
             flyAshDosage: flyAsh,
             slagDosage: slag,
+            lithiumSlagDosage: lithiumSlag,
+            compositePowderDosage: compositePowder,
             sandRatio: sandRatio,
             materials: iterationMaterials,
             tempSettings: constraints.tempSettings
@@ -463,9 +494,11 @@ class MixDesignOptimizer {
           console.log('[第二层细筛] 计算结果:', {
             flyAsh: materialSelection.flyAsh?.name,
             slag: materialSelection.slag?.name,
+            lithiumSlag: materialSelection.lithiumSlag?.name,
+            compositePowder: materialSelection.compositePowder?.name,
             sp: spMat?.name,
             totalCost: result.totalCost,
-            cementitious: (result.materials?.cement || 0) + (result.materials?.flyAsh || 0) + (result.materials?.slag || 0),
+            cementitious: (result.materials?.cement || 0) + (result.materials?.flyAsh || 0) + (result.materials?.slag || 0) + (result.materials?.lithiumSlag || 0) + (result.materials?.compositePowder || 0),
             water: result.materials?.water,
             waterRatio: result.waterRatio,
             isValid
@@ -478,6 +511,8 @@ class MixDesignOptimizer {
               materialSelection: {
                 flyAsh: materialSelection.flyAsh,
                 slag: materialSelection.slag,
+                lithiumSlag: materialSelection.lithiumSlag,
+                compositePowder: materialSelection.compositePowder,
                 superplasticizer: spMat
               }
             })
@@ -485,14 +520,16 @@ class MixDesignOptimizer {
             if (result.totalCost < bestCost) {
               bestCost = result.totalCost
               bestSolution = allResults[allResults.length - 1]
-              console.log('[第二层细筛] 更新最佳方案:', { cost: result.totalCost, flyAsh: materialSelection.flyAsh?.name, slag: materialSelection.slag?.name, sp: spMat?.name })
+              console.log('[第二层细筛] 更新最佳方案:', { cost: result.totalCost, flyAsh: materialSelection.flyAsh?.name, slag: materialSelection.slag?.name, lithiumSlag: materialSelection.lithiumSlag?.name, compositePowder: materialSelection.compositePowder?.name, sp: spMat?.name })
             }
           } else {
             console.log('[第二层细筛] 组合验证失败:', {
               flyAsh: materialSelection.flyAsh?.name,
               slag: materialSelection.slag?.name,
+              lithiumSlag: materialSelection.lithiumSlag?.name,
+              compositePowder: materialSelection.compositePowder?.name,
               sp: spMat?.name,
-              totalCementitious: (result.materials?.cement || 0) + (result.materials?.flyAsh || 0) + (result.materials?.slag || 0),
+              totalCementitious: (result.materials?.cement || 0) + (result.materials?.flyAsh || 0) + (result.materials?.slag || 0) + (result.materials?.lithiumSlag || 0) + (result.materials?.compositePowder || 0),
               waterAmount: result.materials?.water
             })
           }
@@ -611,7 +648,7 @@ _prepareMaterials(materials) {
     }
 
     // 检查胶凝材料用量是否合理（放宽限制）
-    const totalCementitious = (result.materials?.cement || 0) + (result.materials?.flyAsh || 0) + (result.materials?.slag || 0)
+    const totalCementitious = (result.materials?.cement || 0) + (result.materials?.flyAsh || 0) + (result.materials?.slag || 0) + (result.materials?.lithiumSlag || 0) + (result.materials?.compositePowder || 0)
     if (totalCementitious <= 0) {
       console.log('[验证] 胶凝材料用量为 0 或无效:', totalCementitious)
       return false

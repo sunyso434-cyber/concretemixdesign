@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useState, useCallback, useEffect } from 'react'
-import { Spin } from 'antd'
+import { Spin, Drawer } from 'antd'
+import { AppstoreOutlined, SettingOutlined } from '@ant-design/icons'
 import ResizablePanels from '../components/ResizablePanels'
 import WorkspaceTabs from '../components/WorkspaceTabs'
 import BackgroundTaskBar from '../components/BackgroundTaskBar'
@@ -18,11 +19,6 @@ const MIDDLE_TABS = [
   { key: 'ai-analysis', label: 'AI分析' },
   { key: 'optimization', label: '成本优化' },
   { key: 'inverse-calculation', label: '参数反算' },
-]
-
-const RIGHT_TABS = [
-  { key: 'schemes', label: '方案管理' },
-  { key: 'settings', label: '系统设置' },
 ]
 
 function loadTab(key, fallback) {
@@ -45,8 +41,8 @@ const LoadingFallback = () => (
 
 export default function WorkspacePage() {
   const [middleTab, setMiddleTab] = useState(() => loadTab('middleActiveTab', 'mixdesign'))
-  const [rightTab, setRightTab] = useState(() => loadTab('rightActiveTab', 'schemes'))
   const [hasTasks, setHasTasks] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(null) // null | 'schemes' | 'settings'
 
   useEffect(() => {
     const loadTasks = async () => {
@@ -87,11 +83,6 @@ export default function WorkspacePage() {
     saveTab('middleActiveTab', key)
   }, [])
 
-  const handleRightChange = useCallback((key) => {
-    setRightTab(key)
-    saveTab('rightActiveTab', key)
-  }, [])
-
   const renderMiddleContent = () => {
     const style = hidden => ({ display: hidden ? 'none' : 'flex', flexDirection: 'column', flex: 1, minHeight: 0 })
     return (
@@ -107,20 +98,6 @@ export default function WorkspacePage() {
         </div>
         <div style={style(middleTab !== 'inverse-calculation')} className="panel-content">
           <Suspense fallback={<LoadingFallback />}><InverseCalculationPage /></Suspense>
-        </div>
-      </>
-    )
-  }
-
-  const renderRightContent = () => {
-    const style = hidden => ({ display: hidden ? 'none' : 'flex', flexDirection: 'column', flex: 1, minHeight: 0 })
-    return (
-      <>
-        <div style={style(rightTab !== 'schemes')} className="panel-content">
-          <Suspense fallback={<LoadingFallback />}><SchemesPage /></Suspense>
-        </div>
-        <div style={style(rightTab !== 'settings')} className="panel-content">
-          <Suspense fallback={<LoadingFallback />}><SettingsPage /></Suspense>
         </div>
       </>
     )
@@ -146,23 +123,40 @@ export default function WorkspacePage() {
     </>
   )
 
-  const rightContent = (
-    <>
-      <WorkspaceTabs tabs={RIGHT_TABS} activeKey={rightTab} onChange={handleRightChange} />
-      {renderRightContent()}
-    </>
-  )
-
   return (
     <div className="workspace-container">
       <header className="topbar">
         <span className="topbar-title">混凝土配合比设计系统</span>
         <div className="topbar-right">
-          <span className="topbar-version">v3.1.0</span>
+          <span className="topbar-icon" onClick={() => setDrawerOpen('schemes')} title="方案管理">
+            <AppstoreOutlined />
+          </span>
+          <span className="topbar-icon" onClick={() => setDrawerOpen('settings')} title="系统设置">
+            <SettingOutlined />
+          </span>
+          <span className="topbar-version">v3.2.0</span>
           <span className={`topbar-task-dot${hasTasks ? ' has-tasks' : ''}`} />
         </div>
       </header>
-      <ResizablePanels left={leftContent} middle={middleContent} right={rightContent} />
+      <ResizablePanels left={leftContent} middle={middleContent} />
+      <Drawer
+        title="方案管理"
+        open={drawerOpen === 'schemes'}
+        onClose={() => setDrawerOpen(null)}
+        width="80%"
+        destroyOnClose
+      >
+        <Suspense fallback={<LoadingFallback />}><SchemesPage /></Suspense>
+      </Drawer>
+      <Drawer
+        title="系统设置"
+        open={drawerOpen === 'settings'}
+        onClose={() => setDrawerOpen(null)}
+        width="80%"
+        destroyOnClose
+      >
+        <Suspense fallback={<LoadingFallback />}><SettingsPage /></Suspense>
+      </Drawer>
       <BackgroundTaskBar />
     </div>
   )

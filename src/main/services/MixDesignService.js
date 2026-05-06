@@ -785,10 +785,10 @@ class MixDesignService {
   // 计算配合比
   async calculateMixDesign(params) {
     try {
-      const { strength, slump, tempSettings, materials, calculationMethod, targetDensity, airContent, flyAshDosage, slagDosage, sandRatio, waterRatio: inputWaterRatio } = params
+      const { strength, slump, tempSettings, materials, calculationMethod, targetDensity, airContent, flyAshDosage, slagDosage, lithiumSlagDosage, compositePowderDosage, sandRatio, waterRatio: inputWaterRatio } = params
 
       console.log('开始JGJ 55标准配合比计算...')
-      console.log('输入参数:', { strength, slump, tempSettings, calculationMethod, targetDensity, airContent, flyAshDosage, slagDosage, sandRatio })
+      console.log('输入参数:', { strength, slump, tempSettings, calculationMethod, targetDensity, airContent, flyAshDosage, slagDosage, lithiumSlagDosage, compositePowderDosage, sandRatio })
 
       // 初始化计算步骤
       const calculationSteps = []
@@ -799,7 +799,9 @@ class MixDesignService {
         { label: '坍落度', value: `${slump} mm` },
         { label: '计算方法', value: calculationMethod === 'mass' ? '质量法' : '绝对体积法' },
         { label: '粉煤灰掺量', value: `${flyAshDosage || 0}%` },
-        { label: '矿渣粉掺量', value: `${slagDosage || 0}%` }
+        { label: '矿渣粉掺量', value: `${slagDosage || 0}%` },
+        { label: '锂渣掺量', value: `${lithiumSlagDosage || 0}%` },
+        { label: '复合粉掺量', value: `${compositePowderDosage || 0}%` }
       ]
       if (calculationMethod === 'mass') {
         basicParams.push({ label: '目标容重', value: `${targetDensity || 2400} kg/m³` })
@@ -849,6 +851,8 @@ class MixDesignService {
       // 4. 计算掺合料影响系数
       let flyAshInfluenceFactor = 1.0
       let slagInfluenceFactor = 1.0
+      let lithiumSlagInfluenceFactor = 1.0
+      let compositePowderInfluenceFactor = 1.0
 
       if (flyAshDosage && flyAshDosage > 0 && materials?.flyAsh) {
         flyAshInfluenceFactor = this.calculateInfluenceFactor(flyAshDosage, materials.flyAsh)
@@ -856,18 +860,16 @@ class MixDesignService {
       if (slagDosage && slagDosage > 0 && materials?.slag) {
         slagInfluenceFactor = this.calculateInfluenceFactor(slagDosage, materials.slag)
       }
-
-      // 计算组合影响系数（直接相乘）
-      const totalAdmixtureDosage = (flyAshDosage || 0) + (slagDosage || 0)
-      let influenceFactor = 1.0
-      if (flyAshDosage > 0 && slagDosage > 0) {
-        // 组合时直接相乘
-        influenceFactor = flyAshInfluenceFactor * slagInfluenceFactor
-      } else if (flyAshDosage > 0) {
-        influenceFactor = flyAshInfluenceFactor
-      } else if (slagDosage > 0) {
-        influenceFactor = slagInfluenceFactor
+      if (lithiumSlagDosage && lithiumSlagDosage > 0 && materials?.lithiumSlag) {
+        lithiumSlagInfluenceFactor = this.calculateInfluenceFactor(lithiumSlagDosage, materials.lithiumSlag)
       }
+      if (compositePowderDosage && compositePowderDosage > 0 && materials?.compositePowder) {
+        compositePowderInfluenceFactor = this.calculateInfluenceFactor(compositePowderDosage, materials.compositePowder)
+      }
+
+      // 计算总掺量及组合影响系数（所有掺合料影响系数直接相乘）
+      const totalAdmixtureDosage = (flyAshDosage || 0) + (slagDosage || 0) + (lithiumSlagDosage || 0) + (compositePowderDosage || 0)
+      let influenceFactor = flyAshInfluenceFactor * slagInfluenceFactor * lithiumSlagInfluenceFactor * compositePowderInfluenceFactor
 
       // ========== 步骤4：掺合料影响系数 ==========
       const admixtureDetails = []
@@ -877,9 +879,20 @@ class MixDesignService {
       if (slagDosage > 0 && materials?.slag) {
         admixtureDetails.push({ label: `矿渣粉（${slagDosage}%）影响系数`, value: slagInfluenceFactor.toFixed(4) })
       }
+      if (lithiumSlagDosage > 0 && materials?.lithiumSlag) {
+        admixtureDetails.push({ label: `锂渣（${lithiumSlagDosage}%）影响系数`, value: lithiumSlagInfluenceFactor.toFixed(4) })
+      }
+      if (compositePowderDosage > 0 && materials?.compositePowder) {
+        admixtureDetails.push({ label: `复合粉（${compositePowderDosage}%）影响系数`, value: compositePowderInfluenceFactor.toFixed(4) })
+      }
       if (totalAdmixtureDosage > 0) {
-        if (flyAshDosage > 0 && slagDosage > 0) {
-          admixtureDetails.push({ label: '组合影响系数γ_f', value: `${flyAshInfluenceFactor.toFixed(4)} × ${slagInfluenceFactor.toFixed(4)} = ${influenceFactor.toFixed(4)}`, highlight: true })
+        const activeFactors = []
+        if (flyAshDosage > 0 && materials?.flyAsh) activeFactors.push(`${flyAshInfluenceFactor.toFixed(4)}`)
+        if (slagDosage > 0 && materials?.slag) activeFactors.push(`${slagInfluenceFactor.toFixed(4)}`)
+        if (lithiumSlagDosage > 0 && materials?.lithiumSlag) activeFactors.push(`${lithiumSlagInfluenceFactor.toFixed(4)}`)
+        if (compositePowderDosage > 0 && materials?.compositePowder) activeFactors.push(`${compositePowderInfluenceFactor.toFixed(4)}`)
+        if (activeFactors.length > 1) {
+          admixtureDetails.push({ label: '组合影响系数γ_f', value: `${activeFactors.join(' × ')} = ${influenceFactor.toFixed(4)}`, highlight: true })
         } else {
           admixtureDetails.push({ label: '影响系数γ_f', value: influenceFactor.toFixed(4), highlight: true })
         }
@@ -978,6 +991,20 @@ class MixDesignService {
         waterAdjustments.push({ label: `矿渣粉流动度比修正（${slagFluidityRatio}%）`, value: `× ${slagInfluence.toFixed(4)}` })
       }
 
+      if (lithiumSlagDosage && lithiumSlagDosage > 0 && materials?.lithiumSlag?.waterDemandRatio) {
+        const lithiumSlagWaterDemandRatio = materials.lithiumSlag.waterDemandRatio
+        const lithiumSlagInfluence = 1 - (100 - lithiumSlagWaterDemandRatio) / 30 * (lithiumSlagDosage / 100)
+        waterAmount *= lithiumSlagInfluence
+        waterAdjustments.push({ label: `锂渣需水量比修正（${lithiumSlagWaterDemandRatio}%）`, value: `× ${lithiumSlagInfluence.toFixed(4)}` })
+      }
+
+      if (compositePowderDosage && compositePowderDosage > 0 && materials?.compositePowder?.fluidityRatio) {
+        const compositePowderFluidityRatio = materials.compositePowder.fluidityRatio
+        const compositePowderInfluence = 1 + (100 - compositePowderFluidityRatio) / 50 * (compositePowderDosage / 100)
+        waterAmount *= compositePowderInfluence
+        waterAdjustments.push({ label: `复合粉流动度比修正（${compositePowderFluidityRatio}%）`, value: `× ${compositePowderInfluence.toFixed(4)}` })
+      }
+
       waterAdjustments.push({ label: '减水率', value: `${waterReducingRate.toFixed(2)}%` })
       waterAdjustments.push({ label: '实际用水量', value: `${waterAmount.toFixed(2)} kg/m³`, highlight: true })
 
@@ -1001,7 +1028,9 @@ class MixDesignService {
       // ========== 步骤8：胶凝材料与砂率 ==========
       const flyAshPercentage = (flyAshDosage || 0) / 100
       const slagPercentage = (slagDosage || 0) / 100
-      const cementPercentage = 1 - flyAshPercentage - slagPercentage
+      const lithiumSlagPercentage = (lithiumSlagDosage || 0) / 100
+      const compositePowderPercentage = (compositePowderDosage || 0) / 100
+      const cementPercentage = 1 - flyAshPercentage - slagPercentage - lithiumSlagPercentage - compositePowderPercentage
       calculationSteps.push({
         step: 7,
         title: '胶凝材料与砂率',
@@ -1010,6 +1039,8 @@ class MixDesignService {
           { label: '水泥用量', value: `${(cementitiousAmount * cementPercentage).toFixed(2)} kg/m³（${(cementPercentage * 100).toFixed(1)}%）` },
           flyAshDosage > 0 ? { label: '粉煤灰用量', value: `${(cementitiousAmount * flyAshPercentage).toFixed(2)} kg/m³（${flyAshDosage}%）` } : null,
           slagDosage > 0 ? { label: '矿渣粉用量', value: `${(cementitiousAmount * slagPercentage).toFixed(2)} kg/m³（${slagDosage}%）` } : null,
+          lithiumSlagDosage > 0 ? { label: '锂渣用量', value: `${(cementitiousAmount * lithiumSlagPercentage).toFixed(2)} kg/m³（${lithiumSlagDosage}%）` } : null,
+          compositePowderDosage > 0 ? { label: '复合粉用量', value: `${(cementitiousAmount * compositePowderPercentage).toFixed(2)} kg/m³（${compositePowderDosage}%）` } : null,
           { label: '砂率', value: sandRatioSource, highlight: true }
         ].filter(Boolean)
       })
@@ -1019,6 +1050,8 @@ class MixDesignService {
         cement: cementitiousAmount * Math.max(0, cementPercentage),
         flyAsh: cementitiousAmount * flyAshPercentage,
         slag: cementitiousAmount * slagPercentage,
+        lithiumSlag: cementitiousAmount * lithiumSlagPercentage,
+        compositePowder: cementitiousAmount * compositePowderPercentage,
         sand: 0,
         stone: 0,
         superplasticizer: cementitiousAmount * (superplasticizerDosage / 100)
@@ -1027,7 +1060,9 @@ class MixDesignService {
       console.log('掺合料分配:', {
         cementPercentage: (cementPercentage * 100).toFixed(1) + '%',
         flyAshPercentage: (flyAshPercentage * 100).toFixed(1) + '%',
-        slagPercentage: (slagPercentage * 100).toFixed(1) + '%'
+        slagPercentage: (slagPercentage * 100).toFixed(1) + '%',
+        lithiumSlagPercentage: (lithiumSlagPercentage * 100).toFixed(1) + '%',
+        compositePowderPercentage: (compositePowderPercentage * 100).toFixed(1) + '%'
       })
 
       // 13. 根据计算方法选择计算骨料用量
@@ -1059,6 +1094,8 @@ class MixDesignService {
         const spDensity = materials?.superplasticizer?.density || 1.05
         const flyAshDensity = materials?.flyAsh?.density || 2.20
         const slagDensity = materials?.slag?.density || 2.90
+        const lithiumSlagDensity = materials?.lithiumSlag?.density || 2.20
+        const compositePowderDensity = materials?.compositePowder?.density || 2.90
         const getSandDensity = () => {
           if (Array.isArray(materials.sand)) return materials.sand[0]?.density || 2.63
           return materials.sand?.density || 2.63
@@ -1088,14 +1125,16 @@ class MixDesignService {
           const spVol = toM3(materialAmounts.superplasticizer, spDensity)
           const flyAshVol = toM3(materialAmounts.flyAsh || 0, flyAshDensity)
           const slagVol = toM3(materialAmounts.slag || 0, slagDensity)
+          const lithiumSlagVol = toM3(materialAmounts.lithiumSlag || 0, lithiumSlagDensity)
+          const compositePowderVol = toM3(materialAmounts.compositePowder || 0, compositePowderDensity)
           const airVol = usedAirContent / 100
 
           const currentSandVol = toM3(currentSandAmount, sandDensity)
           const currentStoneVol = toM3(currentStoneAmount, stoneDensity)
-          const totalVolume = cementVol + waterVol + spVol + flyAshVol + slagVol + currentSandVol + currentStoneVol + airVol
+          const totalVolume = cementVol + waterVol + spVol + flyAshVol + slagVol + lithiumSlagVol + compositePowderVol + currentSandVol + currentStoneVol + airVol
 
           // 目标骨料体积
-          const targetAggVol = 1 - cementVol - waterVol - spVol - flyAshVol - slagVol - airVol
+          const targetAggVol = 1 - cementVol - waterVol - spVol - flyAshVol - slagVol - lithiumSlagVol - compositePowderVol - airVol
 
           // 当前骨料体积
           const currentAggVol = currentSandVol + currentStoneVol
@@ -1120,12 +1159,14 @@ class MixDesignService {
         const spVol = toM3(materialAmounts.superplasticizer, spDensity)
         const flyAshVol = toM3(materialAmounts.flyAsh || 0, flyAshDensity)
         const slagVol = toM3(materialAmounts.slag || 0, slagDensity)
+        const lithiumSlagVol = toM3(materialAmounts.lithiumSlag || 0, lithiumSlagDensity)
+        const compositePowderVol = toM3(materialAmounts.compositePowder || 0, compositePowderDensity)
         const airVol = usedAirContent / 100
         const sandVol = toM3(sandAmount, sandDensity)
         const stoneVol = toM3(stoneAmount, stoneDensity)
-        const finalTotalVol = cementVol + waterVol + spVol + flyAshVol + slagVol + sandVol + stoneVol + airVol
-        const finalDensity = materialAmounts.cement + waterAmount + materialAmounts.superplasticizer + (materialAmounts.flyAsh || 0) + (materialAmounts.slag || 0) + sandAmount + stoneAmount
-        console.log('绝对体积法最终: cementVol=' + cementVol.toFixed(4) + ', waterVol=' + waterVol.toFixed(4) + ', spVol=' + spVol.toFixed(4) + ', flyAshVol=' + flyAshVol.toFixed(4) + ', slagVol=' + slagVol.toFixed(4) + ', sandVol=' + sandVol.toFixed(4) + ', stoneVol=' + stoneVol.toFixed(4) + ', airVol=' + airVol.toFixed(4) + ', totalVolume=' + finalTotalVol.toFixed(4) + ', finalDensity=' + finalDensity.toFixed(2))
+        const finalTotalVol = cementVol + waterVol + spVol + flyAshVol + slagVol + lithiumSlagVol + compositePowderVol + sandVol + stoneVol + airVol
+        const finalDensity = materialAmounts.cement + waterAmount + materialAmounts.superplasticizer + (materialAmounts.flyAsh || 0) + (materialAmounts.slag || 0) + (materialAmounts.lithiumSlag || 0) + (materialAmounts.compositePowder || 0) + sandAmount + stoneAmount
+        console.log('绝对体积法最终: cementVol=' + cementVol.toFixed(4) + ', waterVol=' + waterVol.toFixed(4) + ', spVol=' + spVol.toFixed(4) + ', flyAshVol=' + flyAshVol.toFixed(4) + ', slagVol=' + slagVol.toFixed(4) + ', lithiumSlagVol=' + lithiumSlagVol.toFixed(4) + ', compositePowderVol=' + compositePowderVol.toFixed(4) + ', sandVol=' + sandVol.toFixed(4) + ', stoneVol=' + stoneVol.toFixed(4) + ', airVol=' + airVol.toFixed(4) + ', totalVolume=' + finalTotalVol.toFixed(4) + ', finalDensity=' + finalDensity.toFixed(2))
       }
       
       // 处理多种骨料的情况
@@ -1289,12 +1330,16 @@ class MixDesignService {
     const cementPrice = this.toNumber(materials?.cement?.price)
     const flyAshPrice = this.toNumber(materials?.flyAsh?.price)
     const slagPrice = this.toNumber(materials?.slag?.price)
+    const lithiumSlagPrice = this.toNumber(materials?.lithiumSlag?.price)
+    const compositePowderPrice = this.toNumber(materials?.compositePowder?.price)
     const spPrice = this.toNumber(materials?.superplasticizer?.price)
 
     console.log('成本计算调试 - 材料价格:')
     console.log('  水泥:', materials?.cement?.name, '价格:', cementPrice, '用量:', materialAmounts.cement)
     console.log('  粉煤灰:', materials?.flyAsh?.name, '价格:', flyAshPrice, '用量:', materialAmounts.flyAsh)
     console.log('  矿渣粉:', materials?.slag?.name, '价格:', slagPrice, '用量:', materialAmounts.slag)
+    console.log('  锂渣:', materials?.lithiumSlag?.name, '价格:', lithiumSlagPrice, '用量:', materialAmounts.lithiumSlag)
+    console.log('  复合粉:', materials?.compositePowder?.name, '价格:', compositePowderPrice, '用量:', materialAmounts.compositePowder)
     console.log('  减水剂:', materials?.superplasticizer?.name, '价格:', spPrice, '用量:', materialAmounts.superplasticizer)
 
     if (materials) {
@@ -1309,6 +1354,14 @@ class MixDesignService {
       if (materials.slag && slagPrice > 0) {
         materialCosts.slag = (materialAmounts.slag * slagPrice) / 1000
         totalCost += materialCosts.slag
+      }
+      if (materials.lithiumSlag && lithiumSlagPrice > 0) {
+        materialCosts.lithiumSlag = (materialAmounts.lithiumSlag * lithiumSlagPrice) / 1000
+        totalCost += materialCosts.lithiumSlag
+      }
+      if (materials.compositePowder && compositePowderPrice > 0) {
+        materialCosts.compositePowder = (materialAmounts.compositePowder * compositePowderPrice) / 1000
+        totalCost += materialCosts.compositePowder
       }
 
       // 处理多种细骨料的成本
@@ -1377,8 +1430,8 @@ class MixDesignService {
         totalCost += materialCosts.superplasticizer
       }
 
-      // 计算胶凝材料成本（水泥+粉煤灰+矿渣粉）
-      cementitiousCost = (materialCosts.cement || 0) + (materialCosts.flyAsh || 0) + (materialCosts.slag || 0)
+      // 计算胶凝材料成本（水泥+粉煤灰+矿渣粉+锂渣+复合粉）
+      cementitiousCost = (materialCosts.cement || 0) + (materialCosts.flyAsh || 0) + (materialCosts.slag || 0) + (materialCosts.lithiumSlag || 0) + (materialCosts.compositePowder || 0)
     } else {
       cementitiousCost = 0
     }
@@ -1554,7 +1607,9 @@ class MixDesignService {
       const cementAmount = materials.cement || 0
       const flyAshAmount = materials.flyAsh || 0
       const slagAmount = materials.slag || 0
-      const cementitiousAmount = cementAmount + flyAshAmount + slagAmount
+      const lithiumSlagAmount = materials.lithiumSlag || 0
+      const compositePowderAmount = materials.compositePowder || 0
+      const cementitiousAmount = cementAmount + flyAshAmount + slagAmount + lithiumSlagAmount + compositePowderAmount
       const waterAmount = materials.water || 0
       const actualWaterRatio = waterAmount / cementitiousAmount
       const strengthValid = actualWaterRatio <= requiredWaterRatio

@@ -1850,6 +1850,24 @@ body {
   gap: 10px;
 }
 
+.topbar-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.topbar-icon:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.15);
+}
+
 .topbar-version {
   font-size: 11px;
   opacity: 0.5;

@@ -107,7 +107,7 @@ const MaterialsPage = () => {
     }
 
     // 自动匹配粗骨料级配
-    if (values.type === '粗骨料' && (values.sieve_37_5 || values.sieve_31_5 || values.sieve_26_5 || values.sieve_19_0 || values.sieve_16_0 || values.sieve_9_50)) {
+    if (values.type === '粗骨料' && (values.sieve_37_5 || values.sieve_31_5 || values.sieve_26_5 || values.sieve_19_0 || values.sieve_16_0 || values.sieve_9_50 || values.sieve_4_75 || values.sieve_2_36)) {
       values.grading = autoMatchGrading(values)
     }
 

@@ -41,7 +41,7 @@ export const MATERIAL_FIELDS_CONFIG = {
       { name: 'density', label: '密度', unit: 'g/cm³', type: 'number', min: 0 },
       { name: 'fineness', label: '细度', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'lossOnIgnition', label: '烧失量', unit: '%', type: 'number', min: 0, max: 100 },
-      { name: 'waterDemandRatio', label: '需水量比', unit: '%', type: 'number', min: 0, max: 100 },
+      { name: 'waterDemandRatio', label: '需水量比', unit: '%', type: 'number', min: 0 },
       { name: 'activityIndex28d', label: '28天活性指数', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'influenceFactor_10', label: '10%掺量影响系数', type: 'number', min: 0 },
       { name: 'influenceFactor_20', label: '20%掺量影响系数', type: 'number', min: 0 },
@@ -111,6 +111,8 @@ export const MATERIAL_FIELDS_CONFIG = {
       { name: 'sieve_19_0', label: '19.0mm筛余', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'sieve_16_0', label: '16.0mm筛余', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'sieve_9_50', label: '9.5mm筛余', unit: '%', type: 'number', min: 0, max: 100 },
+      { name: 'sieve_4_75', label: '4.75mm筛余', unit: '%', type: 'number', min: 0, max: 100 },
+      { name: 'sieve_2_36', label: '2.36mm筛余', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'grading', label: '级配', type: 'text', disabled: true }
     ]
   },
@@ -123,7 +125,7 @@ export const MATERIAL_FIELDS_CONFIG = {
       { name: 'density', label: '密度', unit: 'g/cm³', type: 'number', min: 0 },
       { name: 'specificSurfaceArea', label: '比表面积', unit: 'm²/g', type: 'number', min: 0 },
       { name: 'lossOnIgnition', label: '烧失量', unit: '%', type: 'number', min: 0, max: 100 },
-      { name: 'waterDemandRatio', label: '需水量比', unit: '%', type: 'number', min: 0, max: 100 },
+      { name: 'waterDemandRatio', label: '需水量比', unit: '%', type: 'number', min: 0 },
       { name: 'activityIndex28d', label: '28天活性指数', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'influenceFactor_10', label: '10%掺量影响系数', type: 'number', min: 0 },
       { name: 'influenceFactor_20', label: '20%掺量影响系数', type: 'number', min: 0 },
@@ -205,29 +207,63 @@ export const calculateFinenessModulus = (fineAggregate) => {
 }
 
 /**
- * 根据各级筛余百分数自动匹配粗骨料级配
- * 标准分级：5-20mm、5-25mm、10-20mm、10-40mm等
+ * 根据各级累计筛余百分数自动匹配粗骨料连续粒级
+ * 依据 JGJ 52-2006 标准筛分范围：
+ *   5-16:  16.0筛0-10%,  19.0筛0%
+ *   5-20:  19.0筛0-10%,  26.5筛0%
+ *   5-25:  26.5筛0-5%,   31.5筛0%
+ *   5-31.5: 31.5筛0-5%,  37.5筛0%
+ *   5-40:  37.5筛0-5%
  */
 export const autoMatchGrading = (coarseAggregate) => {
-  const sieves = {
-    37_5: parseFloat(coarseAggregate.sieve_37_5) || 0,
-    31_5: parseFloat(coarseAggregate.sieve_31_5) || 0,
-    26_5: parseFloat(coarseAggregate.sieve_26_5) || 0,
-    19_0: parseFloat(coarseAggregate.sieve_19_0) || 0,
-    16_0: parseFloat(coarseAggregate.sieve_16_0) || 0,
-    9_5: parseFloat(coarseAggregate.sieve_9_50) || 0
+  const s = (key) => parseFloat(coarseAggregate[key]) || 0
+  const inRange = (key, min, max) => { const v = s(key); return v >= min && v <= max }
+  const hasVal = (key) => s(key) > 0
+  const isZero = (key) => s(key) === 0
+  // 4.75/2.36 为可选筛孔，未填(值为0)时跳过校验
+  const optRange = (key, min, max) => { const v = s(key); return v === 0 || (v >= min && v <= max) }
+
+  // 5-40: 37.5筛余0-5%，19.0筛30-65%，9.5筛70-90%
+  if (inRange('sieve_37_5', 0, 5) && hasVal('sieve_37_5') &&
+      inRange('sieve_19_0', 30, 65) &&
+      inRange('sieve_9_50', 70, 90) &&
+      optRange('sieve_4_75', 95, 100)) {
+    return '5-40'
   }
 
-  // 简单的级配判断逻辑
-  if (sieves['37_5'] == 0 && sieves['31_5'] > 50 && sieves['26_5'] < 50) {
-    return '31.5-16.0'
-  } else if (sieves['26_5'] > 50 && sieves['16_0'] < 50) {
-    return '26.5-9.5'
-  } else if (sieves['19_0'] > 50 && sieves['9_5'] < 50) {
-    return '19.0-9.5'
-  } else if (sieves['16_0'] > 50 && sieves['9_5'] < 50) {
-    return '16.0-9.5'
+  // 5-31.5: 37.5筛0%，31.5筛余0-5%，19.0筛15-45%，9.5筛70-90%
+  if (isZero('sieve_37_5') &&
+      inRange('sieve_31_5', 0, 5) && hasVal('sieve_31_5') &&
+      inRange('sieve_19_0', 15, 45) &&
+      inRange('sieve_9_50', 70, 90) &&
+      optRange('sieve_4_75', 90, 100)) {
+    return '5-31.5'
   }
+
+  // 5-25: 31.5筛0%，26.5筛余0-5%，16.0筛30-70%
+  if (isZero('sieve_31_5') &&
+      inRange('sieve_26_5', 0, 5) && hasVal('sieve_26_5') &&
+      inRange('sieve_16_0', 30, 70) &&
+      optRange('sieve_4_75', 90, 100)) {
+    return '5-25'
+  }
+
+  // 5-20: 26.5筛0%，19.0筛余0-10%，9.5筛40-80%
+  if (isZero('sieve_26_5') &&
+      inRange('sieve_19_0', 0, 10) && hasVal('sieve_19_0') &&
+      inRange('sieve_9_50', 40, 80) &&
+      optRange('sieve_4_75', 90, 100)) {
+    return '5-20'
+  }
+
+  // 5-16: 19.0筛0%，16.0筛余0-10%，9.5筛30-60%
+  if (isZero('sieve_19_0') &&
+      inRange('sieve_16_0', 0, 10) && hasVal('sieve_16_0') &&
+      inRange('sieve_9_50', 30, 60) &&
+      optRange('sieve_4_75', 85, 100)) {
+    return '5-16'
+  }
+
   return '自定义'
 }
 

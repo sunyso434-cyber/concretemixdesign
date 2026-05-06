@@ -119,6 +119,8 @@ const OptimizationPage = () => {
     '水泥': 'cement',
     '粉煤灰': 'flyAsh',
     '矿渣粉': 'slag',
+    '锂渣': 'lithiumSlag',
+    '复合粉': 'compositePowder',
     '细骨料': 'sand',
     '粗骨料': 'stone',
     '减水剂': 'superplasticizer'
@@ -269,8 +271,14 @@ const OptimizationPage = () => {
     if (!result) return
 
     try {
+      const lithiumSlagPct = result.params?.lithiumSlag || 0
+      const compositePowderPct = result.params?.compositePowder || 0
+      let schemeName = `优化方案 - ${result.params?.flyAsh || 0}% 粉煤灰 + ${result.params?.slag || 0}% 矿渣`
+      if (lithiumSlagPct > 0) schemeName += ` + ${lithiumSlagPct}% 锂渣`
+      if (compositePowderPct > 0) schemeName += ` + ${compositePowderPct}% 复合粉`
+
       const saveData = {
-        name: `优化方案 - ${result.params?.flyAsh || 0}% 粉煤灰 + ${result.params?.slag || 0}% 矿渣`,
+        name: schemeName,
         projectName: form.getFieldValue('projectName'),
         strength: form.getFieldValue('strength'),
         slump: form.getFieldValue('slump'),
@@ -286,7 +294,9 @@ const OptimizationPage = () => {
         // 保存选中的粉煤灰和矿渣粉材料信息（名称、单价等）
         materialDetails: {
           flyAsh: result.selectedMaterials?.flyAsh || null,
-          slag: result.selectedMaterials?.slag || null
+          slag: result.selectedMaterials?.slag || null,
+          lithiumSlag: result.selectedMaterials?.lithiumSlag || null,
+          compositePowder: result.selectedMaterials?.compositePowder || null
         }
       }
 
@@ -382,6 +392,32 @@ const OptimizationPage = () => {
         amount: materialsData.slag,
         price: mat?.price || 0,
         cost: result.materialCosts?.slag || 0
+      })
+    }
+
+    // 锂渣（优先使用优化器选择的材料信息）
+    if (materialsData.lithiumSlag && materialsData.lithiumSlag > 0) {
+      const selectedLithiumSlag = result.selectedMaterials?.lithiumSlag
+      const mat = selectedLithiumSlag || getMaterialById(formValues.lithiumSlag)
+      data.push({
+        key: 'lithiumSlag',
+        name: mat?.name || '锂渣',
+        amount: materialsData.lithiumSlag,
+        price: mat?.price || 0,
+        cost: result.materialCosts?.lithiumSlag || 0
+      })
+    }
+
+    // 复合粉（优先使用优化器选择的材料信息）
+    if (materialsData.compositePowder && materialsData.compositePowder > 0) {
+      const selectedCompositePowder = result.selectedMaterials?.compositePowder
+      const mat = selectedCompositePowder || getMaterialById(formValues.compositePowder)
+      data.push({
+        key: 'compositePowder',
+        name: mat?.name || '复合粉',
+        amount: materialsData.compositePowder,
+        price: mat?.price || 0,
+        cost: result.materialCosts?.compositePowder || 0
       })
     }
 
@@ -830,6 +866,8 @@ const OptimizationPage = () => {
             <strong>优化参数：</strong>
             <Tag color="blue">粉煤灰 {result.params?.flyAsh || 0}%</Tag>
             <Tag color="green">矿渣粉 {result.params?.slag || 0}%</Tag>
+            {(result.params?.lithiumSlag || 0) > 0 && <Tag color="cyan">锂渣 {result.params?.lithiumSlag || 0}%</Tag>}
+            {(result.params?.compositePowder || 0) > 0 && <Tag color="geekblue">复合粉 {result.params?.compositePowder || 0}%</Tag>}
             <Tag color="orange">砂率 {(result.sandRatio * 100)?.toFixed(1)}%</Tag>
             {result.fineAggregateBreakdown && result.fineAggregateBreakdown.length > 0 && (
               <Tag color="purple">
@@ -848,6 +886,8 @@ const OptimizationPage = () => {
               if (mats.cement) info.push(`水泥: ${mats.cement.toFixed(0)} kg`)
               if (mats.flyAsh > 0) info.push(`粉煤灰: ${mats.flyAsh.toFixed(0)} kg`)
               if (mats.slag > 0) info.push(`矿渣粉: ${mats.slag.toFixed(0)} kg`)
+              if (mats.lithiumSlag > 0) info.push(`锂渣: ${mats.lithiumSlag.toFixed(0)} kg`)
+              if (mats.compositePowder > 0) info.push(`复合粉: ${mats.compositePowder.toFixed(0)} kg`)
               if (result.fineAggregateBreakdown?.length > 0) {
                 result.fineAggregateBreakdown.forEach(f => {
                   info.push(`${f.name}: ${f.amount.toFixed(0)} kg`)
