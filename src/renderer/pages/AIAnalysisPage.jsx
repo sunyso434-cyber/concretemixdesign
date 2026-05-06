@@ -7,6 +7,7 @@ import ToolCallBubble from '../components/ToolCallBubble'
 import MixDesignResultCard from '../components/MixDesignResultCard'
 import OptimizationResultCard from '../components/OptimizationResultCard'
 import MaterialCompareCard from '../components/MaterialCompareCard'
+import MaterialPicker from '../components/MaterialPicker'
 
 // 材料类型映射：Excel中的材料字段 -> 数据库中的材料类型
 const MATERIAL_TYPE_MAP = {
@@ -639,9 +640,22 @@ const AIAnalysisPage = () => {
 
       // 解析后端返回的 tool_call 数据
       if (result.messages) {
-        const lastToolMsgs = result.messages.filter(m => m.role === 'tool')
-        if (lastToolMsgs.length > 0) {
-          const lastToolResult = lastToolMsgs[lastToolMsgs.length - 1]
+        const toolMsgs = result.messages.filter(m => m.role === 'tool')
+        for (const toolMsg of toolMsgs) {
+          try {
+            const parsed = JSON.parse(toolMsg.content)
+            // 如果调用了 list_available_materials，渲染 MaterialPicker
+            if (parsed.success && parsed.materials && parsed.materials.length > 0) {
+              const materialType = parsed.materials[0]?.type
+              if (materialType) {
+                chatMsg.materialPicker = { materials: parsed.materials }
+              }
+            }
+          } catch (_) { /* ignore */ }
+        }
+        // 最后一个 tool 结果决定 toolCall 卡片
+        if (toolMsgs.length > 0) {
+          const lastToolResult = toolMsgs[toolMsgs.length - 1]
           try {
             const parsed = JSON.parse(lastToolResult.content)
             if (parsed.type) {
@@ -651,9 +665,7 @@ const AIAnalysisPage = () => {
                 data: parsed.data || parsed
               }
             }
-          } catch (_) {
-            // 不是 JSON，忽略
-          }
+          } catch (_) { /* ignore */ }
         }
       }
 
@@ -1235,6 +1247,14 @@ const AIAnalysisPage = () => {
                                     <MaterialCompareCard data={item.toolCall.data} />
                                   )}
                                 </>
+                              )}
+                              {item.materialPicker && (
+                                <MaterialPicker
+                                  materials={item.materialPicker.materials}
+                                  onSelect={(material) => {
+                                    setChatInput(`我选择 ${material.name}`)
+                                  }}
+                                />
                               )}
                               {item.toolCall?.status === 'loading' && (
                                 <ToolCallBubble status="loading" toolName={item.toolCall.type} />
