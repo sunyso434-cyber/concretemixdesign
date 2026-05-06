@@ -133,56 +133,120 @@ class DeepSeekService {
   }
 
   /**
-   * 与AI对话
+   * 调用 DeepSeek API 发送请求
+   * @param {Array} messages - 消息列表
+   * @param {boolean} includeTools - 是否携带工具定义
+   * @returns {Promise<Object>} - API返回的message对象
+   */
+  async _callAPI(messages, includeTools = false) {
+    const requestBody = {
+      model: 'deepseek-v4-flash',
+      messages,
+      max_tokens: 4096,
+      extra_body: {
+        thinking: { type: 'enabled' }
+      }
+    }
+    if (includeTools) {
+      requestBody.tools = TOOLS
+    }
+
+    const response = await axios.post(DEEPSEEK_API_URL, requestBody, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`
+      },
+      timeout: 120000
+    })
+
+    return response.data.choices[0].message
+  }
+
+  /**
+   * 与AI对话（支持 Function Calling 工具调用循环）
    * @param {string} message - 用户消息
    * @param {Array} context - 上下文数据（配合比数据等）
-   * @returns {Promise<Object>} - AI返回的对话响应
+   * @param {Object} options - 可选配置
+   * @param {Function} options.toolExecutor - 工具执行回调，签名为 async (toolName, args) => result
+   * @returns {Promise<Object>} - { reply, toolCalls, messages }
    */
-  async chat(message, context = null) {
+  async chat(message, context = null, options = {}) {
     if (!this.apiKey) {
       throw new Error('DeepSeek API密钥未配置')
     }
 
-    // 构建系统提示
+    const { toolExecutor } = options
+
     const systemPrompt = `你是一个混凝土配合比分析专家，擅长分析材料性能参数对混凝土性能的影响。
 你可以回答关于混凝土配合比设计、材料选择、性能优化、成本控制等各方面的问题。
 请用专业的知识帮助用户解答疑问。`
 
-    // 添加上下文到消息中
     let userMessage = message
     if (context) {
       userMessage = `用户问题是：${message}\n\n相关配合比数据背景：\n${JSON.stringify(context, null, 2)}`
     }
 
+    if (this.conversationHistory.length > 20) {
+      this.conversationHistory = this.conversationHistory.slice(-20)
+    }
+
+    const historyStr = JSON.stringify(this.conversationHistory)
+    const totalInputChars = systemPrompt.length + historyStr.length + userMessage.length
+    const estimatedTokens = Math.ceil(totalInputChars / 4)
+    if (estimatedTokens > 120000) {
+      throw new Error(`对话上下文过大（约 ${estimatedTokens} tokens），请清空对话历史后重试。`)
+    }
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...this.conversationHistory,
+      { role: 'user', content: userMessage }
+    ]
+
     try {
-      const response = await axios.post(
-        DEEPSEEK_API_URL,
-        {
-          model: 'deepseek-chat',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...this.conversationHistory,
-            { role: 'user', content: userMessage }
-          ],
-          temperature: 0.7,
-          max_tokens: 2048
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.apiKey}`
-          },
-          timeout: 120000
+      // First API call (with tools if toolExecutor provided)
+      let aiMessage = await this._callAPI(messages, !!toolExecutor)
+
+      // Tool call loop
+      const MAX_TOOL_ROUNDS = 5
+      let round = 0
+
+      while (aiMessage.tool_calls && aiMessage.tool_calls.length > 0 && toolExecutor && round < MAX_TOOL_ROUNDS) {
+        round++
+
+        // Add AI tool_calls message to history
+        messages.push(aiMessage)
+
+        // Execute each tool call and add results
+        for (const tc of aiMessage.tool_calls) {
+          let toolResult
+          try {
+            const args = JSON.parse(tc.function.arguments)
+            toolResult = await toolExecutor(tc.function.name, args)
+          } catch (execError) {
+            toolResult = { success: false, error: `工具执行失败: ${execError.message}` }
+          }
+          messages.push({
+            role: 'tool',
+            tool_call_id: tc.id,
+            content: JSON.stringify(toolResult)
+          })
         }
-      )
 
-      const content = response.data.choices[0].message.content
+        // Call API again (always include tools when in tool loop)
+        aiMessage = await this._callAPI(messages, true)
+      }
 
-      // 保存对话历史
+      const content = aiMessage.content || '（AI 未返回文本内容）'
+
       this.conversationHistory.push({ role: 'user', content: userMessage })
       this.conversationHistory.push({ role: 'assistant', content: content })
 
-      return { reply: content }
+      return {
+        reply: content,
+        toolCalls: aiMessage.tool_calls || null,
+        messages // Return full message list for frontend to extract tool_call display data
+      }
     } catch (error) {
       if (error.response) {
         const status = error.response.status
