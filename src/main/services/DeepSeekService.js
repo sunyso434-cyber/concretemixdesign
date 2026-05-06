@@ -7,6 +7,125 @@ const axios = require('axios')
 
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions'
 
+const TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'list_available_materials',
+      description: '查询材料库中可用的原材料列表。用于了解有哪些材料可选，帮助用户做材料选择。同时基于材料属性做定性对比分析。',
+      parameters: {
+        type: 'object',
+        properties: {
+          type: {
+            type: 'string',
+            description: '材料类型筛选：水泥/细骨料/粗骨料/粉煤灰/矿渣粉/锂渣/复合粉/减水剂。不填返回全部。',
+            enum: ['水泥', '细骨料', '粗骨料', '粉煤灰', '矿渣粉', '锂渣', '复合粉', '减水剂']
+          }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'calculate_mix_design',
+      description: '根据给定参数计算混凝土配合比。返回各材料用量、水胶比、砂率、容重、成本等结果。当用户要设计新配合比时调用此工具。调用前必须确认所有必填参数已由用户提供。',
+      parameters: {
+        type: 'object',
+        properties: {
+          strength: { type: 'string', description: '强度等级，如 C30、C40' },
+          slump: { type: 'number', description: '坍落度(mm)，如 180' },
+          cementId: { type: 'integer', description: '水泥材料ID' },
+          sandIds: { type: 'array', items: { type: 'integer' }, description: '细骨料ID列表，支持1-2种' },
+          stoneIds: { type: 'array', items: { type: 'integer' }, description: '粗骨料ID列表，支持1-2种' },
+          flyAshId: { type: 'integer', description: '粉煤灰材料ID（可选）' },
+          slagId: { type: 'integer', description: '矿渣粉材料ID（可选）' },
+          lithiumSlagId: { type: 'integer', description: '锂渣材料ID（可选）' },
+          compositePowderId: { type: 'integer', description: '复合粉材料ID（可选）' },
+          superplasticizerId: { type: 'integer', description: '减水剂材料ID（可选）' },
+          flyAshDosage: { type: 'number', description: '粉煤灰掺量(%)，如 15' },
+          slagDosage: { type: 'number', description: '矿渣粉掺量(%)，如 20' },
+          lithiumSlagDosage: { type: 'number', description: '锂渣掺量(%)' },
+          compositePowderDosage: { type: 'number', description: '复合粉掺量(%)' },
+          sandRatio: { type: 'number', description: '砂率(%)，不填则根据规范自动计算' },
+          calculationMethod: { type: 'string', enum: ['absolute', 'mass'], description: '计算方法：absolute=绝对体积法(默认), mass=质量法' },
+          targetDensity: { type: 'number', description: '目标容重(kg/m³)，仅质量法时使用' },
+          airContent: { type: 'number', description: '含气量(%)，默认1.0' }
+        },
+        required: ['strength', 'slump', 'cementId', 'sandIds', 'stoneIds']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'optimize_mix_cost',
+      description: '对给定材料和约束条件执行网格搜索，找出成本最低的混凝土配合比方案。当用户要寻找最低成本方案时调用此工具。计算量较大，默认后台运行。',
+      parameters: {
+        type: 'object',
+        properties: {
+          strength: { type: 'string', description: '强度等级，如 C30' },
+          slump: { type: 'number', description: '坍落度(mm)' },
+          cementId: { type: 'integer', description: '水泥材料ID' },
+          sandIds: { type: 'array', items: { type: 'integer' }, description: '细骨料候选ID列表' },
+          stoneIds: { type: 'array', items: { type: 'integer' }, description: '粗骨料候选ID列表' },
+          flyAshIds: { type: 'array', items: { type: 'integer' }, description: '粉煤灰候选ID列表（可选）' },
+          slagIds: { type: 'array', items: { type: 'integer' }, description: '矿渣粉候选ID列表（可选）' },
+          lithiumSlagIds: { type: 'array', items: { type: 'integer' }, description: '锂渣候选ID列表（可选）' },
+          compositePowderIds: { type: 'array', items: { type: 'integer' }, description: '复合粉候选ID列表（可选）' },
+          superplasticizerIds: { type: 'array', items: { type: 'integer' }, description: '减水剂候选ID列表（可选）' },
+          flyAshRange: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: '粉煤灰掺量范围 [min, max]，默认 [0, 30]' },
+          slagRange: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: '矿渣粉掺量范围，默认 [0, 20]' },
+          lithiumSlagRange: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: '锂渣掺量范围，默认 [0, 20]' },
+          compositePowderRange: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: '复合粉掺量范围，默认 [0, 20]' },
+          gridStep: { type: 'number', description: '网格搜索步长，默认 5' },
+          background: { type: 'boolean', description: '是否后台运行，默认 true' }
+        },
+        required: ['strength', 'slump', 'cementId', 'sandIds', 'stoneIds']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'compare_materials',
+      description: '对比不同材料对配合比结果的影响。对每个候选材料调用 calculate_mix_design 并汇总关键指标（28d强度、成本、水胶比）。当用户追问具体材料差异时调用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          strength: { type: 'string', description: '强度等级，如 C30' },
+          slump: { type: 'number', description: '坍落度(mm)' },
+          compareType: { type: 'string', enum: ['cement', 'flyAsh', 'slag', 'lithiumSlag', 'compositePowder', 'superplasticizer', 'sand', 'stone'], description: '要对比的材料品类' },
+          baseParams: {
+            type: 'object',
+            description: '固定不变的参数。必须包含 strength, slump 以及不参与对比的材料ID组（如对比水泥时需填 sandIds、stoneIds 等）',
+            properties: {
+              cementId: { type: 'integer' },
+              sandIds: { type: 'array', items: { type: 'integer' } },
+              stoneIds: { type: 'array', items: { type: 'integer' } },
+              flyAshId: { type: 'integer' },
+              slagId: { type: 'integer' },
+              lithiumSlagId: { type: 'integer' },
+              compositePowderId: { type: 'integer' },
+              superplasticizerId: { type: 'integer' },
+              flyAshDosage: { type: 'number' },
+              slagDosage: { type: 'number' },
+              lithiumSlagDosage: { type: 'number' },
+              compositePowderDosage: { type: 'number' },
+              sandRatio: { type: 'number' },
+              calculationMethod: { type: 'string' }
+            }
+          },
+          candidateIds: { type: 'array', items: { type: 'integer' }, description: '候选材料ID列表' },
+          dosages: { type: 'array', items: { type: 'number' }, description: '对应掺量(%)，仅对比粉煤灰/矿渣粉/锂渣/复合粉时需要' }
+        },
+        required: ['strength', 'slump', 'compareType', 'baseParams', 'candidateIds']
+      }
+    }
+  }
+]
+
 class DeepSeekService {
   constructor(apiKey) {
     this.apiKey = apiKey
