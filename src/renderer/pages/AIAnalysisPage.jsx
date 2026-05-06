@@ -3,6 +3,10 @@ import { Tabs, Button, message, Upload, Table, Select, Space, Card, Tag, Alert, 
 import { DownloadOutlined, UploadOutlined, ExperimentOutlined, SettingOutlined, SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, DeleteOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import { getMaterialsByType, getAllMaterials, matchMaterialByName } from '../services/MaterialService'
+import ToolCallBubble from '../components/ToolCallBubble'
+import MixDesignResultCard from '../components/MixDesignResultCard'
+import OptimizationResultCard from '../components/OptimizationResultCard'
+import MaterialCompareCard from '../components/MaterialCompareCard'
 
 // 材料类型映射：Excel中的材料字段 -> 数据库中的材料类型
 const MATERIAL_TYPE_MAP = {
@@ -586,6 +590,24 @@ const AIAnalysisPage = () => {
     }
   }
 
+  // 从结果卡片保存方案
+  const handleSaveFromCard = async (cardData) => {
+    try {
+      const bestSol = cardData.bestSolution || {}
+      const saveData = {
+        strengthGrade: cardData.strength,
+        slump: cardData.slump,
+        waterBinderRatio: cardData.waterRatio || bestSol.waterRatio,
+        sandRatio: cardData.sandRatio || bestSol.sandRatio,
+        status: 'AI生成'
+      }
+      await window.electronAPI.invoke('createMixDesign', saveData)
+      message.success('方案已保存')
+    } catch (error) {
+      message.error('保存失败: ' + error.message)
+    }
+  }
+
   // 发送聊天消息
   const handleSendChat = async () => {
     if (!chatInput.trim() || chatLoading) return
@@ -608,7 +630,34 @@ const AIAnalysisPage = () => {
         context: context
       })
 
-      setChatMessages(prev => [...prev, { role: 'assistant', content: result.reply }])
+      // 构建消息对象，包含 toolCall 信息
+      const chatMsg = {
+        role: 'assistant',
+        content: result.reply,
+        toolCalls: null
+      }
+
+      // 解析后端返回的 tool_call 数据
+      if (result.messages) {
+        const lastToolMsgs = result.messages.filter(m => m.role === 'tool')
+        if (lastToolMsgs.length > 0) {
+          const lastToolResult = lastToolMsgs[lastToolMsgs.length - 1]
+          try {
+            const parsed = JSON.parse(lastToolResult.content)
+            if (parsed.type) {
+              chatMsg.toolCall = {
+                status: parsed.success ? 'done' : 'error',
+                type: parsed.type,
+                data: parsed.data || parsed
+              }
+            }
+          } catch (_) {
+            // 不是 JSON，忽略
+          }
+        }
+      }
+
+      setChatMessages(prev => [...prev, chatMsg])
     } catch (error) {
       message.error('发送消息失败: ' + error.message)
       // 移除失败的用户消息
@@ -1172,7 +1221,29 @@ const AIAnalysisPage = () => {
                           <Avatar icon={<RobotOutlined />} className="chat-avatar" />
                         )}
                         <div className={`chat-message ${item.role === 'user' ? 'chat-message-user' : 'chat-message-assistant'}`}>
-                          {item.content}
+                          {item.role === 'assistant' ? (
+                            <>
+                              {item.toolCall && item.toolCall.status === 'done' && (
+                                <>
+                                  {item.toolCall.type === 'mix_design' && (
+                                    <MixDesignResultCard data={item.toolCall.data} onSave={handleSaveFromCard} />
+                                  )}
+                                  {item.toolCall.type === 'optimization' && (
+                                    <OptimizationResultCard data={item.toolCall.data} onSave={handleSaveFromCard} />
+                                  )}
+                                  {item.toolCall.type === 'material_compare' && (
+                                    <MaterialCompareCard data={item.toolCall.data} />
+                                  )}
+                                </>
+                              )}
+                              {item.toolCall?.status === 'loading' && (
+                                <ToolCallBubble status="loading" toolName={item.toolCall.type} />
+                              )}
+                              {item.content}
+                            </>
+                          ) : (
+                            item.content
+                          )}
                         </div>
                         {item.role === 'user' && (
                           <Avatar icon={<UserOutlined />} className="chat-avatar-user" />
