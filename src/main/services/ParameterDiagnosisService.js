@@ -373,12 +373,30 @@ class ParameterDiagnosisService {
   _coordinateDescentStrength(group, sharedParams) {
     const mixDesigns = group.mixDesigns
 
+    // Check if any mixDesign has valid strength data
+    const hasValidData = mixDesigns.some(m => {
+      const tr = m.testResults || {}
+      return (tr.strengthR28 || tr.strength28d || 0) > 0
+    })
+    if (!hasValidData) {
+      return [{
+        name: '水泥28天胶砂强度',
+        symbol: 'f_ce',
+        designValue: group.cement?.compressiveStrength28d || 0,
+        diagnosedValue: group.cement?.compressiveStrength28d || 0,
+        method: '无有效实测数据，无法反算',
+        deviationPercent: 0,
+        direction: '一致',
+        confidence: '低'
+      }]
+    }
+
     // 初始化参数
     const params = this._initStrengthParams(group)
 
     // 坐标下降迭代
     const MAX_ITER = 30
-    const TOLERANCE = 1e-6
+    const TOLERANCE = 1e-3
     let prevRSS = Infinity
 
     for (let iter = 0; iter < MAX_ITER; iter++) {
@@ -393,7 +411,7 @@ class ParameterDiagnosisService {
 
       // 检查收敛
       const currentRSS = this._calcStrengthRSS(params, mixDesigns)
-      if (Math.abs(prevRSS - currentRSS) < TOLERANCE) break
+      if (prevRSS < Infinity && Math.abs(prevRSS - currentRSS) / (Math.abs(prevRSS) + 1) < TOLERANCE) break
       prevRSS = currentRSS
     }
 
@@ -473,6 +491,8 @@ class ParameterDiagnosisService {
 
       testParams[targetParam] = x2
       const rss2 = this._calcStrengthRSS(testParams, mixDesigns)
+
+      if (!isFinite(rss1) || !isFinite(rss2)) break
 
       if (rss1 < rss2) {
         b = x2
