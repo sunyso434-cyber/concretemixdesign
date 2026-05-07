@@ -345,8 +345,269 @@ class ParameterDiagnosisService {
     return gamma
   }
 
+  /**
+   * 多组联立反算
+   */
   _multiGroupDiagnosis(group, sharedParams) {
-    return { group, results: [], method: 'multi' }
+    const results = []
+    const mixDesigns = group.mixDesigns
+
+    // 阶段 1：强度参数 — 坐标下降法
+    const strengthResults = this._coordinateDescentStrength(group, sharedParams)
+    results.push(...strengthResults)
+
+    // 阶段 2/3 占位（后续任务实现）
+    return { group, results, method: 'multi' }
+  }
+
+  /**
+   * 阶段 1：坐标下降法求解强度参数
+   *
+   * 待求参数：f_ce, γ_f, γ_s, γ_l, γ_c, α_a, α_b
+   *
+   * 算法：
+   * 1. 所有参数初始化为数据库设计值
+   * 2. 固定其他参数，每次用黄金分割法优化一个，最小化 RSS
+   * 3. 多轮迭代直到收敛
+   */
+  _coordinateDescentStrength(group, sharedParams) {
+    const mixDesigns = group.mixDesigns
+
+    // 初始化参数
+    const params = this._initStrengthParams(group)
+
+    // 坐标下降迭代
+    const MAX_ITER = 30
+    const TOLERANCE = 1e-6
+    let prevRSS = Infinity
+
+    for (let iter = 0; iter < MAX_ITER; iter++) {
+      // 按顺序优化每个参数
+      for (const paramName of Object.keys(params)) {
+        const bound = this._getParamBounds(paramName)
+        const optimal = this._goldenSectionSearch(
+          params, paramName, bound.min, bound.max, mixDesigns
+        )
+        params[paramName] = optimal
+      }
+
+      // 检查收敛
+      const currentRSS = this._calcStrengthRSS(params, mixDesigns)
+      if (Math.abs(prevRSS - currentRSS) < TOLERANCE) break
+      prevRSS = currentRSS
+    }
+
+    // 转换为结果格式
+    return this._strengthParamsToResults(params, group)
+  }
+
+  /**
+   * 初始化强度参数（从材料设计值读取）
+   */
+  _initStrengthParams(group) {
+    const params = {}
+    const cement = group.cement || {}
+    const flyAsh = group.flyAsh || {}
+    const slag = group.slag || {}
+    const lithiumSlag = group.lithiumSlag || {}
+    const compositePowder = group.compositePowder || {}
+
+    params.f_ce = cement.compressiveStrength28d || 48.0
+
+    if (flyAsh.id) {
+      const mix = group.mixDesigns[0]
+      params.gamma_f = this._getDesignGamma(flyAsh, mix.flyAshDosage || mix.flyAsh || 0)
+    }
+    if (slag.id) {
+      const mix = group.mixDesigns[0]
+      params.gamma_s = this._getDesignGamma(slag, mix.slagDosage || mix.slag || 0)
+    }
+    if (lithiumSlag.id) {
+      const mix = group.mixDesigns[0]
+      params.gamma_l = this._getDesignGamma(lithiumSlag, mix.lithiumSlagDosage || mix.lithiumSlag || 0)
+    }
+    if (compositePowder.id) {
+      const mix = group.mixDesigns[0]
+      params.gamma_c = this._getDesignGamma(compositePowder, mix.compositePowderDosage || mix.compositePowder || 0)
+    }
+
+    const stone = group.stone || {}
+    params.alpha_a = this._getAlphaA(stone)
+    params.alpha_b = this._getAlphaB(stone)
+
+    return params
+  }
+
+  /**
+   * 获取参数物理边界
+   */
+  _getParamBounds(paramName) {
+    const bounds = {
+      f_ce: { min: 30, max: 80 },
+      gamma_f: { min: 0.3, max: 1.5 },
+      gamma_s: { min: 0.3, max: 1.5 },
+      gamma_l: { min: 0.3, max: 1.5 },
+      gamma_c: { min: 0.3, max: 1.5 },
+      alpha_a: { min: 0.30, max: 0.70 },
+      alpha_b: { min: 0.05, max: 0.35 }
+    }
+    return bounds[paramName] || { min: 0, max: 100 }
+  }
+
+  /**
+   * 黄金分割法一维搜索
+   * 固定 params 中除 targetParam 外的所有参数，搜索 targetParam 的最优值
+   */
+  _goldenSectionSearch(params, targetParam, min, max, mixDesigns) {
+    const GOLDEN_RATIO = 0.618
+    let a = min
+    let b = max
+    let x1 = b - GOLDEN_RATIO * (b - a)
+    let x2 = a + GOLDEN_RATIO * (b - a)
+
+    const testParams = { ...params }
+
+    for (let i = 0; i < 40; i++) {
+      testParams[targetParam] = x1
+      const rss1 = this._calcStrengthRSS(testParams, mixDesigns)
+
+      testParams[targetParam] = x2
+      const rss2 = this._calcStrengthRSS(testParams, mixDesigns)
+
+      if (rss1 < rss2) {
+        b = x2
+        x2 = x1
+        x1 = b - GOLDEN_RATIO * (b - a)
+      } else {
+        a = x1
+        x1 = x2
+        x2 = a + GOLDEN_RATIO * (b - a)
+      }
+
+      if (Math.abs(b - a) < 1e-4) break
+    }
+
+    return (a + b) / 2
+  }
+
+  /**
+   * 计算强度 RSS = Σ(实测强度 - 预测强度)²
+   *
+   * 预测公式：f_cu,0 = α_a × f_ce × γ × (1/(W/B) - α_b)
+   * 其中 γ = γ_f × γ_s × γ_l × γ_c（存在的掺合料才乘）
+   */
+  _calcStrengthRSS(params, mixDesigns) {
+    let rss = 0
+    for (const mix of mixDesigns) {
+      const testResults = mix.testResults || {}
+      const actual = testResults.strengthR28 || testResults.strength28d || 0
+      if (actual <= 0) continue
+
+      const predicted = this._predictStrength(params, mix)
+      rss += (actual - predicted) ** 2
+    }
+    return rss
+  }
+
+  /**
+   * 用给定参数预测强度
+   */
+  _predictStrength(params, mix) {
+    const waterRatio = mix.waterBinderRatio || 0.4
+    if (waterRatio <= 0) return 0
+
+    const wbTerm = (1 / waterRatio) - (params.alpha_b || 0.20)
+    if (wbTerm <= 0) return 0
+
+    let gamma = 1.0
+    if (params.gamma_f !== undefined) gamma *= params.gamma_f
+    if (params.gamma_s !== undefined) gamma *= params.gamma_s
+    if (params.gamma_l !== undefined) gamma *= params.gamma_l
+    if (params.gamma_c !== undefined) gamma *= params.gamma_c
+
+    return (params.alpha_a || 0.53) * (params.f_ce || 48) * gamma * wbTerm
+  }
+
+  /**
+   * 强度参数转结果格式
+   */
+  _strengthParamsToResults(params, group) {
+    const results = []
+    const cement = group.cement || {}
+
+    results.push({
+      name: '水泥28天胶砂强度',
+      symbol: 'f_ce',
+      designValue: cement.compressiveStrength28d || 0,
+      diagnosedValue: Math.round(params.f_ce * 100) / 100,
+      method: '多组联立反算'
+    })
+
+    if (params.gamma_f !== undefined) {
+      const mix = group.mixDesigns[0]
+      const fa = group.flyAsh || {}
+      results.push({
+        name: '粉煤灰影响系数',
+        symbol: 'γ_f',
+        designValue: this._getDesignGamma(fa, mix.flyAshDosage || mix.flyAsh || 0),
+        diagnosedValue: Math.round(params.gamma_f * 1000) / 1000,
+        method: '多组联立反算'
+      })
+    }
+
+    if (params.gamma_s !== undefined) {
+      const mix = group.mixDesigns[0]
+      const sg = group.slag || {}
+      results.push({
+        name: '矿渣粉影响系数',
+        symbol: 'γ_s',
+        designValue: this._getDesignGamma(sg, mix.slagDosage || mix.slag || 0),
+        diagnosedValue: Math.round(params.gamma_s * 1000) / 1000,
+        method: '多组联立反算'
+      })
+    }
+
+    if (params.gamma_l !== undefined) {
+      const mix = group.mixDesigns[0]
+      const ls = group.lithiumSlag || {}
+      results.push({
+        name: '锂渣影响系数',
+        symbol: 'γ_l',
+        designValue: this._getDesignGamma(ls, mix.lithiumSlagDosage || mix.lithiumSlag || 0),
+        diagnosedValue: Math.round(params.gamma_l * 1000) / 1000,
+        method: '多组联立反算'
+      })
+    }
+
+    if (params.gamma_c !== undefined) {
+      const mix = group.mixDesigns[0]
+      const cp = group.compositePowder || {}
+      results.push({
+        name: '复合粉影响系数',
+        symbol: 'γ_c',
+        designValue: this._getDesignGamma(cp, mix.compositePowderDosage || mix.compositePowder || 0),
+        diagnosedValue: Math.round(params.gamma_c * 1000) / 1000,
+        method: '多组联立反算'
+      })
+    }
+
+    results.push({
+      name: '回归系数α_a',
+      symbol: 'α_a',
+      designValue: this._getAlphaA(group.stone),
+      diagnosedValue: Math.round(params.alpha_a * 1000) / 1000,
+      method: '多组联立反算'
+    })
+
+    results.push({
+      name: '回归系数α_b',
+      symbol: 'α_b',
+      designValue: this._getAlphaB(group.stone),
+      diagnosedValue: Math.round(params.alpha_b * 1000) / 1000,
+      method: '多组联立反算'
+    })
+
+    return results
   }
 
   _mergeResults(allResults, sharedParams) {
