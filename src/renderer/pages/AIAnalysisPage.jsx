@@ -9,6 +9,7 @@ import MixDesignResultCard from '../components/MixDesignResultCard'
 import OptimizationResultCard from '../components/OptimizationResultCard'
 import MaterialCompareCard from '../components/MaterialCompareCard'
 import MaterialPicker from '../components/MaterialPicker'
+import DiagnosisResultCard from '../components/DiagnosisResultCard'
 
 // 从材料完整对象中提取AI分析所需的关键参数
 const extractMaterialInfo = (material) => {
@@ -1797,6 +1798,9 @@ const AIAnalysisPage = () => {
               </span>
             )}
           </div>
+          {analysisResult?.parameterDiagnosis && (
+            <DiagnosisResultCard data={analysisResult.parameterDiagnosis} />
+          )}
           <AnalysisReport result={analysisResult} />
 
           {/* 继续与AI对话 */}
@@ -1851,6 +1855,9 @@ const AIAnalysisPage = () => {
                                   )}
                                   {item.toolCall.type === 'material_compare' && (
                                     <MaterialCompareCard data={item.toolCall.data} />
+                                  )}
+                                  {item.toolCall.type === 'parameter_diagnosis' && (
+                                    <DiagnosisResultCard data={item.toolCall.data} />
                                   )}
                                 </>
                               )}
