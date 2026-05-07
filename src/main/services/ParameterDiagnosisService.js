@@ -150,8 +150,194 @@ class ParameterDiagnosisService {
 
   // ---- 占位方法（后续任务实现） ----
 
+  /**
+   * 单组偏差溯源：逐参数反推"应该是多少"
+   */
   _singleGroupDiagnosis(group) {
-    return { group, results: [], method: 'single' }
+    const mix = group.mixDesigns[0]
+    const mapping = mix.materialMapping || {}
+    const testResults = mix.testResults || {}
+
+    const actualStrength28d = testResults.strengthR28 || testResults.strength28d || 0
+    const actualDosage = testResults.actualSuperplasticizerDosage || 0
+    const actualWater = testResults.actualWater || 0
+
+    if (!actualStrength28d && !actualDosage && !actualWater) {
+      return { group, results: [], method: 'single', error: '无实测数据，无法诊断' }
+    }
+
+    const results = []
+
+    const cement = mapping.cement || {}
+    const flyAsh = mapping.flyAsh || {}
+    const slag = mapping.slag || {}
+    const lithiumSlag = mapping.lithiumSlag || {}
+    const compositePowder = mapping.compositePowder || {}
+
+    const waterRatio = mix.waterBinderRatio || 0.4
+
+    // --- 强度参数反推 ---
+    if (actualStrength28d > 0 && waterRatio > 0) {
+      const alphaA = this._getAlphaA(group.stone)
+      const alphaB = this._getAlphaB(group.stone)
+      const combinedGamma = this._getCombinedGamma(flyAsh, slag, lithiumSlag, compositePowder, mix)
+
+      const wbReciprocal = 1 / waterRatio
+      const strengthPerUnit = actualStrength28d / (alphaA * combinedGamma * (wbReciprocal - alphaB))
+
+      // 1.1 假设只有 f_ce 不准
+      results.push({
+        name: '水泥28天胶砂强度',
+        symbol: 'f_ce',
+        designValue: cement.compressiveStrength28d || 0,
+        diagnosedValue: Math.round(strengthPerUnit * 100) / 100,
+        method: '单组偏差溯源'
+      })
+
+      // 1.2 假设只有 γ_f 不准
+      if (flyAsh.id) {
+        const gammaWithout = this._getGammaWithout(flyAsh, slag, lithiumSlag, compositePowder, 'flyAsh', mix)
+        const gammaF = actualStrength28d / (alphaA * (cement.compressiveStrength28d || 48) * gammaWithout * (wbReciprocal - alphaB))
+        const designGamma = this._getDesignGamma(flyAsh, mix.flyAshDosage || mix.flyAsh || 0)
+        results.push({
+          name: '粉煤灰影响系数',
+          symbol: 'γ_f',
+          designValue: designGamma,
+          diagnosedValue: Math.round(Math.max(0.1, gammaF) * 1000) / 1000,
+          method: '单组偏差溯源'
+        })
+      }
+
+      // 1.3 假设只有 γ_s 不准
+      if (slag.id) {
+        const gammaWithout = this._getGammaWithout(flyAsh, slag, lithiumSlag, compositePowder, 'slag', mix)
+        const gammaS = actualStrength28d / (alphaA * (cement.compressiveStrength28d || 48) * gammaWithout * (wbReciprocal - alphaB))
+        const designGamma = this._getDesignGamma(slag, mix.slagDosage || mix.slag || 0)
+        results.push({
+          name: '矿渣粉影响系数',
+          symbol: 'γ_s',
+          designValue: designGamma,
+          diagnosedValue: Math.round(Math.max(0.1, gammaS) * 1000) / 1000,
+          method: '单组偏差溯源'
+        })
+      }
+
+      // 1.4 假设只有 γ_l 不准
+      if (lithiumSlag.id) {
+        const gammaWithout = this._getGammaWithout(flyAsh, slag, lithiumSlag, compositePowder, 'lithiumSlag', mix)
+        const gammaL = actualStrength28d / (alphaA * (cement.compressiveStrength28d || 48) * gammaWithout * (wbReciprocal - alphaB))
+        const designGamma = this._getDesignGamma(lithiumSlag, mix.lithiumSlagDosage || mix.lithiumSlag || 0)
+        results.push({
+          name: '锂渣影响系数',
+          symbol: 'γ_l',
+          designValue: designGamma,
+          diagnosedValue: Math.round(Math.max(0.1, gammaL) * 1000) / 1000,
+          method: '单组偏差溯源'
+        })
+      }
+
+      // 1.5 假设只有 γ_c 不准
+      if (compositePowder.id) {
+        const gammaWithout = this._getGammaWithout(flyAsh, slag, lithiumSlag, compositePowder, 'compositePowder', mix)
+        const gammaC = actualStrength28d / (alphaA * (cement.compressiveStrength28d || 48) * gammaWithout * (wbReciprocal - alphaB))
+        const designGamma = this._getDesignGamma(compositePowder, mix.compositePowderDosage || mix.compositePowder || 0)
+        results.push({
+          name: '复合粉影响系数',
+          symbol: 'γ_c',
+          designValue: designGamma,
+          diagnosedValue: Math.round(Math.max(0.1, gammaC) * 1000) / 1000,
+          method: '单组偏差溯源'
+        })
+      }
+
+      // 1.6 α_a / α_b
+      results.push({
+        name: '回归系数α_a',
+        symbol: 'α_a',
+        designValue: alphaA,
+        diagnosedValue: alphaA,
+        method: '单组偏差溯源'
+      })
+      results.push({
+        name: '回归系数α_b',
+        symbol: 'α_b',
+        designValue: alphaB,
+        diagnosedValue: alphaB,
+        method: '单组偏差溯源'
+      })
+    }
+
+    return { group, results, method: 'single' }
+  }
+
+  /**
+   * 获取 α_a（碎石 0.53，卵石 0.49）
+   */
+  _getAlphaA(stone) {
+    if (!stone) return 0.53
+    const spec = stone.specification || ''
+    return spec.includes('卵石') ? 0.49 : 0.53
+  }
+
+  /**
+   * 获取 α_b（碎石 0.20，卵石 0.13）
+   */
+  _getAlphaB(stone) {
+    if (!stone) return 0.20
+    const spec = stone.specification || ''
+    return spec.includes('卵石') ? 0.13 : 0.20
+  }
+
+  /**
+   * 获取设计影响系数（根据掺量线性插值）
+   */
+  _getDesignGamma(material, dosage) {
+    if (!material || !dosage) return 1.0
+    const pct = Math.round(dosage)
+    const key = `influenceFactor_${pct}`
+    if (material[key] !== undefined && material[key] !== null) return material[key]
+    // 尝试插值
+    const keys = [10, 20, 30, 40, 50]
+    for (let i = 0; i < keys.length - 1; i++) {
+      if (pct > keys[i] && pct < keys[i + 1]) {
+        const v1 = material[`influenceFactor_${keys[i]}`] || 1
+        const v2 = material[`influenceFactor_${keys[i + 1]}`] || 1
+        return v1 + (v2 - v1) * (pct - keys[i]) / (keys[i + 1] - keys[i])
+      }
+    }
+    return 1.0
+  }
+
+  /**
+   * 获取除指定掺合料外的影响系数乘积
+   */
+  _getGammaWithout(flyAsh, slag, lithiumSlag, compositePowder, exclude, mix) {
+    let gamma = 1.0
+    if (flyAsh?.id && exclude !== 'flyAsh') {
+      gamma *= this._getDesignGamma(flyAsh, mix.flyAshDosage || mix.flyAsh || 0)
+    }
+    if (slag?.id && exclude !== 'slag') {
+      gamma *= this._getDesignGamma(slag, mix.slagDosage || mix.slag || 0)
+    }
+    if (lithiumSlag?.id && exclude !== 'lithiumSlag') {
+      gamma *= this._getDesignGamma(lithiumSlag, mix.lithiumSlagDosage || mix.lithiumSlag || 0)
+    }
+    if (compositePowder?.id && exclude !== 'compositePowder') {
+      gamma *= this._getDesignGamma(compositePowder, mix.compositePowderDosage || mix.compositePowder || 0)
+    }
+    return gamma
+  }
+
+  /**
+   * 获取组合影响系数 γ = γ_f × γ_s × γ_l × γ_c
+   */
+  _getCombinedGamma(flyAsh, slag, lithiumSlag, compositePowder, mix) {
+    let gamma = 1.0
+    if (flyAsh?.id) gamma *= this._getDesignGamma(flyAsh, mix.flyAshDosage || mix.flyAsh || 0)
+    if (slag?.id) gamma *= this._getDesignGamma(slag, mix.slagDosage || mix.slag || 0)
+    if (lithiumSlag?.id) gamma *= this._getDesignGamma(lithiumSlag, mix.lithiumSlagDosage || mix.lithiumSlag || 0)
+    if (compositePowder?.id) gamma *= this._getDesignGamma(compositePowder, mix.compositePowderDosage || mix.compositePowder || 0)
+    return gamma
   }
 
   _multiGroupDiagnosis(group, sharedParams) {
