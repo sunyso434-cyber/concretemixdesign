@@ -356,7 +356,16 @@ class ParameterDiagnosisService {
     const strengthResults = this._coordinateDescentStrength(group, sharedParams)
     results.push(...strengthResults)
 
-    // 阶段 2/3 占位（后续任务实现）
+    // 阶段 2：外加剂掺量参数 — 线性最小二乘（如果有减水剂数据）
+    if (group.superplasticizer) {
+      const admixtureResults = this._linearLeastSquaresAdmixture(group)
+      results.push(...admixtureResults)
+
+      // 阶段 3：减水率参数 — 线性最小二乘
+      const wrResults = this._linearLeastSquaresWaterReduction(group)
+      results.push(...wrResults)
+    }
+
     return { group, results, method: 'multi' }
   }
 
@@ -628,6 +637,221 @@ class ParameterDiagnosisService {
     })
 
     return results
+  }
+
+  /**
+   * 阶段 2：外加剂掺量参数 — 线性最小二乘
+   *
+   * 掺量公式（线性）：
+   * dosage = baseDosage + (strength-30)/5 × strengthInfluence
+   *        + (mbValue-0.5)/0.1 × mbInfluence
+   *        + (targetFM-actualFM)/0.1 × finenessInfluence
+   *
+   * 每组数据提供一行方程，直接最小二乘求解。
+   */
+  _linearLeastSquaresAdmixture(group) {
+    const mixDesigns = group.mixDesigns
+    const sp = group.superplasticizer || {}
+
+    // 收集有实测掺量的数据
+    const rows = []
+    for (const mix of mixDesigns) {
+      const tr = mix.testResults || {}
+      const actualDosage = tr.actualSuperplasticizerDosage || 0
+      if (actualDosage <= 0) continue
+
+      const strength = parseFloat((mix.strengthGrade || 'C30').replace('C', '')) || 30
+      const sand = group.sand || {}
+      const mbValue = sand.mbValue || 0.5
+      const targetFM = 2.6
+      const actualFM = sand.finenessModulus || 2.6
+
+      rows.push({
+        actualDosage,
+        strength,
+        mbValue,
+        targetFM,
+        actualFM
+      })
+    }
+
+    if (rows.length < 2) {
+      return [{
+        name: '基准掺量',
+        symbol: 'baseDosage',
+        designValue: sp.recommendedDosage || 0,
+        diagnosedValue: sp.recommendedDosage || 0,
+        method: '数据不足，使用设计值'
+      }]
+    }
+
+    // 构造正规方程 A^T A x = A^T b
+    // x = [baseDosage, strengthInfluence, mbInfluence, finenessInfluence]
+    const A = rows.map(r => [
+      1,
+      (r.strength - 30) / 5,
+      (r.mbValue - 0.5) / 0.1,
+      (r.targetFM - r.actualFM) / 0.1
+    ])
+    const b = rows.map(r => r.actualDosage)
+
+    const x = this._solveNormalEquation(A, b, 4)
+
+    return [
+      {
+        name: '基准掺量',
+        symbol: 'baseDosage',
+        designValue: sp.recommendedDosage || 0,
+        diagnosedValue: Math.round(x[0] * 100) / 100,
+        method: '多组联立反算'
+      },
+      {
+        name: '强度等级影响系数',
+        symbol: 'strengthInfluence',
+        designValue: 0,
+        diagnosedValue: Math.round(x[1] * 1000) / 1000,
+        method: '多组联立反算'
+      },
+      {
+        name: 'MB值影响系数',
+        symbol: 'mbInfluence',
+        designValue: 0,
+        diagnosedValue: Math.round(x[2] * 1000) / 1000,
+        method: '多组联立反算'
+      },
+      {
+        name: '细度模数影响系数',
+        symbol: 'finenessInfluence',
+        designValue: 0,
+        diagnosedValue: Math.round(x[3] * 1000) / 1000,
+        method: '多组联立反算'
+      }
+    ]
+  }
+
+  /**
+   * 阶段 3：减水率参数 — 线性最小二乘
+   *
+   * 减水率公式（线性）：
+   * waterReducingRate = baseReducingRate + (dosage - baseDosage)/0.1 × ratePer01
+   */
+  _linearLeastSquaresWaterReduction(group) {
+    const mixDesigns = group.mixDesigns
+    const sp = group.superplasticizer || {}
+
+    // 收集有实测用水量的数据
+    const rows = []
+    for (const mix of mixDesigns) {
+      const tr = mix.testResults || {}
+      const actualWater = tr.actualWater || 0
+      if (actualWater <= 0) continue
+
+      const theoreticalWater = mix.water || 175
+      if (theoreticalWater <= 0) continue
+
+      // 实际减水率 = (理论用水量 - 实际用水量) / 理论用水量 × 100%
+      const actualWRR = ((theoreticalWater - actualWater) / theoreticalWater) * 100
+      const dosage = tr.actualSuperplasticizerDosage || mix.superplasticizerDosage || 1.0
+      const baseDosage = sp.recommendedDosage || 1.0
+
+      rows.push({
+        actualWRR: Math.max(0, actualWRR),
+        dosage,
+        baseDosage
+      })
+    }
+
+    if (rows.length < 2) {
+      return [{
+        name: '基准减水率',
+        symbol: 'baseReducingRate',
+        designValue: sp.waterReducingRate || 0,
+        diagnosedValue: sp.waterReducingRate || 0,
+        method: '数据不足，使用设计值'
+      }]
+    }
+
+    // 构造正规方程
+    const A = rows.map(r => [1, (r.dosage - r.baseDosage) / 0.1])
+    const b = rows.map(r => r.actualWRR)
+    const x = this._solveNormalEquation(A, b, 2)
+
+    return [
+      {
+        name: '基准减水率',
+        symbol: 'baseReducingRate',
+        designValue: sp.waterReducingRate || 0,
+        diagnosedValue: Math.round(x[0] * 100) / 100,
+        method: '多组联立反算'
+      },
+      {
+        name: '每0.1%掺量减水率',
+        symbol: 'ratePer01',
+        designValue: sp.waterReducingRatePer01Dosage || 0,
+        diagnosedValue: Math.round(x[1] * 1000) / 1000,
+        method: '多组联立反算'
+      }
+    ]
+  }
+
+  /**
+   * 求解正规方程 A^T A x = A^T b
+   * 使用高斯消元法（带部分选主元）
+   */
+  _solveNormalEquation(A, b, numParams) {
+    const n = numParams
+    // 构造 A^T A (n×n) 和 A^T b (n×1)
+    const ata = Array(n).fill(null).map(() => Array(n).fill(0))
+    const atb = Array(n).fill(0)
+
+    for (let i = 0; i < A.length; i++) {
+      for (let j = 0; j < n; j++) {
+        atb[j] += A[i][j] * b[i]
+        for (let k = 0; k < n; k++) {
+          ata[j][k] += A[i][j] * A[i][k]
+        }
+      }
+    }
+
+    // 高斯消元
+    for (let col = 0; col < n; col++) {
+      // 部分选主元
+      let maxRow = col
+      for (let row = col + 1; row < n; row++) {
+        if (Math.abs(ata[row][col]) > Math.abs(ata[maxRow][col])) {
+          maxRow = row
+        }
+      }
+      // 交换行
+      [ata[col], ata[maxRow]] = [ata[maxRow], ata[col]]
+      const tmpB = atb[col]
+      atb[col] = atb[maxRow]
+      atb[maxRow] = tmpB
+
+      // 消元
+      const pivot = ata[col][col]
+      if (Math.abs(pivot) < 1e-12) continue
+
+      for (let row = col + 1; row < n; row++) {
+        const factor = ata[row][col] / pivot
+        for (let k = col; k < n; k++) {
+          ata[row][k] -= factor * ata[col][k]
+        }
+        atb[row] -= factor * atb[col]
+      }
+    }
+
+    // 回代
+    const x = Array(n).fill(0)
+    for (let i = n - 1; i >= 0; i--) {
+      let sum = atb[i]
+      for (let j = i + 1; j < n; j++) {
+        sum -= ata[i][j] * x[j]
+      }
+      x[i] = Math.abs(ata[i][i]) < 1e-12 ? 0 : sum / ata[i][i]
+    }
+
+    return x
   }
 
   _mergeResults(allResults, sharedParams) {
