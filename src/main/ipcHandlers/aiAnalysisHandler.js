@@ -8,6 +8,7 @@ const SystemService = require('../services/SystemService')
 const MaterialService = require('../services/MaterialService')
 const MixDesignService = require('../services/MixDesignService')
 const MixDesignOptimizer = require('../services/MixDesignOptimizer')
+const ParameterDiagnosisService = require('../services/ParameterDiagnosisService')
 
 // 从系统参数获取API密钥
 const getDeepSeekApiKey = async () => {
@@ -49,7 +50,38 @@ const analyzeMixDesign = async (event, { data, customPrompt }) => {
   }
 
   try {
+    // 第一步：参数诊断
+    let diagnosisResult = null
+    try {
+      const mixDesigns = data.mixDesigns || []
+      if (mixDesigns.length > 0) {
+        // 为每个 mixDesign 构建 materialMapping（从 data 中提取）
+        const globalMapping = data.materialMapping || {}
+        for (const mix of mixDesigns) {
+          if (!mix.materialMapping) {
+            mix.materialMapping = globalMapping[mix.id] || {}
+          }
+        }
+        diagnosisResult = await ParameterDiagnosisService.diagnose(mixDesigns)
+      }
+    } catch (diagError) {
+      console.error('参数诊断失败:', diagError)
+      // 诊断失败不阻塞主流程
+    }
+
+    // 第二步：将诊断结果注入到分析数据中
+    if (diagnosisResult) {
+      data = { ...data, parameterDiagnosis: diagnosisResult }
+    }
+
+    // 第三步：AI 分析
     const result = await service.analyzeMixDesign(data, customPrompt || '')
+
+    // 将诊断结果附加到返回结果中
+    if (diagnosisResult) {
+      result.parameterDiagnosis = diagnosisResult
+    }
+
     return result
   } catch (error) {
     console.error('AI分析失败:', error)
@@ -76,6 +108,19 @@ const checkApiStatus = async () => {
  */
 const executeToolCall = async (toolName, args) => {
   switch (toolName) {
+    case 'run_parameter_diagnosis': {
+      const mixDesigns = args._mixDesigns || []
+      if (mixDesigns.length === 0) {
+        return { success: false, error: '没有配合比数据可供诊断。请先在智能解析中上传数据。' }
+      }
+      const diagnosisResult = await ParameterDiagnosisService.diagnose(mixDesigns)
+      return {
+        success: true,
+        type: 'parameter_diagnosis',
+        data: diagnosisResult
+      }
+    }
+
     case 'list_available_materials': {
       const materials = await MaterialService.getAllMaterials()
       if (args.type) {
@@ -310,8 +355,17 @@ const chatWithAI = async (event, { message, context }) => {
   }
 
   try {
+    // 将配合比数据注入工具执行上下文（供 run_parameter_diagnosis 使用）
+    const toolExecutorWithContext = (toolName, args) => {
+      const enrichedArgs = { ...args }
+      if (context && context.mixDesigns) {
+        enrichedArgs._mixDesigns = context.mixDesigns
+      }
+      return executeToolCall(toolName, enrichedArgs)
+    }
+
     const result = await service.chat(message, context, {
-      toolExecutor: executeToolCall
+      toolExecutor: toolExecutorWithContext
     })
     return result
   } catch (error) {
