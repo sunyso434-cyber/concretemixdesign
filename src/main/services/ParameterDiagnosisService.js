@@ -148,8 +148,6 @@ class ParameterDiagnosisService {
     return Object.values(map)
   }
 
-  // ---- 占位方法（后续任务实现） ----
-
   /**
    * 单组偏差溯源：逐参数反推"应该是多少"
    */
@@ -169,6 +167,8 @@ class ParameterDiagnosisService {
     const results = []
 
     const cement = mapping.cement || {}
+    const cementStrength = cement.compressiveStrength28d
+    const cementStrengthUsed = cementStrength || 48
     const flyAsh = mapping.flyAsh || {}
     const slag = mapping.slag || {}
     const lithiumSlag = mapping.lithiumSlag || {}
@@ -194,10 +194,15 @@ class ParameterDiagnosisService {
         method: '单组偏差溯源'
       })
 
+      if (!cementStrength) {
+        results[0].confidence = '低'
+        results[0].note = '水泥28d强度缺失，使用默认值48MPa'
+      }
+
       // 1.2 假设只有 γ_f 不准
       if (flyAsh.id) {
         const gammaWithout = this._getGammaWithout(flyAsh, slag, lithiumSlag, compositePowder, 'flyAsh', mix)
-        const gammaF = actualStrength28d / (alphaA * (cement.compressiveStrength28d || 48) * gammaWithout * (wbReciprocal - alphaB))
+        const gammaF = actualStrength28d / (alphaA * cementStrengthUsed * gammaWithout * (wbReciprocal - alphaB))
         const designGamma = this._getDesignGamma(flyAsh, mix.flyAshDosage || mix.flyAsh || 0)
         results.push({
           name: '粉煤灰影响系数',
@@ -211,7 +216,7 @@ class ParameterDiagnosisService {
       // 1.3 假设只有 γ_s 不准
       if (slag.id) {
         const gammaWithout = this._getGammaWithout(flyAsh, slag, lithiumSlag, compositePowder, 'slag', mix)
-        const gammaS = actualStrength28d / (alphaA * (cement.compressiveStrength28d || 48) * gammaWithout * (wbReciprocal - alphaB))
+        const gammaS = actualStrength28d / (alphaA * cementStrengthUsed * gammaWithout * (wbReciprocal - alphaB))
         const designGamma = this._getDesignGamma(slag, mix.slagDosage || mix.slag || 0)
         results.push({
           name: '矿渣粉影响系数',
@@ -225,7 +230,7 @@ class ParameterDiagnosisService {
       // 1.4 假设只有 γ_l 不准
       if (lithiumSlag.id) {
         const gammaWithout = this._getGammaWithout(flyAsh, slag, lithiumSlag, compositePowder, 'lithiumSlag', mix)
-        const gammaL = actualStrength28d / (alphaA * (cement.compressiveStrength28d || 48) * gammaWithout * (wbReciprocal - alphaB))
+        const gammaL = actualStrength28d / (alphaA * cementStrengthUsed * gammaWithout * (wbReciprocal - alphaB))
         const designGamma = this._getDesignGamma(lithiumSlag, mix.lithiumSlagDosage || mix.lithiumSlag || 0)
         results.push({
           name: '锂渣影响系数',
@@ -239,7 +244,7 @@ class ParameterDiagnosisService {
       // 1.5 假设只有 γ_c 不准
       if (compositePowder.id) {
         const gammaWithout = this._getGammaWithout(flyAsh, slag, lithiumSlag, compositePowder, 'compositePowder', mix)
-        const gammaC = actualStrength28d / (alphaA * (cement.compressiveStrength28d || 48) * gammaWithout * (wbReciprocal - alphaB))
+        const gammaC = actualStrength28d / (alphaA * cementStrengthUsed * gammaWithout * (wbReciprocal - alphaB))
         const designGamma = this._getDesignGamma(compositePowder, mix.compositePowderDosage || mix.compositePowder || 0)
         results.push({
           name: '复合粉影响系数',
@@ -292,7 +297,7 @@ class ParameterDiagnosisService {
    * 获取设计影响系数（根据掺量线性插值）
    */
   _getDesignGamma(material, dosage) {
-    if (!material || !dosage) return 1.0
+    if (!material || !dosage || typeof dosage !== 'number' || isNaN(dosage)) return 1.0
     const pct = Math.round(dosage)
     const key = `influenceFactor_${pct}`
     if (material[key] !== undefined && material[key] !== null) return material[key]
