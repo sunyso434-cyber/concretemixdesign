@@ -10,6 +10,7 @@ import OptimizationResultCard from '../components/OptimizationResultCard'
 import MaterialCompareCard from '../components/MaterialCompareCard'
 import MaterialPicker from '../components/MaterialPicker'
 import DiagnosisResultCard from '../components/DiagnosisResultCard'
+import SmartDesignChat from '../components/SmartDesignChat'
 
 // 从材料完整对象中提取AI分析所需的关键参数
 const extractMaterialInfo = (material) => {
@@ -1443,7 +1444,7 @@ const AIAnalysisPage = () => {
     },
   ]
 
-  const items = [
+  const analysisItems = [
     {
       key: 'data-import',
       label: '数据导入',
@@ -1913,13 +1914,26 @@ const AIAnalysisPage = () => {
     },
   ]
 
+  const smartItems = [
+    {
+      key: 'smart-design',
+      label: '智能设计',
+      children: <SmartDesignChat />,
+    },
+    {
+      key: 'smart-analysis',
+      label: '智能解析',
+      children: <Tabs items={analysisItems} defaultActiveKey="data-import" size="large" />,
+    },
+  ]
+
   return (
     <div className="page-container">
 
       <div className="custom-card">
         <Tabs
-          items={items}
-          defaultActiveKey="data-import"
+          items={smartItems}
+          defaultActiveKey="smart-design"
           size="large"
         />
       </div>

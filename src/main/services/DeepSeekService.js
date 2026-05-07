@@ -51,7 +51,20 @@ const TOOLS = [
           sandRatio: { type: 'number', description: '砂率(%)，不填则根据规范自动计算' },
           calculationMethod: { type: 'string', enum: ['absolute', 'mass'], description: '计算方法：absolute=绝对体积法(默认), mass=质量法' },
           targetDensity: { type: 'number', description: '目标容重(kg/m³)，仅质量法时使用' },
-          airContent: { type: 'number', description: '含气量(%)，默认1.0' }
+          airContent: { type: 'number', description: '含气量(%)，默认1.0' },
+          tempSettings: {
+            type: 'object',
+            description: '温度参数（可选），用于覆盖系统默认值',
+            properties: {
+              regressionAlphaA: { type: 'number', description: '回归系数 αa，默认0.53' },
+              regressionAlphaB: { type: 'number', description: '回归系数 αb，默认0.20' },
+              strengthStdDev: { type: 'number', description: '强度标准差 σ(MPa)' },
+              mbInfluence: { type: 'number', description: 'MB值影响(%)，默认0.1' },
+              finenessInfluence: { type: 'number', description: '细度模数影响(%)，默认0.1' },
+              strengthInfluence: { type: 'number', description: '强度等级影响(%)，默认0.1' },
+              targetFinenessModulusBase: { type: 'number', description: 'C30基准细度模数，默认2.7' }
+            }
+          }
         },
         required: ['strength', 'slump', 'cementId', 'sandIds', 'stoneIds']
       }
@@ -80,7 +93,20 @@ const TOOLS = [
           lithiumSlagRange: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: '锂渣掺量范围，默认 [0, 20]' },
           compositePowderRange: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: '复合粉掺量范围，默认 [0, 20]' },
           gridStep: { type: 'number', description: '网格搜索步长，默认 5' },
-          background: { type: 'boolean', description: '是否后台运行，默认 true' }
+          background: { type: 'boolean', description: '是否后台运行，默认 true' },
+          tempSettings: {
+            type: 'object',
+            description: '温度参数（可选），用于覆盖系统默认值',
+            properties: {
+              regressionAlphaA: { type: 'number', description: '回归系数 αa，默认0.53' },
+              regressionAlphaB: { type: 'number', description: '回归系数 αb，默认0.20' },
+              strengthStdDev: { type: 'number', description: '强度标准差 σ(MPa)' },
+              mbInfluence: { type: 'number', description: 'MB值影响(%)，默认0.1' },
+              finenessInfluence: { type: 'number', description: '细度模数影响(%)，默认0.1' },
+              strengthInfluence: { type: 'number', description: '强度等级影响(%)，默认0.1' },
+              targetFinenessModulusBase: { type: 'number', description: 'C30基准细度模数，默认2.7' }
+            }
+          }
         },
         required: ['strength', 'slump', 'cementId', 'sandIds', 'stoneIds']
       }
@@ -114,7 +140,20 @@ const TOOLS = [
               lithiumSlagDosage: { type: 'number' },
               compositePowderDosage: { type: 'number' },
               sandRatio: { type: 'number', description: '砂率(%)，不填则根据规范自动计算' },
-              calculationMethod: { type: 'string', enum: ['absolute', 'mass'], description: '计算方法：absolute=绝对体积法(默认), mass=质量法' }
+              calculationMethod: { type: 'string', enum: ['absolute', 'mass'], description: '计算方法：absolute=绝对体积法(默认), mass=质量法' },
+              tempSettings: {
+                type: 'object',
+                description: '温度参数（可选），用于覆盖系统默认值',
+                properties: {
+                  regressionAlphaA: { type: 'number', description: '回归系数 αa，默认0.53' },
+                  regressionAlphaB: { type: 'number', description: '回归系数 αb，默认0.20' },
+                  strengthStdDev: { type: 'number', description: '强度标准差 σ(MPa)' },
+                  mbInfluence: { type: 'number', description: 'MB值影响(%)，默认0.1' },
+                  finenessInfluence: { type: 'number', description: '细度模数影响(%)，默认0.1' },
+                  strengthInfluence: { type: 'number', description: '强度等级影响(%)，默认0.1' },
+                  targetFinenessModulusBase: { type: 'number', description: 'C30基准细度模数，默认2.7' }
+                }
+              }
             }
           },
           candidateIds: { type: 'array', items: { type: 'integer' }, description: '候选材料ID列表' },

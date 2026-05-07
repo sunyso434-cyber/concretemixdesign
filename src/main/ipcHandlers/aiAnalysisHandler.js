@@ -225,6 +225,10 @@ const executeToolCall = async (toolName, args) => {
       if (args.gridStep) userLimits.gridStep = args.gridStep
       if (args.waterRatioRange) userLimits.waterRatioRange = args.waterRatioRange
 
+      if (args.tempSettings) {
+        constraints.tempSettings = args.tempSettings
+      }
+
       const optimizer = new MixDesignOptimizer()
       const result = await optimizer.optimizeMixDesign({ constraints, userLimits })
 
@@ -323,7 +327,8 @@ const executeToolCall = async (toolName, args) => {
           lithiumSlagDosage: bp.lithiumSlagDosage || 0,
           compositePowderDosage: bp.compositePowderDosage || 0,
           sandRatio: bp.sandRatio,
-          calculationMethod: bp.calculationMethod || 'absolute'
+          calculationMethod: bp.calculationMethod || 'absolute',
+          tempSettings: bp.tempSettings
         })
         const candidateMaterial = findById(candidateId)
         results.push({

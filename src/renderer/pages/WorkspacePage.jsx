@@ -15,8 +15,8 @@ const SchemesPage = lazy(() => import('./SchemesPage'))
 const SettingsPage = lazy(() => import('./SettingsPage'))
 
 const MIDDLE_TABS = [
-  { key: 'mixdesign', label: '配合比设计' },
   { key: 'ai-analysis', label: 'AI分析' },
+  { key: 'mixdesign', label: '配合比设计' },
   { key: 'optimization', label: '成本优化' },
   { key: 'inverse-calculation', label: '参数反算' },
 ]
@@ -40,7 +40,7 @@ const LoadingFallback = () => (
 )
 
 export default function WorkspacePage() {
-  const [middleTab, setMiddleTab] = useState(() => loadTab('middleActiveTab', 'mixdesign'))
+  const [middleTab, setMiddleTab] = useState(() => loadTab('middleActiveTab', 'ai-analysis'))
   const [hasTasks, setHasTasks] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(null) // null | 'schemes' | 'settings'
 
@@ -134,7 +134,7 @@ export default function WorkspacePage() {
           <span className="topbar-icon" onClick={() => setDrawerOpen('settings')} title="系统设置">
             <SettingOutlined />
           </span>
-          <span className="topbar-version">v3.2.0</span>
+          <span className="topbar-version">v3.4.0</span>
           <span className={`topbar-task-dot${hasTasks ? ' has-tasks' : ''}`} />
         </div>
       </header>
