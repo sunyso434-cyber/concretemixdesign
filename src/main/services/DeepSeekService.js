@@ -123,6 +123,18 @@ const TOOLS = [
         required: ['strength', 'slump', 'compareType', 'baseParams', 'candidateIds']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_parameter_diagnosis',
+      description: '对上传的配合比和试验结果数据执行参数诊断。自动反算材料参数（水泥强度、掺合料影响系数、回归系数、外加剂参数、减水率参数），对比设计值与反算值的差异。偏差>5%的参数需要重点关注。当用户上传数据后应首先调用此工具，诊断结果将指导后续分析的侧重点。',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      }
+    }
   }
 ]
 
@@ -180,10 +192,22 @@ class DeepSeekService {
 你可以回答关于混凝土配合比设计、材料选择、性能优化、成本控制等各方面的问题。
 请用专业的知识帮助用户解答疑问。
 
+## 智能解析流程
+
+当你收到配合比数据和试验结果时，按以下顺序工作：
+
+1. **参数诊断（第一步）**：调用 run_parameter_diagnosis 工具，自动反算材料参数。
+   - 诊断结果会给出每个参数的设计值 vs 反算值对比
+   - 偏差 > 5% 的参数需要重点关注
+   - 诊断结果决定了后续分析的侧重点
+
+2. **后续分析**：基于参数诊断结果，重点关注偏差显著的参数对配合比的影响。
+
 ## 函数调用指南
 
 你可以使用以下工具来辅助用户完成配合比设计和成本优化：
 
+0. **run_parameter_diagnosis**: 参数诊断。用户上传数据后第一步就调用此工具。它会自动分析所有上传的配合比数据，反算材料参数并给出偏差报告。
 1. **list_available_materials**: 查询材料库。在帮助用户做材料选择之前，先调用此工具了解可用材料。
 2. **calculate_mix_design**: 计算配合比。用户提供了完整参数后调用。
 3. **optimize_mix_cost**: 成本优化。用户要找最低成本方案时调用。
@@ -302,6 +326,14 @@ class DeepSeekService {
   buildSystemPrompt(data, customPrompt = '') {
     const req = data.analysisRequirements || {}
 
+    // 提取参数诊断结果
+    let diagnosisText = ''
+    if (data.parameterDiagnosis) {
+      diagnosisText = JSON.stringify(data.parameterDiagnosis, null, 2)
+    } else {
+      diagnosisText = '（未执行参数诊断或无可诊断数据）'
+    }
+
     // 提取试验目的（从用户自定义提示词中）
     let testPurposeText = ''
     if (customPrompt && customPrompt.trim()) {
@@ -313,6 +345,24 @@ class DeepSeekService {
 ${testPurposeText}
 
 ═══════════════════════════════════════`
+
+    // ========== 0. 参数诊断结果（预处理） ==========
+    prompt += `
+## 0. 参数诊断结果（预处理）
+
+以下参数诊断结果是在进行后续分析之前自动完成的。请仔细阅读诊断结果：
+
+${diagnosisText}
+
+### 如何使用诊断结果：
+- 重点关注偏差 > 5% 的参数（标记为 abnormal）
+- 这些偏差说明材料的实际性能与设计值存在差异
+- 在后续分析中，优先讨论这些偏差对配合比的影响
+- 如果诊断结果显示某参数偏低，实际配合比可能偏危险（强度不足）
+- 如果诊断结果显示某参数偏高，实际配合比可能偏保守（成本偏高）
+
+═══════════════════════════════════════
+`
 
     // ========== 1. 材料性能影响分析 ==========
     if (req.analyzeMaterialInfluences !== false) {
