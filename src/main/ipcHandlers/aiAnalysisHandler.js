@@ -6,7 +6,7 @@
 const DeepSeekService = require('../services/DeepSeekService')
 const SystemService = require('../services/SystemService')
 const MaterialService = require('../services/MaterialService')
-const MixDesignService = require('../services/MixDesignService')
+const MixDesignService = require('../services/MixDesignService/index')
 const MixDesignOptimizer = require('../services/MixDesignOptimizer')
 const ParameterDiagnosisService = require('../services/ParameterDiagnosisService')
 
