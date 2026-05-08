@@ -1,153 +1,9 @@
 /**
- * 参数诊断服务
- * 智能解析的第一步：上传数据后自动反算材料参数，对比新旧参数差异
- *
- * 诊断策略：
- * - 同材料组合仅 1 组 → 单组偏差溯源
- * - 同材料组合 ≥ 2 组 → 多组联立反算（坐标下降法 + 线性最小二乘）
+ * 诊断算法模块
+ * 职责：单组/多组诊断算法
  */
 
-class ParameterDiagnosisService {
-  /**
-   * 执行参数诊断
-   * @param {Array} mixDesigns - 配合比数据列表，每条需含 testResults 和 materialMapping
-   * @returns {Object} 诊断结果（符合设计文档 5.2 输出 JSON 结构）
-   */
-  async diagnose(mixDesigns) {
-    if (!mixDesigns || !Array.isArray(mixDesigns) || mixDesigns.length === 0) {
-      throw new Error('配合比数据不能为空')
-    }
-
-    // Step A: 材料组合分组
-    const groups = this._groupByMaterialCombination(mixDesigns)
-
-    // Step B: 跨组合共享参数分析
-    const sharedParams = this._analyzeSharedParams(groups)
-
-    // Step C: 逐组诊断
-    const allResults = []
-    for (const group of groups) {
-      if (group.mixDesigns.length === 1) {
-        allResults.push(this._singleGroupDiagnosis(group))
-      } else {
-        allResults.push(this._multiGroupDiagnosis(group, sharedParams))
-      }
-    }
-
-    // Step D: 合并结果并评估置信度
-    const merged = this._mergeResults(allResults, sharedParams)
-
-    // Step E: 计算残差
-    const residuals = this._calculateResiduals(mixDesigns, merged)
-
-    // Step F: 格式化输出
-    return this._formatOutput(merged, residuals, mixDesigns)
-  }
-
-  /**
-   * 按材料组合分组
-   * "同材料组合"定义：水泥、掺合料、骨料、减水剂的种类一致，但用量可以不同
-   */
-  _groupByMaterialCombination(mixDesigns) {
-    const groups = []
-
-    for (const mix of mixDesigns) {
-      const mapping = mix.materialMapping || {}
-      const key = this._getCombinationKey(mapping)
-
-      let group = groups.find(g => g.key === key)
-      if (!group) {
-        group = {
-          key,
-          mixDesigns: [],
-          // 提取该组合使用的材料信息
-          cement: mapping.cement,
-          flyAsh: mapping.flyAsh,
-          slag: mapping.slag,
-          lithiumSlag: mapping.lithiumSlag,
-          compositePowder: mapping.compositePowder,
-          sand: mapping.sand?.[0] || mapping.sand,
-          stone: mapping.stone?.[0] || mapping.stone,
-          superplasticizer: mapping.superplasticizer
-        }
-        groups.push(group)
-      }
-      group.mixDesigns.push(mix)
-    }
-
-    return groups
-  }
-
-  /**
-   * 生成材料组合唯一标识
-   */
-  _getCombinationKey(mapping) {
-    const parts = [
-      mapping.cement?.id || 'no-cement',
-      mapping.flyAsh?.id || 'no-fa',
-      mapping.slag?.id || 'no-slag',
-      mapping.lithiumSlag?.id || 'no-ls',
-      mapping.compositePowder?.id || 'no-cp',
-      mapping.sand?.[0]?.id || mapping.sand?.id || 'no-sand',
-      mapping.stone?.[0]?.id || mapping.stone?.id || 'no-stone',
-      mapping.superplasticizer?.id || 'no-sp'
-    ]
-    return parts.join('|')
-  }
-
-  /**
-   * 按材料字段分组（通用辅助方法）
-   */
-  _groupByMaterialField(groups, fieldName, groupKeyType = 'materialId') {
-    const map = {}
-    for (const group of groups) {
-      const material = group[fieldName]
-      if (material) {
-        const id = material.id
-        if (!map[id]) {
-          map[id] = {
-            [groupKeyType]: id,
-            name: material.name,
-            groups: []
-          }
-        }
-        map[id].groups.push(group)
-      }
-    }
-    return Object.values(map)
-  }
-
-  /**
-   * 分析跨组合参数共享关系
-   * 返回每个参数的共享范围
-   */
-  _analyzeSharedParams(groups) {
-    return {
-      f_ce: this._groupByMaterialField(groups, 'cement', 'cementId'),
-      gamma_f: this._groupByMaterialField(groups, 'flyAsh'),
-      gamma_s: this._groupByMaterialField(groups, 'slag'),
-      gamma_l: this._groupByMaterialField(groups, 'lithiumSlag'),
-      gamma_c: this._groupByMaterialField(groups, 'compositePowder'),
-      alpha_ab: this._getAlphaAbGroups(groups),
-      admixture: this._groupByMaterialField(groups, 'superplasticizer'),
-    }
-  }
-
-  /**
-   * 粗骨料类型分组（卵石/碎石 → α_a, α_b）
-   */
-  _getAlphaAbGroups(groups) {
-    const map = {}
-    for (const group of groups) {
-      if (group.stone) {
-        const aggType = group.stone.specification?.includes('卵石') ? '卵石' : '碎石'
-        if (!map[aggType]) map[aggType] = { aggType, groups: [] }
-        map[aggType].groups.push(group)
-      }
-    }
-    return Object.values(map)
-  }
-
+module.exports = {
   /**
    * 单组偏差溯源：逐参数反推"应该是多少"
    */
@@ -273,7 +129,7 @@ class ParameterDiagnosisService {
     }
 
     return { group, results, method: 'single' }
-  }
+  },
 
   /**
    * 获取 α_a（碎石 0.53，卵石 0.49）
@@ -282,7 +138,7 @@ class ParameterDiagnosisService {
     if (!stone) return 0.53
     const spec = stone.specification || ''
     return spec.includes('卵石') ? 0.49 : 0.53
-  }
+  },
 
   /**
    * 获取 α_b（碎石 0.20，卵石 0.13）
@@ -291,7 +147,7 @@ class ParameterDiagnosisService {
     if (!stone) return 0.20
     const spec = stone.specification || ''
     return spec.includes('卵石') ? 0.13 : 0.20
-  }
+  },
 
   /**
    * 获取设计影响系数（根据掺量线性插值）
@@ -311,7 +167,7 @@ class ParameterDiagnosisService {
       }
     }
     return 1.0
-  }
+  },
 
   /**
    * 获取除指定掺合料外的影响系数乘积
@@ -331,7 +187,7 @@ class ParameterDiagnosisService {
       gamma *= this._getDesignGamma(compositePowder, mix.compositePowderDosage || mix.compositePowder || 0)
     }
     return gamma
-  }
+  },
 
   /**
    * 获取组合影响系数 γ = γ_f × γ_s × γ_l × γ_c
@@ -343,7 +199,7 @@ class ParameterDiagnosisService {
     if (lithiumSlag?.id) gamma *= this._getDesignGamma(lithiumSlag, mix.lithiumSlagDosage || mix.lithiumSlag || 0)
     if (compositePowder?.id) gamma *= this._getDesignGamma(compositePowder, mix.compositePowderDosage || mix.compositePowder || 0)
     return gamma
-  }
+  },
 
   /**
    * 多组联立反算
@@ -367,7 +223,7 @@ class ParameterDiagnosisService {
     }
 
     return { group, results, method: 'multi' }
-  }
+  },
 
   /**
    * 阶段 1：坐标下降法求解强度参数
@@ -426,7 +282,7 @@ class ParameterDiagnosisService {
 
     // 转换为结果格式
     return this._strengthParamsToResults(params, group)
-  }
+  },
 
   /**
    * 初始化强度参数（从材料设计值读取）
@@ -463,7 +319,7 @@ class ParameterDiagnosisService {
     params.alpha_b = this._getAlphaB(stone)
 
     return params
-  }
+  },
 
   /**
    * 获取参数物理边界
@@ -479,7 +335,7 @@ class ParameterDiagnosisService {
       alpha_b: { min: 0.05, max: 0.35 }
     }
     return bounds[paramName] || { min: 0, max: 100 }
-  }
+  },
 
   /**
    * 黄金分割法一维搜索
@@ -517,7 +373,7 @@ class ParameterDiagnosisService {
     }
 
     return (a + b) / 2
-  }
+  },
 
   /**
    * 计算强度 RSS = Σ(实测强度 - 预测强度)²
@@ -536,7 +392,7 @@ class ParameterDiagnosisService {
       rss += (actual - predicted) ** 2
     }
     return rss
-  }
+  },
 
   /**
    * 用给定参数预测强度
@@ -555,7 +411,7 @@ class ParameterDiagnosisService {
     if (params.gamma_c !== undefined) gamma *= params.gamma_c
 
     return (params.alpha_a || 0.53) * (params.f_ce || 48) * gamma * wbTerm
-  }
+  },
 
   /**
    * 强度参数转结果格式
@@ -637,7 +493,7 @@ class ParameterDiagnosisService {
     })
 
     return results
-  }
+  },
 
   /**
    * 阶段 2：外加剂掺量参数 — 线性最小二乘
@@ -727,7 +583,7 @@ class ParameterDiagnosisService {
         method: '多组联立反算'
       }
     ]
-  }
+  },
 
   /**
    * 阶段 3：减水率参数 — 线性最小二乘
@@ -792,7 +648,7 @@ class ParameterDiagnosisService {
         method: '多组联立反算'
       }
     ]
-  }
+  },
 
   /**
    * 求解正规方程 A^T A x = A^T b
@@ -853,180 +709,4 @@ class ParameterDiagnosisService {
 
     return x
   }
-
-  /**
-   * 合并各组诊断结果
-   */
-  _mergeResults(allResults, sharedParams) {
-    const merged = {
-      strengthParams: [],
-      admixtureParams: [],
-      reducingRateParams: []
-    }
-
-    for (const groupResult of allResults) {
-      for (const r of groupResult.results) {
-        const sym = r.symbol
-        if (sym === 'f_ce' || sym === 'γ_f' || sym === 'γ_s' ||
-            sym === 'γ_l' || sym === 'γ_c' || sym === 'α_a' || sym === 'α_b') {
-          merged.strengthParams.push(r)
-        } else if (sym === 'baseDosage' || sym === 'strengthInfluence' ||
-                   sym === 'mbInfluence' || sym === 'finenessInfluence') {
-          merged.admixtureParams.push(r)
-        } else if (sym === 'baseReducingRate' || sym === 'ratePer01') {
-          merged.reducingRateParams.push(r)
-        }
-      }
-    }
-
-    return merged
-  }
-
-  /**
-   * 计算各组数据的预测值 vs 实测值残差
-   */
-  _calculateResiduals(mixDesigns, merged) {
-    const residuals = []
-
-    // 收集诊断得到的强度参数用于预测
-    const strengthParams = {}
-    for (const p of merged.strengthParams) {
-      if (p.diagnosedValue !== undefined) {
-        strengthParams[p.symbol] = p.diagnosedValue
-      }
-    }
-
-    for (const mix of mixDesigns) {
-      const tr = mix.testResults || {}
-      const actual = tr.strengthR28 || tr.strength28d || 0
-      if (actual <= 0) continue
-
-      const predicted = this._predictStrength(strengthParams, mix)
-
-      residuals.push({
-        groupName: mix.name || mix.id || '未知',
-        actual: Math.round(actual * 10) / 10,
-        predicted: Math.round(predicted * 10) / 10,
-        residual: Math.round((actual - predicted) * 10) / 10
-      })
-    }
-
-    return residuals
-  }
-
-  /**
-   * 格式化输出为符合设计文档 5.2 的 JSON 结构
-   */
-  _formatOutput(merged, residuals, mixDesigns) {
-    const classifyParams = (params) => {
-      const abnormal = []
-      const normal = []
-
-      for (const p of params) {
-        const dv = p.designValue || 0
-        const devPct = dv !== 0 ? ((p.diagnosedValue - dv) / dv) * 100 : 0
-        const absDev = Math.abs(devPct)
-
-        const entry = {
-          name: p.name,
-          symbol: p.symbol,
-          designValue: p.designValue,
-          diagnosedValue: p.diagnosedValue,
-          deviationPercent: Math.round(devPct * 10) / 10,
-          direction: devPct > 1 ? '偏高' : devPct < -1 ? '偏低' : '一致',
-          confidence: this._assessConfidence(p, absDev),
-          sharedAcross: this._describeSharedAcross(p),
-          method: p.method
-        }
-
-        if (absDev > 5) {
-          abnormal.push(entry)
-        } else {
-          normal.push(entry)
-        }
-      }
-
-      return { abnormal, normal }
-    }
-
-    const strengthClassified = classifyParams(merged.strengthParams)
-    const admixtureClassified = classifyParams(merged.admixtureParams)
-    const reducingRateClassified = classifyParams(merged.reducingRateParams)
-
-    const totalAbnormal = strengthClassified.abnormal.length +
-      admixtureClassified.abnormal.length +
-      reducingRateClassified.abnormal.length
-
-    // 计算 R²
-    const ssRes = residuals.reduce((sum, r) => sum + r.residual * r.residual, 0)
-    const actualMean = residuals.length > 0
-      ? residuals.reduce((sum, r) => sum + r.actual, 0) / residuals.length
-      : 0
-    const ssTot = residuals.reduce((sum, r) => sum + (r.actual - actualMean) ** 2, 0)
-    const rSquared = ssTot > 0 ? Math.round((1 - ssRes / ssTot) * 1000) / 1000 : 0
-
-    let overallAssessment
-    if (totalAbnormal === 0) {
-      overallAssessment = '各项参数与设计值吻合良好'
-    } else if (totalAbnormal <= 2) {
-      overallAssessment = `存在 ${totalAbnormal} 项参数偏差，整体影响有限`
-    } else {
-      overallAssessment = `存在 ${totalAbnormal} 项参数显著偏差，建议重点关注`
-    }
-
-    // 计算材料组合数
-    const combos = new Set()
-    for (const mix of mixDesigns) {
-      const mapping = mix.materialMapping || {}
-      combos.add(this._getCombinationKey(mapping))
-    }
-
-    return {
-      summary: {
-        totalGroups: mixDesigns.length,
-        materialCombinations: combos.size,
-        abnormalCount: totalAbnormal,
-        rSquared,
-        overallAssessment
-      },
-      strengthParams: {
-        label: '强度相关参数',
-        abnormal: strengthClassified.abnormal,
-        normal: strengthClassified.normal
-      },
-      admixtureParams: {
-        label: '外加剂掺量相关参数',
-        abnormal: admixtureClassified.abnormal,
-        normal: admixtureClassified.normal
-      },
-      reducingRateParams: {
-        label: '减水率相关参数',
-        abnormal: reducingRateClassified.abnormal,
-        normal: reducingRateClassified.normal
-      },
-      residuals
-    }
-  }
-
-  /**
-   * 定性评估置信度
-   */
-  _assessConfidence(param, absDeviation) {
-    const method = param.method || ''
-    if (method.includes('数据不足') || method.includes('无有效实测数据')) return '低'
-    if (method.includes('多组联立')) {
-      return absDeviation > 10 ? '高' : '中'
-    }
-    if (method.includes('单组偏差溯源')) return '低'
-    return '低'
-  }
-
-  /**
-   * 描述参数跨组合共享范围（简化实现）
-   */
-  _describeSharedAcross(param) {
-    return ''
-  }
 }
-
-module.exports = new ParameterDiagnosisService()

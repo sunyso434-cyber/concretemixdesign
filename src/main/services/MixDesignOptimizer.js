@@ -1,4 +1,4 @@
-const MixDesignService = require('./MixDesignService')
+const MixDesignService = require('./MixDesignService/index')
 const OptimizationHistory = require('../db/models/OptimizationHistory')
 
 class MixDesignOptimizer {

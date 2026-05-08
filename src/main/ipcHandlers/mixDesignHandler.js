@@ -1,5 +1,5 @@
 const { ipcMain } = require('electron')
-const MixDesignService = require('../services/MixDesignService')
+const MixDesignService = require('../services/MixDesignService/index')
 
 class MixDesignHandler {
   constructor() {
