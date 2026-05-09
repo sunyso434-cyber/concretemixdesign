@@ -174,6 +174,45 @@ const TOOLS = [
         required: []
       }
     }
+  , {
+    type: 'function',
+    function: {
+      name: 'predict_performance',
+      description: '基于XGBoost模型预测混凝土性能指标（28d抗压强度、坍落度、容重）。输入配合比参数和材料ID，自动从数据库查询材料属性，输出预测值及置信度。支持质量(kg/m³)和百分比(%)两种输入格式，优先使用质量格式。',
+      parameters: {
+        type: 'object',
+        properties: {
+          waterBinderRatio: { type: 'number', description: '水胶比' },
+          cementAmount: { type: 'number', description: '水泥用量kg/m³' },
+          flyAshDosage: { type: 'number', description: '粉煤灰掺量%未用填0' },
+          slagDosage: { type: 'number', description: '矿渣粉掺量%未用填0' },
+          lithiumSlagDosage: { type: 'number', description: '锂渣掺量%未用填0' },
+          compositePowderDosage: { type: 'number', description: '复合粉掺量%未用填0' },
+          sandRatio: { type: 'number', description: '砂率%' },
+          superplasticizerDosage: { type: 'number', description: '减水剂掺量%未用填0' },
+          waterAmount: { type: 'number', description: '用水量kg/m³（与水胶比二选一，质量优先）' },
+          flyAshAmount: { type: 'number', description: '粉煤灰用量kg/m³' },
+          slagAmount: { type: 'number', description: '矿渣粉用量kg/m³' },
+          lithiumSlagAmount: { type: 'number', description: '锂渣用量kg/m³' },
+          compositePowderAmount: { type: 'number', description: '复合粉用量kg/m³' },
+          sandAmount: { type: 'number', description: '砂用量kg/m³' },
+          stoneAmount: { type: 'number', description: '石用量kg/m³' },
+          superplasticizerAmount: { type: 'number', description: '减水剂用量kg/m³' },
+          cementId: { type: 'integer', description: '水泥材料ID' },
+          sandId: { type: 'integer', description: '细骨料材料ID' },
+          stoneId: { type: 'integer', description: '粗骨料材料ID' },
+          flyAshId: { type: 'integer', description: '粉煤灰材料ID未用填0' },
+          slagId: { type: 'integer', description: '矿渣粉材料ID未用填0' },
+          lithiumSlagId: { type: 'integer', description: '锂渣材料ID未用填0' },
+          compositePowderId: { type: 'integer', description: '复合粉材料ID未用填0' },
+          superplasticizerId: { type: 'integer', description: '减水剂材料ID未用填0' },
+          temperature: { type: 'number', description: '养护温度℃默认20' },
+          humidity: { type: 'number', description: '相对湿度%默认95' },
+          curingAge: { type: 'number', description: '龄期天数默认28' }
+        },
+        required: ['cementId', 'sandId', 'stoneId']
+      }
+    }
   }
 ]
 
@@ -251,12 +290,36 @@ class DeepSeekService {
 2. **calculate_mix_design**: 计算配合比。用户提供了完整参数后调用。
 3. **optimize_mix_cost**: 成本优化。用户要找最低成本方案时调用。
 4. **compare_materials**: 材料对比。用户要求定量对比两种材料时调用。
+5. **predict_performance**: 性能预测。根据配合比参数和材料属性，预测28d强度、坍落度、容重。
+   - 用户询问"强度能达到多少"、"这个配比性能怎么样"、"预测一下"时调用
+   - 优化配合比后，补充预测验证时调用
+   - 注意：先通过 list_available_materials 确认材料ID存在，再调用预测
 
 ### 材料选择流程（重要）
 - 第一次收到配合比设计或优化请求时，先调用 list_available_materials 获取可用材料
 - 向用户展示可选材料并做定性对比建议（基于材料属性：强度、价格、活性等）
 - 用户说"用默认值"或明确选定时，再调用计算工具
 - 永远不要跳过参数确认直接调用计算工具
+
+### 材料列表输出格式（强制要求）
+
+**绝对禁止的行为：**
+1. 分隔符行禁止使用冒号（正确写法是每列用至少5个减号，外面加竖线）
+2. 价格禁止使用千位分隔符（正确：1400元/吨，错误：1,400元/吨）
+3. 材料名称前禁止加序号（如细骨料①、水泥01都是错的）
+4. 材料名称中禁止使用emoji
+5. 禁止用列表格式展示材料，必须用Markdown表格
+
+**推荐格式：**
+| 材料类型 | 材料名称 | 厂商 | ID | 价格 | 推荐 |
+|---------|---------|------|----|------|------|
+| 水泥 | P·O 42.5R | 拉法基 | 25 | 300元/吨 | 是 |
+| 细骨料 | 机制砂（中砂） | 汶川 | 7 | 89元/吨 | 是 |
+| 细骨料 | 河砂（细砂） | 乐山 | 8 | 93元/吨 | 否 |
+| 锂渣 | 锂渣 | 青白江 | 40 | 65元/吨 | 否 |
+| 减水剂 | SSJS（标准型） | 同升 | 11 | 1400元/吨 | 是 |
+
+**推荐列说明：** 如果需要标注推荐材料，用"是/否"在单独一列标注，不要在名称里加任何符号。
 
 ### 参数规则（重要）
 - 必填参数: strength, slump, cementId, sandIds, stoneIds

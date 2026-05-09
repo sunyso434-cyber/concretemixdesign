@@ -345,6 +345,16 @@ const executeToolCall = async (toolName, args) => {
       return { success: true, type: 'material_compare', data: { compareType: args.compareType, results } }
     }
 
+    case 'predict_performance': {
+      const XGBoostPredictionService = require('../services/XGBoostPredictionService')
+      const predRequiredParams = ['cementId', 'sandId', 'stoneId']
+      const predMissing = predRequiredParams.filter(p => args[p] === undefined || args[p] === null)
+      if (predMissing.length > 0) {
+        return { success: false, missingParams: predMissing, hint: `缺少必填参数: ${predMissing.join(', ')}，请向用户追问。` }
+      }
+      return await XGBoostPredictionService.predict(args)
+    }
+
     default:
       return { success: false, error: `未知工具: ${toolName}` }
   }
