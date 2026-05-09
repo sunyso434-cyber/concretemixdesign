@@ -45,6 +45,7 @@ require('./src/main/ipcHandlers/mixDesignOptimizerHandler') // 新增：优化�
 require('./src/main/ipcHandlers/inverseCalculationHandler') // 原材料参数反算 IPC 处理器
 const SystemHandler = require('./src/main/ipcHandlers/systemHandler')
 require('./src/main/ipcHandlers/aiAnalysisHandler')
+require('./src/main/ipcHandlers/xgboostPredictionHandler') // XGBoost性能预测 IPC 处理器
 // const { autoUpdater } = require('electron-updater')
 
 // 数据库就绪状态
@@ -88,6 +89,7 @@ async function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
+    icon: path.join(__dirname, 'public/logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'src/main/preload.js'),
       nodeIntegration: false,
