@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Card, Form, Input, Select, Button, Table, Space, message, Divider, Row, Col, Tag, InputNumber, Progress } from 'antd'
 
 import { useSelector, useDispatch } from 'react-redux'
-import { setOptimizationTask, clearOptimizationTask } from '../../store/mixDesignSlice'
+import { setOptimizationTask, clearOptimizationTask } from '../store/mixDesignSlice'
 
 const { Option } = Select
 const { Group: InputNumberGroup } = InputNumber

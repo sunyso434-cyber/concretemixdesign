@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Card, Form, Input, Select, Button, Table, Space, message, Modal, InputNumber, Divider, Collapse } from 'antd'
 import { useSelector, useDispatch } from 'react-redux'
-import { setCalculationCache, clearCalculationCache } from '../../store/mixDesignSlice'
+import { setCalculationCache, clearCalculationCache } from '../store/mixDesignSlice'
 
 const { Panel } = Collapse
 

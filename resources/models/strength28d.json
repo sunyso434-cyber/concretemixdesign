@@ -1,0 +1,17 @@
+{
+  "model_version": "0.0-placeholder",
+  "target": "strength28d",
+  "feature_config_version": "1.0",
+  "feature_names": [],
+  "trees": [],
+  "learning_rate": 0.1,
+  "base_score": 30.0,
+  "feature_stats": {},
+  "training_info": {
+    "samples": 0,
+    "date": "placeholder",
+    "rmse": null,
+    "r_squared": null,
+    "note": "占位文件，需替换为供应商训练的真实模型"
+  }
+}

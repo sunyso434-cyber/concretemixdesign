@@ -993,7 +993,7 @@ if (!window.electron) {
 }
 
 import { Provider } from 'react-redux'
-import store from '../store/index'
+import store from './store/index'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -1003,5 +1003,4 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </React.StrictMode>,
 )
 
-// 记录初始化完成
 console.log('React应用已挂载到root元素')
