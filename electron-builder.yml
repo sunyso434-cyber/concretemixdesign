@@ -1,3 +1,3 @@
-provider: generic
+﻿provider: generic
 url: https://your-update-server.com/updates
 channel: latest

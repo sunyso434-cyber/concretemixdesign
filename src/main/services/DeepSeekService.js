@@ -174,7 +174,39 @@ const TOOLS = [
         required: []
       }
     }
-  , {
+  }, {
+    type: 'function',
+    function: {
+      name: 'check_compliance',
+      description: '审查混凝土配合比是否符合规范要求。根据配合比参数检索规范知识库中相关条款，生成合规审查报告。',
+      parameters: {
+        type: 'object',
+        properties: {
+          mixDesign: {
+            type: 'object',
+            description: '需要审查的配合比设计数据',
+            properties: {
+              strengthGrade: { type: 'string', description: '强度等级，如C30' },
+              waterBinderRatio: { type: 'number', description: '水胶比' },
+              cementContent: { type: 'number', description: '水泥用量(kg/m³)' },
+              sandRatio: { type: 'number', description: '砂率(%)' },
+              flyAshRatio: { type: 'number', description: '粉煤灰掺量(%)' },
+              slagRatio: { type: 'number', description: '矿渣掺量(%)' },
+              slump: { type: 'number', description: '坍落度(mm)' },
+              environmentCategory: { type: 'string', description: '环境类别，如二a' }
+            },
+            required: ['strengthGrade', 'waterBinderRatio']
+          },
+          standards: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '要检查的规范ID列表。不填则检查所有已加载规范'
+          }
+        },
+        required: ['mixDesign']
+      }
+    }
+  }, {
     type: 'function',
     function: {
       name: 'predict_performance',

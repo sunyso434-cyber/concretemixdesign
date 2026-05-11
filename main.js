@@ -46,6 +46,7 @@ require('./src/main/ipcHandlers/inverseCalculationHandler') // 原材料参数�
 const SystemHandler = require('./src/main/ipcHandlers/systemHandler')
 require('./src/main/ipcHandlers/aiAnalysisHandler')
 require('./src/main/ipcHandlers/xgboostPredictionHandler') // XGBoost性能预测 IPC 处理器
+require('./src/main/ipcHandlers/complianceHandler').registerHandlers(ipcMain) // 规范审查 IPC 处理器
 // const { autoUpdater } = require('electron-updater')
 
 // 数据库就绪状态

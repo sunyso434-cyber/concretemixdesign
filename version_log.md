@@ -2,6 +2,10 @@
 
 ## v3.5.0 (2026-05-09)
 
+### 打包内容
+- **安装包**: `混凝土配合比设计软件 Setup 3.4.0.exe`
+- **便携版**: `混凝土配合比设计软件-3.4.0-x64.exe`
+
 ### 新增功能：XGBoost混凝土性能预测
 
 1. **XGBoostPredictionService推理引擎**：纯JS树遍历推理，加载JSON模型预测28d强度、坍落度、容重
@@ -73,3 +77,16 @@
 - 修改: `src/renderer/components/SmartDesignChat.jsx` (导入 remark-gfm，ReactMarkdown 添加 remarkPlugins)
 - 修改: `src/main/services/DeepSeekService.js`
 - 修改: `package.json` (新增 remark-gfm 依赖)
+
+## v3.5.1 (2026-05-11)
+
+### 新增：规范库RAG审查功能
+
+1. **规范管理页面**：支持上传PDF规范文件，系统自动解析生成知识包
+2. **本地ONNX嵌入模型**：集成bge-small-zh-v1.5模型用于RAG向量检索
+3. **check_compliance AI工具**：注册到DeepSeek AI的function calling，支持配合比合规性审查
+4. **StandardKnowledgeService**：PDF解析→DeepSeek结构化提取→向量计算→知识包管理
+5. **StandardComplianceService**：规则匹配+向量检索+DeepSeek审查报告生成
+6. **EmbeddingService**：本地ONNX嵌入推理服务
+7. **ComplianceResultCard**：审查结果前端展示卡片
+8. **IPC通道**：compliance:check, standards:upload/list/delete/getDetail

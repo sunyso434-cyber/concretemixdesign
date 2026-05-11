@@ -355,6 +355,19 @@ const executeToolCall = async (toolName, args) => {
       return await XGBoostPredictionService.predict(args)
     }
 
+    case 'check_compliance': {
+      const StandardComplianceService = require('../services/StandardComplianceService')
+      const apiKey = await getDeepSeekApiKey()
+      const dsService = apiKey ? new DeepSeekService(apiKey) : null
+      const complianceService = new StandardComplianceService(dsService)
+      const report = await complianceService.check(args.mixDesign || args, args.standards || null)
+      return {
+        success: true,
+        type: 'compliance_check',
+        data: report
+      }
+    }
+
     default:
       return { success: false, error: `未知工具: ${toolName}` }
   }

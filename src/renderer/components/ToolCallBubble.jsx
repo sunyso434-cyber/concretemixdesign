@@ -8,7 +8,10 @@ const TOOL_LABELS = {
   list_available_materials: { title: '查询材料库', icon: '📋' },
   calculate_mix_design: { title: '计算配合比', icon: '📊' },
   optimize_mix_cost: { title: '成本优化搜索', icon: '🏆' },
-  compare_materials: { title: '材料对比分析', icon: '🔍' }
+  compare_materials: { title: '材料对比分析', icon: '🔍' },
+  check_compliance: { title: '规范审查', icon: '📋' },
+  run_parameter_diagnosis: { title: '参数诊断', icon: '🔍' },
+  predict_performance: { title: '性能预测', icon: '📈' }
 }
 
 const ToolCallBubble = ({ status, toolName, summary, error }) => {

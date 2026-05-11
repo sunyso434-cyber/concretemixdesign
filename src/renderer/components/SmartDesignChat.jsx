@@ -2,12 +2,14 @@ import React, { useState, useEffect, useRef } from 'react'
 import { Button, Input, Space, Avatar, List, Alert, message, Typography } from 'antd'
 import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
 import MixDesignResultCard from './MixDesignResultCard'
 import OptimizationResultCard from './OptimizationResultCard'
 import MaterialCompareCard from './MaterialCompareCard'
 import MaterialPicker from './MaterialPicker'
 import DiagnosisResultCard from './DiagnosisResultCard'
+import ComplianceResultCard from './ComplianceResultCard'
 
 const { Text } = Typography
 
@@ -21,6 +23,7 @@ const SmartDesignChat = () => {
   const [chatMessages, setChatMessages] = useState([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+  const [pendingMaterialSelection, setPendingMaterialSelection] = useState(null)
   const chatEndRef = useRef(null)
 
   useEffect(() => {
@@ -53,6 +56,8 @@ const SmartDesignChat = () => {
     const parts = Object.entries(grouped).map(([type, names]) => `${type}：${names.join('、')}`)
     const msg = `我选择以下材料：${parts.join('；')}`
     setChatInput(msg)
+    // 标记材料选择已完成，后续不再弹出选择器
+    setPendingMaterialSelection(true)
   }
 
   const handleSendChat = async () => {
@@ -112,6 +117,7 @@ const SmartDesignChat = () => {
     try {
       await window.electronAPI.invoke('aiAnalysis:clearHistory')
       setChatMessages([])
+      setPendingMaterialSelection(null)
       message.success('对话已清空')
     } catch (error) {
       console.error('清空对话失败:', error)
@@ -177,9 +183,12 @@ const SmartDesignChat = () => {
                             {item.toolCall.type === 'parameter_diagnosis' && (
                               <DiagnosisResultCard data={item.toolCall.data} />
                             )}
+                            {item.toolCall.type === 'compliance_check' && (
+                              <ComplianceResultCard data={item.toolCall.data} />
+                            )}
                           </>
                         )}
-                        {item.materialPicker && (
+                        {item.materialPicker && !pendingMaterialSelection && (
                           <MaterialPicker
                             materials={item.materialPicker.materials}
                             onConfirm={handleMaterialConfirm}
@@ -189,7 +198,7 @@ const SmartDesignChat = () => {
                           <ToolCallBubble status="loading" toolName={item.toolCall.type} />
                         )}
                         <div className="chat-markdown-body">
-                          <ReactMarkdown>{item.content}</ReactMarkdown>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
                         </div>
                       </>
                     ) : (

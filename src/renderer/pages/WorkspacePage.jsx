@@ -126,6 +126,7 @@ export default function WorkspacePage() {
   return (
     <div className="workspace-container">
       <header className="topbar">
+        <img src={new URL('/logo.png', import.meta.url).href} alt="logo" className="topbar-logo" />
         <span className="topbar-title">混凝土配合比设计系统</span>
         <div className="topbar-right">
           <span className="topbar-icon" onClick={() => setDrawerOpen('schemes')} title="方案管理">

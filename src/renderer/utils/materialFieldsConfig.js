@@ -105,6 +105,8 @@ export const MATERIAL_FIELDS_CONFIG = {
       { name: 'manufacturer', label: '生产厂家', type: 'text' },
       { name: 'density', label: '密度', unit: 'g/cm³', type: 'number', min: 0 },
       { name: 'mudContent', label: '含泥量', unit: '%', type: 'number', min: 0, max: 100 },
+      { name: 'crushingValue', label: '压碎值', unit: '%', type: 'number', min: 0, max: 100 },
+      { name: 'needleFlakeContent', label: '针片状含量', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'sieve_37_5', label: '37.5mm筛余', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'sieve_31_5', label: '31.5mm筛余', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'sieve_26_5', label: '26.5mm筛余', unit: '%', type: 'number', min: 0, max: 100 },
@@ -188,22 +190,23 @@ export const MATERIAL_FIELDS_CONFIG = {
 
 /**
  * 计算细度模数
- * 基于各级筛余累计百分数
+ * 基于 JGJ 52-2006 标准
+ * 公式: Mx = (a2 + a3 + a4 + a5 + a6 - 5×a1) / (100 - a1)
+ * a1: 4.75mm筛孔累计筛余百分数
+ * a2-a6: 2.36mm, 1.18mm, 0.60mm, 0.30mm, 0.15mm筛孔累计筛余百分数
  */
 export const calculateFinenessModulus = (fineAggregate) => {
-  const sieves = [4.75, 2.36, 1.18, 0.60, 0.30, 0.15]
-  const percentages = [
-    fineAggregate.sieve_4_75,
-    fineAggregate.sieve_2_36,
-    fineAggregate.sieve_1_18,
-    fineAggregate.sieve_0_60,
-    fineAggregate.sieve_0_30,
-    fineAggregate.sieve_0_15
-  ].map(v => parseFloat(v) || 0)
-
-  // 细度模数 = (筛孔总和的筛余百分数) / 100
-  const sum = percentages.reduce((acc, val) => acc + val, 0)
-  return Math.round((sum / 100) * 100) / 100 // 保留两位小数
+  const getSieveValue = (key) => parseFloat(fineAggregate[key]) || 0
+  const a1 = getSieveValue('sieve_4_75')
+  const a2 = getSieveValue('sieve_2_36')
+  const a3 = getSieveValue('sieve_1_18')
+  const a4 = getSieveValue('sieve_0_60')
+  const a5 = getSieveValue('sieve_0_30')
+  const a6 = getSieveValue('sieve_0_15')
+  const denominator = 100 - a1
+  if (denominator === 0) return 0
+  const fm = (a2 + a3 + a4 + a5 + a6 - 5 * a1) / denominator
+  return Math.round(fm * 100) / 100
 }
 
 /**

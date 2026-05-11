@@ -89,7 +89,7 @@ const MaterialsPage = () => {
     const fieldsConfig = getFieldsForType(type)
     const currentValues = form.getFieldsValue()
     const newValues = { ...currentValues, type }
-    
+
     // 只保留基础字段和该类型的字段
     const allFieldNames = fieldsConfig.optional.map(f => f.name)
     for (const key in newValues) {

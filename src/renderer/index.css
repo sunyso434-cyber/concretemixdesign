@@ -1837,6 +1837,14 @@ body {
   z-index: 100;
 }
 
+.topbar-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
 .topbar-title {
   font-size: 13px;
   font-weight: 700;
