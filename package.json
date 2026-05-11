@@ -1,6 +1,6 @@
 {
   "name": "concrete-mixdesign",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "description": "混凝土配合比设计软件",
   "main": "main.js",
   "scripts": {
@@ -35,6 +35,7 @@
     "react-markdown": "^10.1.0",
     "react-redux": "^9.0.0",
     "react-router-dom": "^6.22.0",
+    "remark-gfm": "^4.0.1",
     "sequelize": "^6.37.8",
     "sequelize-cli": "^6.6.5",
     "sql.js": "^1.14.1",
