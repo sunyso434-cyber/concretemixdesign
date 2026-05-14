@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Button, Input, Space, Avatar, List, Alert, message, Typography, Upload, Tag } from 'antd'
-import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PaperClipOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined } from '@ant-design/icons'
+import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
@@ -589,21 +589,7 @@ const SmartDesignChat = () => {
         <div ref={chatEndRef} />
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <Upload
-          showUploadList={false}
-          beforeUpload={(file) => {
-            const type = getAttachmentType(file.name)
-            if (type === 'unsupported') {
-              message.error('仅支持Excel和Markdown文件')
-              return false
-            }
-            setAttachment({ file, type, name: file.name })
-            return false
-          }}
-        >
-          <Button icon={<PaperClipOutlined />}>上传附件</Button>
-        </Upload>
+      <div className="smart-chat-tags-row">
         {attachment && (
           <Tag
             icon={attachment.type === 'xlsx' ? <FileExcelOutlined /> : <FileTextOutlined />}
@@ -635,6 +621,27 @@ const SmartDesignChat = () => {
           onPressEnter={handleSendChat}
           disabled={chatLoading}
           style={{ flex: 1 }}
+        />
+        <Upload
+          showUploadList={false}
+          beforeUpload={(file) => {
+            const type = getAttachmentType(file.name)
+            if (type === 'unsupported') {
+              message.error('仅支持Excel和Markdown文件')
+              return false
+            }
+            setAttachment({ file, type, name: file.name })
+            return false
+          }}
+        >
+          <Button icon={<PlusOutlined />} title="上传附件" aria-label="上传附件" />
+        </Upload>
+        <Button
+          icon={<ClearOutlined />}
+          onClick={handleClearChat}
+          disabled={chatMessages.length === 0}
+          title="清空对话"
+          aria-label="清空对话"
         />
         <Button
           type="primary"
