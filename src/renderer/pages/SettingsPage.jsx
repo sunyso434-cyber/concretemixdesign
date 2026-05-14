@@ -1,7 +1,8 @@
 // src/renderer/pages/SettingsPage.jsx
 import React, { useState, useEffect, useCallback } from 'react'
-import { Card, Tabs, Button, message, Space, Typography, Alert, Divider, List, Tag } from 'antd'
-import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined, BookOutlined, ExperimentOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, AppstoreOutlined, WarningOutlined } from '@ant-design/icons'
+import { downloadTemplate, TEMPLATES } from '../utils/templateDownloader'
+import { Card, Button, Tabs, message, Space, Typography, Alert, Divider, List, Tag } from 'antd'
+import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined, BookOutlined, ExperimentOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, AppstoreOutlined, WarningOutlined, FileExcelOutlined } from '@ant-design/icons'
 import ParamCard from '../components/ParamCard'
 import ExportWizard from '../components/ExportWizard'
 import ImportWizard from '../components/ImportWizard'
@@ -187,6 +188,35 @@ const SettingsPage = () => {
             children: key === '使用帮助' ? <HelpContent /> : (
               <div>
                 {renderParamCards()}
+                {key === '备份设置' && (
+                  <>
+                    <Divider>模板下载</Divider>
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      {Object.values(TEMPLATES).map(template => (
+                        <Card key={template.key} size="small" className="template-card">
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontWeight: 600 }}>{template.name}</div>
+                              <div style={{ color: '#999', fontSize: 12 }}>{template.description}</div>
+                              <div style={{ marginTop: 4 }}>
+                                {template.sheets.map(sheet => (
+                                  <Tag key={sheet} icon={<FileExcelOutlined />} size="small">{sheet}</Tag>
+                                ))}
+                              </div>
+                            </div>
+                            <Button
+                              type="primary"
+                              icon={<DownloadOutlined />}
+                              onClick={() => downloadTemplate(template.key)}
+                            >
+                              下载
+                            </Button>
+                          </div>
+                        </Card>
+                      ))}
+                    </Space>
+                  </>
+                )}
                 <div className="param-actions">
                   <Button icon={<ReloadOutlined />} onClick={handleResetCurrentTab}>
                     重置当前页

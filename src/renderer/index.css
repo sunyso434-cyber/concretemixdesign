@@ -1481,6 +1481,10 @@ body {
   margin-bottom: 0;
 }
 
+.template-card {
+  margin-bottom: 8px;
+}
+
 /* ========== SchemesPage Modal Styles ========== */
 .scheme-detail-title {
   margin-bottom: var(--space-md);
