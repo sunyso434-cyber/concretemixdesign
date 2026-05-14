@@ -1,36 +1,17 @@
 /**
  * attachmentHelper 工具函数测试
- * 运行方式: node src/renderer/utils/attachmentHelper.test.js
+ * 运行方式: node src/renderer/utils/attachmentHelper.test.mjs
+ *
+ * 注意：由于 attachmentHelper.js 使用 ES module import 语法（import/export），
+ * 且项目 package.json 配置为 "type": "commonjs"，无法直接从 Node.js 导入。
+ * 本测试文件通过 .mjs 扩展名以 ES module 方式运行，从 attachmentHelper.mjs 导入。
  */
 
-// 直接内联测试函数（避免模块导入问题）
-const detectMixDesignDataInText = (text) => {
-  if (!text) return false
-  const hasWaterBinder = /水胶比/.test(text)
-  const hasStrength = /强度|R\d/.test(text)
-  const hasMixDesign = /配合比/.test(text)
-  const hasNumericPattern = /\d+\.\d+|\d+kg/.test(text)
-  return (hasWaterBinder && hasStrength) || (hasMixDesign && hasNumericPattern)
-}
-
-const getAttachmentType = (filename) => {
-  if (!filename) return null
-  const ext = filename.split('.').pop()?.toLowerCase()
-  if (ext === 'xlsx' || ext === 'xls') return 'xlsx'
-  if (ext === 'md') return 'md'
-  return 'unsupported'
-}
-
-const detectAnalysisModeIntent = (text) => {
-  if (!text) return false
-  const patterns = [
-    /使用分析模式/,
-    /进入分析模式/,
-    /开启分析模式/,
-    /分析模式/,
-  ]
-  return patterns.some(p => p.test(text))
-}
+import {
+  detectMixDesignDataInText,
+  getAttachmentType,
+  detectAnalysisModeIntent
+} from './attachmentHelper.mjs'
 
 // 测试 detectMixDesignDataInText
 const testDetectMixDesignDataInText = () => {

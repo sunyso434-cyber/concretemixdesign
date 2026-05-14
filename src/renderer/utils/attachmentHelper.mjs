@@ -1,10 +1,8 @@
 /**
- * 附件解析辅助函数
- * 用于检测消息中的配合比数据、处理上传的Excel和MD附件
+ * attachmentHelper.mjs
+ * ES Module version of attachmentHelper for testing
+ * Only exports pure functions that don't require external dependencies
  */
-
-import { parseExcelFile, autoMatchMaterials } from '../pages/AIAnalysisPage_Upload'
-import { getAllMaterials } from '../services/MaterialService'
 
 /**
  * 检测消息文本中是否包含配合比数据
@@ -50,18 +48,6 @@ export const detectAnalysisModeIntent = (text) => {
     /分析模式/,
   ]
   return patterns.some(p => p.test(text))
-}
-
-/**
- * 处理上传的Excel附件，返回配合比数据和材料映射
- * @param {File} file
- * @returns {Promise<{mixDesigns, materialMapping, unmatchedMaterials}>}
- */
-export const processExcelAttachment = async (file) => {
-  const mixDesigns = await parseExcelFile(file)
-  const materials = await getAllMaterials()
-  const { newMapping, unmatchedMaterials } = autoMatchMaterials(mixDesigns, materials)
-  return { mixDesigns, materialMapping: newMapping, unmatchedMaterials }
 }
 
 /**
