@@ -1,5 +1,154 @@
 # 版本更新记录
 
+## 打包记录 (2026-05-14)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: **3.5.0**
+- **输出目录**: `dist-3.5.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.5.0.exe` (234 MB)
+- **便携版**: `混凝土配合比设计软件-3.5.0-x64.exe` (234 MB)
+- **说明**: 本次更新包含：
+  1. **智能设计 + 智能解析融合** - SmartDesignChat 增加附件上传(.xlsx/.md)触发分析模式，材料缺失时弹出MaterialPicker卡片，分析报告以简化卡片嵌入聊天输出，支持追问
+  2. **模板下载集中化** - 新增 `templateDownloader.js` 统一管理模板下载，SettingsPage 备份设置Tab增加模板下载区块，反算页/导入向导的重复下载函数已移除
+
+## 打包记录 (2026-05-13)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: **3.5.0**
+- **输出目录**: `dist-3.5.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.5.0.exe` (234 MB)
+- **便携版**: `混凝土配合比设计软件-3.5.0-x64.exe` (234 MB)
+- **解压目录**: `dist-3.5.0/win-unpacked/`
+- **说明**: 按当前工作区代码重新打包，包含规范知识库构建时的 DeepSeek 单次初始化 + 分块并行提取等已合并的改动。
+
+## 打包记录 (2026-05-13)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: `package.json` 仍为 **3.5.0**，输出目录 **`dist-3.5.0/`**（与 `package.json` 中 `build.directories.output` 一致）
+- **安装包**: `dist-3.5.0/混凝土配合比设计软件 Setup 3.5.0.exe`
+- **便携版**: `dist-3.5.0/混凝土配合比设计软件-3.5.0-x64.exe`
+- **解压目录**: `dist-3.5.0/win-unpacked/`
+- **说明**: 按当前工作区代码重新打包；包含规范知识库构建时 **DeepSeek 单次初始化 + 分块并行提取**（`StandardKnowledgeService.js` 中 `EXTRACT_CONCURRENCY`）等已合并的改动。
+
+## 打包记录 (2026-05-12)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **输出目录**: `dist-3.5.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.5.0.exe`
+- **便携版**: `混凝土配合比设计软件-3.5.0-x64.exe`
+- **说明**: 本包包含 `StandardKnowledgeService.js` 中 `buildFromPdf` 源文件路径变量修正（修复「上传规范失败: filePath is not defined」）。
+
+## 打包记录 (二次)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **输出目录**: `dist-3.5.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.5.0.exe`
+- **便携版**: `混凝土配合比设计软件-3.5.0-x64.exe`
+- **说明**: 本包在上一版基础上包含 `readMarkdownFile` 实现（修复「构建知识包失败: readMarkdownFile is not defined」）。
+
+## 打包记录 (三次)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **输出目录**: `dist-3.5.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.5.0.exe`
+- **便携版**: `混凝土配合比设计软件-3.5.0-x64.exe`
+- **说明**: 本包包含智能解析白屏修复（`AIAnalysisPage_Upload.jsx` 按 `activeTab` 分支渲染、补全 `MaterialService` 引用）、子标签「分析报告呈现」及顺序：`AIAnalysisPage.jsx` / `AIAnalysisPage.test.jsx`。
+
+## v3.5.1 (2026-05-12)
+
+### 打包内容
+- **安装包**: `混凝土配合比设计软件 Setup 3.5.0.exe`
+- **便携版**: `混凝土配合比设计软件-3.5.0-x64.exe`
+
+
+### 修复：新上传规范embedding仍为null + 条款提取内容为空
+
+**Bug3 - Int32BigInt64Array 不存在** (`EmbeddingService.js`)：
+- 代码使用了不存在的 `Int32BigInt64Array` 类型（应为 `BigInt64Array`）
+- 导致向量批处理时创建 TypedArray 失败，所有条款 embedding 为 null
+- 修复：`Int32BigInt64Array` → `BigInt64Array`，赋值改为 `BigInt()` / `1n` / `0n`
+
+**Bug4 - rawMode 未实现** (`DeepSeekService.js`)：
+- `chat()` 方法接收了 `rawMode: true` 参数但从未处理
+- 导致 DeepSeek 提取条款时使用默认的"配合比分析专家"系统提示词，而不是条款提取专用提示词
+- DeepSeek 收到矛盾指令（系统说是分析专家，用户说要提取条款），输出质量极差
+- 条款的 condition/rule/parameters 字段大量为空，checkType 出现 40+ 种随机值
+- 修复方案：
+  - `chat()` 实现 rawMode 支持：解构 `rawMode` 和 `systemPrompt` 参数
+  - rawMode 下跳过默认系统提示词，使用传入的自定义提示词
+  - rawMode 下跳过对话历史保存，避免污染对话上下文
+
+**Bug5 - EXTRACT_SYSTEM_PROMPT 未传递** (`StandardKnowledgeService.js`)：
+- `EXTRACT_SYSTEM_PROMPT` 在模块顶层定义了，但从未传给 DeepSeek API
+- 修复：`extractClausesFromChunk` 调用 chat 时传入 `systemPrompt: EXTRACT_SYSTEM_PROMPT`
+
+### 修改文件
+- `src/main/services/EmbeddingService.js`
+- `src/main/services/DeepSeekService.js`
+- `src/main/services/StandardKnowledgeService.js`
+- `src/main/services/StandardComplianceService.js`
+
+### 修复：规范管理页面白屏崩溃
+
+1. **后端方法名修正**（complianceHandler.js）：
+   - `buildKnowledgePackage` → `buildFromPdf`，参数对齐为 `(filePath, { name, version })`
+   - `listKnowledgePackages` → `listStandards`
+   - `deleteKnowledgePackage` → `deleteStandard`
+   - `getKnowledgePackageDetail` → `getStandardDetail`
+2. **前端字段名对齐**（StandardsManager.jsx）：
+   - `standardName` → `name`、`clauseCount` → `totalClauses`、`uploadTime` → `createdAt`、`standardId` → `id`
+   - `rowKey` 改为 `id`，删除操作改用 `record.id`
+3. **数组安全防护**：`loadStandards` 增加 `Array.isArray` 检查，错误时返回空数组，防止 Table 崩溃
+4. **修复按钮无响应**：去掉 Upload 组件包裹，改用普通 Button 直接调用 Electron 原生文件对话框
+5. **修复对话框返回值格式**：`show-open-dialog` 返回 `{ data: { filePaths } }` 而非直接 `{ filePaths }`
+
+### 新增：规范上传进度管理
+
+1. **后端进度推送**（complianceHandler.js）：5个阶段实时推送进度到前端
+2. **前端进度弹窗**（StandardsManager.jsx）：Steps步骤条 + Progress进度条 + 当前步骤文字
+
+### 重构：上传改为直接读取MD文件
+
+1. **弃用 MinerU**：MinerU API 鉴权复杂且不稳定，改为用户直接上传 Markdown 文件
+2. **StandardsManager.jsx**：文件选择改为 `.md`，按钮和提示文字同步更新
+3. **StandardKnowledgeService.js**：`extractTextFromPdf` → `readMarkdownFile`，直接读取文件内容
+4. **进度阶段简化**：移除 MinerU 阶段，简化为 文本分块 → AI提取 → 向量计算 → 保存
+5. **不再需要 MinerU Token**，无需任何第三方 API 配置
+
+### 修改文件
+- `src/main/services/StandardKnowledgeService.js`
+- `src/main/ipcHandlers/complianceHandler.js`
+- `src/renderer/components/StandardsManager.jsx`
+- `src/renderer/config/paramConfig.js`
+
+### 修复：规范审查报"未找到相关条款"
+
+**Bug1 - ONNX 模型路径错误** (`EmbeddingService.js`)：
+- 模型目录路径少了一层 `..`，导致找不到 `resources/models/bge-small-zh-v1.5/` 中的模型文件
+- 影响链条：模型加载失败 → 条款 embedding 全为 null → 向量检索被跳过 → 审查结果为空
+- 修复：`..` → `..` (3层回溯到项目根目录)
+
+**Bug2 - checkType 映射不匹配** (`StandardComplianceService.js`)：
+- 提取 prompt 让 DeepSeek 输出 `range|formula|lookup|constraint`
+- 但 `CHECK_TYPE_FIELD_MAP` 只认 `water_binder_ratio|min_cement|sand_ratio` 等具体参数名
+- 两套值完全不同，结构化规则匹配永远找不到任何匹配
+- 修复方案：重写匹配机制为关键词模糊匹配
+  - `PARAM_RULES` 每个规则加 `keywords` 数组（中英文混配）
+  - `_matchStructuralRules` 改用遍历条款参数 + 关键词匹配
+  - 新增 `_findMatchingRule()` 和 `_getFieldLabel()` 辅助方法
+  - 删除无用的 `CHECK_TYPE_FIELD_MAP` 死代码
+  - `_extractParamValues` 补充 `strength` 和 `waterAmount` 提取
+
+### 修改文件
+- `src/main/services/EmbeddingService.js`
+- `src/main/services/StandardComplianceService.js`
+
 ## v3.5.0 (2026-05-09)
 
 ### 打包内容
