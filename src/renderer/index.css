@@ -2019,3 +2019,71 @@ body {
   max-height: 600px;
   overflow-y: auto;
 }
+
+/* ========== SmartDesignChat 专用样式 ========== */
+.smart-design-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 500px;
+  height: calc(100vh - 240px);
+}
+
+/* 消息列表区域 */
+.smart-design-chat .smart-chat-list {
+  flex: 1;
+  overflow: auto;
+  margin-bottom: 16px;
+}
+
+/* 用户消息气泡 */
+.smart-design-chat .smart-chat-item-user {
+  justify-content: flex-end;
+  border: none;
+  padding: 8px 0;
+}
+
+.smart-design-chat .smart-chat-bubble-user {
+  max-width: 100%;
+  padding: 10px 16px;
+  border-radius: 16px;
+  background: var(--color-primary);
+  color: #ffffff;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* AI 消息文档式（无气泡背景） */
+.smart-design-chat .smart-chat-item-assistant {
+  justify-content: flex-start;
+  border: none;
+  padding: 8px 0;
+}
+
+.smart-design-chat .smart-chat-body-assistant {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* 工具栏区域 */
+.smart-design-chat .smart-chat-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.smart-design-chat .smart-chat-tags-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+/* 暗色模式适配 */
+@media (prefers-color-scheme: dark) {
+  .smart-design-chat .smart-chat-bubble-user {
+    background: var(--color-primary);
+    color: #ffffff;
+  }
+}
