@@ -2079,11 +2079,3 @@ body {
   margin-bottom: 8px;
   flex-wrap: wrap;
 }
-
-/* 暗色模式适配 */
-@media (prefers-color-scheme: dark) {
-  .smart-design-chat .smart-chat-bubble-user {
-    background: var(--color-primary);
-    color: #ffffff;
-  }
-}
