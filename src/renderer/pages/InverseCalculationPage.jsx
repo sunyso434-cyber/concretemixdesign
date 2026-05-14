@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react'
 import { Card, Table, Button, Space, Input, InputNumber, Upload, message, Divider, Tag } from 'antd'
 import { UploadOutlined, DeleteOutlined, ExperimentOutlined, ExportOutlined, PlusOutlined, DownloadOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
+import { downloadTemplate } from '../utils/templateDownloader'
 
 // 必要的列名
 const REQUIRED_COLUMNS = ['名称', '胶材总量kg', '粉煤灰%', '矿渣粉%', '砂率%', '用水量', '强度MPa']
@@ -131,35 +132,6 @@ const InverseCalculationPage = () => {
     }
     setDataSource([...dataSource, newRow])
     message.info('已添加一行数据')
-  }
-
-  // 下载Excel模板
-  const handleDownloadTemplate = () => {
-    const templateData = [
-      {
-        '名称': '样本1',
-        '胶材总量kg': 400,
-        '粉煤灰%': 20,
-        '矿渣粉%': 10,
-        '砂率%': 38,
-        '用水量': 160,
-        '强度MPa': 35.5
-      },
-      {
-        '名称': '样本2',
-        '胶材总量kg': 420,
-        '粉煤灰%': 25,
-        '矿渣粉%': 15,
-        '砂率%': 37,
-        '用水量': 155,
-        '强度MPa': 38.2
-      }
-    ]
-    const ws = XLSX.utils.json_to_sheet(templateData)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, '反算数据模板')
-    XLSX.writeFile(wb, 'inverse_calculation_template.xlsx')
-    message.success('模板已下载：inverse_calculation_template.xlsx')
   }
 
   // 调用回归计算
@@ -404,7 +376,7 @@ const InverseCalculationPage = () => {
                 >
                   <Button icon={<UploadOutlined />}>导入Excel文件</Button>
                 </Upload>
-                <Button icon={<DownloadOutlined />} onClick={handleDownloadTemplate}>
+                <Button icon={<DownloadOutlined />} onClick={() => downloadTemplate('inverse')}>
                   下载模板
                 </Button>
                 <Button type="link" icon={<PlusOutlined />} onClick={handleAddRow}>

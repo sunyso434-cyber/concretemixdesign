@@ -2,6 +2,7 @@
 import React, { useState, useRef } from 'react'
 import { Modal, Steps, Radio, Button, Table, Space, Typography, Alert, Card, message } from 'antd'
 import { DownloadOutlined, UploadOutlined, FileExcelFilled } from '@ant-design/icons'
+import { downloadTemplate } from '../utils/templateDownloader'
 
 const { Text, Paragraph } = Typography
 
@@ -19,29 +20,6 @@ const ImportWizard = ({ onClose }) => {
   const [importing, setImporting] = useState(false)
   const [filePath, setFilePath] = useState('')
   const fileInputRef = useRef()
-
-  // 下载模板
-  const handleDownloadTemplate = async () => {
-    try {
-      const today = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-      const dialogResult = await window.electron.ipcRenderer.invoke('show-save-dialog', {
-        title: '保存导入模板文件',
-        defaultPath: importType === 'materials'
-          ? `原材料导入模板_${today}.xlsx`
-          : `配合比导入模板_${today}.xlsx`,
-        filters: [{ name: 'Excel', extensions: ['xlsx'] }],
-      })
-      if (dialogResult.data.canceled || !dialogResult.data.filePath) return
-
-      await window.electron.ipcRenderer.invoke('generate-import-template', {
-        type: importType,
-        filePath: dialogResult.data.filePath,
-      })
-    } catch (e) {
-      console.error(e)
-      message.error('生成模板失败：' + (e.message || '未知错误'))
-    }
-  }
 
   // 上传文件并预览
   const handleFileUpload = async (e) => {
@@ -151,7 +129,7 @@ const ImportWizard = ({ onClose }) => {
           <Button
             type="primary"
             icon={<DownloadOutlined />}
-            onClick={handleDownloadTemplate}
+            onClick={() => downloadTemplate('import')}
             style={{ marginTop: 16 }}
           >
             下载 {IMPORT_TYPES.find(t => t.value === importType)?.label} 导入模板
