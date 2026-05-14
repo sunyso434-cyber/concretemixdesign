@@ -942,21 +942,21 @@ const AIAnalysisPage = () => {
     {
       key: 'data-import',
       label: '数据导入',
-      children: <AIAnalysisPage_Upload {...uploadProps} />,
+      children: <AIAnalysisPage_Upload {...uploadProps} activeTab="data-import" />,
     },
     {
       key: 'data-list',
       label: '数据列表',
-      children: <AIAnalysisPage_Upload {...uploadProps} showDataListOnly />,
+      children: <AIAnalysisPage_Upload {...uploadProps} activeTab="data-list" />,
     },
     {
       key: 'data-processing',
       label: '数据处理',
-      children: <AIAnalysisPage_Upload {...uploadProps} showDataProcessingOnly />,
+      children: <AIAnalysisPage_Upload {...uploadProps} activeTab="data-processing" />,
     },
     {
       key: 'analysis-report',
-      label: '分析报告',
+      label: '分析报告呈现',
       children: <AIAnalysisPage_Results {...resultsProps} />,
     },
   ]
@@ -980,14 +980,12 @@ const AIAnalysisPage = () => {
   ]
 
   return (
-    <div className="page-container">
-      <div className="custom-card">
-        <Tabs
-          items={smartItems}
-          defaultActiveKey="smart-design"
-          size="large"
-        />
-      </div>
+    <div className="page-container" style={{ padding: '0 0 24px 0' }}>
+      <Tabs
+        items={smartItems}
+        defaultActiveKey="smart-design"
+        size="large"
+      />
     </div>
   )
 }
