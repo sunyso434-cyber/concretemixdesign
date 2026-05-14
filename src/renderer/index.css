@@ -1996,3 +1996,22 @@ body {
   margin: 12px 0;
   color: var(--color-text-secondary);
 }
+
+/* ========== SmartDesignChat 附件标签 ========== */
+.attachment-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.analysis-mode-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.analysis-report-wrapper {
+  margin: 12px 0;
+  max-height: 600px;
+  overflow-y: auto;
+}
