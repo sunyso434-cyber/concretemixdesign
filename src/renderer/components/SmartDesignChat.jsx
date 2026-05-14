@@ -10,11 +10,42 @@ import MaterialCompareCard from './MaterialCompareCard'
 import MaterialPicker from './MaterialPicker'
 import DiagnosisResultCard from './DiagnosisResultCard'
 import ComplianceResultCard from './ComplianceResultCard'
-import { detectMixDesignDataInText, getAttachmentType, detectAnalysisModeIntent, processExcelAttachment, processMarkdownAttachment } from '../utils/attachmentHelper'
+import { detectMixDesignDataInText, getAttachmentType, detectAnalysisModeIntent, processExcelAttachment, processMarkdownAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
+import { AnalysisReport } from '../pages/AIAnalysisPage_Results'
 import { getAllMaterials } from '../services/MaterialService'
-import { buildAnalysisData } from '../pages/AIAnalysisPage_Upload'
+import { buildAnalysisData, MATERIAL_TYPE_MAP } from '../pages/AIAnalysisPage_Upload'
 
 const { Text } = Typography
+
+const ANALYSIS_RESULT_KEYS = [
+  'materialInfluenceAnalysis',
+  'mixDesignInfluenceAnalysis',
+  'optimalMixDesignRecommendation',
+  'adjustmentSuggestions',
+  'furtherTestSuggestions',
+  'comprehensiveEvaluation',
+  'parameterDiagnosis',
+]
+
+/** 主进程 analyze 返回的是 parse 后的报告对象；兼容带 reply 字符串的旧形态 */
+function extractAnalysisPayload(raw) {
+  if (!raw || typeof raw !== 'object') return { report: null, textualReply: null }
+  if (typeof raw.reply === 'string') {
+    const reply = raw.reply.trim()
+    try {
+      const code = reply.match(/```(?:json)?\s*([\s\S]*?)```/)
+      const jsonStr = code ? code[1].trim() : (reply.match(/\{[\s\S]*\}/)?.[0] || reply)
+      const report = JSON.parse(jsonStr)
+      return { report, textualReply: reply }
+    } catch {
+      return { report: null, textualReply: reply }
+    }
+  }
+  if (ANALYSIS_RESULT_KEYS.some(k => raw[k] != null)) {
+    return { report: raw, textualReply: null }
+  }
+  return { report: null, textualReply: null }
+}
 
 const QUICK_PROMPTS = [
   { label: '帮我设计C30配合比', message: '帮我设计C30配合比，坍落度180mm' },
@@ -22,11 +53,48 @@ const QUICK_PROMPTS = [
   { label: '对比材料', message: '帮我对比不同水泥对配合比的影响' },
 ]
 
+/** Excel 槽位上的类型与材料库 type 对齐（减水剂在库中常为「减水剂」） */
+function materialMatchesSlotType(mat, slotType) {
+  if (!mat?.type || !slotType) return false
+  if (slotType === '外加剂') {
+    return mat.type === '外加剂' || mat.type === '减水剂'
+  }
+  return mat.type === slotType
+}
+
+/** 某条配合比中仍为空的材料槽（需用户从库中选择） */
+function getUnfilledMaterialSlotsForMix(mix, row) {
+  const slots = []
+  const mapRow = row || {}
+  for (const [key, excelName] of Object.entries(mix.materials || {})) {
+    if (!excelName || typeof excelName !== 'string') continue
+    const slotType = MATERIAL_TYPE_MAP[key]
+    if (!slotType) continue
+    const cur = mapRow[key]
+    if (cur != null && typeof cur === 'object') continue
+    slots.push({ mixId: mix.id, key, type: slotType, token: `${excelName}(${slotType})` })
+  }
+  return slots
+}
+
+/** 按 Excel 行顺序，列出仍缺材料的配合比（用于逐条补充） */
+function buildPerMixMaterialQueue(mixDesigns, materialMapping) {
+  if (!mixDesigns?.length) return []
+  return mixDesigns
+    .map(mix => ({
+      mix,
+      mixId: mix.id,
+      strengthGrade: mix.strengthGrade,
+      slots: getUnfilledMaterialSlotsForMix(mix, materialMapping[mix.id])
+    }))
+    .filter(entry => entry.slots.length > 0)
+}
+
 const SmartDesignChat = () => {
   const [chatMessages, setChatMessages] = useState([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
-  const [pendingMaterialSelection, setPendingMaterialSelection] = useState(null)
+  const [materialSelectionDone, setMaterialSelectionDone] = useState(false)
   const [attachment, setAttachment] = useState(null)          // { file, type, name }
   const [analysisMode, setAnalysisMode] = useState(false)    // 是否处于分析模式
   const [analysisData, setAnalysisData] = useState(null)     // 分析模式的数据
@@ -36,7 +104,7 @@ const SmartDesignChat = () => {
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages])
+  }, [chatMessages, pendingMaterialPicker?.pickerKey])
 
   const handleSaveFromCard = async (cardData) => {
     try {
@@ -56,16 +124,79 @@ const SmartDesignChat = () => {
   }
 
   const handleMaterialConfirm = (selectedMaterials) => {
+    if (!pendingMaterialPicker) return
+
+    const queue = buildPerMixMaterialQueue(
+      pendingMaterialPicker.mixDesigns,
+      pendingMaterialPicker.materialMapping
+    )
+    const current = queue[0]
+    if (!current) {
+      message.warning('当前没有待补充的材料')
+      return
+    }
+
+    const newMapping = {}
+    for (const mixId of Object.keys(pendingMaterialPicker.materialMapping)) {
+      newMapping[mixId] = { ...pendingMaterialPicker.materialMapping[mixId] }
+    }
+
+    const slots = current.slots
+    const pool = [...selectedMaterials]
+    for (const slot of slots) {
+      const idx = pool.findIndex(m => materialMatchesSlotType(m, slot.type))
+      if (idx < 0) continue
+      const [mat] = pool.splice(idx, 1)
+      const row = { ...newMapping[slot.mixId] }
+      row[slot.key] = mat
+      newMapping[slot.mixId] = row
+    }
+
+    if (slots.length > 0 && pool.length === selectedMaterials.length) {
+      message.warning('未能将所选材料对应到本配合比的缺失槽位，请确认类型与 Excel 一致后重试')
+      return
+    }
+
+    const stillMissing = getUnfilledMaterialSlotsForMix(current.mix, newMapping[current.mixId])
+    if (stillMissing.length > 0) {
+      message.warning(`编号 ${current.mixId} 仍有 ${stillMissing.length} 项材料未选择，请选齐后确认`)
+      return
+    }
+
     const grouped = {}
     for (const mat of selectedMaterials) {
       if (!grouped[mat.type]) grouped[mat.type] = []
       grouped[mat.type].push(mat.name)
     }
     const parts = Object.entries(grouped).map(([type, names]) => `${type}：${names.join('、')}`)
-    const msg = `我选择以下材料：${parts.join('；')}`
+    const msg = `编号 ${current.mixId}：${parts.join('；')}`
+
+    const summary = [...(pendingMaterialPicker.materialPickSummary || []), msg]
+    const nextQueue = buildPerMixMaterialQueue(pendingMaterialPicker.mixDesigns, newMapping)
+
+    if (nextQueue.length === 0) {
+      const customPrompt = [pendingMaterialPicker.initialUserPrompt, ...summary].filter(Boolean).join('\n')
+      setMaterialSelectionDone(true)
+      setChatInput(summary.join('；'))
+      executeAnalysis(pendingMaterialPicker.mixDesigns, newMapping, { customPrompt })
+      setPendingMaterialPicker(null)
+      setChatLoading(true)
+      return
+    }
+
+    const next = nextQueue[0]
+    setChatMessages(prev => [...prev, {
+      role: 'assistant',
+      content: `编号 **${current.mixId}** 已补充完成。请继续为 **编号 ${next.mixId}**（${next.strengthGrade || '—'}）选择材料：`
+    }])
+    setPendingMaterialPicker({
+      ...pendingMaterialPicker,
+      materialMapping: newMapping,
+      materialPickSummary: summary,
+      pickerKey: `${Date.now()}-${next.mixId}-${next.slots.length}`
+    })
     setChatInput(msg)
-    // 标记材料选择已完成，后续不再弹出选择器
-    setPendingMaterialSelection(true)
+    message.success(`编号 ${current.mixId} 材料已保存`)
   }
 
   // 进入分析模式
@@ -84,19 +215,39 @@ const SmartDesignChat = () => {
           mixDesigns = result.mixDesigns
           materialMapping = result.materialMapping
 
-          // 如果有未匹配的材料，提示用户
+          // 如果有未匹配的材料，自动弹出材料选择器
           if (result.unmatchedMaterials && result.unmatchedMaterials.size > 0) {
+            const allMaterials = await getAllMaterials()
+            setMaterialSelectionDone(false)
+            const perMixQueue = buildPerMixMaterialQueue(mixDesigns, materialMapping)
+            if (perMixQueue.length === 0) {
+              message.warning('存在未匹配材料但无法逐条定位，将按当前映射尝试分析')
+              await executeAnalysis(mixDesigns, materialMapping, { customPrompt: userMessage })
+              setChatLoading(false)
+              return
+            }
+            const first = perMixQueue[0]
+            const mixCount = perMixQueue.length
             setChatMessages(prev => [...prev, {
               role: 'assistant',
-              content: `检测到 ${result.unmatchedMaterials.size} 种材料未能自动匹配，是否需要手动选择？`,
-              options: ['手动选择材料', '继续分析']
+              content: mixCount > 1
+                ? `有 **${mixCount}** 条配合比存在材料未自动匹配（共 ${result.unmatchedMaterials.size} 类名称未对上库），将**按表格顺序逐条**补充。\n\n请先为 **编号 ${first.mixId}**（${first.strengthGrade || '—'}）选择材料：`
+                : `检测到 **${result.unmatchedMaterials.size}** 类材料未能自动匹配。\n\n请为 **编号 ${first.mixId}**（${first.strengthGrade || '—'}）选择材料：`
             }])
-            setPendingMaterialPicker({ mixDesigns, materialMapping })
+            setPendingMaterialPicker({
+              mixDesigns,
+              materialMapping,
+              allMaterials: allMaterials || [],
+              unmatchedMaterials: result.unmatchedMaterials,
+              initialUserPrompt: userMessage || '',
+              materialPickSummary: [],
+              pickerKey: `${Date.now()}-${first.mixId}-${first.slots.length}`
+            })
+            setChatLoading(false)
             return
           }
         } else if (attachment.type === 'md') {
           const content = await processMarkdownAttachment(attachment.file)
-          // 尝试从MD内容中解析配合比数据（简化处理）
           setChatMessages(prev => [...prev, {
             role: 'assistant',
             content: `已上传Markdown文件，内容长度${content.length}字符。需要进一步解析处理。`
@@ -105,15 +256,14 @@ const SmartDesignChat = () => {
           return
         }
       } else if (userMessage) {
-        // 从文本中检测配合比数据（需要后端解析）
         setChatMessages(prev => [...prev, {
           role: 'assistant',
           content: '正在分析文本中的配合比数据...'
         }])
       }
 
-      // 执行分析
-      await executeAnalysis(mixDesigns, materialMapping)
+      // 执行分析（使用用户发送时的文案作为试验目的等补充说明）
+      await executeAnalysis(mixDesigns, materialMapping, { customPrompt: userMessage })
     } catch (error) {
       message.error('进入分析模式失败: ' + error.message)
       setAnalysisMode(false)
@@ -122,44 +272,42 @@ const SmartDesignChat = () => {
   }
 
   // 执行AI分析
-  const executeAnalysis = async (mixDesigns, materialMapping) => {
+  const executeAnalysis = async (mixDesigns, materialMapping, opts = {}) => {
     try {
-      const analysisReq = {
-        mixDesigns,
-        materialMapping,
-        userMessage: chatInput
-      }
+      const effectivePrompt = opts.customPrompt !== undefined && opts.customPrompt !== null ? opts.customPrompt : chatInput
 
-      const result = await window.electronAPI.invoke('aiAnalysis:analyze', analysisReq)
-
-      // 构建分析结果
+      // 先构建完整的分析数据（包含 analysisRequirements）
       const analysisDataBuilt = buildAnalysisData(mixDesigns, materialMapping)
       setAnalysisData(analysisDataBuilt)
 
-      // 解析AI返回结果
-      let report = null
-      try {
-        if (result.reply) {
-          // 尝试解析JSON格式的分析报告
-          const jsonMatch = result.reply.match(/\{[\s\S]*\}/)
-          if (jsonMatch) {
-            report = JSON.parse(jsonMatch[0])
-          }
-        }
-      } catch (e) {
-        console.warn('解析分析报告失败:', e)
+      const result = await window.electronAPI.invoke('aiAnalysis:analyze', {
+        data: analysisDataBuilt,
+        customPrompt: (typeof effectivePrompt === 'string' ? effectivePrompt : '') || ''
+      })
+
+      const { report, textualReply } = extractAnalysisPayload(result)
+      const intro = '## 分析报告\n\n已根据当前配合比数据生成结构化报告，请查看下方卡片。'
+      let content = '分析完成'
+      if (report && textualReply) {
+        // 从 reply 中解析出报告时，不再把整段原文塞进 Markdown，避免与下方卡片重复
+        content = intro
+      } else if (textualReply) {
+        content = textualReply
+      } else if (report) {
+        content = intro
       }
 
       const chatMsg = {
         role: 'assistant',
-        content: result.reply || '分析完成',
-        analysisReport: report || { summary: '分析完成，请查看详细结果' }
+        content,
+        analysisReport: report
       }
 
       setChatMessages(prev => [...prev, chatMsg])
       setAnalysisResult(report)
     } catch (error) {
       message.error('分析执行失败: ' + error.message)
+      setAnalysisMode(false)
     } finally {
       setChatLoading(false)
     }
@@ -170,10 +318,12 @@ const SmartDesignChat = () => {
     setChatLoading(true)
 
     try {
-      // 将用户消息和问题一起发送给AI
+      // 将用户消息和分析数据一起发送给AI
       const context = {
         analysisData,
         analysisResult,
+        mixDesigns: analysisData?.mixDesigns || [],
+        materialMapping: {},  // 从 analysisData 中提取
         mode: 'follow_up'
       }
 
@@ -242,6 +392,7 @@ const SmartDesignChat = () => {
     } catch (error) {
       message.error('发送消息失败: ' + error.message)
       setChatMessages(prev => prev.slice(0, -1))
+      setChatLoading(false)
     } finally {
       setChatLoading(false)
     }
@@ -283,7 +434,12 @@ const SmartDesignChat = () => {
     try {
       await window.electronAPI.invoke('aiAnalysis:clearHistory')
       setChatMessages([])
-      setPendingMaterialSelection(null)
+      setMaterialSelectionDone(false)
+      setAttachment(null)
+      setAnalysisMode(false)
+      setAnalysisData(null)
+      setAnalysisResult(null)
+      setPendingMaterialPicker(null)
       message.success('对话已清空')
     } catch (error) {
       console.error('清空对话失败:', error)
@@ -295,23 +451,15 @@ const SmartDesignChat = () => {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 500, height: 'calc(100vh - 240px)' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+    <div className="smart-design-chat">
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
         <Space>
           <RobotOutlined style={{ fontSize: 18, color: 'var(--color-primary)' }} />
           <Text strong style={{ fontSize: 16 }}>智能设计助手</Text>
         </Space>
-        <Button
-          icon={<ClearOutlined />}
-          onClick={handleClearChat}
-          disabled={chatMessages.length === 0}
-          size="small"
-        >
-          清空对话
-        </Button>
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto', marginBottom: 16 }}>
+      <div className="smart-chat-list">
         {chatMessages.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px' }}>
             <BulbOutlined style={{ fontSize: 48, color: '#faad14', marginBottom: 16 }} />
@@ -329,120 +477,115 @@ const SmartDesignChat = () => {
           <List
             dataSource={chatMessages}
             renderItem={(item) => (
-              <List.Item className={item.role === 'user' ? 'chat-item-user' : 'chat-item-assistant'}>
-                <Space align="start">
+              <List.Item className={item.role === 'user' ? 'smart-chat-item-user' : 'smart-chat-item-assistant'}>
+                <Space align="start" style={{ width: '100%' }}>
                   {item.role === 'assistant' && <Avatar icon={<RobotOutlined />} className="chat-avatar" />}
-                  <div className={`chat-message ${item.role === 'user' ? 'chat-message-user' : 'chat-message-assistant'}`}>
-                    {item.role === 'assistant' ? (
-                      <>
-                        {item.toolCall && item.toolCall.status === 'done' && (
-                          <>
-                            {item.toolCall.type === 'mix_design' && (
-                              <MixDesignResultCard data={item.toolCall.data} onSave={handleSaveFromCard} />
-                            )}
-                            {item.toolCall.type === 'optimization' && (
-                              <OptimizationResultCard data={item.toolCall.data} onSave={handleSaveFromCard} />
-                            )}
-                            {item.toolCall.type === 'material_compare' && (
-                              <MaterialCompareCard data={item.toolCall.data} />
-                            )}
-                            {item.toolCall.type === 'parameter_diagnosis' && (
-                              <DiagnosisResultCard data={item.toolCall.data} />
-                            )}
-                            {item.toolCall.type === 'compliance_check' && (
-                              <ComplianceResultCard data={item.toolCall.data} />
-                            )}
-                          </>
-                        )}
-                        {item.materialPicker && !pendingMaterialSelection && (
-                          <MaterialPicker
-                            materials={item.materialPicker.materials}
-                            onConfirm={handleMaterialConfirm}
-                          />
-                        )}
-                        {item.toolCall?.status === 'loading' && (
-                          <ToolCallBubble status="loading" toolName={item.toolCall.type} />
-                        )}
-                        {item.analysisReport && (
-                          <div className="analysis-report-wrapper">
-                            <Alert type="info" showIcon icon={<BarChartOutlined />} message="分析报告已生成" style={{ marginBottom: 8 }} />
-                            {item.analysisReport.materialInfluenceAnalysis && (
-                              <div style={{ marginBottom: 8 }}>
-                                <Text strong>材料影响分析：</Text>
-                                <div style={{ fontSize: 12, color: '#666' }}>
-                                  {item.analysisReport.materialInfluenceAnalysis.summary || '已完成'}
-                                </div>
-                              </div>
-                            )}
-                            {item.analysisReport.mixDesignInfluenceAnalysis && (
-                              <div style={{ marginBottom: 8 }}>
-                                <Text strong>配合比影响分析：</Text>
-                                <div style={{ fontSize: 12, color: '#666' }}>
-                                  {item.analysisReport.mixDesignInfluenceAnalysis.summary || '已完成'}
-                                </div>
-                              </div>
-                            )}
-                            {item.analysisReport.optimalMixDesignRecommendation && (
-                              <div style={{ marginBottom: 8 }}>
-                                <Text strong>最优配合比推荐：</Text>
-                                <div style={{ fontSize: 12, color: '#666' }}>
-                                  {Object.keys(item.analysisReport.optimalMixDesignRecommendation).length} 个推荐方案
-                                </div>
-                              </div>
-                            )}
-                            {item.analysisReport.adjustmentSuggestions && (
-                              <div style={{ marginBottom: 8 }}>
-                                <Text strong>调整建议：</Text>
-                                <div style={{ fontSize: 12, color: '#666' }}>
-                                  {item.analysisReport.adjustmentSuggestions.length || 0} 条建议
-                                </div>
-                              </div>
-                            )}
-                            {item.analysisReport.furtherTestSuggestions && (
-                              <div style={{ fontSize: 12, color: '#888' }}>
-                                <Text type="secondary">进一步测试建议：</Text>
-                                {item.analysisReport.furtherTestSuggestions.summary || item.analysisReport.furtherTestSuggestions}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {item.options && (
-                          <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                            {item.options.map((opt, idx) => (
-                              <Button key={idx} size="small" type="primary" onClick={() => {
-                                if (opt === '手动选择材料' && pendingMaterialPicker) {
-                                  setPendingMaterialSelection({ ...pendingMaterialPicker })
-                                } else if (opt === '继续分析' && pendingMaterialPicker) {
-                                  executeAnalysis(pendingMaterialPicker.mixDesigns, pendingMaterialPicker.materialMapping)
-                                  setPendingMaterialPicker(null)
-                                }
-                              }}>
-                                {opt}
-                              </Button>
-                            ))}
-                          </div>
-                        )}
-                        <div className="chat-markdown-body">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+                  {item.role === 'assistant' ? (
+                    <div className="smart-chat-body-assistant" style={{ flex: 1, minWidth: 0 }}>
+                      {item.toolCall && item.toolCall.status === 'done' && (
+                        <>
+                          {item.toolCall.type === 'mix_design' && (
+                            <MixDesignResultCard data={item.toolCall.data} onSave={handleSaveFromCard} />
+                          )}
+                          {item.toolCall.type === 'optimization' && (
+                            <OptimizationResultCard data={item.toolCall.data} onSave={handleSaveFromCard} />
+                          )}
+                          {item.toolCall.type === 'material_compare' && (
+                            <MaterialCompareCard data={item.toolCall.data} />
+                          )}
+                          {item.toolCall.type === 'parameter_diagnosis' && (
+                            <DiagnosisResultCard data={item.toolCall.data} />
+                          )}
+                          {item.toolCall.type === 'compliance_check' && (
+                            <ComplianceResultCard data={item.toolCall.data} />
+                          )}
+                        </>
+                      )}
+                      {item.materialPicker && !materialSelectionDone && (
+                        <MaterialPicker
+                          materials={item.materialPicker.materials || pendingMaterialPicker?.allMaterials}
+                          onConfirm={handleMaterialConfirm}
+                        />
+                      )}
+                      {item.toolCall?.status === 'loading' && (
+                        <ToolCallBubble status="loading" toolName={item.toolCall.type} />
+                      )}
+                      {item.analysisReport && (
+                        <div className="analysis-report-wrapper" style={{ marginBottom: 12, maxWidth: '100%' }}>
+                          <Alert type="info" showIcon icon={<BarChartOutlined />} message="分析报告已生成" style={{ marginBottom: 8 }} />
+                          {item.analysisReport.parameterDiagnosis && (
+                            <DiagnosisResultCard data={item.analysisReport.parameterDiagnosis} />
+                          )}
+                          <AnalysisReport result={item.analysisReport} />
                         </div>
-                      </>
-                    ) : (
-                      <>
-                        {item.attachment && (
-                          <Tag icon={item.attachment.type === 'xlsx' ? <FileExcelOutlined /> : <FileTextOutlined />} style={{ marginBottom: 8 }}>
-                            {item.attachment.name}
-                          </Tag>
-                        )}
-                        {item.content}
-                      </>
-                    )}
-                  </div>
+                      )}
+                      {item.options && (
+                        <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                          {item.options.map((opt, idx) => (
+                            <Button key={idx} size="small" type="primary" onClick={() => {
+                              if (opt === '手动选择材料' && pendingMaterialPicker) {
+                                setMaterialSelectionDone(true)
+                              } else if (opt === '继续分析' && pendingMaterialPicker) {
+                                executeAnalysis(pendingMaterialPicker.mixDesigns, pendingMaterialPicker.materialMapping, { customPrompt: chatInput })
+                                setPendingMaterialPicker(null)
+                              }
+                            }}>
+                              {opt}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
+                      <div className="chat-markdown-body">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="smart-chat-bubble-user">
+                      {item.attachment && (
+                        <Tag icon={item.attachment.type === 'xlsx' ? <FileExcelOutlined /> : <FileTextOutlined />} style={{ marginBottom: 8, color: 'inherit' }}>
+                          {item.attachment.name}
+                        </Tag>
+                      )}
+                      {item.content}
+                    </div>
+                  )}
                   {item.role === 'user' && <Avatar icon={<UserOutlined />} className="chat-avatar-user" />}
                 </Space>
               </List.Item>
             )}
           />
         )}
+        {pendingMaterialPicker && !materialSelectionDone && (() => {
+          const q = buildPerMixMaterialQueue(
+            pendingMaterialPicker.mixDesigns,
+            pendingMaterialPicker.materialMapping
+          )
+          const active = q[0]
+          const activeTokens = active
+            ? new Set(active.slots.map(s => s.token))
+            : new Set(pendingMaterialPicker.unmatchedMaterials || [])
+          return (
+            <div style={{ paddingLeft: 40, paddingRight: 16, paddingBottom: 12 }}>
+              {active && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 10 }}
+                  message={`当前：编号 ${active.mixId}（${active.strengthGrade || '—'}）`}
+                  description={q.length > 1 ? `共 ${q.length} 条待补充，完成本条后自动进入下一条。` : '请为本条配合比选择缺失的材料。'}
+                />
+              )}
+              <MaterialPicker
+                key={pendingMaterialPicker.pickerKey || 'analysis-material-picker'}
+                materials={filterMaterialsForUnmatched(
+                  pendingMaterialPicker.allMaterials || [],
+                  activeTokens
+                )}
+                onConfirm={handleMaterialConfirm}
+              />
+            </div>
+          )
+        })()}
         <div ref={chatEndRef} />
       </div>
 
@@ -479,6 +622,7 @@ const SmartDesignChat = () => {
               setAnalysisData(null)
               setAnalysisResult(null)
               setPendingMaterialPicker(null)
+              setMaterialSelectionDone(false)
             }} />
           </Tag>
         )}
