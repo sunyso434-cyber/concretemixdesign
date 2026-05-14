@@ -3,6 +3,8 @@ import { Button, Upload, Form, InputNumber, Row, Col, Divider, Select, Table, Al
 import { DownloadOutlined, UploadOutlined, DeleteOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import * as XLSX from 'xlsx'
+import { getMaterialsByType, matchMaterialByName } from '../services/MaterialService'
+import { downloadTemplate } from '../utils/templateDownloader'
 
 // 从材料完整对象中提取AI分析所需的关键参数
 export const extractMaterialInfo = (material) => {
@@ -417,112 +419,6 @@ export const buildAnalysisData = (mixDesigns, currentMaterialMapping, selectedSe
   }
 }
 
-// 下载Excel模板
-export const handleDownloadTemplate = () => {
-  const { message } = require('antd')
-  try {
-    const templateData = [
-      {
-        '编号': 'M001',
-        '强度等级': 'C30',
-        '用水量': 165,
-        '水泥用量': 280,
-        '粉煤灰用量': 60,
-        '矿渣粉用量': 0,
-        '复合粉用量': 0,
-        '锂渣用量': 0,
-        '砂1用量': 700,
-        '砂2用量': 100,
-        '碎石用量': 1050,
-        '减水剂掺量': 1.8,
-        '减水剂用量': 6.12,
-        '水胶比': 0.49,
-        '材料-水泥': 'P.O 42.5',
-        '材料-粉煤灰': 'I级粉煤灰',
-        '材料-矿渣粉': '',
-        '材料-锂渣': '',
-        '材料-复合粉': '',
-        '材料-砂1': '河砂',
-        '材料-砂2': '机制砂',
-        '材料-碎石': '5-25mm',
-        '材料-减水剂': '聚羧酸减水剂'
-      },
-      {
-        '编号': 'M002',
-        '强度等级': 'C30',
-        '用水量': 160,
-        '水泥用量': 260,
-        '粉煤灰用量': 80,
-        '矿渣粉用量': 0,
-        '复合粉用量': 0,
-        '锂渣用量': 0,
-        '砂1用量': 680,
-        '砂2用量': 120,
-        '碎石用量': 1060,
-        '减水剂掺量': 2.0,
-        '减水剂用量': 6.8,
-        '水胶比': 0.47,
-        '材料-水泥': 'P.O 42.5',
-        '材料-粉煤灰': 'II级粉煤灰',
-        '材料-矿渣粉': '',
-        '材料-锂渣': '',
-        '材料-复合粉': '',
-        '材料-砂1': '河砂',
-        '材料-砂2': '机制砂',
-        '材料-碎石': '5-25mm',
-        '材料-减水剂': '聚羧酸减水剂'
-      }
-    ]
-
-    const testResultData = [
-      {
-        '编号': 'M001',
-        '表观密度': 2380,
-        '初始坍落度': 200,
-        '初始扩展度': 500,
-        '初始T500': 5,
-        '1h坍落度': 190,
-        '1h扩展度': 460,
-        '1hT500': 6,
-        '2h坍落度': 180,
-        '2h扩展度': 420,
-        '2hT500': 8,
-        'R3强度': 25.5,
-        'R7强度': 32.8,
-        'R28强度': 42.5,
-        'R60强度': 48.2
-      },
-      {
-        '编号': 'M002',
-        '表观密度': 2390,
-        '初始坍落度': 210,
-        '初始扩展度': 520,
-        '初始T500': 4.5,
-        '1h坍落度': 200,
-        '1h扩展度': 480,
-        '1hT500': 5.5,
-        '2h坍落度': 185,
-        '2h扩展度': 440,
-        '2hT500': 7,
-        'R3强度': 27.2,
-        'R7强度': 35.1,
-        'R28强度': 44.8,
-        'R60强度': 50.5
-      }
-    ]
-
-    const wb = XLSX.utils.book_new()
-    const ws1 = XLSX.utils.json_to_sheet(templateData)
-    XLSX.utils.book_append_sheet(wb, ws1, '配合比数据')
-    const ws2 = XLSX.utils.json_to_sheet(testResultData)
-    XLSX.utils.book_append_sheet(wb, ws2, '试验结果')
-    XLSX.writeFile(wb, '配合比分析模板.xlsx')
-    message.success('模板已下载：配合比分析模板.xlsx')
-  } catch (error) {
-    message.error('模板下载失败')
-  }
-}
-
 // 自动匹配材料
 export const autoMatchMaterials = (mixDesignsData, materials) => {
   const newMapping = {}
@@ -572,14 +468,9 @@ const AIAnalysisPage_Upload = ({
   customPrompt,
   setCustomPrompt,
   onProcessData,
-  showDataListOnly,
-  showDataProcessingOnly,
+  activeTab,
 }) => {
   const [form] = Form.useForm()
-  const [internalActiveKey, setInternalActiveKey] = useState('data-import')
-
-  // Determine which tab to show
-  const activeKey = showDataListOnly ? 'data-list' : showDataProcessingOnly ? 'data-processing' : internalActiveKey
 
   // 处理Excel导入
   const handleImportExcel = async (file) => {
@@ -824,7 +715,7 @@ const AIAnalysisPage_Upload = ({
           <Button
             type="primary"
             icon={<DownloadOutlined />}
-            onClick={handleDownloadTemplate}
+            onClick={() => downloadTemplate('analysis')}
             style={{ marginBottom: '16px' }}
           >
             下载Excel模板
@@ -1176,22 +1067,33 @@ const AIAnalysisPage_Upload = ({
     </div>
   )
 
-  // 如果指定了只显示某个部分
-  if (showDataListOnly) {
-    return <DataListContent />
+  // 由父级「智能解析」外层 Tabs 控制当前子页时，只渲染对应区块（避免嵌套 Tabs + 未定义变量导致白屏）
+  if (activeTab === 'data-list') {
+    return (
+      <div className="upload-section">
+        <DataListContent />
+      </div>
+    )
   }
-  if (showDataProcessingOnly) {
-    return <DataProcessingContent />
+  if (activeTab === 'data-processing') {
+    return (
+      <div className="upload-section">
+        <DataProcessingContent />
+      </div>
+    )
+  }
+  if (activeTab === 'data-import') {
+    return (
+      <div className="upload-section">
+        {tabItems[0].children}
+      </div>
+    )
   }
 
+  // 独立使用（未传 activeTab）时保留完整子标签
   return (
     <div className="upload-section">
-      <Tabs
-        activeKey={activeKey}
-        onChange={(key) => setInternalActiveKey(key)}
-        items={tabItems}
-        size="large"
-      />
+      <Tabs defaultActiveKey="data-import" items={tabItems} size="large" />
     </div>
   )
 }
