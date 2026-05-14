@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { downloadTemplate, TEMPLATES } from '../utils/templateDownloader'
 import { Card, Button, Tabs, message, Space, Typography, Alert, Divider, List, Tag } from 'antd'
-import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined, BookOutlined, ExperimentOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, AppstoreOutlined, WarningOutlined, FileExcelOutlined } from '@ant-design/icons'
+import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined, BookOutlined, ExperimentOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, AppstoreOutlined, WarningOutlined } from '@ant-design/icons'
 import ParamCard from '../components/ParamCard'
 import ExportWizard from '../components/ExportWizard'
 import ImportWizard from '../components/ImportWizard'
@@ -200,7 +200,7 @@ const SettingsPage = () => {
                               <div style={{ color: '#999', fontSize: 12 }}>{template.description}</div>
                               <div style={{ marginTop: 4 }}>
                                 {template.sheets.map(sheet => (
-                                  <Tag key={sheet} icon={<FileExcelOutlined />} size="small">{sheet}</Tag>
+                                  <Tag key={sheet} size="small">{sheet}</Tag>
                                 ))}
                               </div>
                             </div>
