@@ -12,69 +12,111 @@ const knowledgeService = require('./StandardKnowledgeService')
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions'
 
 /**
- * 检查类型 → 配合比参数字段映射
- * 用于结构化规则匹配时，将条款的 checkType 映射到配合比对象的具体字段
- */
-const CHECK_TYPE_FIELD_MAP = {
-  water_binder_ratio: 'waterBinderRatio',
-  min_cement: 'cementContent',
-  sand_ratio: 'sandRatio',
-  max_flyash: 'flyAshRatio',
-  max_slag: 'slagRatio',
-  max_slump: 'slump',
-  min_slump: 'slump',
-  air_content: 'airContent'
-}
-
-/**
  * 条款参数限值名称 → 对比函数映射
  * 每个参数名对应一条规则：从配合比参数取当前值，与条款限值做数值比对
  */
 const PARAM_RULES = {
   maxWaterBinderRatio: {
     field: 'waterBinderRatio',
+    keywords: ['水胶比', '水灰比', 'w/b', 'w/c', 'water', '水胶'],
     compare: (current, limit) => current <= limit,
     message: (current, limit) => `水胶比 ${current} 超过规范限值 ${limit}`
   },
+  minWaterBinderRatio: {
+    field: 'waterBinderRatio',
+    keywords: ['水胶比', '水灰比', 'w/b', 'w/c'],
+    compare: (current, limit) => current >= limit,
+    message: (current, limit) => `水胶比 ${current} 低于规范最小值 ${limit}`
+  },
   minCementContent: {
     field: 'cementContent',
+    keywords: ['水泥用量', '水泥', '胶凝材料', '胶材', 'cement', '最小水泥'],
     compare: (current, limit) => current >= limit,
     message: (current, limit) => `水泥用量 ${current} kg/m³ 低于规范最小值 ${limit} kg/m³`
   },
   maxCementContent: {
     field: 'cementContent',
+    keywords: ['水泥用量', '水泥', '最大水泥'],
     compare: (current, limit) => current <= limit,
     message: (current, limit) => `水泥用量 ${current} kg/m³ 超过规范最大值 ${limit} kg/m³`
   },
+  minTotalBinder: {
+    field: 'cementContent',
+    keywords: ['胶凝材料总量', '胶材总量', '总胶材', '最小胶凝'],
+    compare: (current, limit) => current >= limit,
+    message: (current, limit) => `胶凝材料总量 ${current} kg/m³ 低于规范最小值 ${limit} kg/m³`
+  },
   maxFlyAshRatio: {
     field: 'flyAshRatio',
+    keywords: ['粉煤灰', '粉煤灰掺量', 'flyash', 'fly ash', '粉煤灰比例'],
     compare: (current, limit) => current <= limit,
     message: (current, limit) => `粉煤灰掺量 ${current}% 超过规范限值 ${limit}%`
   },
   maxSlagRatio: {
     field: 'slagRatio',
+    keywords: ['矿渣粉', '矿渣', '矿粉', 'slag', '矿渣掺量', '矿渣粉掺量'],
     compare: (current, limit) => current <= limit,
     message: (current, limit) => `矿渣粉掺量 ${current}% 超过规范限值 ${limit}%`
   },
+  maxLithiumSlagRatio: {
+    field: 'lithiumSlagRatio',
+    keywords: ['锂渣', '锂渣粉', '锂渣掺量'],
+    compare: (current, limit) => current <= limit,
+    message: (current, limit) => `锂渣掺量 ${current}% 超过规范限值 ${limit}%`
+  },
+  maxCompositePowderRatio: {
+    field: 'compositePowderRatio',
+    keywords: ['复合粉', '复合掺合料', '复合粉掺量'],
+    compare: (current, limit) => current <= limit,
+    message: (current, limit) => `复合粉掺量 ${current}% 超过规范限值 ${limit}%`
+  },
   minSandRatio: {
     field: 'sandRatio',
+    keywords: ['砂率', '含砂率', '砂的比例', 'sand'],
     compare: (current, limit) => current >= limit,
     message: (current, limit) => `砂率 ${current}% 低于规范最小值 ${limit}%`
   },
   maxSandRatio: {
     field: 'sandRatio',
+    keywords: ['砂率', '含砂率', '砂的比例', 'sand', '最大砂率'],
     compare: (current, limit) => current <= limit,
     message: (current, limit) => `砂率 ${current}% 超过规范最大值 ${limit}%`
   },
   maxSlump: {
     field: 'slump',
+    keywords: ['坍落度', '塌落度', 'slump', '最大坍落度'],
     compare: (current, limit) => current <= limit,
     message: (current, limit) => `坍落度 ${current} mm 超过规范最大值 ${limit} mm`
   },
   minSlump: {
     field: 'slump',
+    keywords: ['坍落度', '塌落度', 'slump', '最小坍落度'],
     compare: (current, limit) => current >= limit,
     message: (current, limit) => `坍落度 ${current} mm 低于规范最小值 ${limit} mm`
+  },
+  maxAirContent: {
+    field: 'airContent',
+    keywords: ['含气量', 'air', '引气', '最大含气量'],
+    compare: (current, limit) => current <= limit,
+    message: (current, limit) => `含气量 ${current}% 超过规范最大值 ${limit}%`
+  },
+  minAirContent: {
+    field: 'airContent',
+    keywords: ['含气量', 'air', '引气', '最小含气量'],
+    compare: (current, limit) => current >= limit,
+    message: (current, limit) => `含气量 ${current}% 低于规范最小值 ${limit}%`
+  },
+  maxWaterAmount: {
+    field: 'waterAmount',
+    keywords: ['用水量', '单位用水量', 'water amount', '最大用水量'],
+    compare: (current, limit) => current <= limit,
+    message: (current, limit) => `单位用水量 ${current} kg/m³ 超过规范最大值 ${limit} kg/m³`
+  },
+  strengthRequirement: {
+    field: 'strength',
+    keywords: ['强度等级', '强度', '配置强度', 'strength', '强度要求'],
+    compare: (current, limit) => current >= limit,
+    message: (current, limit) => `配置强度 ${current} MPa 低于规范要求 ${limit} MPa`
   }
 }
 
@@ -296,33 +338,34 @@ class StandardComplianceService {
 
   /**
    * 结构化规则匹配
-   * 根据条款的 checkType 映射到配合比参数，做数值比对
+   * 通过关键词匹配条款参数名与配合比字段，做数值比对
    * @param {object} mixDesign - 配合比参数对象
    * @param {Array} clauses - 条款列表
    * @returns {Array} 规则匹配结果列表
    */
   _matchStructuralRules(mixDesign, clauses) {
-    // 从配合比参数中提取比较值
     const paramValues = this._extractParamValues(mixDesign)
+    const strength = mixDesign.strength || null
     const results = []
 
     for (const clause of clauses) {
-      // 仅对自检类型的条款做匹配
-      if (!clause.checkType) continue
-
-      const fieldName = CHECK_TYPE_FIELD_MAP[clause.checkType]
-      if (!fieldName) continue
-
-      // 如果配合比中该字段无值，跳过
-      const currentValue = paramValues[fieldName]
-      if (currentValue == null) continue
-
-      // 遍历条款参数中的限值，做比对
       if (!clause.parameters || !Array.isArray(clause.parameters)) continue
 
+      // 条件过滤：检查条款的适用条件是否匹配当前强度等级
+      if (clause.condition && !this._matchStrengthCondition(clause.condition, strength)) {
+        continue
+      }
+
       for (const param of clause.parameters) {
-        const rule = PARAM_RULES[param.name]
-        if (!rule) continue
+        // 用关键词匹配找到对应的规则
+        const ruleKey = this._findMatchingRule(param)
+        if (!ruleKey) continue
+
+        const rule = PARAM_RULES[ruleKey]
+
+        // 从配合比中取当前值
+        const currentValue = paramValues[rule.field]
+        if (currentValue == null) continue
 
         // 限值可能是字符串，需要转数值
         const limitValue = this._parseNumericValue(param.value)
@@ -356,16 +399,59 @@ class StandardComplianceService {
           status,
           message: isCompliant
             ? (status === 'marginal'
-              ? `${rule.field === 'waterBinderRatio' ? '水胶比' : rule.field === 'sandRatio' ? '砂率' : rule.field} ${currentValue} 接近规范限值 ${limitValue}（偏差在5%以内）`
+              ? `${this._getFieldLabel(rule.field)} ${currentValue} 接近规范限值 ${limitValue}（偏差在5%以内）`
               : `满足规范要求`)
             : rule.message(currentValue, limitValue),
           severity: isCompliant ? (status === 'marginal' ? 'warning' : 'info') : 'error',
-          source: 'rule' // 标记来源：规则匹配
+          source: 'rule'
         })
       }
     }
 
     return results
+  }
+
+  /**
+   * 根据参数名/符号通过关键词匹配找到对应的规则键
+   * @param {object} param - 条款参数 { name, symbol }
+   * @returns {string|null} 匹配到的规则键，未匹配返回 null
+   */
+  _findMatchingRule(param) {
+    if (!param || !param.name) return null
+
+    const name = (param.name || '').toLowerCase()
+    const symbol = (param.symbol || '').toLowerCase()
+
+    for (const [ruleKey, ruleDef] of Object.entries(PARAM_RULES)) {
+      for (const keyword of ruleDef.keywords) {
+        if (name.includes(keyword.toLowerCase()) || (symbol && symbol.includes(keyword.toLowerCase()))) {
+          return ruleKey
+        }
+      }
+    }
+    return null
+  }
+
+  /**
+   * 获取字段的中文标签
+   * @param {string} field - 字段名
+   * @returns {string} 中文标签
+   */
+  _getFieldLabel(field) {
+    const labels = {
+      waterBinderRatio: '水胶比',
+      cementContent: '水泥用量',
+      sandRatio: '砂率',
+      flyAshRatio: '粉煤灰掺量',
+      slagRatio: '矿渣粉掺量',
+      lithiumSlagRatio: '锂渣掺量',
+      compositePowderRatio: '复合粉掺量',
+      slump: '坍落度',
+      airContent: '含气量',
+      waterAmount: '用水量',
+      strength: '配置强度'
+    }
+    return labels[field] || field
   }
 
   /**
@@ -408,6 +494,12 @@ class StandardComplianceService {
 
     // 复合粉掺量比
     values.compositePowderRatio = mixDesign.compositePowderRatio ?? mixDesign.compositePowderDosage ?? null
+
+    // 用水量
+    values.waterAmount = mixDesign.waterAmount ?? mixDesign.waterUsage ?? mixDesign.water ?? null
+
+    // 配置强度
+    values.strength = mixDesign.strength ?? mixDesign.targetStrength ?? mixDesign.configStrength ?? null
 
     // 从 materialDetails 中尝试提取更多信息
     if (mixDesign.materialDetails && typeof mixDesign.materialDetails === 'object') {
@@ -481,6 +573,130 @@ class StandardComplianceService {
   }
 
   /**
+   * 检查条款的适用条件是否匹配当前强度等级
+   * @param {string} condition - 条款的适用条件文本
+   * @param {string} strength - 当前配合比的强度等级，如 "C30"
+   * @returns {boolean} 是否适用于当前强度等级
+   */
+  _matchStrengthCondition(condition, strength) {
+    if (!strength) return true
+    if (!condition || typeof condition !== 'string') return true
+
+    const cond = condition.trim()
+    if (!cond) return true
+
+    // 条件中不涉及强度等级，默认适用
+    if (!/[Cc]\d+/.test(cond) && !/强度等级/.test(cond)) {
+      return true
+    }
+
+    // "适用于不同强度等级" → 枚举而非约束，适用于所有等级
+    if (/不同强度等级|各种强度等级|各强度等级/.test(cond)) {
+      return true
+    }
+
+    // 提取当前强度等级的数字（如 C30 → 30）
+    const strengthNum = this._parseStrengthNumber(strength)
+    if (strengthNum == null) return true
+
+    // 提取条件中所有的强度等级约束
+    const constraints = this._parseStrengthConstraints(cond)
+    if (constraints.length === 0) return true
+
+    // 排除型条件："除C15及其以下" → 在排除范围内的不适用
+    const hasExclusion = /除|除外/.test(cond)
+    if (hasExclusion) {
+      const inExclusion = constraints.some(c => this._evalConstraint(c, strengthNum))
+      return !inExclusion
+    }
+
+    // 正常型：所有约束都必须满足（"且"逻辑）
+    return constraints.every(c => this._evalConstraint(c, strengthNum))
+  }
+
+  /**
+   * 从强度等级字符串中提取数字
+   * @param {string} strength - 如 "C30" / "30" / "c30"
+   * @returns {number|null}
+   */
+  _parseStrengthNumber(strength) {
+    if (strength == null) return null
+    const match = String(strength).match(/[Cc]?\s*(\d+)/)
+    return match ? parseInt(match[1]) : null
+  }
+
+  /**
+   * 解析条件文本中的所有强度等级约束
+   * @param {string} cond - 条件文本
+   * @returns {Array<{operator: string, value: number}>}
+   */
+  _parseStrengthConstraints(cond) {
+    const constraints = []
+
+    // 模式1: (不大于|不小于|不低于|不高于|大于|小于|等于|≥|≤|>|<|=)\s*C数字
+    const pattern1 = /(不大于|不小于|不低于|不高于|大于|小于|等于|[≥≤><=])\s*C(\d+)/g
+    let match
+    while ((match = pattern1.exec(cond)) !== null) {
+      constraints.push({
+        operator: this._normalizeOp(match[1]),
+        value: parseInt(match[2])
+      })
+    }
+
+    // 模式2: C数字 + (及其)? + (及以上|以上|及以下|以下)
+    const pattern2 = /C(\d+)\s*(及其)?\s*(及以上|以上|及以下|以下)/g
+    while ((match = pattern2.exec(cond)) !== null) {
+      const val = parseInt(match[1])
+      const hasJiQi = !!match[2]  // "及其" 存在表示包含边界值
+      const suffix = match[3]
+      let operator
+      if (suffix === '及以上') operator = '>='
+      else if (suffix === '以上') operator = hasJiQi ? '>=' : '>'
+      else if (suffix === '及以下') operator = '<='
+      else if (suffix === '以下') operator = hasJiQi ? '<=' : '<'
+      constraints.push({ operator, value: val })
+    }
+
+    // 模式3: C数字~C数字 范围
+    const pattern3 = /C(\d+)\s*[~～]\s*C(\d+)/g
+    while ((match = pattern3.exec(cond)) !== null) {
+      const v1 = parseInt(match[1])
+      const v2 = parseInt(match[2])
+      constraints.push({ operator: '>=', value: Math.min(v1, v2) })
+      constraints.push({ operator: '<=', value: Math.max(v1, v2) })
+    }
+
+    return constraints
+  }
+
+  /**
+   * 将中文比较词转换为标准运算符
+   */
+  _normalizeOp(operator) {
+    const map = {
+      '不大于': '<=', '不小于': '>=', '不低于': '>=', '不高于': '<=',
+      '大于': '>', '小于': '<', '等于': '==',
+      '≥': '>=', '≤': '<=', '>': '>', '<': '<', '=': '=='
+    }
+    return map[operator] || operator
+  }
+
+  /**
+   * 评估单个约束：当前强度等级数值是否满足约束
+   */
+  _evalConstraint(constraint, strengthNum) {
+    const { operator, value } = constraint
+    switch (operator) {
+      case '>=': return strengthNum >= value
+      case '>':  return strengthNum > value
+      case '<=': return strengthNum <= value
+      case '<':  return strengthNum < value
+      case '==': return strengthNum === value
+      default:   return true
+    }
+  }
+
+  /**
    * 合并向量检索结果和规则匹配结果，去重
    * 规则匹配优先：同一条款如果规则匹配和向量检索都命中，保留规则匹配结果
    * @param {Array} vectorResults - 向量检索结果
@@ -526,7 +742,12 @@ class StandardComplianceService {
 3. compliantItems中列出满足要求的条款
 4. summary用一段话概括审查结论
 5. severity级别：error(不合规)、warning(临界)、info(合规)
-6. suggestion给出具体的调整建议`
+6. suggestion给出具体的调整建议
+
+**关键原则**：
+- 规范条款通常对不同强度等级有不同限值要求。审查时，只使用适用于当前配合比强度等级的条款限值
+- 如果某条款的条件明确限定了强度等级范围（如"适用于C30以下"），而当前配合比不在该范围内，则不应使用该条款进行评判
+- 不要将一个强度等级的限值套用到另一个强度等级上`
 
     const userMessage = this._buildAuditPrompt(mixDesign, ruleResults, relevantClauses)
 
@@ -615,6 +836,8 @@ class StandardComplianceService {
     }))
 
     return `请对以下混凝土配合比进行规范合规审查：
+
+**重要约束**：本次审查的对象是强度等级为 ${mixDesign.strength || '（未指定）'} 的混凝土配合比。请只使用适用于该强度等级的规范条款进行审查，不要将其他强度等级（如C25、C35等）的限值用于本配合比的评判。
 
 ## 配合比参数
 ${paramSummary}
