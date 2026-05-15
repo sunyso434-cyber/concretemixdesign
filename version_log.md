@@ -1,5 +1,87 @@
 # 版本更新记录
 
+## 打包记录 (2026-05-15)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: **3.5.0**
+- **输出目录**: `dist-3.5.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.5.0.exe`
+- **便携版**: `混凝土配合比设计软件-3.5.0-x64.exe`
+- **说明**: 修复规范审查假阳性问题 — 新增强度等级条件过滤器：
+  1. **`_matchStrengthCondition`** — 解析条款 condition 字段中的强度等级约束（不大于/不小于/大于/小于/范围/排除/枚举），判断当前配合比是否适用
+  2. **`_matchStructuralRules`** — 规则匹配前先检查条件，不匹配当前强度等级的条款直接跳过
+  3. **AI 审查 Prompt 优化** — systemPrompt 和 userMessage 均加入强度等级匹配约束，避免 DeepSeek 跨等级套用限值
+
+## 打包记录 (2026-05-14 七次)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: **3.5.0**
+- **输出目录**: `dist-3.5.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.5.0.exe`（约 235 MB）
+- **便携版**: `混凝土配合比设计软件-3.5.0-x64.exe`（约 223 MB）
+- **说明**: 修复智能设计材料选择器两个 bug：
+  1. **材料列表被覆盖** — `handleDesignMode` 中 AI 多次调用 `list_available_materials` 时，后端返回的材料用 Map 按 id 合并去重，不再只保留最后一次调用的结果
+  2. **确认按钮失效** — `handleMaterialConfirm` 设计模式下 `pendingMaterialPicker` 为空时不再直接退出，改为将选中材料格式化后调用 `handleDesignMode` 继续设计流程
+  3. **`handleDesignMode` 增加 `extraContext` 参数**，支持将选中材料信息传给 AI
+
+## 打包记录 (2026-05-14 六次)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: **3.5.0**
+- **输出目录**: `dist-3.5.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.5.0.exe`（约 235 MB）
+- **便携版**: `混凝土配合比设计软件-3.5.0-x64.exe`（约 223 MB）
+- **说明**: 按当前工作区代码重新打包。包含 **AI 分析页整页去框 + 智能设计对话区 UI 重构**：
+  1. **整页去框** — `AIAnalysisPage.jsx` 移除包裹三个 Tab 的最外层 `custom-card`，改用 `page-container` + padding 维持间距
+  2. **用户消息气泡** — `SmartDesignChat.jsx` 新增 scoped 样式 `.smart-chat-bubble-user`（主色圆角气泡，白字，右对齐）
+  3. **AI 消息文档式** — `.smart-chat-body-assistant` 无背景排版，保留左侧头像与 ReactMarkdown
+  4. **样式隔离** — 所有新样式挂在 `.smart-design-chat` 下，全局 `.chat-message` / `.chat-message-user` / `.chat-message-assistant` 不动，智能解析 Tab 不受影响
+  5. **底部工具栏重构** — Input → PlusOutlined(上传) → ClearOutlined(清空) → Send(发送) 同一行，上传和清空按钮纯图标无汉字，附带 `aria-label`/`title` 无障碍属性
+  6. **清空按钮迁至工具栏** — 原顶部「清空对话」按钮移除，改为底部工具栏纯图标按钮
+
+## 打包记录 (2026-05-14 五次)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: **3.5.0**
+- **输出目录**: `dist-3.5.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.5.0.exe`（约 235 MB）
+- **便携版**: `混凝土配合比设计软件-3.5.0-x64.exe`（约 223 MB）
+- **说明**: 按当前工作区代码重新打包。包含 **多条配合比缺材料时逐条补充**：`SmartDesignChat.jsx` 中 `buildPerMixMaterialQueue` 按表格顺序排队，材料选择器与提示仅针对当前编号；确认后写入该条 `materialMapping` 再进入下一条，全部补齐后合并用户说明与各条选料摘要再调用 `executeAnalysis`。
+
+## 打包记录 (2026-05-14 四次)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: **3.5.0**
+- **输出目录**: `dist-3.5.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.5.0.exe`（约 235 MB）
+- **便携版**: `混凝土配合比设计软件-3.5.0-x64.exe`（约 223 MB）
+- **说明**: 按当前工作区代码重新打包。包含 **智能设计材料选择确认后写入映射** 修复：`handleMaterialConfirm` 按 Excel 字段与 `unmatchedMaterials` 的 `名称(类型)` 一致规则回填 `materialMapping`（原逻辑把 `null` 当字符串匹配导致从未写入）；减水剂槽位与库中「减水剂/外加剂」类型兼容；未写入时提示警告。
+
+## 打包记录 (2026-05-14 三次)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: **3.5.0**
+- **输出目录**: `dist-3.5.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.5.0.exe`（约 235 MB）
+- **便携版**: `混凝土配合比设计软件-3.5.0-x64.exe`（约 223 MB）
+- **说明**: 按当前工作区代码重新打包。包含智能设计分析模式：**材料选择器仅展示未匹配涉及的材料类型**（`attachmentHelper.js` 中 `filterMaterialsForUnmatched`）；**分析报告与 AI 分析结果页一致**（复用导出的 `AnalysisReport`，正确识别 `aiAnalysis:analyze` 返回的解析对象而非 `reply`）；**分析请求 `customPrompt` 显式传入**避免闭包读到空输入。
+
+## 打包记录 (2026-05-14 二次)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: **3.5.0**
+- **输出目录**: `dist-3.5.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.5.0.exe`（约 235 MB）
+- **便携版**: `混凝土配合比设计软件-3.5.0-x64.exe`（约 223 MB）
+- **说明**: 按当前工作区代码重新打包。包含 **智能设计分析模式下材料选择器** 修复：`SmartDesignChat.jsx` 在 Excel 存在未匹配材料时除设置 `pendingMaterialPicker` 外，于聊天滚动区内渲染 `MaterialPicker`；进入待选时重置 `materialSelectionDone`；为选择器增加 `pickerKey` 以重置勾选状态。
+
 ## 打包记录 (2026-05-14)
 
 - **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
@@ -11,6 +93,9 @@
 - **说明**: 本次更新包含：
   1. **智能设计 + 智能解析融合** - SmartDesignChat 增加附件上传(.xlsx/.md)触发分析模式，材料缺失时弹出MaterialPicker卡片，分析报告以简化卡片嵌入聊天输出，支持追问
   2. **模板下载集中化** - 新增 `templateDownloader.js` 统一管理模板下载，SettingsPage 备份设置Tab增加模板下载区块，反算页/导入向导的重复下载函数已移除
+  3. **修复：智能设计分析模式报错** - `SmartDesignChat.jsx` 调用 `aiAnalysis:analyze` 时发送格式不正确，导致 `analysisRequirements` 为 undefined。修复：先调用 `buildAnalysisData` 构建完整数据，再以 `{ data, customPrompt }` 格式发送。
+  4. **修复：材料选择器自动弹出** - 缺失材料时自动弹出MaterialPicker，无需点击按钮；选择材料后自动继续分析
+  5. **修复：分析报告正常展示** - 优化分析报告渲染逻辑，确保在聊天页面正确显示
 
 ## 打包记录 (2026-05-13)
 
