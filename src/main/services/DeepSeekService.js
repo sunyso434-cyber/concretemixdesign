@@ -264,7 +264,7 @@ class DeepSeekService {
     const requestBody = {
       model: 'deepseek-v4-flash',
       messages,
-      max_tokens: 4096,
+      max_tokens: 32768,
       extra_body: {
         thinking: { type: 'enabled' }
       }
@@ -297,8 +297,14 @@ class DeepSeekService {
       throw new Error('DeepSeek API密钥未配置')
     }
 
-    const { toolExecutor } = options
-    const systemPrompt = `你是一个混凝土配合比分析专家，擅长分析材料性能参数对混凝土性能的影响。
+    const { toolExecutor, rawMode, systemPrompt: customSystemPrompt } = options
+
+    let systemPrompt
+    if (rawMode) {
+      // rawMode: 使用自定义系统提示词，不使用默认对话系统提示词
+      systemPrompt = customSystemPrompt || ''
+    } else {
+      systemPrompt = `你是一个混凝土配合比分析专家，擅长分析材料性能参数对混凝土性能的影响。
 你可以回答关于混凝土配合比设计、材料选择、性能优化、成本控制等各方面的问题。
 请用专业的知识帮助用户解答疑问。
 
@@ -361,6 +367,7 @@ class DeepSeekService {
 ### 材料对比
 - 能力1（免费）: 获取材料列表后，基于属性做定性对比（如"P.O 42.5比P.O 42.5R便宜40元/吨"）
 - 能力2（精确）: 用户追问"具体差多少"时，调用 compare_materials 工具给出量化对比`
+    }
 
     let userMessage = message
     if (context) {
@@ -374,7 +381,7 @@ class DeepSeekService {
     const historyStr = JSON.stringify(this.conversationHistory)
     const totalInputChars = systemPrompt.length + historyStr.length + userMessage.length
     const estimatedTokens = Math.ceil(totalInputChars / 4)
-    if (estimatedTokens > 120000) {
+    if (estimatedTokens > 800000) {
       throw new Error(`对话上下文过大（约 ${estimatedTokens} tokens），请清空对话历史后重试。`)
     }
 
@@ -420,8 +427,10 @@ class DeepSeekService {
 
       const content = aiMessage.content || '（AI 未返回文本内容）'
 
-      this.conversationHistory.push({ role: 'user', content: userMessage })
-      this.conversationHistory.push({ role: 'assistant', content: content })
+      if (!rawMode) {
+        this.conversationHistory.push({ role: 'user', content: userMessage })
+        this.conversationHistory.push({ role: 'assistant', content: content })
+      }
 
       return {
         reply: content,
@@ -739,7 +748,7 @@ ${diagnosisText}
     const userPrompt = this.buildPrompt(data)
 
     const estimatedTokens = Math.ceil((systemPrompt.length + userPrompt.length) / 4)
-    if (estimatedTokens > 120000) {
+    if (estimatedTokens > 800000) {
       throw new Error(`输入数据量过大（约 ${estimatedTokens} tokens），超出分析限制。请减少配合比数量后重试。`)
     }
 
@@ -752,7 +761,7 @@ ${diagnosisText}
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
           ],
-          max_tokens: 8192,
+          max_tokens: 32768,
           extra_body: {
             thinking: { type: 'enabled' }
           }
