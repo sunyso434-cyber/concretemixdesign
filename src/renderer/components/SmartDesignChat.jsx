@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Button, Input, Space, Avatar, List, Alert, message, Typography, Upload, Tag } from 'antd'
+import { Button, Input, Space, Avatar, List, Alert, message, Typography, Upload, Tag, Checkbox } from 'antd'
 import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -100,6 +100,7 @@ const SmartDesignChat = () => {
   const [analysisData, setAnalysisData] = useState(null)     // 分析模式的数据
   const [pendingMaterialPicker, setPendingMaterialPicker] = useState(null)  // 待选择的材料
   const [analysisResult, setAnalysisResult] = useState(null)  // 分析结果
+  const [contrastPickerSelected, setContrastPickerSelected] = useState([])
   const chatEndRef = useRef(null)
 
   useEffect(() => {
@@ -271,6 +272,46 @@ const SmartDesignChat = () => {
     }
   }
 
+  // 使用已确定的模式执行分析（跳过 prepare 步骤，避免重复检测）
+  const executeAnalysisWithModes = async (mixDesigns, materialMapping, effectivePrompt, { modes, preprocessedData }) => {
+    try {
+      const analysisDataBuilt = buildAnalysisData(mixDesigns, materialMapping)
+      setAnalysisData(analysisDataBuilt)
+
+      const result = await window.electronAPI.invoke('aiAnalysis:analyze', {
+        data: analysisDataBuilt,
+        customPrompt: (typeof effectivePrompt === 'string' ? effectivePrompt : '') || '',
+        analysisModes: modes,
+        preprocessedData
+      })
+
+      const { report, textualReply } = extractAnalysisPayload(result)
+
+      if (report && modes.length > 0) {
+        report.analysisModes = modes
+        report.preprocessedData = preprocessedData
+      }
+
+      const intro = '## 分析报告\n\n已根据当前配合比数据生成结构化报告，请查看下方卡片。'
+      let content = '分析完成'
+      if (report && textualReply) {
+        content = intro
+      } else if (textualReply) {
+        content = textualReply
+      } else if (report) {
+        content = intro
+      }
+
+      setChatMessages(prev => [...prev, { role: 'assistant', content, analysisReport: report }])
+      setAnalysisResult(report)
+    } catch (error) {
+      message.error('分析执行失败: ' + error.message)
+      setAnalysisMode(false)
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
   // 执行AI分析
   const executeAnalysis = async (mixDesigns, materialMapping, opts = {}) => {
     try {
@@ -280,16 +321,90 @@ const SmartDesignChat = () => {
       const analysisDataBuilt = buildAnalysisData(mixDesigns, materialMapping)
       setAnalysisData(analysisDataBuilt)
 
+      // ========== NEW: 调用 analysis:prepare 进行模式识别和数值预处理 ==========
+      let analysisModes = []
+      let preprocessedData = null
+      let prepareResult = null
+      try {
+        prepareResult = await window.electronAPI.invoke('analysis:prepare', {
+          data: analysisDataBuilt,
+          customPrompt: (typeof effectivePrompt === 'string' ? effectivePrompt : '') || ''
+        })
+        if (prepareResult.modes?.length > 0) {
+          analysisModes = prepareResult.modes
+          preprocessedData = prepareResult.preprocessedData
+        }
+      } catch (e) {
+        console.warn('分析预处理失败，将使用通用分析模式:', e)
+      }
+
+      // ========== Task 7: 多材料变化边界处理 ==========
+      if (!opts.selectedContrastMaterials
+          && prepareResult?.material_contrast?.changed_materials?.length > 1
+          && prepareResult.material_contrast?.source === 'auto_detected') {
+        // 多类材料同时变化，询问用户
+        const changedMats = prepareResult.material_contrast.changed_materials
+        const matTypeLabels = {
+          cement: '水泥', flyAsh: '粉煤灰', slag: '矿渣粉',
+          lithiumSlag: '锂渣', compositePowder: '复合粉',
+          fineAggregate1: '细骨料1', fineAggregate2: '细骨料2',
+          coarseAggregate: '粗骨料', superplasticizer: '减水剂'
+        }
+
+        const chatMsg = {
+          role: 'assistant',
+          content: `检测到${changedMats.map(m => matTypeLabels[m] || m).join('、')}与之前不一致，请问需要对比哪种材料？`,
+          materialPicker: {
+            type: 'contrast_selection',
+            options: changedMats.map(mat => ({
+              label: matTypeLabels[mat] || mat,
+              value: mat
+            })),
+            multipleSelect: true,
+            onSelect: (selected) => {
+              setChatLoading(true)
+              if (selected.length === 0) {
+                // 不进行材料对比，仅做参数趋势
+                executeAnalysisWithModes(mixDesigns, materialMapping, effectivePrompt, {
+                  modes: prepareResult.modes.filter(m => m !== 'material_contrast'),
+                  preprocessedData: prepareResult.preprocessedData
+                })
+              } else {
+                // 用户选择了对比材料
+                executeAnalysis(mixDesigns, materialMapping, {
+                  customPrompt: effectivePrompt,
+                  selectedContrastMaterials: selected
+                })
+              }
+            }
+          }
+        }
+
+        setChatMessages(prev => [...prev, chatMsg])
+        setContrastPickerSelected([])
+        setChatLoading(false)
+        return
+      }
+      // ========== END Task 7 ==========
+
       const result = await window.electronAPI.invoke('aiAnalysis:analyze', {
         data: analysisDataBuilt,
-        customPrompt: (typeof effectivePrompt === 'string' ? effectivePrompt : '') || ''
+        customPrompt: (typeof effectivePrompt === 'string' ? effectivePrompt : '') || '',
+        analysisModes,      // NEW
+        preprocessedData    // NEW
       })
 
       const { report, textualReply } = extractAnalysisPayload(result)
+
+      // ========== NEW: Attach modes and preprocessedData to report ==========
+      if (report && analysisModes.length > 0) {
+        report.analysisModes = analysisModes
+        report.preprocessedData = preprocessedData
+      }
+
       const intro = '## 分析报告\n\n已根据当前配合比数据生成结构化报告，请查看下方卡片。'
       let content = '分析完成'
       if (report && textualReply) {
-        // 从 reply 中解析出报告时，不再把整段原文塞进 Markdown，避免与下方卡片重复
         content = intro
       } else if (textualReply) {
         content = textualReply
@@ -501,7 +616,42 @@ const SmartDesignChat = () => {
                           )}
                         </>
                       )}
-                      {item.materialPicker && !materialSelectionDone && (
+                      {item.materialPicker?.type === 'contrast_selection' && (
+                        <div style={{
+                          border: '1px solid #d9d9d9', borderRadius: 8, padding: 12,
+                          marginBottom: 8, background: '#fafafa'
+                        }}>
+                          <Text strong style={{ display: 'block', marginBottom: 8 }}>请选择要对比的材料（可多选）：</Text>
+                          <div style={{ marginBottom: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            {item.materialPicker.options.map(opt => (
+                              <Checkbox
+                                key={opt.value}
+                                checked={contrastPickerSelected.includes(opt.value)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setContrastPickerSelected(prev => [...prev, opt.value])
+                                  } else {
+                                    setContrastPickerSelected(prev => prev.filter(v => v !== opt.value))
+                                  }
+                                }}
+                              >
+                                {opt.label}
+                              </Checkbox>
+                            ))}
+                          </div>
+                          <Button
+                            type="primary"
+                            size="small"
+                            onClick={() => {
+                              item.materialPicker.onSelect([...contrastPickerSelected])
+                              setContrastPickerSelected([])
+                            }}
+                          >
+                            确认对比
+                          </Button>
+                        </div>
+                      )}
+                      {item.materialPicker && !materialSelectionDone && item.materialPicker.type !== 'contrast_selection' && (
                         <MaterialPicker
                           materials={item.materialPicker.materials || pendingMaterialPicker?.allMaterials}
                           onConfirm={handleMaterialConfirm}
