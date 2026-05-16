@@ -489,6 +489,73 @@ ${testPurposeText}
 
 ═══════════════════════════════════════`
 
+    // ========== 模式专属提示词 ==========
+    let modePrompt = ''
+    const analysisModes = data.analysisModes || []
+    const preprocessedData = data.preprocessedData || {}
+
+    if (analysisModes.includes('param_trend') && preprocessedData.trend) {
+      modePrompt += `\n
+## 分析模式：参数趋势分析
+
+你收到的数据中已包含预处理计算结果和原始配合比数据。请交叉验证并完成规律总结。
+
+### 可用数据
+- regressions: 全部回归方程（含R²<0.6的弱相关关系），用于全面了解参数-性能关系
+- sensitivity: 参数敏感度排序（按R²加权平均）
+- rawData: 原始配合比数据，用于交叉验证预处理结果
+
+### 你的任务
+1. **规律总结**：用自然语言总结核心规律——哪些参数对哪些性能影响最大。先讲主导参数，再讲次要参数。
+2. **机理分析**：解释规律背后的物理/化学机理。
+   - 例如：水胶比降低 → 水泥石孔隙率减小 → 强度提高
+   - 例如：粉煤灰掺量增加 → 早期强度降低但后期强度增长（火山灰反应持续进行）
+3. **回归方程解读**：对关键回归关系做通俗解读。
+   - 示例格式："水胶比每降低0.01，R28强度约提高0.85MPa。拟合优度R²=0.92，说明该规律在现有数据中非常可靠"
+4. **弱相关提及**：R²<0.6的弱相关关系也需简要提及，说明其影响不显著的可能原因（数据量不足、参数变化范围窄、存在交互效应等）。
+5. **敏感度说明**：解释参数敏感度排序的含义，对工程实践的指导意义。
+
+### 约束
+- 不要编造回归方程，使用已提供的数据
+- 不要给出配合比调整建议（那是综合分析的职责）
+- 语言通俗，面向工程人员
+- 所有结论必须有数据支撑，引用具体数值
+- 数据量不足时（<5组）需注明"数据量有限，结论需进一步验证"
+`
+    }
+
+    if (analysisModes.includes('material_contrast') && preprocessedData.contrast) {
+      modePrompt += `\n
+## 分析模式：材料对比分析
+
+你收到的数据包含：完整材料参数对比表 + 混凝土性能差异 + 原始配合比数据。请基于充足信息完成深度分析。
+
+### 可用数据
+- materialParamsDiff: 两种材料从系统材料库提取的全部参数逐项对比
+- performanceDiff: 使用不同材料后混凝土性能的平均差异
+- admixtureImpact: 对外加剂掺量的影响数据
+- rawData: 原始配合比数据，供交叉验证
+
+### 你的任务
+1. **原因分析（因果链）**：基于材料参数差异，逐条解释性能差异的成因。格式：
+   - "水泥A的比表面积（380 m²/kg）比水泥B（320 m²/kg）高19%，导致需水量更大 → 在同水胶比下坍落度降低约15mm → 为达到相同工作性需提高减水剂掺量约0.3个百分点"
+   - 若多个参数有差异，按对性能影响程度排序，指出主导因素
+2. **选择建议**：
+   - 什么强度等级/工况下选A，什么场景选B
+   - 结合成本与性能的权衡
+   - 示例："对于C40及以上强度等级，推荐PO52.5R。虽然单价高约50元/吨，但因强度更高可适当降低水泥用量，综合每方成本差异不大且强度富余更充足。"
+3. **外加剂掺量差异**：量化分析不同材料对外加剂的需求差异及原因。
+4. **风险提示**：若材料参数缺失较多，明确指出哪些结论是基于有限信息推断的。
+
+### 约束
+- 差异数值使用预处理数据，不要编造
+- 选择建议需结合工程实际情况和成本考量
+- 不要夸大材料差异的影响，保持客观
+`
+    }
+
+    prompt += modePrompt
+
     // ========== 0. 参数诊断结果（预处理） ==========
     prompt += `
 ## 0. 参数诊断结果（预处理）
@@ -943,10 +1010,36 @@ ${diagnosisText}
   }`)
     }
 
+    // 补充趋势分析和材料对比的输出 Schema
+    if (data.analysisModes?.includes('param_trend')) {
+      schemaParts.push(`  "trendAnalysis": {
+    "patternSummary": "自然语言规律总结",
+    "keyFindings": ["关键发现1", "关键发现2"]
+  }`)
+    }
+    if (data.analysisModes?.includes('material_contrast')) {
+      schemaParts.push(`  "contrastAnalysis": {
+    "reasonAnalysis": "自然语言原因分析（因果链）",
+    "selectionAdvice": "自然语言选择建议",
+    "admixtureReason": "外加剂掺量差异原因"
+  }`)
+    }
+
     const schemaBody = schemaParts.length > 0 ? schemaParts.join(',\n') : '  // 根据数据自行输出合适的分析结果'
 
-    return `请分析以下混凝土配合比数据，严格按照系统提示中的工作流逐项分析，输出JSON格式的分析报告。
+    // 补充分析模式和预处理数据
+    let modeDataStr = ''
+    if (data.analysisModes && data.analysisModes.length > 0) {
+      modeDataStr += `\n## 分析模式\n${JSON.stringify(data.analysisModes)}\n`
+    }
+    if (data.preprocessedData) {
+      modeDataStr += `\n## 预处理数据\n${JSON.stringify(data.preprocessedData)}\n`
+    }
+    // 附加原始数据供AI交叉验证
+    modeDataStr += `\n## 原始配合比数据（供交叉验证）\n${JSON.stringify(data.mixDesigns)}\n`
 
+    return `请分析以下混凝土配合比数据，严格按照系统提示中的工作流逐项分析，输出JSON格式的分析报告。
+${modeDataStr}
 ## 数据摘要
 - 配合比总数：${data.summary.totalMixDesigns}
 - 强度等级：${data.summary.strengthGrades.join(', ')}
