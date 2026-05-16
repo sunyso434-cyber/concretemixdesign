@@ -74,7 +74,7 @@ class AnalysisPreprocessor {
           regressions.push({
             param,
             performance: perf,
-            equation: `y = ${reg.a.toFixed(4)}x + ${reg.b.toFixed(2)}`,
+            equation: `y = ${reg.a.toFixed(4)}x ${reg.b >= 0 ? '+' : '-'} ${Math.abs(reg.b).toFixed(2)}`,
             slope: reg.a,
             intercept: reg.b,
             r2: reg.r2
@@ -107,7 +107,7 @@ class AnalysisPreprocessor {
 
   async _preprocessContrast(mixDesigns, materialMapping, materialContrast) {
     const changedMaterials = materialContrast.changed_materials
-    const materialService = new MaterialService()
+    const materialService = require('./MaterialService')
 
     const materialParamsDiff = []
 
@@ -120,6 +120,9 @@ class AnalysisPreprocessor {
 
       const idArr = [...ids]
       if (idArr.length < 2) continue
+      if (idArr.length > 2) {
+        console.warn(`[Preprocessor] ${matType}: ${idArr.length} 种不同材料，仅对比前两种`)
+      }
 
       const matA = await materialService.getMaterialById(idArr[0])
       const matB = await materialService.getMaterialById(idArr[1])
