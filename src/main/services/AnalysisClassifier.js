@@ -52,9 +52,9 @@ class AnalysisClassifier {
 
     // 遍历参数，找 ≥2 个不同值的参数
     const paramFields = [
-      'waterBinderRatio', 'cementContent', 'flyAshContent', 'slagContent',
-      'lithiumSlagContent', 'compositePowderContent', 'sandRate',
-      'waterReducerDosage', 'fineAggregate1Ratio'
+      'waterBinderRatio', 'cement', 'flyAsh', 'slag',
+      'lithiumSlag', 'compositePowder', 'sandRate',
+      'waterReducerDosage', 'fineAggregate1'
     ]
 
     const varyingParams = []
@@ -167,8 +167,8 @@ class AnalysisClassifier {
     // 排除砂率、外加剂掺量后，验证其余参数是否一致
     const excludedParams = ['sandRate', 'waterReducerDosage']
     const checkParams = [
-      'waterBinderRatio', 'cementContent', 'flyAshContent', 'slagContent',
-      'lithiumSlagContent', 'compositePowderContent', 'fineAggregate1Ratio'
+      'waterBinderRatio', 'cement', 'flyAsh', 'slag',
+      'lithiumSlag', 'compositePowder', 'fineAggregate1'
     ]
 
     for (const param of checkParams) {
