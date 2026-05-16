@@ -1035,9 +1035,6 @@ ${diagnosisText}
     if (data.preprocessedData) {
       modeDataStr += `\n## 预处理数据\n${JSON.stringify(data.preprocessedData)}\n`
     }
-    // 附加原始数据供AI交叉验证
-    modeDataStr += `\n## 原始配合比数据（供交叉验证）\n${JSON.stringify(data.mixDesigns)}\n`
-
     return `请分析以下混凝土配合比数据，严格按照系统提示中的工作流逐项分析，输出JSON格式的分析报告。
 ${modeDataStr}
 ## 数据摘要

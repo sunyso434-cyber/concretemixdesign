@@ -1,5 +1,3 @@
-const MaterialService = require('./MaterialService')
-
 class AnalysisPreprocessor {
   async preprocess(classification, mixDesigns, materialMapping) {
     const result = {}

@@ -187,8 +187,8 @@ const ContrastAnalysisTab = ({ result }) => {
   )
 }
 
-// AI分析报告组件
-const AnalysisReport = ({ result }) => {
+// AI分析报告组件（导出供 SmartDesignChat 复用）
+export const AnalysisReport = ({ result }) => {
   const [activeTab, setActiveTab] = useState(result.analysisModes?.[0] || 'general')
 
   if (!result) return null
