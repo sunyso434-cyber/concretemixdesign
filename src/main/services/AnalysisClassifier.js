@@ -88,7 +88,13 @@ class AnalysisClassifier {
   _detectMaterialContrast(mixDesigns, materialMapping, userPrompt) {
     // 条件B：用户指定
     const userSpecified = this._parseUserSpecifiedContrast(userPrompt)
-    if (userSpecified) return userSpecified
+    if (userSpecified) {
+      const autoResult = this._autoDetectContrast(mixDesigns, materialMapping)
+      return {
+        ...userSpecified,
+        groups: autoResult?.groups || []
+      }
+    }
 
     // 条件A：自动识别
     return this._autoDetectContrast(mixDesigns, materialMapping)
