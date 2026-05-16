@@ -9,6 +9,8 @@ const MaterialService = require('../services/MaterialService')
 const MixDesignService = require('../services/MixDesignService/index')
 const MixDesignOptimizer = require('../services/MixDesignOptimizer')
 const ParameterDiagnosisService = require('../services/ParameterDiagnosisService')
+const AnalysisClassifier = require('../services/AnalysisClassifier')
+const AnalysisPreprocessor = require('../services/AnalysisPreprocessor')
 
 // 从系统参数获取API密钥
 const getDeepSeekApiKey = async () => {
@@ -43,7 +45,7 @@ const getDeepSeekService = async () => {
 /**
  * 分析配合比数据
  */
-const analyzeMixDesign = async (event, { data, customPrompt }) => {
+const analyzeMixDesign = async (event, { data, customPrompt, analysisModes, preprocessedData }) => {
   const service = await getDeepSeekService()
   if (!service) {
     throw new Error('DeepSeek API未配置，请在系统设置中配置API密钥')
@@ -72,6 +74,14 @@ const analyzeMixDesign = async (event, { data, customPrompt }) => {
     // 第二步：将诊断结果注入到分析数据中
     if (diagnosisResult) {
       data = { ...data, parameterDiagnosis: diagnosisResult }
+    }
+
+    // 注入分析模式数据
+    if (analysisModes && analysisModes.length > 0) {
+      data.analysisModes = analysisModes
+    }
+    if (preprocessedData) {
+      data.preprocessedData = preprocessedData
     }
 
     // 第三步：AI 分析
@@ -414,10 +424,39 @@ const clearChatHistory = async () => {
 }
 
 /**
+ * 分析预处理：识别分析类型 + 数值预处理
+ */
+const prepareAnalysis = async (event, { data, customPrompt }) => {
+  const mixDesigns = data.mixDesigns || []
+  const materialMapping = data.materialMapping || {}
+
+  if (mixDesigns.length < 2) {
+    return { modes: [], preprocessedData: null }
+  }
+
+  const classifier = new AnalysisClassifier()
+  const classification = classifier.classify(mixDesigns, materialMapping, customPrompt || '')
+
+  let preprocessedData = null
+  if (classification.modes.length > 0) {
+    const preprocessor = new AnalysisPreprocessor()
+    preprocessedData = await preprocessor.preprocess(classification, mixDesigns, materialMapping)
+  }
+
+  return {
+    modes: classification.modes,
+    param_trend: classification.param_trend,
+    material_contrast: classification.material_contrast,
+    preprocessedData
+  }
+}
+
+/**
  * 注册IPC处理器
  */
 const registerHandlers = (ipcMain) => {
   ipcMain.handle('aiAnalysis:analyze', analyzeMixDesign)
+  ipcMain.handle('analysis:prepare', prepareAnalysis)
   ipcMain.handle('aiAnalysis:checkStatus', checkApiStatus)
   ipcMain.handle('aiAnalysis:chat', chatWithAI)
   ipcMain.handle('aiAnalysis:clearHistory', clearChatHistory)
