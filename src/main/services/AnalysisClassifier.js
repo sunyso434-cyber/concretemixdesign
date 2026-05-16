@@ -164,6 +164,34 @@ class AnalysisClassifier {
 
     if (changedTypes.length === 0) return null
 
+    // 排除砂率、外加剂掺量后，验证其余参数是否一致
+    const excludedParams = ['sandRate', 'waterReducerDosage']
+    const checkParams = [
+      'waterBinderRatio', 'cementContent', 'flyAshContent', 'slagContent',
+      'lithiumSlagContent', 'compositePowderContent', 'fineAggregate1Ratio'
+    ]
+
+    for (const param of checkParams) {
+      const groupMeans = entries.map(([sig, mixes]) => {
+        const vals = mixes.map(m => {
+          let v = m[param]
+          if (v === undefined) v = m.mixDesign?.[param]
+          return v
+        }).filter(v => v !== undefined && v !== null)
+        if (vals.length === 0) return null
+        return vals.reduce((s, v) => s + Number(v), 0) / vals.length
+      }).filter(v => v !== null)
+
+      if (groupMeans.length >= 2) {
+        const maxMean = Math.max(...groupMeans)
+        const minMean = Math.min(...groupMeans)
+        const threshold = Math.abs(minMean) > 0.01 ? 0.10 : 0.05
+        if (Math.abs(maxMean - minMean) > Math.abs(minMean) * threshold + 0.01) {
+          return null  // 参数不一致，非纯材料对比
+        }
+      }
+    }
+
     return {
       changed_materials: changedTypes,
       groups: entries.map(([sig, mixes]) => ({
