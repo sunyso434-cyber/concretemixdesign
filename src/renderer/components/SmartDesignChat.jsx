@@ -10,7 +10,7 @@ import MaterialCompareCard from './MaterialCompareCard'
 import MaterialPicker from './MaterialPicker'
 import DiagnosisResultCard from './DiagnosisResultCard'
 import ComplianceResultCard from './ComplianceResultCard'
-import { detectMixDesignDataInText, getAttachmentType, detectAnalysisModeIntent, processExcelAttachment, processMarkdownAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
+import { getAttachmentType, detectAnalysisModeIntent, processExcelAttachment, processMarkdownAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
 import { AnalysisReport } from '../pages/AIAnalysisPage_Results'
 import { getAllMaterials } from '../services/MaterialService'
 import { buildAnalysisData, MATERIAL_TYPE_MAP } from '../pages/AIAnalysisPage_Upload'
@@ -124,8 +124,22 @@ const SmartDesignChat = () => {
     }
   }
 
-  const handleMaterialConfirm = (selectedMaterials) => {
-    if (!pendingMaterialPicker) return
+  const handleMaterialConfirm = async (selectedMaterials) => {
+    // 设计模式：pendingMaterialPicker 为空，材料来自聊天消息中的 materialPicker
+    if (!pendingMaterialPicker) {
+      const grouped = {}
+      for (const mat of selectedMaterials) {
+        if (!grouped[mat.type]) grouped[mat.type] = []
+        grouped[mat.type].push(mat.name)
+      }
+      const parts = Object.entries(grouped).map(([type, names]) => `${type}：${names.join('、')}`)
+      const summary = `我选择以下材料：${parts.join('；')}。请根据这些材料设计配合比。`
+      setMaterialSelectionDone(true)
+      setChatMessages(prev => [...prev, { role: 'user', content: summary }])
+      setChatLoading(true)
+      await handleDesignMode(summary, { selectedMaterials })
+      return
+    }
 
     const queue = buildPerMixMaterialQueue(
       pendingMaterialPicker.mixDesigns,
@@ -461,27 +475,34 @@ const SmartDesignChat = () => {
   }
 
   // 设计模式处理（原有些逻辑）
-  const handleDesignMode = async (userMessage) => {
+  const handleDesignMode = async (userMessage, extraContext = {}) => {
     try {
       const result = await window.electronAPI.invoke('aiAnalysis:chat', {
         message: userMessage,
-        context: {}
+        context: { ...extraContext }
       })
 
       const chatMsg = { role: 'assistant', content: result.reply, toolCalls: null }
 
       if (result.messages) {
         const toolMsgs = result.messages.filter(m => m.role === 'tool')
+        // 合并所有工具调用返回的材料，去重（按id），避免只保留最后一次结果
+        const allMaterialsMap = new Map()
         for (const toolMsg of toolMsgs) {
           try {
             const parsed = JSON.parse(toolMsg.content)
             if (parsed.success && parsed.materials && parsed.materials.length > 0) {
-              const materialType = parsed.materials[0]?.type
-              if (materialType) {
-                chatMsg.materialPicker = { materials: parsed.materials }
+              for (const mat of parsed.materials) {
+                if (mat.id) {
+                  allMaterialsMap.set(mat.id, mat)
+                }
               }
             }
           } catch (_) { /* ignore */ }
+        }
+        const allMaterials = [...allMaterialsMap.values()]
+        if (allMaterials.length > 0) {
+          chatMsg.materialPicker = { materials: allMaterials }
         }
         if (toolMsgs.length > 0) {
           const lastToolResult = toolMsgs[toolMsgs.length - 1]
@@ -534,8 +555,8 @@ const SmartDesignChat = () => {
       return
     }
 
-    // 情况3：文本中检测到配合比数据
-    if (detectMixDesignDataInText(userMessage) || detectAnalysisModeIntent(userMessage)) {
+    // 情况3：用户明确要求进入分析模式
+    if (detectAnalysisModeIntent(userMessage)) {
       await handleEnterAnalysisMode(null, userMessage)
       return
     }
@@ -593,7 +614,7 @@ const SmartDesignChat = () => {
             dataSource={chatMessages}
             renderItem={(item) => (
               <List.Item className={item.role === 'user' ? 'smart-chat-item-user' : 'smart-chat-item-assistant'}>
-                <Space align="start" style={{ width: '100%' }}>
+                <Space align="start" style={{ width: item.role === 'user' ? 'auto' : '100%' }}>
                   {item.role === 'assistant' && <Avatar icon={<RobotOutlined />} className="chat-avatar" />}
                   {item.role === 'assistant' ? (
                     <div className="smart-chat-body-assistant" style={{ flex: 1, minWidth: 0 }}>

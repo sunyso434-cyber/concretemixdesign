@@ -1,5 +1,35 @@
 # 版本更新记录
 
+## 打包记录 (2026-05-17)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: **3.6.0**
+- **输出目录**: `dist-3.6.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.6.0.exe`
+- **便携版**: `混凝土配合比设计软件-3.6.0-x64.exe`
+- **说明**: 新增智能解析分析模式自动分类功能：
+  1. **`AnalysisClassifier`** — 新增后端服务，自动识别上传数据的分析类型（参数趋势/材料对比/混合）
+  2. **`AnalysisPreprocessor`** — 新增后端服务，执行回归计算、敏感度排序、材料参数差异表等数值预处理
+  3. **`analysis:prepare` IPC** — 新增 IPC 通道，一次性完成模式识别和数值预处理
+  4. **`DeepSeekService`** — Token 限制适配 1M 上下文（输出 32768、输入阈值 800000），注入模式专属 Prompt
+  5. **`AnalysisReport` Tab 布局** — 改造为趋势分析/材料对比/综合分析三 Tab 切换，集成 ECharts 图表
+  6. **`SmartDesignChat`** — 接入预处理管道，多材料变化时弹出询问卡片
+
+## 打包记录 (2026-05-15 二次)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: **3.5.0**
+- **输出目录**: `dist-3.5.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.5.0.exe`
+- **便携版**: `混凝土配合比设计软件-3.5.0-x64.exe`
+- **说明**: 修复智能设计分析模式误触发问题 — 移除文本自动检测，仅保留文件上传和关键词触发：
+  1. **移除 `detectMixDesignDataInText`** — 删除"水胶比+强度"和"配合比+数字"的文本自动检测逻辑（与配合比设计需求描述冲突，用户说"设计C50混凝土，水胶比0.35"会错误进入分析模式）
+  2. **分析模式触发条件精简为两个** — ① 上传 Excel/MD 文件（自动进入）② 用户明确说"分析模式"/"使用分析模式"/"进入分析模式"/"开启分析模式"
+  3. **`SmartDesignChat.jsx`** — `handleSendChat` 中移除 `detectMixDesignDataInText` 调用，只保留 `detectAnalysisModeIntent`
+  4. **`attachmentHelper.js`** — 删除 `detectMixDesignDataInText` 函数定义
+
 ## 打包记录 (2026-05-15)
 
 - **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）

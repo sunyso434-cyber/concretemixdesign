@@ -1,6 +1,6 @@
 {
   "name": "concrete-mixdesign",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "description": "混凝土配合比设计软件",
   "main": "main.js",
   "scripts": {
@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "electron:dev": "set \"ELECTRON_RUN_AS_NODE=\" && cross-env NODE_ENV=development electron .",
     "electron:build": "cross-env NODE_ENV=production vite build && electron-builder",
-    "backup": "node backup.js"
+    "backup": "node backup.js",
+    "test": "node tests/manual/run-node-suites.js"
   },
   "keywords": [
     "concrete",
@@ -22,6 +23,7 @@
   "dependencies": {
     "@ant-design/plots": "^2.6.8",
     "@reduxjs/toolkit": "^2.0.0",
+    "adm-zip": "^0.5.17",
     "antd": "^5.12.0",
     "axios": "^1.15.2",
     "echarts": "^5.6.0",
@@ -57,7 +59,7 @@
     "productName": "混凝土配合比设计软件",
     "copyright": "Copyright © 2026",
     "directories": {
-      "output": "dist-3.4.0",
+      "output": "dist-3.6.0",
       "buildResources": "public"
     },
     "files": [
