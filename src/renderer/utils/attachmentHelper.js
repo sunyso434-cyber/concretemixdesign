@@ -7,23 +7,6 @@ import { parseExcelFile, autoMatchMaterials } from '../pages/AIAnalysisPage_Uplo
 import { getAllMaterials } from '../services/MaterialService'
 
 /**
- * 检测消息文本中是否包含配合比数据
- * 检测规则：
- * - 同时出现"水胶比"和"强度"关键词
- * - 或出现"配合比"关键词 + 数字模式
- * @param {string} text
- * @returns {boolean}
- */
-export const detectMixDesignDataInText = (text) => {
-  if (!text) return false
-  const hasWaterBinder = /水胶比/.test(text)
-  const hasStrength = /强度|R\d/.test(text)
-  const hasMixDesign = /配合比/.test(text)
-  const hasNumericPattern = /\d+\.\d+|\d+kg/.test(text)
-  return (hasWaterBinder && hasStrength) || (hasMixDesign && hasNumericPattern)
-}
-
-/**
  * 根据文件扩展名判断附件类型
  * @param {string} filename
  * @returns {'xlsx'|'md'|'unsupported'|null}
@@ -62,6 +45,32 @@ export const processExcelAttachment = async (file) => {
   const materials = await getAllMaterials()
   const { newMapping, unmatchedMaterials } = autoMatchMaterials(mixDesigns, materials)
   return { mixDesigns, materialMapping: newMapping, unmatchedMaterials }
+}
+
+/**
+ * 仅保留「未自动匹配」条目所涉及的材料类型，用于材料选择器缩小候选项范围。
+ * unmatchedMaterials 元素格式与 autoMatchMaterials 一致：`名称(类型)`
+ * @param {Array<{id:number,type:string,name:string}>} allMaterials
+ * @param {Set<string>|string[]} unmatchedMaterials
+ * @returns {Array}
+ */
+export const filterMaterialsForUnmatched = (allMaterials, unmatchedMaterials) => {
+  if (!allMaterials?.length) return []
+  if (!unmatchedMaterials || (unmatchedMaterials.size === 0 && (!Array.isArray(unmatchedMaterials) || unmatchedMaterials.length === 0))) {
+    return allMaterials
+  }
+  const entries = unmatchedMaterials instanceof Set ? [...unmatchedMaterials] : unmatchedMaterials
+  const types = new Set()
+  for (const entry of entries) {
+    if (typeof entry !== 'string') continue
+    const open = entry.lastIndexOf('(')
+    const close = entry.lastIndexOf(')')
+    if (open > 0 && close > open) {
+      types.add(entry.slice(open + 1, close))
+    }
+  }
+  if (types.size === 0) return allMaterials
+  return allMaterials.filter(m => m?.type && types.has(m.type))
 }
 
 /**

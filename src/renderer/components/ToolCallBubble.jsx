@@ -5,17 +5,23 @@ import { LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-
 const { Text } = Typography
 
 const TOOL_LABELS = {
-  list_available_materials: { title: '查询材料库', icon: '📋' },
-  calculate_mix_design: { title: '计算配合比', icon: '📊' },
-  optimize_mix_cost: { title: '成本优化搜索', icon: '🏆' },
-  compare_materials: { title: '材料对比分析', icon: '🔍' },
-  check_compliance: { title: '规范审查', icon: '📋' },
-  run_parameter_diagnosis: { title: '参数诊断', icon: '🔍' },
-  predict_performance: { title: '性能预测', icon: '📈' }
+  list_available_materials: '查询材料库',
+  calculate_mix_design: '计算配合比',
+  optimize_mix_cost: '成本优化搜索',
+  compare_materials: '材料对比分析',
+  check_compliance: '规范审查',
+  run_parameter_diagnosis: '参数诊断',
+  predict_performance: '性能预测'
+}
+
+const STATUS_TEXT = {
+  loading: '...',
+  done: ' 已完成',
+  error: ' 执行失败'
 }
 
 const ToolCallBubble = ({ status, toolName, summary, error }) => {
-  const info = TOOL_LABELS[toolName] || { title: toolName, icon: '🔧' }
+  const title = TOOL_LABELS[toolName] || toolName
 
   return (
     <Card size="small" style={{ marginBottom: 8, maxWidth: 480 }}>
@@ -24,15 +30,12 @@ const ToolCallBubble = ({ status, toolName, summary, error }) => {
           {status === 'loading' && <LoadingOutlined style={{ color: '#1890ff' }} />}
           {status === 'done' && <CheckCircleOutlined style={{ color: '#52c41a' }} />}
           {status === 'error' && <CloseCircleOutlined style={{ color: '#ff4d4f' }} />}
-          <Text strong>
-            {info.icon} {info.title}
-            {status === 'loading' ? '...' : status === 'done' ? ' ✓' : ' ✗'}
-          </Text>
+          <Text strong>{title}{STATUS_TEXT[status] || ''}</Text>
         </Space>
 
-        {status === 'loading' && summary && (
+        {summary && (
           <div>
-            {summary.split('|').map((s, i) => (
+            {summary.split('|').filter(Boolean).map((s, i) => (
               <Tag key={i} style={{ marginBottom: 4 }}>{s.trim()}</Tag>
             ))}
           </div>

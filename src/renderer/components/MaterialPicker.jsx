@@ -98,7 +98,11 @@ const MaterialPicker = ({ materials, onConfirm }) => {
                 }}
                 onClick={() => toggleOne(mat.id)}
               >
-                <Checkbox checked={isChecked} onChange={() => toggleOne(mat.id)} />
+                <Checkbox
+                  checked={isChecked}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={() => toggleOne(mat.id)}
+                />
                 <Text strong style={{ marginLeft: 8, minWidth: 120 }}>{mat.name}</Text>
                 {mat.specification && <Tag style={{ marginLeft: 4 }}>{mat.specification}</Tag>}
                 <Text type="secondary" style={{ fontSize: 12, marginLeft: 12 }}>

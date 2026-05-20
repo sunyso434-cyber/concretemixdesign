@@ -3,7 +3,8 @@ const path = require('path')
 const ort = require('onnxruntime-node')
 
 // 模型目录
-const MODEL_DIR = path.join(__dirname, '..', '..', 'resources', 'models', 'bge-small-zh-v1.5')
+// __dirname = src/main/services/ → 上溯3层到项目根目录 → resources/models/bge-small-zh-v1.5
+const MODEL_DIR = path.join(__dirname, '..', '..', '..', 'resources', 'models', 'bge-small-zh-v1.5')
 
 // 模型参数
 const MAX_SEQ_LENGTH = 512
@@ -61,20 +62,20 @@ class EmbeddingService {
     const batchSize = allTokenResults.length
     const seqLen = maxLen
 
-    const inputIdsData = new Int32BigInt64Array(batchSize * seqLen)
-    const attentionMaskData = new Int32BigInt64Array(batchSize * seqLen)
+    const inputIdsData = new BigInt64Array(batchSize * seqLen)
+    const attentionMaskData = new BigInt64Array(batchSize * seqLen)
 
     for (let i = 0; i < batchSize; i++) {
       const { tokenIds } = allTokenResults[i]
       for (let j = 0; j < seqLen; j++) {
         const offset = i * seqLen + j
         if (j < tokenIds.length) {
-          inputIdsData[offset] = tokenIds[j]
-          attentionMaskData[offset] = 1
+          inputIdsData[offset] = BigInt(tokenIds[j])
+          attentionMaskData[offset] = 1n
         } else {
           // padding 位置
-          inputIdsData[offset] = PAD_TOKEN_ID
-          attentionMaskData[offset] = 0
+          inputIdsData[offset] = BigInt(PAD_TOKEN_ID)
+          attentionMaskData[offset] = 0n
         }
       }
     }

@@ -24,7 +24,7 @@ describe('AIAnalysisPage', () => {
     render(<AIAnalysisPage />)
     expect(screen.getByText('数据导入')).toBeInTheDocument()
     expect(screen.getByText('数据列表')).toBeInTheDocument()
-    expect(screen.getByText('分析报告')).toBeInTheDocument()
+    expect(screen.getByText('分析报告呈现')).toBeInTheDocument()
   })
 
   it('renders all three tabs', () => {

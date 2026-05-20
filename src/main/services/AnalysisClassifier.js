@@ -4,21 +4,51 @@
  * 输出：{ modes, param_trend, material_contrast }
  */
 
+const MATERIAL_LABEL_TO_KEY = {
+  水泥: 'cement',
+  粉煤灰: 'flyAsh',
+  矿渣粉: 'slag',
+  锂渣: 'lithiumSlag',
+  复合粉: 'compositePowder',
+  细骨料: 'fineAggregate1',
+  粗骨料: 'coarseAggregate',
+  减水剂: 'superplasticizer'
+}
+
+const VALID_MATERIAL_KEYS = new Set([
+  'cement',
+  'flyAsh',
+  'slag',
+  'lithiumSlag',
+  'compositePowder',
+  'fineAggregate1',
+  'fineAggregate2',
+  'coarseAggregate',
+  'superplasticizer'
+])
+
 class AnalysisClassifier {
   /**
    * 主入口：分类分析类型
    * @param {Array} mixDesigns - buildAnalysisData 输出的配合比详情
    * @param {Object} materialMapping - { [mixId]: { cement: id, flyAsh: id, ... } }
    * @param {string} userPrompt - 用户提示词（可选）
+   * @param {Object} options - 可选项
+   * @param {string[]} options.selectedContrastMaterials - 用户勾选的对比材料类型
    * @returns {Object} { modes: string[], param_trend: {...}, material_contrast: {...} }
    */
-  classify(mixDesigns, materialMapping, userPrompt = '') {
+  classify(mixDesigns, materialMapping, userPrompt = '', options = {}) {
     if (!mixDesigns || mixDesigns.length < 2) {
       return { modes: [] }
     }
 
     const paramTrend = this._detectParamTrend(mixDesigns, materialMapping)
-    const materialContrast = this._detectMaterialContrast(mixDesigns, materialMapping, userPrompt)
+    const materialContrast = this._detectMaterialContrast(
+      mixDesigns,
+      materialMapping,
+      userPrompt,
+      options.selectedContrastMaterials
+    )
 
     const modes = []
     if (paramTrend) modes.push('param_trend')
@@ -35,15 +65,15 @@ class AnalysisClassifier {
     const signatures = mixDesigns.map(mix => {
       const mapping = materialMapping[mix.id] || {}
       return JSON.stringify({
-        cement: mapping.cement || 'same',
-        flyAsh: mapping.flyAsh || 'same',
-        slag: mapping.slag || 'same',
-        lithiumSlag: mapping.lithiumSlag || 'same',
-        compositePowder: mapping.compositePowder || 'same',
-        fineAggregate1: mapping.fineAggregate1 || 'same',
-        fineAggregate2: mapping.fineAggregate2 || 'same',
-        coarseAggregate: mapping.coarseAggregate || 'same',
-        superplasticizer: mapping.superplasticizer || 'same'
+        cement: this._materialId(mapping.cement) || 'same',
+        flyAsh: this._materialId(mapping.flyAsh) || 'same',
+        slag: this._materialId(mapping.slag) || 'same',
+        lithiumSlag: this._materialId(mapping.lithiumSlag) || 'same',
+        compositePowder: this._materialId(mapping.compositePowder) || 'same',
+        fineAggregate1: this._materialId(mapping.fineAggregate1) || 'same',
+        fineAggregate2: this._materialId(mapping.fineAggregate2) || 'same',
+        coarseAggregate: this._materialId(mapping.coarseAggregate) || 'same',
+        superplasticizer: this._materialId(mapping.superplasticizer) || 'same'
       })
     })
 
@@ -85,7 +115,17 @@ class AnalysisClassifier {
    * 条件A：材料组合不一致 → 排除砂率/外加剂掺量 → 比较其余参数是否一致
    * 条件B：用户提示词指定对比材料
    */
-  _detectMaterialContrast(mixDesigns, materialMapping, userPrompt) {
+  _detectMaterialContrast(mixDesigns, materialMapping, userPrompt, selectedContrastMaterials = null) {
+    const selected = this._normalizeContrastMaterials(selectedContrastMaterials)
+    if (selected.length > 0) {
+      const autoResult = this._autoDetectContrast(mixDesigns, materialMapping)
+      return {
+        changed_materials: selected,
+        groups: autoResult?.groups || [],
+        source: 'user_selected'
+      }
+    }
+
     // 条件B：用户指定
     const userSpecified = this._parseUserSpecifiedContrast(userPrompt)
     if (userSpecified) {
@@ -115,7 +155,7 @@ class AnalysisClassifier {
       const match = userPrompt.match(p)
       if (match) {
         return {
-          changed_materials: [match[1]],
+          changed_materials: [MATERIAL_LABEL_TO_KEY[match[1]] || match[1]],
           source: 'user_specified'
         }
       }
@@ -134,15 +174,15 @@ class AnalysisClassifier {
     for (const mix of mixDesigns) {
       const mapping = materialMapping[mix.id] || {}
       const sig = JSON.stringify({
-        cement: mapping.cement || '',
-        flyAsh: mapping.flyAsh || '',
-        slag: mapping.slag || '',
-        lithiumSlag: mapping.lithiumSlag || '',
-        compositePowder: mapping.compositePowder || '',
-        fineAggregate1: mapping.fineAggregate1 || '',
-        fineAggregate2: mapping.fineAggregate2 || '',
-        coarseAggregate: mapping.coarseAggregate || '',
-        superplasticizer: mapping.superplasticizer || ''
+        cement: this._materialId(mapping.cement),
+        flyAsh: this._materialId(mapping.flyAsh),
+        slag: this._materialId(mapping.slag),
+        lithiumSlag: this._materialId(mapping.lithiumSlag),
+        compositePowder: this._materialId(mapping.compositePowder),
+        fineAggregate1: this._materialId(mapping.fineAggregate1),
+        fineAggregate2: this._materialId(mapping.fineAggregate2),
+        coarseAggregate: this._materialId(mapping.coarseAggregate),
+        superplasticizer: this._materialId(mapping.superplasticizer)
       })
       if (!groups.has(sig)) groups.set(sig, [])
       groups.get(sig).push(mix)
@@ -200,6 +240,28 @@ class AnalysisClassifier {
       })),
       source: 'auto_detected'
     }
+  }
+
+  _normalizeContrastMaterials(materials) {
+    if (!Array.isArray(materials)) return []
+    const normalized = []
+    for (const item of materials) {
+      const key = MATERIAL_LABEL_TO_KEY[item] || item
+      if (VALID_MATERIAL_KEYS.has(key) && !normalized.includes(key)) {
+        normalized.push(key)
+      }
+    }
+    return normalized
+  }
+
+  _materialId(material) {
+    if (Array.isArray(material)) {
+      return material.map(item => this._materialId(item)).filter(Boolean).join(',')
+    }
+    if (material && typeof material === 'object') {
+      return material.id || ''
+    }
+    return material || ''
   }
 }
 

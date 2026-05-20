@@ -1,5 +1,62 @@
 # 版本更新记录
 
+## 打包记录 (2026-05-19 三次)
+
+- **命令**: `npm run electron:build`（Vite 生产构建）+ `npx electron-builder --config.npmRebuild=false --config.buildDependenciesFromSource=false`
+- **结果**: 成功
+- **版本号**: **3.6.2**
+- **输出目录**: `dist-3.6.2/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.6.2.exe`（约 239 MB）
+- **便携版**: `混凝土配合比设计软件-3.6.2-x64.exe`（约 239 MB）
+- **说明**: 修复 XGBoost 性能预测服务：
+  1. **强度预测推理修复** — 去掉重复乘 `learning_rate` 的问题，恢复强度预测随配比变化
+  2. **输入校验增强** — 缺少水泥用量或水胶比来源时不再硬算
+  3. **置信度与警告修复** — 超出训练范围、材料属性缺失、低 R² 模型会返回明确警告
+  4. **强度模型元数据补齐** — `strength28d.json` 补充 34 个特征训练范围
+  5. **坍落度模型降级提示** — `slump` 模型 R² 较低时自动标记低可信，仅供参考
+  6. **打包处理** — `sqlite3` 原生文件被当前进程锁定，最终使用 `npmRebuild=false` 跳过重复重编译完成打包
+
+## 打包记录 (2026-05-19 二次)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: **3.6.1**
+- **输出目录**: `dist-3.6.1/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.6.1.exe`（约 246 MB）
+- **便携版**: `混凝土配合比设计软件-3.6.1-x64.exe`（约 246 MB）
+- **说明**: 修复 DeepSeek API 400 错误：
+  1. **`extra_body` 修复** — `_callAPI`、`_callAPIStream`、`analyzeMixDesign` 三处将 `extra_body: { thinking: { type: 'enabled' } }` 改为 `thinking: { type: 'enabled' }`。`extra_body` 是 OpenAI SDK 内部包装字段，用 axios 直接发原始请求时 DeepSeek 不认识这个字段，导致 400
+  2. **400 错误提示优化** — `chat()` 和 `analyzeMixDesign()` 两个 catch 块改进 `data.error?.message` 提取逻辑，同时支持对象和字符串类型的响应
+
+## 打包记录 (2026-05-19)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: **3.6.1**
+- **输出目录**: `dist-3.6.1/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.6.1.exe`（约 246 MB）
+- **便携版**: `混凝土配合比设计软件-3.6.1-x64.exe`（约 246 MB）
+- **说明**: 按当前工作区代码重新打包，包含 PDF/MinerU 相关残留清理：
+  1. **移除 PDF 解析残留** — 删除 MinerU 服务文件、移除 `pdf-parse` 和直接依赖 `adm-zip`
+  2. **设置项清理** — AI 设置中移除 `mineruToken`，仅保留 DeepSeek API 密钥
+  3. **规范知识包文案清理** — 上传和审查提示统一为 Markdown/规范文件，不再出现 PDF 上传提示
+  4. **打包环境处理** — 使用本地可用 Python 完成 `sqlite3` 原生模块重编译，并在沙盒外读取 Electron 缓存完成打包
+
+## 打包记录 (2026-05-18)
+
+- **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
+- **结果**: 成功
+- **版本号**: **3.6.1**
+- **输出目录**: `dist-3.6.1/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.6.1.exe`
+- **便携版**: `混凝土配合比设计软件-3.6.1-x64.exe`
+- **说明**: 使用105条模板训练数据重新训练XGBoost模型，权重文件更新：
+  1. **训练数据** — 使用 `docs/template_training_data.xlsx`（105条，34特征，3目标）
+  2. **强度模型** — `strength28d.json`，RMSE=7.21 MPa，R²=0.61
+  3. **坍落度模型** — `slump.json`，RMSE=11.33 mm，R²=0.02（数据量不足，效果较差）
+  4. **密度模型** — `density.json`，RMSE=10.73 kg/m³，R²=0.70
+  5. **编码修复** — 修复 `train.py` 中 Windows GBK 编码下 `±` 和 `²` 字符导致的 UnicodeEncodeError
+
 ## 打包记录 (2026-05-17)
 
 - **命令**: `npm run electron:build`（Vite 生产构建 + electron-builder）
@@ -354,3 +411,14 @@
 6. **EmbeddingService**：本地ONNX嵌入推理服务
 7. **ComplianceResultCard**：审查结果前端展示卡片
 8. **IPC通道**：compliance:check, standards:upload/list/delete/getDetail
+
+## 打包记录 (2026-05-19)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.6.1**
+- **输出目录**: `dist-3.6.1/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.6.1.exe` (246.5 MB)
+- **便携版**: `混凝土配合比设计软件-3.6.1-x64.exe` (245.9 MB)
+- **说明**: 按当前工作区代码重新打包。本包包含智能设计聊天流式输出、工具执行状态展示，以及此前已合并的材料选择状态修复、多材料对比选择修复、完整 AI 方案保存字段补齐。
+- **备注**: 打包过程中有 Vite 常见提示：`CJS build of Vite's Node API is deprecated` 和 `Some chunks are larger than 500 kB`，但未影响产物生成。

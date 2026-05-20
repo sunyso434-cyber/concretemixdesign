@@ -253,6 +253,7 @@ const buildAnalysisData = (mixDesigns, currentMaterialMapping, selectedSections 
       totalMaterials: Object.keys(currentMaterialMapping).length
     },
     groupedStatistics: calculateGroupedStatistics(mixDesigns),
+    materialMapping: currentMaterialMapping,
     mixDesigns: mixDesigns.map((m) => {
       const totalAggregate = (m.fineAggregate1 || 0) + (m.fineAggregate2 || 0) + (m.coarseAggregate || 0)
       const sandRate = totalAggregate > 0
@@ -795,14 +796,30 @@ const AIAnalysisPage = () => {
   const handleSaveFromCard = async (cardData) => {
     try {
       const bestSol = cardData.bestSolution || {}
+      const source = cardData.bestSolution ? bestSol : cardData
+      const strength = cardData.strength || source.strength
+      const slump = cardData.slump || source.slump
+      const timestamp = new Date().toLocaleString('zh-CN', { hour12: false })
       const saveData = {
-        strengthGrade: cardData.strength,
-        slump: cardData.slump,
-        waterBinderRatio: cardData.waterRatio || bestSol.waterRatio,
-        sandRatio: cardData.sandRatio || bestSol.sandRatio,
+        name: `${strength || 'AI'}${cardData.bestSolution ? '成本优化方案' : '智能设计方案'} - ${timestamp}`,
+        projectName: 'AI智能设计',
+        strength,
+        slump,
+        waterRatio: source.waterRatio || cardData.waterRatio || bestSol.waterRatio,
+        sandRatio: source.sandRatio || cardData.sandRatio || bestSol.sandRatio,
+        density: source.density || cardData.density || bestSol.density,
+        materials: source.materials || cardData.materials || bestSol.materials,
+        materialCosts: source.materialCosts || cardData.materialCosts || bestSol.materialCosts,
+        totalCost: source.totalCost || cardData.totalCost || bestSol.totalCost,
+        materialDetails: source.selectedMaterials || cardData.selectedMaterials || bestSol.selectedMaterials,
+        fineAggregateBreakdown: source.fineAggregateBreakdown || cardData.fineAggregateBreakdown || bestSol.fineAggregateBreakdown,
+        coarseAggregateBreakdown: source.coarseAggregateBreakdown || cardData.coarseAggregateBreakdown || bestSol.coarseAggregateBreakdown,
         status: 'AI生成'
       }
-      await window.electronAPI.invoke('createMixDesign', saveData)
+      const result = await window.electronAPI.invoke('createMixDesign', saveData)
+      if (!result?.success) {
+        throw new Error(result?.error || '保存失败')
+      }
       message.success('方案已保存')
     } catch (error) {
       message.error('保存失败: ' + error.message)

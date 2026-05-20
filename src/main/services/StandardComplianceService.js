@@ -146,7 +146,7 @@ class StandardComplianceService {
       const allClauses = await this._knowledgeService.loadAllStandards()
 
       if (!allClauses || allClauses.length === 0) {
-        return this._buildEmptyReport('未找到任何规范知识包，请先导入规范PDF')
+        return this._buildEmptyReport('未找到任何规范知识包，请先导入规范 Markdown 文件')
       }
 
       // 按 standardIds 过滤

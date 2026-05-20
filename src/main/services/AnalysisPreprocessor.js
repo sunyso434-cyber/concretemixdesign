@@ -113,7 +113,8 @@ class AnalysisPreprocessor {
       const ids = new Set()
       for (const mix of mixDesigns) {
         const mapping = materialMapping[mix.id] || {}
-        if (mapping[matType]) ids.add(mapping[matType])
+        const id = this._materialId(mapping[matType])
+        if (id) ids.add(id)
       }
 
       const idArr = [...ids]
@@ -187,11 +188,21 @@ class AnalysisPreprocessor {
     return null
   }
 
+  _materialId(material) {
+    if (Array.isArray(material)) {
+      return material.map(item => this._materialId(item)).filter(Boolean).join(',')
+    }
+    if (material && typeof material === 'object') {
+      return material.id || ''
+    }
+    return material || ''
+  }
+
   _calcPerformanceDiff(mixDesigns, materialMapping, changedMaterials) {
     const groups = {}
     for (const mix of mixDesigns) {
       const mapping = materialMapping[mix.id] || {}
-      const groupKey = changedMaterials.map(t => mapping[t] || 'unknown').join('|')
+      const groupKey = changedMaterials.map(t => this._materialId(mapping[t]) || 'unknown').join('|')
       if (!groups[groupKey]) groups[groupKey] = []
       groups[groupKey].push(mix)
     }
@@ -228,7 +239,7 @@ class AnalysisPreprocessor {
     const groups = {}
     for (const mix of mixDesigns) {
       const mapping = materialMapping[mix.id] || {}
-      const groupKey = changedMaterials.map(t => mapping[t] || 'unknown').join('|')
+      const groupKey = changedMaterials.map(t => this._materialId(mapping[t]) || 'unknown').join('|')
       if (!groups[groupKey]) groups[groupKey] = []
       groups[groupKey].push(mix)
     }

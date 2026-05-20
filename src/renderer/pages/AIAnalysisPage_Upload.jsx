@@ -346,6 +346,7 @@ export const buildAnalysisData = (mixDesigns, currentMaterialMapping, selectedSe
       totalMaterials: Object.keys(currentMaterialMapping).length
     },
     groupedStatistics: calculateGroupedStatistics(mixDesigns),
+    materialMapping: currentMaterialMapping,
     mixDesigns: mixDesigns.map((m) => {
       const totalAggregate = (m.fineAggregate1 || 0) + (m.fineAggregate2 || 0) + (m.coarseAggregate || 0)
       const sandRate = totalAggregate > 0

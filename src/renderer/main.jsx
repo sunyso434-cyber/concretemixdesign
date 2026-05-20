@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
+import { calculateFinenessModulus } from './utils/materialFieldsConfig'
 
 // 添加全局错误处理
 window.onerror = function(msg, url, lineNo, columnNo, error) {
@@ -456,8 +457,7 @@ if (!window.electron) {
             combinedMbValue += (aggregate.mbValue || 0.5) * ratio
           }
 
-          const sieveSum = sieveKeys.reduce((s, k) => s + (combinedSieve[k] || 0), 0)
-          combinedFinenessModulus = sieveSum / 100
+          combinedFinenessModulus = calculateFinenessModulus(combinedSieve)
         } else {
           for (let i = 0; i < fineAggregates.length; i++) {
             const aggregate = fineAggregates[i]

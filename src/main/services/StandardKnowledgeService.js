@@ -1,6 +1,6 @@
 /**
  * 规范知识包构建服务
- * 负责：PDF解析 → DeepSeek结构化提取条款 → 本地嵌入模型计算向量 → 保存JSON知识包
+ * 负责：Markdown文件读取 → DeepSeek结构化提取条款 → 本地嵌入模型计算向量 → 保存JSON知识包
  */
 
 const fs = require('fs')
@@ -11,12 +11,17 @@ const { app } = require('electron')
 const DeepSeekService = require('./DeepSeekService')
 const SystemService = require('./SystemService')
 const EmbeddingService = require('./EmbeddingService')
+const StandardScopeService = require('./StandardScopeService')
+const StandardClauseNormalizer = require('./StandardClauseNormalizer')
 
 // 知识包存储目录
 const STANDARDS_DIR = path.join(app.getPath('userData'), 'standards')
 
 // 每个文本块的最大字符数
 const MAX_CHUNK_SIZE = 3000
+
+// DeepSeek 条款提取并发数（过大易触发 429，过小则总耗时长）
+const EXTRACT_CONCURRENCY = 4
 
 // DeepSeek 结构化提取的 Prompt
 const EXTRACT_SYSTEM_PROMPT = `你是一个混凝土规范条款提取专家。你的任务是从国家标准文本中提取与混凝土配合比设计相关的条款。
@@ -65,6 +70,46 @@ const ensureStandardsDir = () => {
   }
 }
 
+const normalizeAliases = (aliases) => (
+  StandardScopeService.normalizeStringArray(aliases)
+)
+
+const buildScopeKeywords = (name, category, aliases) => {
+  const keywords = new Set(StandardScopeService.normalizeStringArray([
+    category,
+    ...normalizeAliases(aliases)
+  ]))
+  const standardName = String(name || '')
+  const nameKeywords = ['公路', '桥涵', '桥梁', '路面', '铁路', '水工', '水利', '建筑', '普通混凝土', '大体积']
+
+  for (const keyword of nameKeywords) {
+    if (standardName.includes(keyword)) {
+      keywords.add(keyword)
+    }
+  }
+
+  return [...keywords]
+}
+
+const getPackageCategory = (pkg) => (
+  pkg.category || StandardScopeService.inferCategory(pkg.name)
+)
+
+const getPackageAliases = (pkg) => (
+  normalizeAliases(pkg.aliases)
+)
+
+const getPackageScopeKeywords = (pkg, category, aliases) => {
+  const storedKeywords = StandardScopeService.normalizeStringArray(pkg.scopeKeywords)
+  return storedKeywords.length > 0
+    ? storedKeywords
+    : buildScopeKeywords(pkg.name, category, aliases)
+}
+
+const getPackageQuality = (pkg) => (
+  pkg.quality || StandardClauseNormalizer.buildQualitySummary(pkg.clauses || [])
+)
+
 /**
  * 计算文件的 MD5 校验码
  * @param {string} filePath - 文件路径
@@ -76,15 +121,16 @@ const computeFileMD5 = (filePath) => {
 }
 
 /**
- * 使用 pdf-parse 提取 PDF 文本
- * @param {string} pdfPath - PDF 文件路径
- * @returns {Promise<string>} 提取的文本内容
+ * 读取本地 Markdown 文件（UTF-8）
+ * @param {string} markdownPath - 文件路径
+ * @param {Function} [reportProgress] - (stage, message, percent) => void
+ * @returns {Promise<string>}
  */
-const extractTextFromPdf = async (pdfPath) => {
-  const pdfParse = require('pdf-parse')
-  const dataBuffer = fs.readFileSync(pdfPath)
-  const pdfData = await pdfParse(dataBuffer)
-  return pdfData.text
+const readMarkdownFile = async (markdownPath, reportProgress) => {
+  if (reportProgress) {
+    reportProgress('chunk', '正在读取Markdown文件...', 5)
+  }
+  return fs.promises.readFile(markdownPath, 'utf-8')
 }
 
 /**
@@ -239,14 +285,12 @@ const getDeepSeekService = async () => {
 
 /**
  * 调用 DeepSeek 从文本块中提取结构化条款
+ * @param {import('./DeepSeekService')} service - 已初始化的 DeepSeek 服务（避免每块重复读密钥）
  * @param {string} textContent - 文本块内容
  * @param {string} section - 章节标识
- * @param {number} clauseStartId - 条款起始编号
- * @returns {Promise<Array>} 提取的条款列表
+ * @returns {Promise<Array>} 提取的条款列表（不含 id，由上层按顺序编号）
  */
-const extractClausesFromChunk = async (textContent, section, clauseStartId = 1) => {
-  const service = await getDeepSeekService()
-
+const extractClausesFromChunk = async (service, textContent, section) => {
   const userPrompt = `请从以下混凝土规范文本中提取与配合比设计相关的结构化条款。
 
 文本内容：
@@ -255,7 +299,10 @@ ${textContent}
 请严格按照JSON格式输出，每条条款必须包含 section, title, originalText, condition, rule, checkType, parameters 字段。`
 
   try {
-    const result = await service.chat(userPrompt, null, { rawMode: true })
+    const result = await service.chat(userPrompt, null, {
+        rawMode: true,
+        systemPrompt: EXTRACT_SYSTEM_PROMPT
+      })
 
     // 解析 DeepSeek 返回的 JSON
     let responseText = result.reply || result
@@ -290,9 +337,8 @@ ${textContent}
       return []
     }
 
-    // 为每条条款分配编号和章节
-    return clauses.map((clause, index) => ({
-      id: clauseStartId + index,
+    // 为每条条款分配章节等字段（id 由 buildFromPdf 合并后统一分配）
+    return clauses.map(clause => ({
       section: clause.section || section,
       title: clause.title || '',
       originalText: clause.originalText || '',
@@ -309,21 +355,24 @@ ${textContent}
 
 class StandardKnowledgeService {
   /**
-   * 主入口：从PDF构建知识包
+   * 主入口：从 Markdown 构建知识包
    * 流程：解析 → 分块 → 提取 → 向量化 → 保存
-   * @param {string} pdfPath - PDF文件路径
+   * @param {string} filePath - Markdown文件路径
    * @param {Object} options - 选项
    * @param {string} options.name - 规范名称（如 "JGJ 55-2011"）
    * @param {string} options.version - 规范版本（如 "2011"）
    * @param {Function} options.onProgress - 进度回调 (stage, message, percent)
    * @returns {Promise<Object>} 构建结果
    */
-  async buildFromPdf(pdfPath, options = {}) {
-    const { name = path.basename(pdfPath, '.pdf'), version = '', onProgress } = options
+  async buildFromPdf(filePath, options = {}) {
+    const { name = path.basename(filePath, '.md'), version = '', category, aliases, onProgress } = options
+    const normalizedAliases = normalizeAliases(aliases)
+    const inferredCategory = category || StandardScopeService.inferCategory(name)
+    const scopeKeywords = buildScopeKeywords(name, inferredCategory, normalizedAliases)
 
     // 检查文件是否存在
-    if (!fs.existsSync(pdfPath)) {
-      throw new Error(`PDF文件不存在: ${pdfPath}`)
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`文件不存在: ${filePath}`)
     }
 
     const reportProgress = (stage, message, percent) => {
@@ -334,52 +383,58 @@ class StandardKnowledgeService {
     }
 
     try {
-      // 第一步：解析 PDF
-      reportProgress('parse', '正在解析PDF文件...', 5)
-      const fullText = await extractTextFromPdf(pdfPath)
+      // 第一步：读取 Markdown 文件
+      const fullText = await readMarkdownFile(filePath, reportProgress)
       if (!fullText || fullText.trim().length === 0) {
-        throw new Error('PDF文件内容为空或无法解析')
+        throw new Error('文件内容为空，请确认文件有效')
       }
 
       // 计算 MD5 校验码
-      const md5 = computeFileMD5(pdfPath)
-
-      reportProgress('parse', `PDF解析完成，共 ${fullText.length} 字符`, 15)
+      const md5 = computeFileMD5(filePath)
+      reportProgress('chunk', `文件读取完成，共 ${fullText.length} 字符`, 12)
 
       // 第二步：文本分块
-      reportProgress('chunk', '正在对文本进行分块...', 20)
+      reportProgress('chunk', '正在对文本进行分块...', 15)
       const chunks = splitTextBySections(fullText)
-      reportProgress('chunk', `分块完成，共 ${chunks.length} 个文本块`, 30)
+      reportProgress('chunk', `分块完成，共 ${chunks.length} 个文本块`, 25)
 
-      // 第三步：DeepSeek 结构化提取
+      // 第三步：DeepSeek 结构化提取（单次取服务 + 分批并发，减少总等待时间）
       reportProgress('extract', '正在通过AI提取结构化条款...', 35)
-      let allClauses = []
-      let clauseIdCounter = 1
+      const deepSeekService = await getDeepSeekService()
+      const allClauses = []
 
-      for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i]
+      for (let batchStart = 0; batchStart < chunks.length; batchStart += EXTRACT_CONCURRENCY) {
+        const batchEnd = Math.min(batchStart + EXTRACT_CONCURRENCY, chunks.length)
         reportProgress(
           'extract',
-          `正在提取第 ${i + 1}/${chunks.length} 块的条款...`,
-          35 + Math.floor((i / chunks.length) * 40)
+          `正在提取第 ${batchStart + 1}–${batchEnd}/${chunks.length} 块（每批最多 ${EXTRACT_CONCURRENCY} 路并行）...`,
+          35 + Math.floor((batchStart / chunks.length) * 40)
         )
 
-        try {
-          const clauses = await extractClausesFromChunk(
-            chunk.content,
-            chunk.section,
-            clauseIdCounter
-          )
-          allClauses = allClauses.concat(clauses)
-          clauseIdCounter += clauses.length
-        } catch (extractError) {
-          console.error(`第 ${i + 1} 块提取失败，跳过:`, extractError.message)
-          // 继续处理下一块
+        const batch = chunks.slice(batchStart, batchEnd)
+        const batchResults = await Promise.all(
+          batch.map(async (chunk, j) => {
+            const globalIndex = batchStart + j + 1
+            try {
+              return await extractClausesFromChunk(deepSeekService, chunk.content, chunk.section)
+            } catch (extractError) {
+              console.error(`第 ${globalIndex} 块提取失败，跳过:`, extractError.message)
+              return []
+            }
+          })
+        )
+
+        for (const clauses of batchResults) {
+          allClauses.push(...clauses)
         }
       }
 
+      allClauses.forEach((c, idx) => {
+        c.id = idx + 1
+      })
+
       if (allClauses.length === 0) {
-        throw new Error('未能从PDF中提取到任何配合比相关条款')
+        throw new Error('未能从文件中提取到任何配合比相关条款')
       }
 
       reportProgress('extract', `条款提取完成，共 ${allClauses.length} 条`, 75)
@@ -424,7 +479,7 @@ class StandardKnowledgeService {
         id: standardId,
         name,
         version,
-        sourceFile: path.basename(pdfPath),
+        sourceFile: path.basename(filePath),
         md5,
         createdAt: new Date().toISOString(),
         totalChunks: chunks.length,
@@ -437,8 +492,8 @@ class StandardKnowledgeService {
       }
 
       ensureStandardsDir()
-      const filePath = path.join(STANDARDS_DIR, `${standardId}.json`)
-      fs.writeFileSync(filePath, JSON.stringify(knowledgePackage, null, 2), 'utf-8')
+      const outputPath = path.join(STANDARDS_DIR, `${standardId}.json`)
+      fs.writeFileSync(outputPath, JSON.stringify(knowledgePackage, null, 2), 'utf-8')
 
       reportProgress('done', '知识包构建完成', 100)
 

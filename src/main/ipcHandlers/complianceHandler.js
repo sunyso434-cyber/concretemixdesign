@@ -22,30 +22,50 @@ const getDeepSeekApiKey = async () => {
   }
 }
 
+// 步骤中文映射
+const STAGE_LABELS = {
+  chunk: '文本分块',
+  extract: 'AI提取条款',
+  embed: '计算向量',
+  save: '保存知识包',
+  done: '完成'
+}
+
 /**
- * 上传PDF构建规范知识包
+ * 上传 Markdown 构建规范知识包（后台任务+进度推送）
  */
-const uploadStandard = async (event, { filePath, standardId, standardName, version }) => {
+const uploadStandard = async (event, { filePath, standardName, version }) => {
+  if (!filePath || !standardName) {
+    return { success: false, error: '缺少必填参数：filePath, standardName' }
+  }
+
   try {
-    if (!filePath || !standardId || !standardName) {
-      return {
-        success: false,
-        error: '缺少必填参数：filePath, standardId, standardName'
+    // 后台执行，通过 onProgress 推送进度到前端
+    const result = await standardKnowledgeService.buildFromPdf(filePath, {
+      name: standardName,
+      version: version || '',
+      onProgress: (stage, message, percent) => {
+        event.sender.send('standards:upload-progress', {
+          stage,
+          stageLabel: STAGE_LABELS[stage] || stage,
+          message,
+          percent
+        })
       }
-    }
-    const result = await standardKnowledgeService.buildKnowledgePackage({
-      filePath,
-      standardId,
-      standardName,
-      version: version || ''
     })
+
+    // 完成通知
+    event.sender.send('standards:upload-progress', {
+      stage: 'done',
+      stageLabel: STAGE_LABELS.done,
+      message: '知识包构建完成',
+      percent: 100
+    })
+
     return result
   } catch (error) {
     console.error('[ComplianceHandler] 上传规范失败:', error)
-    return {
-      success: false,
-      error: `上传规范失败: ${error.message}`
-    }
+    return { success: false, error: `上传规范失败: ${error.message}` }
   }
 }
 
@@ -54,14 +74,11 @@ const uploadStandard = async (event, { filePath, standardId, standardName, versi
  */
 const listStandards = async () => {
   try {
-    const result = await standardKnowledgeService.listKnowledgePackages()
+    const result = await standardKnowledgeService.listStandards()
     return result
   } catch (error) {
     console.error('[ComplianceHandler] 列出规范失败:', error)
-    return {
-      success: false,
-      error: `获取规范列表失败: ${error.message}`
-    }
+    return []
   }
 }
 
@@ -71,19 +88,13 @@ const listStandards = async () => {
 const deleteStandard = async (event, { standardId }) => {
   try {
     if (!standardId) {
-      return {
-        success: false,
-        error: '缺少必填参数：standardId'
-      }
+      return { success: false, error: '缺少必填参数：standardId' }
     }
-    const result = await standardKnowledgeService.deleteKnowledgePackage(standardId)
+    const result = await standardKnowledgeService.deleteStandard(standardId)
     return result
   } catch (error) {
     console.error('[ComplianceHandler] 删除规范失败:', error)
-    return {
-      success: false,
-      error: `删除规范失败: ${error.message}`
-    }
+    return { success: false, error: `删除规范失败: ${error.message}` }
   }
 }
 
@@ -93,19 +104,13 @@ const deleteStandard = async (event, { standardId }) => {
 const getStandardDetail = async (event, { standardId }) => {
   try {
     if (!standardId) {
-      return {
-        success: false,
-        error: '缺少必填参数：standardId'
-      }
+      return { success: false, error: '缺少必填参数：standardId' }
     }
-    const result = await standardKnowledgeService.getKnowledgePackageDetail(standardId)
+    const result = await standardKnowledgeService.getStandardDetail(standardId)
     return result
   } catch (error) {
     console.error('[ComplianceHandler] 获取规范详情失败:', error)
-    return {
-      success: false,
-      error: `获取规范详情失败: ${error.message}`
-    }
+    return { success: false, error: `获取规范详情失败: ${error.message}` }
   }
 }
 
@@ -114,13 +119,9 @@ const getStandardDetail = async (event, { standardId }) => {
  */
 const checkCompliance = async (event, { mixDesign, standards }) => {
   try {
-    // 检查 API Key 是否已配置
     const apiKey = await getDeepSeekApiKey()
     if (!apiKey) {
-      return {
-        success: false,
-        error: 'DeepSeek API未配置，请在系统设置中配置API密钥'
-      }
+      return { success: false, error: 'DeepSeek API未配置，请在系统设置中配置API密钥' }
     }
 
     const dsService = new DeepSeekService(apiKey)
@@ -129,10 +130,7 @@ const checkCompliance = async (event, { mixDesign, standards }) => {
     return report
   } catch (error) {
     console.error('[ComplianceHandler] 规范审查失败:', error)
-    return {
-      success: false,
-      error: `规范审查失败: ${error.message}`
-    }
+    return { success: false, error: `规范审查失败: ${error.message}` }
   }
 }
 

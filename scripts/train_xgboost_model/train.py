@@ -96,10 +96,10 @@ def train_target(X, y, args, target_name):
 
     cv_results = cross_validate(XGBRegressor, X, y, n_splits=5, **model_params)
 
-    print(f"  5折交叉验证结果:")
-    print(f"    RMSE: {cv_results['rmse']['mean']:.4f} ± {cv_results['rmse']['std']:.4f}")
-    print(f"    MAE:  {cv_results['mae']['mean']:.4f} ± {cv_results['mae']['std']:.4f}")
-    print(f"    R²:   {cv_results['r2']['mean']:.4f} ± {cv_results['r2']['std']:.4f}")
+    print(f"  5-fold CV results:")
+    print(f"    RMSE: {cv_results['rmse']['mean']:.4f} +/- {cv_results['rmse']['std']:.4f}")
+    print(f"    MAE:  {cv_results['mae']['mean']:.4f} +/- {cv_results['mae']['std']:.4f}")
+    print(f"    R2:   {cv_results['r2']['mean']:.4f} +/- {cv_results['r2']['std']:.4f}")
 
     model = XGBRegressor(**model_params)
     model.fit(X, y)
@@ -141,19 +141,23 @@ def main():
 
     for target_col in available_targets:
         target_name = target_col.replace("target_", "")
+        # Remove underscores from target names to match JS file naming convention
+        file_name = target_name.replace("_", "")
         mask = df[target_col].notna()
         X_target = X[mask]
         y_target = df.loc[mask, target_col]
 
         model, cv_results = train_target(X_target, y_target, args, target_name)
 
-        model_json = export_model_to_json(model, target_name, FEATURE_NAMES, feature_stats, args)
+        y_mean = float(y_target.mean())
+        model_json = export_model_to_json(model, target_name, FEATURE_NAMES, feature_stats, args,
+                                          y_mean=y_mean)
         model_json["training_info"]["rmse"] = cv_results["rmse"]["mean"]
         model_json["training_info"]["r_squared"] = cv_results["r2"]["mean"]
         model_json["training_info"]["mae"] = cv_results["mae"]["mean"]
         model_json["training_info"]["cv_results"] = cv_results
 
-        output_path = os.path.join(args.output, f"{target_name}.json")
+        output_path = os.path.join(args.output, f"{file_name}.json")
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(model_json, f, ensure_ascii=False, indent=2)
         print(f"  模型已保存: {output_path}")

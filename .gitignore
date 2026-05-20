@@ -1,3 +1,32 @@
 node_modules
 .worktrees/
 .superpowers/
+
+# Build & distribution
+build/
+dist/
+dist-*/
+out/
+release/
+
+# Logs & local debug
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.local
+
+# Environment
+.env
+.env.*
+
+# Optional local tooling (do not commit secrets)
+.claude/settings.local.json

@@ -28,6 +28,7 @@ const getDeepSeekApiKey = async () => {
 
 let deepSeekService = null
 let cachedApiKey = null
+const CHAT_STREAM_EVENT = 'aiAnalysis:chatStream:event'
 
 // 获取或创建DeepSeek服务实例
 const getDeepSeekService = async () => {
@@ -197,7 +198,8 @@ const executeToolCall = async (toolName, args) => {
           targetStrength: result.targetStrength,
           calculationSteps: result.calculationSteps,
           fineAggregateBreakdown: result.fineAggregateBreakdown,
-          coarseAggregateBreakdown: result.coarseAggregateBreakdown
+          coarseAggregateBreakdown: result.coarseAggregateBreakdown,
+          selectedMaterials: materials
         }
       }
     }
@@ -256,7 +258,15 @@ const executeToolCall = async (toolName, args) => {
             waterRatio: result.bestSolution.waterRatio,
             sandRatio: result.bestSolution.sandRatio,
             density: result.bestSolution.density,
-            selectedMaterials: result.bestSolution.selectedMaterials,
+            selectedMaterials: {
+              cement: constraints.materials.cement,
+              sand: constraints.materials.sand,
+              stone: constraints.materials.stone,
+              ...(result.bestSolution.selectedMaterials || {})
+            },
+            fineAggregateBreakdown: result.bestSolution.fineAggregateBreakdown,
+            coarseAggregateBreakdown: result.bestSolution.coarseAggregateBreakdown,
+            calculationSteps: result.bestSolution.calculationSteps,
             params: result.bestSolution.params
           },
           alternatives: (result.alternatives || []).map(alt => ({
@@ -412,6 +422,42 @@ const chatWithAI = async (event, { message, context }) => {
   }
 }
 
+const chatWithAIStream = async (event, { requestId, message, context }) => {
+  const service = await getDeepSeekService()
+  if (!service) {
+    throw new Error('DeepSeek API鏈厤缃紝璇峰湪绯荤粺璁剧疆涓厤缃瓵PI瀵嗛挜')
+  }
+
+  const sendStreamEvent = (payload) => {
+    event.sender.send(CHAT_STREAM_EVENT, {
+      requestId,
+      ...payload
+    })
+  }
+
+  try {
+    const toolExecutorWithContext = (toolName, args) => {
+      const enrichedArgs = { ...args }
+      if (context && context.mixDesigns) {
+        enrichedArgs._mixDesigns = context.mixDesigns
+      }
+      return executeToolCall(toolName, enrichedArgs)
+    }
+
+    const result = await service.chatStream(message, context, {
+      toolExecutor: toolExecutorWithContext,
+      onEvent: sendStreamEvent
+    })
+
+    sendStreamEvent({ type: 'done', result })
+    return result
+  } catch (error) {
+    sendStreamEvent({ type: 'error', error: error.message })
+    console.error('AI娴佸紡瀵硅瘽澶辫触:', error)
+    throw error
+  }
+}
+
 /**
  * 清空对话历史
  */
@@ -426,7 +472,7 @@ const clearChatHistory = async () => {
 /**
  * 分析预处理：识别分析类型 + 数值预处理
  */
-const prepareAnalysis = async (event, { data, customPrompt }) => {
+const prepareAnalysis = async (event, { data, customPrompt, selectedContrastMaterials }) => {
   const mixDesigns = data.mixDesigns || []
   const materialMapping = data.materialMapping || {}
 
@@ -435,7 +481,9 @@ const prepareAnalysis = async (event, { data, customPrompt }) => {
   }
 
   const classifier = new AnalysisClassifier()
-  const classification = classifier.classify(mixDesigns, materialMapping, customPrompt || '')
+  const classification = classifier.classify(mixDesigns, materialMapping, customPrompt || '', {
+    selectedContrastMaterials
+  })
 
   let preprocessedData = null
   if (classification.modes.length > 0) {
@@ -459,6 +507,7 @@ const registerHandlers = (ipcMain) => {
   ipcMain.handle('analysis:prepare', prepareAnalysis)
   ipcMain.handle('aiAnalysis:checkStatus', checkApiStatus)
   ipcMain.handle('aiAnalysis:chat', chatWithAI)
+  ipcMain.handle('aiAnalysis:chatStream', chatWithAIStream)
   ipcMain.handle('aiAnalysis:clearHistory', clearChatHistory)
   console.log('AI Analysis IPC handlers registered')
 }
@@ -472,5 +521,6 @@ module.exports = {
   analyzeMixDesign,
   checkApiStatus,
   chatWithAI,
+  chatWithAIStream,
   clearChatHistory
 }

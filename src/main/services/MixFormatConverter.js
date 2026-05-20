@@ -37,13 +37,6 @@ class MixFormatConverter {
       )
     }
 
-    const computeOrFallback = (massValue, fallbackPercent, divisor = binderTotal) => {
-      if (massValue > 0) {
-        return (massValue / divisor) * 100
-      }
-      return fallbackPercent ?? 0
-    }
-
     const flyAshDosage = flyAshAmount > 0
       ? (flyAshAmount / binderTotal) * 100
       : (fallbackFlyAshDosage ?? 0)
@@ -62,12 +55,12 @@ class MixFormatConverter {
 
     const waterBinderRatio = waterAmount > 0
       ? waterAmount / binderTotal
-      : (fallbackWaterBinderRatio ?? 0)
+      : fallbackWaterBinderRatio
 
     const aggregateTotal = sandAmount + stoneAmount
     const sandRatio = aggregateTotal > 0
       ? (sandAmount / aggregateTotal) * 100
-      : (fallbackSandRatio ?? 0)
+      : fallbackSandRatio
 
     const superplasticizerDosage = superplasticizerAmount > 0
       ? (superplasticizerAmount / binderTotal) * 100

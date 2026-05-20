@@ -53,6 +53,61 @@ const QUICK_PROMPTS = [
   { label: '对比材料', message: '帮我对比不同水泥对配合比的影响' },
 ]
 
+const CONTRAST_MATERIAL_LABELS = {
+  cement: '水泥',
+  flyAsh: '粉煤灰',
+  slag: '矿渣粉',
+  lithiumSlag: '锂渣',
+  compositePowder: '复合粉',
+  fineAggregate1: '细骨料1',
+  fineAggregate2: '细骨料2',
+  coarseAggregate: '粗骨料',
+  superplasticizer: '减水剂'
+}
+
+function removeContrastData(preprocessedData) {
+  if (!preprocessedData) return preprocessedData
+  const { contrast, ...rest } = preprocessedData
+  return rest
+}
+
+const CHAT_STREAM_EVENT = 'aiAnalysis:chatStream:event'
+
+function createToolSummary(toolName, args = {}) {
+  if (toolName === 'list_available_materials') {
+    return args.type ? `材料类型：${args.type}` : '全部材料'
+  }
+  if (toolName === 'calculate_mix_design') {
+    return [args.strength, args.slump ? `坍落度 ${args.slump}mm` : null].filter(Boolean).join('|')
+  }
+  if (toolName === 'optimize_mix_cost') {
+    return [args.strength, args.slump ? `坍落度 ${args.slump}mm` : null, args.gridStep ? `步长 ${args.gridStep}` : null].filter(Boolean).join('|')
+  }
+  if (toolName === 'compare_materials') {
+    return [args.compareType, args.candidateIds?.length ? `${args.candidateIds.length} 个候选` : null].filter(Boolean).join('|')
+  }
+  if (toolName === 'run_parameter_diagnosis') {
+    return '分析上传数据'
+  }
+  if (toolName === 'check_compliance') {
+    return args.mixDesign?.strengthGrade || args.mixDesign?.strength || '规范条文检索'
+  }
+  if (toolName === 'predict_performance') {
+    return '预测强度、坍落度和容重'
+  }
+  return ''
+}
+
+function mergeToolEvent(toolEvents = [], nextEvent) {
+  const id = nextEvent.id || `${nextEvent.toolName}-${toolEvents.length}`
+  const index = toolEvents.findIndex(item => item.id === id)
+  const next = { ...nextEvent, id }
+  if (index < 0) {
+    return [...toolEvents, next]
+  }
+  return toolEvents.map((item, i) => i === index ? { ...item, ...next } : item)
+}
+
 /** Excel 槽位上的类型与材料库 type 对齐（减水剂在库中常为「减水剂」） */
 function materialMatchesSlotType(mat, slotType) {
   if (!mat?.type || !slotType) return false
@@ -94,7 +149,7 @@ const SmartDesignChat = () => {
   const [chatMessages, setChatMessages] = useState([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
-  const [materialSelectionDone, setMaterialSelectionDone] = useState(false)
+  const [completedMaterialPickerIds, setCompletedMaterialPickerIds] = useState(() => new Set())
   const [attachment, setAttachment] = useState(null)          // { file, type, name }
   const [analysisMode, setAnalysisMode] = useState(false)    // 是否处于分析模式
   const [analysisData, setAnalysisData] = useState(null)     // 分析模式的数据
@@ -102,29 +157,224 @@ const SmartDesignChat = () => {
   const [analysisResult, setAnalysisResult] = useState(null)  // 分析结果
   const [contrastPickerSelected, setContrastPickerSelected] = useState([])
   const chatEndRef = useRef(null)
+  const materialPickerSeqRef = useRef(0)
+  const streamSeqRef = useRef(0)
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages, pendingMaterialPicker?.pickerKey])
 
+  const createMaterialPickerId = () => {
+    materialPickerSeqRef.current += 1
+    return `material-picker-${Date.now()}-${materialPickerSeqRef.current}`
+  }
+
+  const markMaterialPickerDone = (pickerId) => {
+    if (!pickerId) return
+    setCompletedMaterialPickerIds(prev => {
+      const next = new Set(prev)
+      next.add(pickerId)
+      return next
+    })
+  }
+
+  const isMaterialPickerDone = (pickerId) => pickerId && completedMaterialPickerIds.has(pickerId)
+
+  const createStreamRequestId = () => {
+    streamSeqRef.current += 1
+    return `smart-chat-stream-${Date.now()}-${streamSeqRef.current}`
+  }
+
+  const updateStreamMessage = (streamId, updater) => {
+    setChatMessages(prev => prev.map(item => (
+      item.streamId === streamId ? updater(item) : item
+    )))
+  }
+
+  const buildAssistantMessageFromResult = (result) => {
+    const chatMsg = { role: 'assistant', content: result?.reply || '', toolCalls: null }
+
+    if (result?.messages) {
+      const toolMsgs = result.messages.filter(m => m.role === 'tool')
+      const allMaterialsMap = new Map()
+      for (const toolMsg of toolMsgs) {
+        try {
+          const parsed = JSON.parse(toolMsg.content)
+          if (parsed.success && parsed.materials && parsed.materials.length > 0) {
+            for (const mat of parsed.materials) {
+              if (mat.id) {
+                allMaterialsMap.set(mat.id, mat)
+              }
+            }
+          }
+        } catch (_) { /* ignore */ }
+      }
+      const allMaterials = [...allMaterialsMap.values()]
+      if (allMaterials.length > 0) {
+        chatMsg.materialPicker = { materials: allMaterials }
+        chatMsg.materialPicker.pickerId = createMaterialPickerId()
+      }
+      if (toolMsgs.length > 0) {
+        const lastToolResult = toolMsgs[toolMsgs.length - 1]
+        try {
+          const parsed = JSON.parse(lastToolResult.content)
+          if (parsed.type) {
+            chatMsg.toolCall = {
+              status: parsed.success ? 'done' : 'error',
+              type: parsed.type,
+              data: parsed.data || parsed
+            }
+          }
+        } catch (_) { /* ignore */ }
+      }
+    }
+
+    if (result?.intent === 'analysis_mode') {
+      chatMsg.analysisIntent = true
+    }
+
+    return chatMsg
+  }
+
+  const applyFinalChatResult = (streamId, result) => {
+    const finalMsg = buildAssistantMessageFromResult(result)
+    updateStreamMessage(streamId, item => ({
+      ...item,
+      ...finalMsg,
+      content: item.content?.trim() ? item.content : finalMsg.content,
+      streaming: false,
+      toolEvents: (item.toolEvents || []).map(tool => (
+        tool.status === 'loading' ? { ...tool, status: 'done' } : tool
+      ))
+    }))
+  }
+
+  const handleChatStreamEvent = (streamId, payload) => {
+    if (payload.type === 'text_delta') {
+      updateStreamMessage(streamId, item => ({
+        ...item,
+        content: `${item.content || ''}${payload.content || ''}`
+      }))
+      return
+    }
+
+    if (payload.type === 'tool_start') {
+      updateStreamMessage(streamId, item => ({
+        ...item,
+        toolEvents: mergeToolEvent(item.toolEvents, {
+          id: payload.toolCallId,
+          toolName: payload.toolName,
+          status: 'loading',
+          summary: createToolSummary(payload.toolName, payload.args)
+        })
+      }))
+      return
+    }
+
+    if (payload.type === 'tool_done' || payload.type === 'tool_error') {
+      updateStreamMessage(streamId, item => ({
+        ...item,
+        toolEvents: mergeToolEvent(item.toolEvents, {
+          id: payload.toolCallId,
+          toolName: payload.toolName,
+          status: payload.type === 'tool_error' ? 'error' : 'done',
+          summary: createToolSummary(payload.toolName, payload.args),
+          error: payload.error || payload.result?.error
+        })
+      }))
+      return
+    }
+
+    if (payload.type === 'error') {
+      updateStreamMessage(streamId, item => ({
+        ...item,
+        content: item.content || `AI 回复失败：${payload.error || '未知错误'}`,
+        streaming: false,
+        toolEvents: (item.toolEvents || []).map(tool => (
+          tool.status === 'loading' ? { ...tool, status: 'error', error: payload.error } : tool
+        ))
+      }))
+    }
+  }
+
+  const runStreamingChat = async (userMessage, context = {}) => {
+    const requestId = createStreamRequestId()
+    const streamId = requestId
+    let listenerId = null
+
+    setChatMessages(prev => [...prev, {
+      role: 'assistant',
+      content: '',
+      streamId,
+      streaming: true,
+      toolEvents: []
+    }])
+
+    try {
+      listenerId = window.electronAPI.on(CHAT_STREAM_EVENT, (payload) => {
+        if (!payload || payload.requestId !== requestId) return
+        handleChatStreamEvent(streamId, payload)
+      })
+
+      const result = await window.electronAPI.invoke('aiAnalysis:chatStream', {
+        requestId,
+        message: userMessage,
+        context
+      })
+      applyFinalChatResult(streamId, result)
+      return result
+    } catch (error) {
+      updateStreamMessage(streamId, item => ({
+        ...item,
+        content: item.content || `AI 回复失败：${error.message}`,
+        streaming: false,
+        toolEvents: (item.toolEvents || []).map(tool => (
+          tool.status === 'loading' ? { ...tool, status: 'error', error: error.message } : tool
+        ))
+      }))
+      throw error
+    } finally {
+      if (listenerId) {
+        window.electronAPI.removeListener(listenerId)
+      }
+    }
+  }
+
   const handleSaveFromCard = async (cardData) => {
     try {
       const bestSol = cardData.bestSolution || {}
+      const source = cardData.bestSolution ? bestSol : cardData
+      const strength = cardData.strength || source.strength
+      const slump = cardData.slump || source.slump
+      const now = new Date()
+      const timestamp = now.toLocaleString('zh-CN', { hour12: false })
       const saveData = {
-        strengthGrade: cardData.strength,
-        slump: cardData.slump,
-        waterBinderRatio: cardData.waterRatio || bestSol.waterRatio,
-        sandRatio: cardData.sandRatio || bestSol.sandRatio,
+        name: `${strength || 'AI'}${cardData.bestSolution ? '成本优化方案' : '智能设计方案'} - ${timestamp}`,
+        projectName: 'AI智能设计',
+        strength,
+        slump,
+        waterRatio: source.waterRatio || cardData.waterRatio || bestSol.waterRatio,
+        sandRatio: source.sandRatio || cardData.sandRatio || bestSol.sandRatio,
+        density: source.density || cardData.density || bestSol.density,
+        materials: source.materials || cardData.materials || bestSol.materials,
+        materialCosts: source.materialCosts || cardData.materialCosts || bestSol.materialCosts,
+        totalCost: source.totalCost || cardData.totalCost || bestSol.totalCost,
+        materialDetails: source.selectedMaterials || cardData.selectedMaterials || bestSol.selectedMaterials,
+        fineAggregateBreakdown: source.fineAggregateBreakdown || cardData.fineAggregateBreakdown || bestSol.fineAggregateBreakdown,
+        coarseAggregateBreakdown: source.coarseAggregateBreakdown || cardData.coarseAggregateBreakdown || bestSol.coarseAggregateBreakdown,
         status: 'AI生成'
       }
-      await window.electronAPI.invoke('createMixDesign', saveData)
+      const result = await window.electronAPI.invoke('createMixDesign', saveData)
+      if (!result?.success) {
+        throw new Error(result?.error || '保存失败')
+      }
       message.success('方案已保存')
     } catch (error) {
       message.error('保存失败: ' + error.message)
     }
   }
 
-  const handleMaterialConfirm = async (selectedMaterials) => {
+  const handleMaterialConfirm = async (selectedMaterials, pickerId = null) => {
     // 设计模式：pendingMaterialPicker 为空，材料来自聊天消息中的 materialPicker
     if (!pendingMaterialPicker) {
       const grouped = {}
@@ -134,7 +384,7 @@ const SmartDesignChat = () => {
       }
       const parts = Object.entries(grouped).map(([type, names]) => `${type}：${names.join('、')}`)
       const summary = `我选择以下材料：${parts.join('；')}。请根据这些材料设计配合比。`
-      setMaterialSelectionDone(true)
+      markMaterialPickerDone(pickerId)
       setChatMessages(prev => [...prev, { role: 'user', content: summary }])
       setChatLoading(true)
       await handleDesignMode(summary, { selectedMaterials })
@@ -191,7 +441,6 @@ const SmartDesignChat = () => {
 
     if (nextQueue.length === 0) {
       const customPrompt = [pendingMaterialPicker.initialUserPrompt, ...summary].filter(Boolean).join('\n')
-      setMaterialSelectionDone(true)
       setChatInput(summary.join('；'))
       executeAnalysis(pendingMaterialPicker.mixDesigns, newMapping, { customPrompt })
       setPendingMaterialPicker(null)
@@ -233,7 +482,6 @@ const SmartDesignChat = () => {
           // 如果有未匹配的材料，自动弹出材料选择器
           if (result.unmatchedMaterials && result.unmatchedMaterials.size > 0) {
             const allMaterials = await getAllMaterials()
-            setMaterialSelectionDone(false)
             const perMixQueue = buildPerMixMaterialQueue(mixDesigns, materialMapping)
             if (perMixQueue.length === 0) {
               message.warning('存在未匹配材料但无法逐条定位，将按当前映射尝试分析')
@@ -342,7 +590,8 @@ const SmartDesignChat = () => {
       try {
         prepareResult = await window.electronAPI.invoke('analysis:prepare', {
           data: analysisDataBuilt,
-          customPrompt: (typeof effectivePrompt === 'string' ? effectivePrompt : '') || ''
+          customPrompt: (typeof effectivePrompt === 'string' ? effectivePrompt : '') || '',
+          selectedContrastMaterials: opts.selectedContrastMaterials || null
         })
         if (prepareResult.modes?.length > 0) {
           analysisModes = prepareResult.modes
@@ -358,20 +607,14 @@ const SmartDesignChat = () => {
           && prepareResult.material_contrast?.source === 'auto_detected') {
         // 多类材料同时变化，询问用户
         const changedMats = prepareResult.material_contrast.changed_materials
-        const matTypeLabels = {
-          cement: '水泥', flyAsh: '粉煤灰', slag: '矿渣粉',
-          lithiumSlag: '锂渣', compositePowder: '复合粉',
-          fineAggregate1: '细骨料1', fineAggregate2: '细骨料2',
-          coarseAggregate: '粗骨料', superplasticizer: '减水剂'
-        }
 
         const chatMsg = {
           role: 'assistant',
-          content: `检测到${changedMats.map(m => matTypeLabels[m] || m).join('、')}与之前不一致，请问需要对比哪种材料？`,
+          content: `检测到${changedMats.map(m => CONTRAST_MATERIAL_LABELS[m] || m).join('、')}与之前不一致，请问需要对比哪种材料？`,
           materialPicker: {
             type: 'contrast_selection',
             options: changedMats.map(mat => ({
-              label: matTypeLabels[mat] || mat,
+              label: CONTRAST_MATERIAL_LABELS[mat] || mat,
               value: mat
             })),
             multipleSelect: true,
@@ -381,7 +624,7 @@ const SmartDesignChat = () => {
                 // 不进行材料对比，仅做参数趋势
                 executeAnalysisWithModes(mixDesigns, materialMapping, effectivePrompt, {
                   modes: prepareResult.modes.filter(m => m !== 'material_contrast'),
-                  preprocessedData: prepareResult.preprocessedData
+                  preprocessedData: removeContrastData(prepareResult.preprocessedData)
                 })
               } else {
                 // 用户选择了对比材料
@@ -456,17 +699,7 @@ const SmartDesignChat = () => {
         mode: 'follow_up'
       }
 
-      const result = await window.electronAPI.invoke('aiAnalysis:chat', {
-        message: userMessage,
-        context
-      })
-
-      const chatMsg = {
-        role: 'assistant',
-        content: result.reply
-      }
-
-      setChatMessages(prev => [...prev, chatMsg])
+      await runStreamingChat(userMessage, context)
     } catch (error) {
       message.error('追问失败: ' + error.message)
     } finally {
@@ -477,57 +710,9 @@ const SmartDesignChat = () => {
   // 设计模式处理（原有些逻辑）
   const handleDesignMode = async (userMessage, extraContext = {}) => {
     try {
-      const result = await window.electronAPI.invoke('aiAnalysis:chat', {
-        message: userMessage,
-        context: { ...extraContext }
-      })
-
-      const chatMsg = { role: 'assistant', content: result.reply, toolCalls: null }
-
-      if (result.messages) {
-        const toolMsgs = result.messages.filter(m => m.role === 'tool')
-        // 合并所有工具调用返回的材料，去重（按id），避免只保留最后一次结果
-        const allMaterialsMap = new Map()
-        for (const toolMsg of toolMsgs) {
-          try {
-            const parsed = JSON.parse(toolMsg.content)
-            if (parsed.success && parsed.materials && parsed.materials.length > 0) {
-              for (const mat of parsed.materials) {
-                if (mat.id) {
-                  allMaterialsMap.set(mat.id, mat)
-                }
-              }
-            }
-          } catch (_) { /* ignore */ }
-        }
-        const allMaterials = [...allMaterialsMap.values()]
-        if (allMaterials.length > 0) {
-          chatMsg.materialPicker = { materials: allMaterials }
-        }
-        if (toolMsgs.length > 0) {
-          const lastToolResult = toolMsgs[toolMsgs.length - 1]
-          try {
-            const parsed = JSON.parse(lastToolResult.content)
-            if (parsed.type) {
-              chatMsg.toolCall = {
-                status: parsed.success ? 'done' : 'error',
-                type: parsed.type,
-                data: parsed.data || parsed
-              }
-            }
-          } catch (_) { /* ignore */ }
-        }
-      }
-
-      // 如果AI返回了分析意图，也显示在消息中
-      if (result.intent === 'analysis_mode') {
-        chatMsg.analysisIntent = true
-      }
-
-      setChatMessages(prev => [...prev, chatMsg])
+      await runStreamingChat(userMessage, { ...extraContext })
     } catch (error) {
       message.error('发送消息失败: ' + error.message)
-      setChatMessages(prev => prev.slice(0, -1))
       setChatLoading(false)
     } finally {
       setChatLoading(false)
@@ -570,7 +755,7 @@ const SmartDesignChat = () => {
     try {
       await window.electronAPI.invoke('aiAnalysis:clearHistory')
       setChatMessages([])
-      setMaterialSelectionDone(false)
+      setCompletedMaterialPickerIds(new Set())
       setAttachment(null)
       setAnalysisMode(false)
       setAnalysisData(null)
@@ -672,13 +857,20 @@ const SmartDesignChat = () => {
                           </Button>
                         </div>
                       )}
-                      {item.materialPicker && !materialSelectionDone && item.materialPicker.type !== 'contrast_selection' && (
-                        <MaterialPicker
-                          materials={item.materialPicker.materials || pendingMaterialPicker?.allMaterials}
-                          onConfirm={handleMaterialConfirm}
-                        />
+                      {item.toolEvents?.length > 0 && (
+                        <div style={{ marginBottom: 8 }}>
+                          {item.toolEvents.map(tool => (
+                            <ToolCallBubble
+                              key={tool.id}
+                              status={tool.status}
+                              toolName={tool.toolName}
+                              summary={tool.summary}
+                              error={tool.error}
+                            />
+                          ))}
+                        </div>
                       )}
-                      {item.toolCall?.status === 'loading' && (
+                      {!item.toolEvents?.length && item.toolCall?.status === 'loading' && (
                         <ToolCallBubble status="loading" toolName={item.toolCall.type} />
                       )}
                       {item.analysisReport && (
@@ -695,7 +887,7 @@ const SmartDesignChat = () => {
                           {item.options.map((opt, idx) => (
                             <Button key={idx} size="small" type="primary" onClick={() => {
                               if (opt === '手动选择材料' && pendingMaterialPicker) {
-                                setMaterialSelectionDone(true)
+                                setPendingMaterialPicker(null)
                               } else if (opt === '继续分析' && pendingMaterialPicker) {
                                 executeAnalysis(pendingMaterialPicker.mixDesigns, pendingMaterialPicker.materialMapping, { customPrompt: chatInput })
                                 setPendingMaterialPicker(null)
@@ -707,8 +899,14 @@ const SmartDesignChat = () => {
                         </div>
                       )}
                       <div className="chat-markdown-body">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content || (item.streaming ? 'AI 正在生成...' : '')}</ReactMarkdown>
                       </div>
+                      {item.materialPicker && !isMaterialPickerDone(item.materialPicker.pickerId) && item.materialPicker.type !== 'contrast_selection' && (
+                        <MaterialPicker
+                          materials={item.materialPicker.materials || pendingMaterialPicker?.allMaterials}
+                          onConfirm={(selectedMaterials) => handleMaterialConfirm(selectedMaterials, item.materialPicker.pickerId)}
+                        />
+                      )}
                     </div>
                   ) : (
                     <div className="smart-chat-bubble-user">
@@ -726,7 +924,7 @@ const SmartDesignChat = () => {
             )}
           />
         )}
-        {pendingMaterialPicker && !materialSelectionDone && (() => {
+        {pendingMaterialPicker && (() => {
           const q = buildPerMixMaterialQueue(
             pendingMaterialPicker.mixDesigns,
             pendingMaterialPicker.materialMapping
@@ -752,7 +950,7 @@ const SmartDesignChat = () => {
                   pendingMaterialPicker.allMaterials || [],
                   activeTokens
                 )}
-                onConfirm={handleMaterialConfirm}
+                onConfirm={(selectedMaterials) => handleMaterialConfirm(selectedMaterials)}
               />
             </div>
           )
@@ -779,7 +977,6 @@ const SmartDesignChat = () => {
               setAnalysisData(null)
               setAnalysisResult(null)
               setPendingMaterialPicker(null)
-              setMaterialSelectionDone(false)
             }} />
           </Tag>
         )}

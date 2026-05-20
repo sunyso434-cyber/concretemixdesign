@@ -1,96 +1,98 @@
 import json
-import re
 import os
-import tempfile
 from datetime import datetime
 
 
-def parse_xgboost_dump(dump_text):
-    trees = []
-    current_tree_lines = []
+def export_model_to_json(model, target_name, feature_names, feature_stats, args,
+                         y_mean=None):
+    """用 XGBoost trees_to_dataframe API 导出模型，确保预测与 Python 完全一致。
 
-    for line in dump_text.strip().splitlines():
-        line = line.rstrip()
-        if line.startswith("booster["):
-            if current_tree_lines:
-                trees.append(_parse_single_tree(current_tree_lines))
-            current_tree_lines = []
-        elif line:
-            current_tree_lines.append(line)
+    XGBoost 内部 base_weights 存储的是缩放前值，dump_model 的 leaf= 输出
+    才是实际用于预测的值。改用 trees_to_dataframe 的 Gain 字段，直接获取
+    每个叶节点在预测中使用的真实叶子值。
 
-    if current_tree_lines:
-        trees.append(_parse_single_tree(current_tree_lines))
+    同时正确处理 missing value：通过树的深度和节点关系推导。
+    """
+    booster = model.get_booster()
+    df_trees = booster.trees_to_dataframe()
 
-    return trees
-
-
-def _parse_single_tree(lines):
-    nodes = {}
-
-    for line in lines:
-        line = line.strip()
-        colon_pos = line.find(":")
-        if colon_pos == -1:
-            continue
-
-        node_id = int(line[:colon_pos])
-        rest = line[colon_pos + 1:]
-
-        if "leaf=" in rest:
-            leaf_val = re.search(r"leaf=([-\d.eE+]+)", rest)
-            nodes[node_id] = {"leaf": float(leaf_val.group(1)) if leaf_val else 0.0}
-        else:
-            node = {}
-
-            split_match = re.search(r"f(\d+)<([-\d.eE+]+)", rest)
-            if split_match:
-                node["split_feature"] = int(split_match.group(1))
-                node["split_condition"] = float(split_match.group(2))
-
-            yes_match = re.search(r"yes=(\d+)", rest)
-            if yes_match:
-                node["left"] = int(yes_match.group(1))
-
-            no_match = re.search(r"no=(\d+)", rest)
-            if no_match:
-                node["right"] = int(no_match.group(1))
-
-            missing_match = re.search(r"missing=(\d+)", rest)
-            if missing_match:
-                node["missing"] = int(missing_match.group(1))
-
-            nodes[node_id] = node
-
-    if not nodes:
-        return [{"leaf": 0.0}]
-
-    max_id = max(nodes.keys())
-    ordered = []
-    for i in range(max_id + 1):
-        if i in nodes:
-            ordered.append(nodes[i])
-        else:
-            ordered.append({"leaf": 0.0})
-
-    return ordered
-
-
-def export_model_to_json(model, target_name, feature_names, feature_stats, args):
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-        dump_path = f.name
-        model.get_booster().dump_model(dump_path)
-
-    with open(dump_path, "r", encoding="utf-8") as f:
-        dump_text = f.read()
-    os.unlink(dump_path)
-
-    trees = parse_xgboost_dump(dump_text)
-
+    # 获取 XGBoost 内部 base_score（回归中为目标均值）
+    config = json.loads(booster.save_config())
     base_score = 0.5
-    if hasattr(model, "get_params"):
-        params = model.get_params()
-        if "base_score" in params and params["base_score"] is not None:
-            base_score = float(params["base_score"])
+    try:
+        learner_params = config.get("learner", {}).get("learner_model_param", {})
+        bs_str = learner_params.get("base_score", "")
+        if bs_str:
+            bs_str = bs_str.strip("[]")
+            base_score = float(bs_str)
+        elif y_mean is not None:
+            base_score = float(y_mean)
+    except (ValueError, KeyError):
+        if y_mean is not None:
+            base_score = float(y_mean)
+
+    # 建立特征名到索引的映射
+    name_to_index = {name: idx for idx, name in enumerate(feature_names)}
+
+    # 按 Tree 分组构建树结构
+    tree_groups = df_trees.groupby("Tree")
+    trees = []
+
+    for tree_idx in range(len(tree_groups)):
+        tree_df = tree_groups.get_group(tree_idx)
+        max_node = tree_df["Node"].max()
+        nodes = [None] * (max_node + 1)
+
+        for _, row in tree_df.iterrows():
+            node_id = row["Node"]
+            feature = row["Feature"]
+
+            if feature == "Leaf":
+                # Gain 字段存储叶子在预测中的真实值
+                nodes[node_id] = {"leaf": round(float(row["Gain"]), 10)}
+            else:
+                split_feature = name_to_index.get(feature)
+                if split_feature is None:
+                    import re
+                    m = re.search(r"(\d+)", feature)
+                    if m:
+                        split_feature = int(m.group(1))
+
+                # 解析 Yes/No/Missing 节点 ID（如 "0-3" -> 3）
+                yes_id = int(row["Yes"].split("-")[1])
+                no_id = int(row["No"].split("-")[1])
+                missing_id = int(row["Missing"].split("-")[1])
+
+                nodes[node_id] = {
+                    "split_feature": split_feature,
+                    "split_condition": round(float(row["Split"]), 10),
+                    "left": yes_id,
+                    "right": no_id,
+                    "missing": missing_id,
+                }
+
+        # 填充空位（按 XGBoost 格式，应为 leaf=0 的节点）
+        for i in range(len(nodes)):
+            if nodes[i] is None:
+                nodes[i] = {"leaf": 0.0}
+
+        trees.append(nodes)
+
+    # Validate: 非叶节点必须有 split_feature
+    total_non_leaf = 0
+    broken_nodes = 0
+    for tree in trees:
+        for node in tree:
+            if "leaf" not in node:
+                total_non_leaf += 1
+                if "split_feature" not in node:
+                    broken_nodes += 1
+
+    if total_non_leaf > 0 and broken_nodes > 0:
+        raise RuntimeError(
+            f"Model validation failed: {broken_nodes}/{total_non_leaf} non-leaf nodes "
+            f"missing split_feature."
+        )
 
     output = {
         "model_version": "1.0",
@@ -99,7 +101,7 @@ def export_model_to_json(model, target_name, feature_names, feature_stats, args)
         "feature_names": feature_names,
         "trees": trees,
         "learning_rate": args.learning_rate,
-        "base_score": base_score,
+        "base_score": round(base_score, 4),
         "feature_stats": feature_stats,
         "training_info": {
             "samples": int(feature_stats.get("_total_samples", 0)),

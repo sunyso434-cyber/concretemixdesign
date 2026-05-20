@@ -10,6 +10,23 @@ class MixDesignService_Aggregate {
     return Number.isFinite(parsed) ? parsed : 0
   }
 
+  /**
+   * 由各级筛孔累计筛余计算细度模数（JGJ 52-2006）
+   * 与前端 materialFieldsConfig.calculateFinenessModulus 保持一致
+   */
+  finenessModulusFromCumulativeRetained(combinedSieve) {
+    const get = (k) => parseFloat(combinedSieve && combinedSieve[k]) || 0
+    const a1 = get('sieve_4_75')
+    const a2 = get('sieve_2_36')
+    const a3 = get('sieve_1_18')
+    const a4 = get('sieve_0_60')
+    const a5 = get('sieve_0_30')
+    const a6 = get('sieve_0_15')
+    const denominator = 100 - a1
+    if (denominator === 0) return 0
+    return (a2 + a3 + a4 + a5 + a6 - 5 * a1) / denominator
+  }
+
   // 从粗骨料规格中提取最大粒径
   extractMaxAggregateSize(specification) {
     if (!specification) return 20 // 默认值
@@ -114,9 +131,7 @@ class MixDesignService_Aggregate {
             combinedMbValue += (aggregate.mbValue || 0.5) * ratio
           }
 
-          // 细度模数 = 各级筛余累计百分数之和 / 100
-          const sieveSum = sieveKeys.reduce((s, k) => s + (combinedSieve[k] || 0), 0)
-          combinedFinenessModulus = sieveSum / 100
+          combinedFinenessModulus = this.finenessModulusFromCumulativeRetained(combinedSieve)
         } else {
           // 回退：按各砂的细度模数加权平均
           for (let i = 0; i < fineAggregates.length; i++) {

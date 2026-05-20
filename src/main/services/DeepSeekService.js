@@ -254,6 +254,13 @@ class DeepSeekService {
     this.conversationHistory = []
   }
 
+  async chatStream(message, context = null, options = {}) {
+    return this.chat(message, context, {
+      ...options,
+      stream: true
+    })
+  }
+
   /**
    * 调用 DeepSeek API 发送请求
    * @param {Array} messages - 消息列表
@@ -265,9 +272,7 @@ class DeepSeekService {
       model: 'deepseek-v4-flash',
       messages,
       max_tokens: 32768,
-      extra_body: {
-        thinking: { type: 'enabled' }
-      }
+      thinking: { type: 'enabled' }
     }
     if (includeTools) {
       requestBody.tools = TOOLS
@@ -284,6 +289,139 @@ class DeepSeekService {
     return response.data.choices[0].message
   }
 
+  async _callAPIStream(messages, includeTools = false, onEvent = null) {
+    const requestBody = {
+      model: 'deepseek-v4-flash',
+      messages,
+      max_tokens: 32768,
+      stream: true,
+      thinking: { type: 'enabled' }
+    }
+    if (includeTools) {
+      requestBody.tools = TOOLS
+    }
+
+    const response = await axios.post(DEEPSEEK_API_URL, requestBody, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`
+      },
+      responseType: 'stream',
+      timeout: 120000
+    })
+
+    return new Promise((resolve, reject) => {
+      let buffer = ''
+      const finalMessage = { role: 'assistant', content: '' }
+      const toolCallMap = new Map()
+
+      const mergeToolCallDelta = (deltaToolCall) => {
+        const index = deltaToolCall.index || 0
+        const existing = toolCallMap.get(index) || {
+          id: deltaToolCall.id || `tool-call-${index}`,
+          type: deltaToolCall.type || 'function',
+          function: { name: '', arguments: '' }
+        }
+
+        if (deltaToolCall.id) existing.id = deltaToolCall.id
+        if (deltaToolCall.type) existing.type = deltaToolCall.type
+        if (deltaToolCall.function?.name) {
+          existing.function.name += deltaToolCall.function.name
+        }
+        if (deltaToolCall.function?.arguments) {
+          existing.function.arguments += deltaToolCall.function.arguments
+        }
+
+        toolCallMap.set(index, existing)
+      }
+
+      const handlePayload = (payload) => {
+        if (!payload || payload === '[DONE]') return
+
+        let parsed
+        try {
+          parsed = JSON.parse(payload)
+        } catch (_) {
+          return
+        }
+
+        const delta = parsed.choices?.[0]?.delta || {}
+        if (delta.reasoning_content) {
+          finalMessage.reasoning_content = (finalMessage.reasoning_content || '') + delta.reasoning_content
+        }
+        if (delta.content) {
+          finalMessage.content += delta.content
+          if (onEvent) {
+            onEvent({ type: 'text_delta', content: delta.content })
+          }
+        }
+
+        if (Array.isArray(delta.tool_calls)) {
+          for (const toolCallDelta of delta.tool_calls) {
+            mergeToolCallDelta(toolCallDelta)
+          }
+        }
+      }
+
+      response.data.on('data', chunk => {
+        buffer += chunk.toString('utf8')
+        const events = buffer.split('\n\n')
+        buffer = events.pop() || ''
+
+        for (const eventText of events) {
+          const lines = eventText.split('\n')
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (trimmed.startsWith('data:')) {
+              handlePayload(trimmed.slice(5).trim())
+            }
+          }
+        }
+      })
+
+      response.data.on('end', () => {
+        if (buffer.trim()) {
+          const lines = buffer.split('\n')
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (trimmed.startsWith('data:')) {
+              handlePayload(trimmed.slice(5).trim())
+            }
+          }
+        }
+
+        const toolCalls = Array.from(toolCallMap.values())
+          .filter(tc => tc.function?.name)
+        if (toolCalls.length > 0) {
+          finalMessage.tool_calls = toolCalls
+        }
+        resolve(finalMessage)
+      })
+
+      response.data.on('error', reject)
+    })
+  }
+
+  /**
+   * 读取错误响应体（兼容 Stream / JSON / 字符串三种格式）
+   */
+  async _readErrorBody(data) {
+    if (!data) return null
+    // Stream 对象（流式请求返回 400 时 error.response.data 是 ReadableStream）
+    if (typeof data.on === 'function') {
+      return new Promise((resolve) => {
+        let chunks = ''
+        data.on('data', chunk => { chunks += chunk.toString('utf8') })
+        data.on('end', () => {
+          try { resolve(JSON.parse(chunks)) } catch (_) { resolve(chunks) }
+        })
+        data.on('error', () => resolve(null))
+      })
+    }
+    // 已经是对象或字符串
+    return data
+  }
+
   /**
    * 与AI对话（支持 Function Calling 工具调用循环）
    * @param {string} message - 用户消息
@@ -297,7 +435,7 @@ class DeepSeekService {
       throw new Error('DeepSeek API密钥未配置')
     }
 
-    const { toolExecutor, rawMode, systemPrompt: customSystemPrompt } = options
+    const { toolExecutor, rawMode, systemPrompt: customSystemPrompt, stream, onEvent } = options
 
     let systemPrompt
     if (rawMode) {
@@ -393,7 +531,9 @@ class DeepSeekService {
 
     try {
       // First API call (with tools if toolExecutor provided)
-      let aiMessage = await this._callAPI(messages, !!toolExecutor)
+      let aiMessage = stream
+        ? await this._callAPIStream(messages, !!toolExecutor, onEvent)
+        : await this._callAPI(messages, !!toolExecutor)
 
       // Tool call loop
       const MAX_TOOL_ROUNDS = 5
@@ -408,11 +548,30 @@ class DeepSeekService {
         // Execute each tool call and add results
         for (const tc of aiMessage.tool_calls) {
           let toolResult
+          let args = {}
           try {
-            const args = JSON.parse(tc.function.arguments)
+            args = JSON.parse(tc.function.arguments)
+            if (onEvent) {
+              onEvent({
+                type: 'tool_start',
+                toolCallId: tc.id,
+                toolName: tc.function.name,
+                args
+              })
+            }
             toolResult = await toolExecutor(tc.function.name, args)
           } catch (execError) {
             toolResult = { success: false, error: `工具执行失败: ${execError.message}` }
+          }
+          if (onEvent) {
+            onEvent({
+              type: toolResult?.success === false ? 'tool_error' : 'tool_done',
+              toolCallId: tc.id,
+              toolName: tc.function.name,
+              args,
+              result: toolResult,
+              error: toolResult?.error
+            })
           }
           messages.push({
             role: 'tool',
@@ -422,14 +581,20 @@ class DeepSeekService {
         }
 
         // Call API again (always include tools when in tool loop)
-        aiMessage = await this._callAPI(messages, true)
+        aiMessage = stream
+          ? await this._callAPIStream(messages, true, onEvent)
+          : await this._callAPI(messages, true)
       }
 
       const content = aiMessage.content || '（AI 未返回文本内容）'
 
       if (!rawMode) {
         this.conversationHistory.push({ role: 'user', content: userMessage })
-        this.conversationHistory.push({ role: 'assistant', content: content })
+        const assistantMsg = { role: 'assistant', content: content }
+        if (aiMessage.reasoning_content) {
+          assistantMsg.reasoning_content = aiMessage.reasoning_content
+        }
+        this.conversationHistory.push(assistantMsg)
       }
 
       return {
@@ -446,7 +611,14 @@ class DeepSeekService {
         } else if (status === 429) {
           throw new Error('DeepSeek API请求频率超限，请稍后重试')
         } else {
-          throw new Error(`DeepSeek API错误: ${data.error?.message || status}`)
+          let errDetail = ''
+          try {
+            const body = await this._readErrorBody(data)
+            errDetail = (body && typeof body === 'object')
+              ? (body.error?.message || JSON.stringify(body))
+              : (typeof body === 'string' && body ? body.substring(0, 500) : '')
+          } catch (_) { /* 读取失败，使用默认提示 */ }
+          throw new Error(`DeepSeek API错误(${status}): ${errDetail || '请检查请求参数'}`)
         }
       } else if (error.code === 'ECONNABORTED') {
         throw new Error('DeepSeek API请求超时，请检查网络连接')
@@ -829,9 +1001,7 @@ ${diagnosisText}
             { role: 'user', content: userPrompt }
           ],
           max_tokens: 32768,
-          extra_body: {
-            thinking: { type: 'enabled' }
-          }
+          thinking: { type: 'enabled' }
         },
         {
           headers: {
@@ -853,7 +1023,14 @@ ${diagnosisText}
         } else if (status === 429) {
           throw new Error('DeepSeek API请求频率超限，请稍后重试')
         } else {
-          throw new Error(`DeepSeek API错误: ${data.error?.message || status}`)
+          let errDetail = ''
+          try {
+            const body = await this._readErrorBody(data)
+            errDetail = (body && typeof body === 'object')
+              ? (body.error?.message || JSON.stringify(body))
+              : (typeof body === 'string' && body ? body.substring(0, 500) : '')
+          } catch (_) { /* 读取失败，使用默认提示 */ }
+          throw new Error(`DeepSeek API错误(${status}): ${errDetail || '请检查请求参数'}`)
         }
       } else if (error.code === 'ECONNABORTED') {
         throw new Error('DeepSeek API请求超时，请检查网络连接')
