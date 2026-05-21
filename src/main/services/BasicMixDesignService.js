@@ -78,11 +78,16 @@ async function getBasicMixDesignById(id) {
   return await BasicMixDesign.findByPk(id)
 }
 
+async function findById(id) {
+  return await BasicMixDesign.findByPk(id)
+}
+
 module.exports = {
   createBasicMixDesign,
   updateBasicMixDesign,
   listBasicMixDesigns,
   findDefaultMix,
   deleteBasicMixDesign,
-  getBasicMixDesignById
+  getBasicMixDesignById,
+  findById
 }

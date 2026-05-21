@@ -28,6 +28,35 @@ class SalesQuoteHandler {
       }
     })
 
+    ipcMain.handle('salesQuote:updateBasicMixDesign', async (_, { id, data }) => {
+      try {
+        const row = await BasicMixDesignService.updateBasicMixDesign(id, data)
+        return { success: true, data: row.toJSON() }
+      } catch (error) {
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('salesQuote:deleteBasicMixDesign', async (_, id) => {
+      try {
+        await BasicMixDesignService.deleteBasicMixDesign(id)
+        return { success: true }
+      } catch (error) {
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('salesQuote:setDefaultBasicMixDesign', async (_, id) => {
+      try {
+        const row = await BasicMixDesignService.findById(id)
+        if (!row) return { success: false, error: '基础配合比不存在' }
+        await BasicMixDesignService.updateBasicMixDesign(id, { isDefault: true, strengthGrade: row.strengthGrade, concreteType: row.concreteType })
+        return { success: true }
+      } catch (error) {
+        return { success: false, error: error.message }
+      }
+    })
+
     ipcMain.handle('salesQuote:listRules', async () => {
       try {
         return { success: true, data: await SalesQuoteRuleService.listRules() }
