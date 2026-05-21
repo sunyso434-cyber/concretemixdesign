@@ -60,6 +60,8 @@ const MixDesign = require('./models/MixDesign')
 const SystemParam = require('./models/SystemParam')
 const OptimizationHistory = require('./models/OptimizationHistory')
 const InsulationMaterial = require('./models/InsulationMaterial')
+const BasicMixDesign = require('./models/BasicMixDesign')
+const SalesQuoteRule = require('./models/SalesQuoteRule')
 
 // 默认保温材料数据
 const defaultInsulationMaterials = [
@@ -131,6 +133,15 @@ async function syncModels() {
     await InsulationMaterial.bulkCreate(defaultInsulationMaterials)
     console.log('默认保温材料数据已初始化')
   }
+
+  // 检查并初始化默认销售报价规则
+  try {
+    const SalesQuoteRuleService = require('../services/SalesQuoteRuleService')
+    await SalesQuoteRuleService.initDefaultRules()
+    console.log('销售报价默认规则已初始化')
+  } catch (error) {
+    console.error('销售报价默认规则初始化失败:', error)
+  }
 }
 
 // 导出sequelize实例、关闭函数、同步函数和所有模型
@@ -141,3 +152,5 @@ module.exports.MixDesign = MixDesign
 module.exports.SystemParam = SystemParam
 module.exports.OptimizationHistory = OptimizationHistory
 module.exports.InsulationMaterial = InsulationMaterial
+module.exports.BasicMixDesign = BasicMixDesign
+module.exports.SalesQuoteRule = SalesQuoteRule
