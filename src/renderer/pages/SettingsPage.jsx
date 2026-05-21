@@ -12,7 +12,7 @@ import { PARAM_CONFIG, PARAM_TABS } from '../config/paramConfig'
 
 const { Text, Paragraph } = Typography
 
-const TAB_KEYS = ['使用帮助', 'JGJ55标准', '系统设置', '备份设置', 'AI设置']
+const TAB_KEYS = ['使用帮助', 'JGJ55标准', '备份设置', 'AI设置', '销售报价', '系统设置']
 
 const SettingsPage = () => {
   const [params, setParams] = useState([])
@@ -183,7 +183,8 @@ const SettingsPage = () => {
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}
-          items={TAB_KEYS.map(key => ({
+          items={[
+          ...TAB_KEYS.map(key => ({
             key,
             label: key,
             children: key === '使用帮助' ? <HelpContent /> : (
@@ -228,35 +229,47 @@ const SettingsPage = () => {
                 </div>
               </div>
             ),
-          }))}
+          })),
+          // 销售报价标签页
+          {
+            key: '销售报价',
+            label: '销售报价',
+            children: <SalesQuoteSettings />,
+          },
+          // 系统设置标签页 - 包含数据管理和关于系统
+          {
+            key: '系统设置',
+            label: '系统设置',
+            children: (
+              <div>
+                <Card title="数据管理">
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    <Text type="secondary">操作会覆盖现有数据，建议操作前先备份数据库</Text>
+                    <Space wrap>
+                      <Button type="primary" icon={<SaveOutlined />} onClick={handleBackup}>
+                        备份数据库
+                      </Button>
+                      <Button icon={<ReloadOutlined />} onClick={handleRestore}>
+                        恢复数据库
+                      </Button>
+                      <Button icon={<DownloadOutlined />} onClick={() => setExportWizardVisible(true)}>
+                        导出数据
+                      </Button>
+                      <Button icon={<UploadOutlined />} onClick={() => setImportWizardVisible(true)}>
+                        导入数据
+                      </Button>
+                    </Space>
+                  </Space>
+                </Card>
+                <Card title="关于系统" style={{ marginTop: 16 }}>
+                  <AppVersionInfo />
+                </Card>
+              </div>
+            ),
+          },
+        ]}
         />
       </Card>
-
-      <Card className="custom-card mb-lg" title="数据管理">
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Text type="secondary">操作会覆盖现有数据，建议操作前先备份数据库</Text>
-          <Space wrap>
-            <Button type="primary" icon={<SaveOutlined />} onClick={handleBackup}>
-              备份数据库
-            </Button>
-            <Button icon={<ReloadOutlined />} onClick={handleRestore}>
-              恢复数据库
-            </Button>
-            <Button icon={<DownloadOutlined />} onClick={() => setExportWizardVisible(true)}>
-              导出数据
-            </Button>
-            <Button icon={<UploadOutlined />} onClick={() => setImportWizardVisible(true)}>
-              导入数据
-            </Button>
-          </Space>
-        </Space>
-      </Card>
-
-      <Card className="custom-card" title="关于系统">
-        <AppVersionInfo />
-      </Card>
-
-      <SalesQuoteSettings />
 
       {exportWizardVisible && (
         <ExportWizard onClose={() => setExportWizardVisible(false)} />
