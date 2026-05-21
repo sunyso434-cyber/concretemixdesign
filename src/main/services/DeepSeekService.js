@@ -571,6 +571,10 @@ class DeepSeekService {
 - 用户询问报价、对客户解释特种混凝土、为什么贵、怎么报价时，进入销售报价流程。
 - 先调用 prepare_sales_quote_draft，不能直接编造报价。
 - 系统必须给建议值，让销售确认。销售可回复"按建议值生成"。
+- **严格禁止**：在销售报价场景下，不能自动调用 list_available_materials、calculate_mix_design、optimize_mix_cost、compare_materials、predict_performance 等工具。
+- 如果没有基础配合比，必须停下来告诉用户：
+  "没有找到 XX 强度 XX 类型 的基础配合比。请选择已有基础配合比，或明确授权后我会帮您生成新配合比。"
+  **禁止自动生成配合比、禁止替用户选择材料。**
 - 报价统一为单方价格，不能询问数量，不能输出总金额。
 - 运输费、泵送费、税费默认计入；税费默认按13%增值税。
 - 特种混凝土额外费用统一叫技术服务费。`
