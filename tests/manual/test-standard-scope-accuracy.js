@@ -461,6 +461,35 @@ const tests = [
     }
   },
   {
+    name: 'StandardClauseNormalizer 引用标准但带明确限值时仍生成审查规则',
+    run() {
+      const result = normalizeClause({
+        title: '引用标准和明确限值',
+        parameters: [{ name: '水胶比', value: '0.45' }],
+        rule: '水胶比应符合 GB 50010 规定，且不得大于0.45。'
+      })
+
+      assert.strictEqual(result.clauseRole, 'review_rule')
+      assert.strictEqual(result.limitRules.length, 1)
+      assert.strictEqual(result.limitRules[0].targetField, 'waterBinderRatio')
+      assert.strictEqual(result.limitRules[0].operator, '<=')
+      assert.strictEqual(result.limitRules[0].limitValue, 0.45)
+    }
+  },
+  {
+    name: 'StandardClauseNormalizer 标准编号短横线不应被当作明确限值',
+    run() {
+      const result = normalizeClause({
+        title: '试验标准引用',
+        rule: '混凝土拌合物性能试验应符合 GB/T 50080-2016 规定。'
+      })
+
+      assert.strictEqual(result.clauseRole, 'reference_requirement')
+      assert.strictEqual(result.limitRules.length, 0)
+      assert.strictEqual(result.manualReviewReason, undefined)
+    }
+  },
+  {
     name: 'StandardClauseNormalizer buildQualitySummary 统计质量摘要',
     run() {
       const summary = buildQualitySummary([

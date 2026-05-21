@@ -4,7 +4,8 @@ const ROLE = {
   DEFINITION: 'definition',
   TEST_METHOD: 'test_method',
   REFERENCE_REQUIREMENT: 'reference_requirement',
-  MANAGEMENT_REQUIREMENT: 'management_requirement'
+  MANAGEMENT_REQUIREMENT: 'management_requirement',
+  INFORMATIONAL: 'informational'
 }
 
 const FIELD_KEYWORDS = [
@@ -75,6 +76,39 @@ const detectTargetField = (name) => {
 
 const isMaterialText = (text) => (
   /(水泥|粉煤灰|矿渣|锂渣|外加剂|骨料|材料|原材料|氯离子|云母|含泥量|泥块含量)/.test(text)
+)
+
+const hasFieldKeyword = (text) => (
+  FIELD_KEYWORDS.some(item => item.keywords.some(keyword => text.includes(keyword)))
+)
+
+const hasLimitSignal = (text) => (
+  !/(适用范围|閫傜敤鑼冨洿)/.test(text) &&
+  /(不得|不应|不宜|不小于|不大于|不低于|不高于|不超过|不得超过|应控制|控制在|最大|最小|限值|上限|下限|范围|掺量|用量|含量|水胶比|水灰比|砂率|坍落度|含气量|胶凝材料|氯离子|含泥量|云母|涓嶅緱|涓嶅簲|搴旀帶鍒?|鎺у埗|鏈€澶?|鏈€灏?|闄愬€?|涓婇檺|涓嬮檺|鑼冨洿|鎺洪噺|鐢ㄩ噺|鍚噺|姘磋兌姣?|姘寸伆姣?|鐮傜巼|鍧嶈惤搴?|鍚皵閲?|鑳跺嚌鏉愭枡|姘瀛?|鍚偿閲?|浜戞瘝)/.test(text)
+)
+
+const hasLimitIntent = (text) => (
+  hasLimitSignal(text) || (
+    hasFieldKeyword(text) &&
+    /(应|宜|符合|满足|要求|控制|采用|确定|搴?|瀹?|绗﹀悎|婊¤冻|瑕佹眰|鎺у埗|閲囩敤|纭畾)/.test(text)
+  )
+)
+
+const hasExplicitNumericLimit = (text) => {
+  const withoutStandardCodes = toText(text).replace(
+    /\b(?:GB\/T|GB|JGJ|JTG|JT\/T|TB|SL|DL|CECS|T\/)\s*[\dA-Z/-]+/gi,
+    ''
+  )
+
+  return (
+    /(?:<=|>=|<|>|≤|≥|鈮鈮鈮鈮|不得大于|不应大于|不大于|不超过|不得超过|最大|上限|不得小于|不应小于|不小于|不低于|最小|下限|范围|~|至|到)\s*\d+(?:\.\d+)?\s*%?/.test(withoutStandardCodes) ||
+    /\d+(?:\.\d+)?\s*%?\s*(?:~|-|至|到)\s*\d+(?:\.\d+)?\s*%?/.test(withoutStandardCodes)
+  )
+}
+
+const isInformationalText = (text) => (
+  /(适用范围|本规范适用于|本规程适用于|本标准适用于|总则|术语|符号|分类|一般规定|编制目的|为了|说明|可分为|分为|包括|由.*组成|閫傜敤鑼冨洿|鏈鑼冮€傜敤|鏈绋嬮€傜敤|鏈爣鍑嗛€傜敤|鎬诲垯|鏈|绗﹀彿|鍒嗙被|涓€鑸瀹?|缂栧埗鐩殑|涓轰簡|璇存槑|鍙垎涓?|鍒嗕负|鍖呮嫭|鐢?.*缁勬垚)/.test(text) &&
+  !hasLimitIntent(text)
 )
 
 const normalizeCompleteLimitRule = (rule) => {
@@ -223,22 +257,33 @@ const parseLimit = (rawValue, rawName, rawRule) => {
 }
 
 const hasReferenceOnlyRequirement = (text) => (
-  /(?:应符合|符合|按).*(?:GB|JGJ|JTG|JT\/T|TB|SL|DL|CECS|T\/)\s*[\dA-Z/-]*/i.test(text) ||
-  /(?:应符合|符合|按).*(?:现行|有关|相关).*(?:标准|规范|规程)(?:规定|要求|执行)?/.test(text)
+  !hasExplicitNumericLimit(text) &&
+  (
+    /(?:应符合|符合|按).*(?:GB\/T|GB|JGJ|JTG|JT\/T|TB|SL|DL|CECS|T\/)\s*[\dA-Z/-]*/i.test(text) ||
+    /(?:应符合|符合|按).*(?:现行|有关|相关).*(?:标准|规范|规程)(?:规定|要求|执行)?/.test(text)
+  )
 )
 
 const detectClauseRole = (clause, text) => {
   const explicitRole = clause.clauseRole || clause.role || clause.type
-  if (Object.values(ROLE).includes(explicitRole) && explicitRole !== ROLE.REVIEW_RULE) return explicitRole
+  if (
+    explicitRole &&
+    Object.values(ROLE).includes(explicitRole) &&
+    explicitRole !== ROLE.REVIEW_RULE &&
+    explicitRole !== ROLE.MATERIAL_REQUIREMENT
+  ) {
+    return explicitRole
+  }
 
-  if (/(定义|术语|称为|是指|以下简称|本规程所称)/.test(text)) return ROLE.DEFINITION
-  if (/(试验方法|检测方法|测定方法|取样|试件|试验应按|按.+试验)/.test(text)) return ROLE.TEST_METHOD
+  if (/(定义|术语|称为|是指|以下简称|本规范所称|瀹氫箟|鏈|绉颁负|鏄寚|浠ヤ笅绠€绉皘鏈绋嬫墍绉?)/.test(text)) return ROLE.DEFINITION
+  if (/(试验方法|检测方法|测定方法|取样|试件|试验应按|按.+试验|成型|养护|检测|璇曢獙鏂规硶|妫€娴嬫柟娉晐娴嬪畾鏂规硶|鍙栨牱|璇曚欢|璇曢獙搴旀寜|鎸.*璇曢獙)/.test(text)) return ROLE.TEST_METHOD
   if (hasReferenceOnlyRequirement(text)) return ROLE.REFERENCE_REQUIREMENT
-  if (/(资料|台账|记录|验收|报审|审批|管理|施工组织|质量管理|人员|制度)/.test(text)) return ROLE.MANAGEMENT_REQUIREMENT
-  if (explicitRole === ROLE.MATERIAL_REQUIREMENT) return ROLE.MATERIAL_REQUIREMENT
-  if (explicitRole === ROLE.REVIEW_RULE) return ROLE.REVIEW_RULE
-  if (isMaterialText(text)) return ROLE.MATERIAL_REQUIREMENT
-  return ROLE.REVIEW_RULE
+  if (/(资料|台账|记录|验收|报审|审批|管理|施工组织|质量管理|人员|制度|璧勬枡|鍙拌处|璁板綍|楠屾敹|鎶ュ|瀹℃壒|绠＄悊|鏂藉伐缁勭粐|璐ㄩ噺绠＄悊|浜哄憳|鍒跺害)/.test(text)) return ROLE.MANAGEMENT_REQUIREMENT
+  if (isInformationalText(text)) return ROLE.INFORMATIONAL
+  if (explicitRole === ROLE.MATERIAL_REQUIREMENT) return hasLimitIntent(text) ? ROLE.MATERIAL_REQUIREMENT : ROLE.INFORMATIONAL
+  if (explicitRole === ROLE.REVIEW_RULE) return hasLimitIntent(text) ? ROLE.REVIEW_RULE : ROLE.INFORMATIONAL
+  if (isMaterialText(text)) return hasLimitIntent(text) ? ROLE.MATERIAL_REQUIREMENT : ROLE.INFORMATIONAL
+  return hasLimitIntent(text) ? ROLE.REVIEW_RULE : ROLE.INFORMATIONAL
 }
 
 const detectEnvironment = (text) => {
@@ -329,14 +374,15 @@ const normalizeClause = (clause = {}) => {
   }
 
   if (clauseRole === ROLE.REFERENCE_REQUIREMENT) {
-    normalized.manualReviewReason = '该条款引用其他标准或规范要求，未给出可直接计算的限值，需要人工查看被引用标准后判断。'
+    delete normalized.manualReviewReason
     return normalized
   }
 
   if (
     clauseRole === ROLE.DEFINITION ||
     clauseRole === ROLE.TEST_METHOD ||
-    clauseRole === ROLE.MANAGEMENT_REQUIREMENT
+    clauseRole === ROLE.MANAGEMENT_REQUIREMENT ||
+    clauseRole === ROLE.INFORMATIONAL
   ) {
     return normalized
   }
@@ -360,11 +406,11 @@ const normalizeClause = (clause = {}) => {
       .filter(Boolean)
   }
 
-  if (clauseRole === ROLE.MATERIAL_REQUIREMENT && normalized.limitRules.length === 0) {
+  if (clauseRole === ROLE.MATERIAL_REQUIREMENT && normalized.limitRules.length === 0 && hasLimitIntent(text)) {
     normalized.manualReviewReason = '该材料要求未识别到明确数值限值，不能直接自动判定，需要人工核对材料指标要求。'
   }
 
-  if (clauseRole === ROLE.REVIEW_RULE && normalized.limitRules.length === 0) {
+  if (clauseRole === ROLE.REVIEW_RULE && normalized.limitRules.length === 0 && hasLimitIntent(text)) {
     normalized.manualReviewReason = '该审查规则未识别到可直接计算的明确限值，需要人工复核后再判断。'
   }
 
@@ -382,7 +428,8 @@ const buildQualitySummary = (clauses) => {
     totalClauses: normalizedClauses.length,
     normalizedRuleClauses: normalizedClauses.filter(clause => clause.clauseRole === ROLE.REVIEW_RULE && clause.limitRules.length > 0).length,
     definitionClauses: normalizedClauses.filter(clause => clause.clauseRole === ROLE.DEFINITION).length,
-    referenceOnlyClauses: normalizedClauses.filter(clause => clause.clauseRole === ROLE.REFERENCE_REQUIREMENT).length
+    referenceOnlyClauses: normalizedClauses.filter(clause => clause.clauseRole === ROLE.REFERENCE_REQUIREMENT).length,
+    informationalClauses: normalizedClauses.filter(clause => clause.clauseRole === ROLE.INFORMATIONAL).length
   }
 }
 
@@ -392,5 +439,6 @@ module.exports = {
   normalizeClauses,
   buildQualitySummary,
   parseLimit,
-  detectTargetField
+  detectTargetField,
+  hasLimitIntent
 }
