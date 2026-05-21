@@ -685,6 +685,7 @@ const tests = [
 
       assert.strictEqual(result.ruleResults.length, 0)
       assert.strictEqual(result.manualReviewItems.length, 0)
+      assert.strictEqual(result.filteredClauseCounts.reference_requirement, 1)
     }
   },
   {
@@ -701,6 +702,7 @@ const tests = [
 
       assert.strictEqual(result.ruleResults.length, 0)
       assert.strictEqual(result.manualReviewItems.length, 0)
+      assert.strictEqual(result.filteredClauseCounts.informational, 1)
     }
   },
   {
@@ -765,6 +767,19 @@ const tests = [
 
       assert.strictEqual(merged.length, 1)
       assert.strictEqual(merged[0].section, '5.2.1')
+    }
+  },
+  {
+    name: 'StandardComplianceService fallback report keeps filtered clause counts',
+    run() {
+      const service = new StandardComplianceService({ apiKey: 'test' })
+      const report = service._buildFallbackReport([], { strength: 'C30' }, [], null, {
+        informational: 3,
+        reference_requirement: 2
+      })
+
+      assert.strictEqual(report.filteredClauseCounts.informational, 3)
+      assert.strictEqual(report.filteredClauseCounts.reference_requirement, 2)
     }
   }
 ]

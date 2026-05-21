@@ -180,8 +180,10 @@ class StandardComplianceService {
       }
 
       // 过滤掉没有 embedding 的条款
-      const clausesWithEmbedding = clauses.filter(c => c.embedding && c.embedding.length > 0)
-      const clausesWithoutEmbedding = clauses.filter(c => !c.embedding || c.embedding.length === 0)
+      const normalizedClauses = this._normalizeClausesForReview(clauses)
+      const reviewableClauses = normalizedClauses.filter(clause => ComplianceRuleEngine.isReviewableClause(clause))
+      const clausesWithEmbedding = reviewableClauses.filter(c => c.embedding && c.embedding.length > 0)
+      const clausesWithoutEmbedding = reviewableClauses.filter(c => !c.embedding || c.embedding.length === 0)
 
       // 第二步：构建查询文本
       console.log('[StandardCompliance] 正在构建查询文本...')
@@ -204,10 +206,10 @@ class StandardComplianceService {
 
       // 第五步：结构化规则匹配
       console.log('[StandardCompliance] 正在执行规则匹配...')
-      const allRuleClauses = [...clausesWithEmbedding, ...clausesWithoutEmbedding]
-      const deterministic = ComplianceRuleEngine.evaluateClauses(mixDesign, allRuleClauses)
+      const deterministic = ComplianceRuleEngine.evaluateClauses(mixDesign, normalizedClauses)
       const ruleResults = deterministic.ruleResults
       const manualReviewItems = deterministic.manualReviewItems
+      const filteredClauseCounts = deterministic.filteredClauseCounts || {}
 
       // 第六步：合并去重（规则匹配优先）
       const mergedResults = this._mergeResults(vectorResults, ruleResults)
@@ -220,11 +222,11 @@ class StandardComplianceService {
       try {
         console.log('[StandardCompliance] 正在调用DeepSeek生成审查报告...')
         const report = await this._generateReport(mixDesign, ruleResults, mergedResults, manualReviewItems, scopeResult)
-        return this._attachDeterministicReportGuards(report, ruleResults, manualReviewItems, scopeResult)
+        return this._attachDeterministicReportGuards(report, ruleResults, manualReviewItems, scopeResult, filteredClauseCounts)
       } catch (aiError) {
         console.error('[StandardCompliance] DeepSeek生成报告失败，降级返回规则匹配结果:', aiError.message)
         // 降级：返回结构化规则匹配结果
-        return this._buildFallbackReport(ruleResults, mixDesign, manualReviewItems, scopeResult)
+        return this._buildFallbackReport(ruleResults, mixDesign, manualReviewItems, scopeResult, filteredClauseCounts)
       }
     } catch (error) {
       console.error('[StandardCompliance] 规范审查失败:', error)
@@ -233,6 +235,10 @@ class StandardComplianceService {
   }
 
   // ========== 私有方法 ==========
+
+  _normalizeClausesForReview(clauses = []) {
+    return (clauses || []).map(clause => StandardClauseNormalizer.normalizeClause(clause))
+  }
 
   _buildScopeSummary(scopeResult) {
     const requested = scopeResult?.requested
@@ -247,7 +253,7 @@ class StandardComplianceService {
     } : null
   }
 
-  _attachDeterministicReportGuards(report, ruleResults, manualReviewItems, scopeResult) {
+  _attachDeterministicReportGuards(report, ruleResults, manualReviewItems, scopeResult, filteredClauseCounts = {}) {
     const deterministicErrorKeys = new Set(
       ruleResults
         .filter(r => r.severity === 'error' || r.level === '明确不合规')
@@ -299,6 +305,7 @@ class StandardComplianceService {
       scope: this._buildScopeSummary(scopeResult),
       issues: guardedIssues,
       manualReviewItems,
+      filteredClauseCounts,
       complianceStatus: hasError ? 'non_compliant' : (hasWarning ? 'conditional' : 'compliant')
     }
   }
@@ -1042,7 +1049,7 @@ ${JSON.stringify(clausesSummary, null, 2)}
    * @param {object} mixDesign - 配合比参数
    * @returns {object} 降级审查报告
    */
-  _buildFallbackReport(ruleResults, mixDesign, manualReviewItems = [], scopeResult = null) {
+  _buildFallbackReport(ruleResults, mixDesign, manualReviewItems = [], scopeResult = null, filteredClauseCounts = {}) {
     // 分类规则匹配结果
     const nonCompliant = ruleResults.filter(r => r.status === 'non_compliant')
     const marginal = ruleResults.filter(r => r.status === 'marginal')
@@ -1107,6 +1114,7 @@ ${JSON.stringify(clausesSummary, null, 2)}
       issues,
       compliantItems,
       manualReviewItems,
+      filteredClauseCounts,
       summary: summaryParts.join(''),
       _fallback: true // 标记为降级报告
     }

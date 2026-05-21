@@ -189,9 +189,28 @@ const isReviewableClause = (clause) => (
   clause?.clauseRole === ROLE.MATERIAL_REQUIREMENT
 )
 
+const buildFilteredClauseCounts = (clauses) => {
+  const counts = {
+    definition: 0,
+    test_method: 0,
+    management_requirement: 0,
+    reference_requirement: 0,
+    informational: 0
+  }
+
+  for (const clause of clauses || []) {
+    if (Object.prototype.hasOwnProperty.call(counts, clause.clauseRole)) {
+      counts[clause.clauseRole] += 1
+    }
+  }
+
+  return counts
+}
+
 const evaluateClauses = (rawMixDesign, rawClauses) => {
   const mixDesign = normalizeMixDesign(rawMixDesign)
   const clauses = (rawClauses || []).map(clause => StandardClauseNormalizer.normalizeClause(clause))
+  const filteredClauseCounts = buildFilteredClauseCounts(clauses)
   const ruleResults = []
   const manualReviewItems = []
 
@@ -254,7 +273,7 @@ const evaluateClauses = (rawMixDesign, rawClauses) => {
     }
   }
 
-  return { normalizedMixDesign: mixDesign, ruleResults, manualReviewItems }
+  return { normalizedMixDesign: mixDesign, ruleResults, manualReviewItems, filteredClauseCounts }
 }
 
 module.exports = {
@@ -263,5 +282,6 @@ module.exports = {
   matchApplicability,
   evaluateLimit,
   evaluateClauses,
-  isReviewableClause
+  isReviewableClause,
+  buildFilteredClauseCounts
 }
