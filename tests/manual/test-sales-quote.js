@@ -6,6 +6,7 @@ process.env.USER_DATA_PATH = path.join(__dirname, '..', '..', 'src', 'test-user-
 const { sequelize, syncModels } = require(path.join(__dirname, '..', '..', 'src', 'main', 'db', 'database'))
 const BasicMixDesignService = require(path.join(__dirname, '..', '..', 'src', 'main', 'services', 'BasicMixDesignService'))
 const SalesQuoteRuleService = require(path.join(__dirname, '..', '..', 'src', 'main', 'services', 'SalesQuoteRuleService'))
+const SalesQuoteCalculationService = require(path.join(__dirname, '..', '..', 'src', 'main', 'services', 'SalesQuoteCalculationService'))
 
 async function run(name, fn) {
   try {
@@ -46,6 +47,30 @@ async function main() {
     const resolved = await BasicMixDesignService.findDefaultMix('C35', '抗渗')
     assert.strictEqual(resolved.id, mix.id)
     assert.strictEqual(resolved.materials[0].usage, 320)
+  })
+
+  await run('calculates quote from default basic mix and rule suggestions', async () => {
+    const mix = await BasicMixDesignService.findDefaultMix('C35', '抗渗')
+    const rule = await SalesQuoteRuleService.findRuleByType('抗渗')
+    const quote = SalesQuoteCalculationService.calculate({
+      basicMix: {
+        strengthGrade: mix.strengthGrade,
+        concreteType: mix.concreteType,
+        slump: mix.slump,
+        materials: mix.materials.map(item => ({ ...item, price: 360 }))
+      },
+      pricing: {
+        manufacturingFee: rule.suggestedManufacturingFee,
+        technicalServiceFee: rule.suggestedTechnicalServiceFee,
+        profitRate: rule.suggestedProfitRate,
+        transportFee: rule.suggestedTransportFee,
+        pumpingFee: rule.suggestedPumpingFee,
+        vatRate: rule.vatRate,
+        quoteRangeDelta: rule.quoteRangeDelta
+      }
+    })
+    assert.ok(quote.suggestedDealPrice > quote.materialCostSubtotal)
+    assert.strictEqual(quote.vatRate, 0.13)
   })
 
   await sequelize.close()

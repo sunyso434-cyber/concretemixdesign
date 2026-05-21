@@ -74,10 +74,15 @@ async function deleteBasicMixDesign(id) {
   await row.destroy()
 }
 
+async function getBasicMixDesignById(id) {
+  return await BasicMixDesign.findByPk(id)
+}
+
 module.exports = {
   createBasicMixDesign,
   updateBasicMixDesign,
   listBasicMixDesigns,
   findDefaultMix,
-  deleteBasicMixDesign
+  deleteBasicMixDesign,
+  getBasicMixDesignById
 }

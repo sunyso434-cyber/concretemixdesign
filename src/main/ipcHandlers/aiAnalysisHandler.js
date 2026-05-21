@@ -11,6 +11,10 @@ const MixDesignOptimizer = require('../services/MixDesignOptimizer')
 const ParameterDiagnosisService = require('../services/ParameterDiagnosisService')
 const AnalysisClassifier = require('../services/AnalysisClassifier')
 const AnalysisPreprocessor = require('../services/AnalysisPreprocessor')
+const standardKnowledgeService = require('../services/StandardKnowledgeService')
+const BasicMixDesignService = require('../services/BasicMixDesignService')
+const SalesQuoteRuleService = require('../services/SalesQuoteRuleService')
+const SalesQuoteCalculationService = require('../services/SalesQuoteCalculationService')
 
 // 从系统参数获取API密钥
 const getDeepSeekApiKey = async () => {
@@ -129,6 +133,28 @@ const executeToolCall = async (toolName, args) => {
         success: true,
         type: 'parameter_diagnosis',
         data: diagnosisResult
+      }
+    }
+
+    case 'list_standards': {
+      const standards = await standardKnowledgeService.listStandards()
+      const category = args.category ? String(args.category).replace(/类$/, '') : ''
+      const filtered = category
+        ? standards.filter(s => String(s.category || '').includes(category))
+        : standards
+      return {
+        success: true,
+        type: 'standards_list',
+        count: filtered.length,
+        standards: filtered.map(s => ({
+          id: s.id,
+          name: s.name,
+          version: s.version,
+          category: s.category || '其他',
+          aliases: s.aliases || [],
+          totalClauses: s.totalClauses || 0,
+          quality: s.quality || null
+        }))
       }
     }
 
@@ -380,12 +406,66 @@ const executeToolCall = async (toolName, args) => {
       const apiKey = await getDeepSeekApiKey()
       const dsService = apiKey ? new DeepSeekService(apiKey) : null
       const complianceService = new StandardComplianceService(dsService)
-      const report = await complianceService.check(args.mixDesign || args, args.standards || null)
+      const report = await complianceService.check(args.mixDesign || args, {
+        standards: args.standards || [],
+        standardNames: args.standardNames || [],
+        standardCategories: args.standardCategories || []
+      })
       return {
         success: true,
         type: 'compliance_check',
         data: report
       }
+    }
+
+    case 'prepare_sales_quote_draft': {
+      const rule = await SalesQuoteRuleService.findRuleByType(args.concreteType)
+      if (!rule) {
+        return { success: false, error: `没有找到${args.concreteType}的销售报价规则` }
+      }
+      const basicMix = await BasicMixDesignService.findDefaultMix(args.strengthGrade, args.concreteType)
+      if (!basicMix) {
+        return { success: false, error: `没有找到${args.strengthGrade}${args.concreteType}基础配合比，请先让智能设计生成并保存基础配合比。` }
+      }
+      return {
+        success: true,
+        type: 'sales_quote_draft',
+        data: {
+          strengthGrade: args.strengthGrade,
+          concreteType: args.concreteType,
+          slump: args.slump || rule.suggestedSlump,
+          basicMix: basicMix.toJSON(),
+          rule: rule.toJSON(),
+          suggestedPricing: {
+            marketAdjustmentRate: 0,
+            manufacturingFee: rule.suggestedManufacturingFee,
+            technicalServiceFee: rule.suggestedTechnicalServiceFee,
+            profitRate: rule.suggestedProfitRate,
+            transportFee: rule.suggestedTransportFee,
+            pumpingFee: rule.suggestedPumpingFee,
+            vatRate: rule.vatRate || 0.13,
+            quoteRangeDelta: rule.quoteRangeDelta
+          }
+        }
+      }
+    }
+
+    case 'calculate_sales_quote': {
+      const basicMixRow = await BasicMixDesignService.getBasicMixDesignById(args.basicMixId)
+      if (!basicMixRow) return { success: false, error: '基础配合比不存在' }
+      const allMaterials = await MaterialService.getAllMaterials()
+      const pricesById = new Map(allMaterials.map(material => [material.id, material.price]))
+      const basicMix = basicMixRow.toJSON()
+      const quote = SalesQuoteCalculationService.calculate({
+        basicMix: {
+          strengthGrade: basicMix.strengthGrade,
+          concreteType: basicMix.concreteType,
+          slump: basicMix.slump,
+          materials: basicMix.materials.map(item => ({ ...item, price: pricesById.get(item.materialId) }))
+        },
+        pricing: args.pricing
+      })
+      return { success: true, type: 'sales_quote', data: quote }
     }
 
     default:

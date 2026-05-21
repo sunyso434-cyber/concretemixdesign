@@ -174,6 +174,23 @@ const TOOLS = [
         required: []
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_standards',
+      description: 'List loaded standard knowledge packages before compliance checking. Use this when the user wants to choose a standard, category, or available review scope.',
+      parameters: {
+        type: 'object',
+        properties: {
+          category: {
+            type: 'string',
+            description: 'Optional category filter, such as 公路, 铁路, 水工, 建筑, 通用, or 其他.'
+          }
+        },
+        required: []
+      }
+    }
   }, {
     type: 'function',
     function: {
@@ -193,7 +210,10 @@ const TOOLS = [
               flyAshRatio: { type: 'number', description: '粉煤灰掺量(%)' },
               slagRatio: { type: 'number', description: '矿渣掺量(%)' },
               slump: { type: 'number', description: '坍落度(mm)' },
-              environmentCategory: { type: 'string', description: '环境类别，如二a' }
+              environmentCategory: { type: 'string', description: '环境类别，如二a' },
+              strength: { type: 'string', description: 'Strength grade, for example C30 or C40' },
+              environment: { type: 'string', description: 'Explicit service environment supplied by the user. Do not infer one if omitted.' },
+              durabilityRequirements: { type: 'array', items: { type: 'string' }, description: 'Explicit durability requirements supplied by the user. Do not infer requirements if omitted.' }
             },
             required: ['strengthGrade', 'waterBinderRatio']
           },
@@ -201,6 +221,16 @@ const TOOLS = [
             type: 'array',
             items: { type: 'string' },
             description: '要检查的规范ID列表。不填则检查所有已加载规范'
+          },
+          standardNames: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Standard names requested by the user, such as GB 50010 or JGJ 55. Ask the user to clarify ambiguous names.'
+          },
+          standardCategories: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Standard categories requested by the user, such as design, durability, materials, testing, or construction.'
           }
         },
         required: ['mixDesign']
@@ -243,6 +273,37 @@ const TOOLS = [
           curingAge: { type: 'number', description: '龄期天数默认28' }
         },
         required: ['cementId', 'sandId', 'stoneId']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'prepare_sales_quote_draft',
+      description: '当销售询问混凝土报价或客户解释时调用。根据强度等级和混凝土类型，匹配销售报价规则和基础配合比，返回建议值草稿。系统必须先给建议值，再让销售确认。',
+      parameters: {
+        type: 'object',
+        properties: {
+          strengthGrade: { type: 'string', description: '强度等级，如 C30、C35、C40' },
+          concreteType: { type: 'string', description: '普通、泵送、抗渗、早强、缓凝、大体积、高强' },
+          slump: { type: 'number', description: '坍落度 mm，可为空，空时使用规则建议值' }
+        },
+        required: ['strengthGrade', 'concreteType']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'calculate_sales_quote',
+      description: '销售确认报价草稿或修改报价参数后调用。生成单方报价建议，包含材料成本明细、制造费、技术服务费、运输费、泵送费和13%增值税。',
+      parameters: {
+        type: 'object',
+        properties: {
+          basicMixId: { type: 'integer' },
+          pricing: { type: 'object' }
+        },
+        required: ['basicMixId', 'pricing']
       }
     }
   }
@@ -504,7 +565,15 @@ class DeepSeekService {
 
 ### 材料对比
 - 能力1（免费）: 获取材料列表后，基于属性做定性对比（如"P.O 42.5比P.O 42.5R便宜40元/吨"）
-- 能力2（精确）: 用户追问"具体差多少"时，调用 compare_materials 工具给出量化对比`
+- 能力2（精确）: 用户追问"具体差多少"时，调用 compare_materials 工具给出量化对比
+
+### 销售报价流程
+- 用户询问报价、对客户解释特种混凝土、为什么贵、怎么报价时，进入销售报价流程。
+- 先调用 prepare_sales_quote_draft，不能直接编造报价。
+- 系统必须给建议值，让销售确认。销售可回复"按建议值生成"。
+- 报价统一为单方价格，不能询问数量，不能输出总金额。
+- 运输费、泵送费、税费默认计入；税费默认按13%增值税。
+- 特种混凝土额外费用统一叫技术服务费。`
     }
 
     let userMessage = message
