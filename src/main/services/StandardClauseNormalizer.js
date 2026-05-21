@@ -136,6 +136,20 @@ const normalizeCompleteLimitRule = (rule) => {
   }
 }
 
+const hasStructuredLimitRules = (clause = {}) => (
+  Array.isArray(clause.limitRules) &&
+  clause.limitRules.some(rule => (
+    rule &&
+    rule.targetField &&
+    rule.operator &&
+    (
+      rule.limitValue != null ||
+      rule.minValue != null ||
+      rule.maxValue != null
+    )
+  ))
+)
+
 const detectConstraintLevel = (text) => {
   if (/(宜|建议|推荐|可按)/.test(text)) return 'recommended'
   if (/(必须|严禁|不得|不应|应|不小于|不低于|不大于|不超过)/.test(text)) return 'mandatory'
@@ -280,8 +294,8 @@ const detectClauseRole = (clause, text) => {
   if (hasReferenceOnlyRequirement(text)) return ROLE.REFERENCE_REQUIREMENT
   if (/(资料|台账|记录|验收|报审|审批|管理|施工组织|质量管理|人员|制度|璧勬枡|鍙拌处|璁板綍|楠屾敹|鎶ュ|瀹℃壒|绠＄悊|鏂藉伐缁勭粐|璐ㄩ噺绠＄悊|浜哄憳|鍒跺害)/.test(text)) return ROLE.MANAGEMENT_REQUIREMENT
   if (isInformationalText(text)) return ROLE.INFORMATIONAL
-  if (explicitRole === ROLE.MATERIAL_REQUIREMENT) return hasLimitIntent(text) ? ROLE.MATERIAL_REQUIREMENT : ROLE.INFORMATIONAL
-  if (explicitRole === ROLE.REVIEW_RULE) return hasLimitIntent(text) ? ROLE.REVIEW_RULE : ROLE.INFORMATIONAL
+  if (explicitRole === ROLE.MATERIAL_REQUIREMENT) return (hasLimitIntent(text) || hasStructuredLimitRules(clause)) ? ROLE.MATERIAL_REQUIREMENT : ROLE.INFORMATIONAL
+  if (explicitRole === ROLE.REVIEW_RULE) return (hasLimitIntent(text) || hasStructuredLimitRules(clause)) ? ROLE.REVIEW_RULE : ROLE.INFORMATIONAL
   if (isMaterialText(text)) return hasLimitIntent(text) ? ROLE.MATERIAL_REQUIREMENT : ROLE.INFORMATIONAL
   return hasLimitIntent(text) ? ROLE.REVIEW_RULE : ROLE.INFORMATIONAL
 }

@@ -740,6 +740,32 @@ const tests = [
       assert.strictEqual(result.manualReviewItems.length, 1)
       assert.strictEqual(result.manualReviewItems[0].reason, '未知限值比较符，无法自动判断。')
     }
+  },
+  {
+    name: 'StandardComplianceService filters informational vector clauses before prompt merge',
+    run() {
+      const service = new StandardComplianceService({ apiKey: 'test' })
+      const merged = service._mergeResults([
+        {
+          section: '1.0.1',
+          title: '适用范围',
+          clauseRole: 'review_rule',
+          originalText: '本规范适用于公路桥涵混凝土施工。',
+          similarity: 0.98
+        },
+        {
+          section: '5.2.1',
+          title: '最大水胶比',
+          clauseRole: 'review_rule',
+          originalText: '水胶比不应大于0.50。',
+          parameters: [{ name: '水胶比', value: '不应大于0.50' }],
+          similarity: 0.95
+        }
+      ], [])
+
+      assert.strictEqual(merged.length, 1)
+      assert.strictEqual(merged[0].section, '5.2.1')
+    }
   }
 ]
 
