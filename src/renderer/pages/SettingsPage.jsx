@@ -7,6 +7,7 @@ import ParamCard from '../components/ParamCard'
 import ExportWizard from '../components/ExportWizard'
 import ImportWizard from '../components/ImportWizard'
 import RestoreConfirmModal from '../components/RestoreConfirmModal'
+import SalesQuoteSettings from '../components/SalesQuoteSettings'
 import { PARAM_CONFIG, PARAM_TABS } from '../config/paramConfig'
 
 const { Text, Paragraph } = Typography
@@ -254,6 +255,8 @@ const SettingsPage = () => {
       <Card className="custom-card" title="关于系统">
         <AppVersionInfo />
       </Card>
+
+      <SalesQuoteSettings />
 
       {exportWizardVisible && (
         <ExportWizard onClose={() => setExportWizardVisible(false)} />
