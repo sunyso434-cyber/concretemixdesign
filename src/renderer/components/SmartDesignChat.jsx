@@ -10,6 +10,8 @@ import MaterialCompareCard from './MaterialCompareCard'
 import MaterialPicker from './MaterialPicker'
 import DiagnosisResultCard from './DiagnosisResultCard'
 import ComplianceResultCard from './ComplianceResultCard'
+import SalesQuoteResultCard from './SalesQuoteResultCard'
+import SaveBasicMixModal from './SaveBasicMixModal'
 import { getAttachmentType, detectAnalysisModeIntent, processExcelAttachment, processMarkdownAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
 import { AnalysisReport } from '../pages/AIAnalysisPage_Results'
 import { getAllMaterials } from '../services/MaterialService'
@@ -156,6 +158,7 @@ const SmartDesignChat = () => {
   const [pendingMaterialPicker, setPendingMaterialPicker] = useState(null)  // 待选择的材料
   const [analysisResult, setAnalysisResult] = useState(null)  // 分析结果
   const [contrastPickerSelected, setContrastPickerSelected] = useState([])
+  const [basicMixModalData, setBasicMixModalData] = useState(null)
   const chatEndRef = useRef(null)
   const materialPickerSeqRef = useRef(0)
   const streamSeqRef = useRef(0)
@@ -806,10 +809,13 @@ const SmartDesignChat = () => {
                       {item.toolCall && item.toolCall.status === 'done' && (
                         <>
                           {item.toolCall.type === 'mix_design' && (
-                            <MixDesignResultCard data={item.toolCall.data} onSave={handleSaveFromCard} />
+                            <MixDesignResultCard data={item.toolCall.data} onSave={handleSaveFromCard} onSaveBasicMix={setBasicMixModalData} />
                           )}
                           {item.toolCall.type === 'optimization' && (
                             <OptimizationResultCard data={item.toolCall.data} onSave={handleSaveFromCard} />
+                          )}
+                          {item.toolCall.type === 'sales_quote' && (
+                            <SalesQuoteResultCard data={item.toolCall.data} />
                           )}
                           {item.toolCall.type === 'material_compare' && (
                             <MaterialCompareCard data={item.toolCall.data} />
@@ -1021,6 +1027,12 @@ const SmartDesignChat = () => {
           发送
         </Button>
       </div>
+      <SaveBasicMixModal
+        open={!!basicMixModalData}
+        data={basicMixModalData}
+        onCancel={() => setBasicMixModalData(null)}
+        onSaved={() => setBasicMixModalData(null)}
+      />
     </div>
   )
 }

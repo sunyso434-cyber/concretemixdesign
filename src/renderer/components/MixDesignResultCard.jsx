@@ -5,7 +5,7 @@ import { SaveOutlined, CaretDownOutlined } from '@ant-design/icons'
 const { Text } = Typography
 const { Panel } = Collapse
 
-const MixDesignResultCard = ({ data, onSave }) => {
+const MixDesignResultCard = ({ data, onSave, onSaveBasicMix }) => {
   const { strength, slump, materials, totalCost, waterRatio, sandRatio, density, targetStrength, calculationSteps } = data
 
   const materialColumns = [
@@ -60,6 +60,11 @@ const MixDesignResultCard = ({ data, onSave }) => {
         {onSave && (
           <Button type="link" icon={<SaveOutlined />} size="small" onClick={() => onSave(data)}>
             保存方案
+          </Button>
+        )}
+        {onSaveBasicMix && (
+          <Button type="link" icon={<SaveOutlined />} size="small" onClick={() => onSaveBasicMix(data)}>
+            保存到基础配合比库
           </Button>
         )}
       </Space>
