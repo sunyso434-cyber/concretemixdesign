@@ -513,6 +513,63 @@ const tests = [
     }
   },
   {
+    name: 'StandardClauseNormalizer preserves explicit applicability and marks default condition rule',
+    run() {
+      const result = normalizeClause({
+        section: '5.2.1',
+        clauseRole: 'review_rule',
+        applicability: {
+          environment: ['二类环境'],
+          concreteType: ['预应力混凝土'],
+          durabilityRequirements: ['抗冻']
+        },
+        limitRules: [
+          {
+            targetField: 'waterBinderRatio',
+            operator: '<=',
+            limitValue: 0.5,
+            constraintLevel: 'mandatory'
+          }
+        ],
+        originalText: '二类环境预应力混凝土最大水胶比不应大于0.50。'
+      })
+
+      assert.strictEqual(result.clauseRole, 'review_rule')
+      assert.strictEqual(result.ruleLayer, 'default_condition_rule')
+      assert.deepStrictEqual(result.applicability.environment, ['二类环境'])
+      assert.deepStrictEqual(result.applicability.concreteType, ['预应力混凝土'])
+      assert.deepStrictEqual(result.applicability.durabilityRequirements, ['抗冻'])
+      assert.strictEqual(result.defaultPolicy.defaultEnvironment, '常规环境')
+      assert.strictEqual(result.defaultPolicy.defaultConcreteType, '普通混凝土')
+      assert.strictEqual(result.limitRules.length, 1)
+    }
+  },
+  {
+    name: 'StandardClauseNormalizer quality summary counts rule layers',
+    run() {
+      const quality = buildQualitySummary([
+        {
+          clauseRole: 'review_rule',
+          rule: '最大水胶比不应大于0.50。',
+          parameters: [{ name: '最大水胶比', value: '不应大于0.50' }]
+        },
+        {
+          clauseRole: 'review_rule',
+          applicability: { environment: ['二类环境'] },
+          limitRules: [{ targetField: 'waterBinderRatio', operator: '<=', limitValue: 0.5 }]
+        },
+        {
+          title: '术语',
+          content: '抗渗混凝土是指具有规定抗渗等级的混凝土。'
+        }
+      ])
+
+      assert.strictEqual(quality.autoRuleClauses, 1)
+      assert.strictEqual(quality.defaultConditionRuleClauses, 1)
+      assert.strictEqual(quality.informationalClauses + quality.definitionClauses >= 1, true)
+    }
+  },
+  {
     name: 'normalizeStandard infers category for missing category',
     run() {
       const normalized = normalizeStandard({
@@ -741,6 +798,127 @@ const tests = [
       assert.strictEqual(result.ruleResults.length, 0)
       assert.strictEqual(result.manualReviewItems.length, 1)
       assert.strictEqual(result.manualReviewItems[0].reason, '未知限值比较符，无法自动判断。')
+    }
+  },
+  {
+    name: 'ComplianceRuleEngine filters newly imported lookup grade tables out of manual review',
+    run() {
+      const clause = {
+        section: '2.1.2',
+        title: '维勃稠度等级划分',
+        checkType: 'lookup',
+        condition: '当需通过维勃稠度衡量混凝土拌合物工作性并确定配合比时，应参照等级划分',
+        rule: '维勃稠度按表1划分为V0至V4共5个等级，每个等级对应规定的维勃时间范围',
+        parameters: [
+          { name: '维勃稠度等级', value: 'V0, V1, V2, V3, V4', unit: '无' },
+          { name: '维勃时间', value: 'V0:≥31, V1:30~21, V2:20~11, V3:10~6, V4:5~3', unit: 's' }
+        ],
+        originalText: '用维勃稠度（s）可以合理表示坍落度很小甚至为零的混凝土拌合物稠度，维勃稠度等级划分应符合表1的规定。'
+      }
+      const result = ComplianceRuleEngine.evaluateClauses({ strength: 'C30', slump: 120 }, [clause])
+
+      assert.strictEqual(result.ruleResults.length, 0)
+      assert.strictEqual(result.manualReviewItems.length, 0)
+      assert.strictEqual(result.filteredClauseCounts.informational, 1)
+    }
+  },
+  {
+    name: 'ComplianceRuleEngine does not turn lookup table conditions into impossible numeric limits',
+    run() {
+      const clause = {
+        section: '3.0.4',
+        title: '最小胶凝材料用量限值',
+        checkType: 'lookup',
+        condition: '除配制C15及其以下强度等级的混凝土外，所有混凝土配合比设计时需考虑最小胶凝材料用量。',
+        rule: '混凝土的最小胶凝材料用量应根据最大水胶比和混凝土类型按表3.0.4查表取值。',
+        parameters: [
+          { name: '最大水胶比', value: '0.60, 0.55, 0.50, ≤0.45', unit: '无量纲' },
+          { name: '最小胶凝材料用量', value: '查表：当W/B=0.60时，素250，钢筋280，预应力300；当W/B≤0.45时，均为330', unit: 'kg/m³' }
+        ],
+        originalText: '混凝土的最小胶凝材料用量应符合表 3.0.4 的规定。'
+      }
+      const result = ComplianceRuleEngine.evaluateClauses({
+        strength: 'C30',
+        waterBinderRatio: 0.45,
+        binderContent: 360,
+        concreteType: '钢筋混凝土'
+      }, [clause])
+
+      assert.strictEqual(result.manualReviewItems.length, 0)
+      assert.strictEqual(result.ruleResults.some(rule => rule.checkType === 'waterBinderRatio'), false)
+      assert.strictEqual(result.ruleResults.some(rule => rule.checkType === 'binderContent' && rule.limitValue === 330), true)
+      assert.strictEqual(result.ruleResults.some(rule => rule.checkType === 'binderContent' && rule.limitValue < 100), false)
+    }
+  },
+  {
+    name: 'ComplianceRuleEngine ignores unparsed formula and trial adjustment clauses instead of manual flooding',
+    run() {
+      const clauses = [
+        {
+          section: '5.1.1',
+          title: '混凝土水胶比计算公式（强度等级小于C60）',
+          checkType: 'formula',
+          condition: '强度等级小于C60时',
+          rule: '水胶比应按公式计算，并应经试配调整确定。',
+          parameters: []
+        },
+        {
+          section: '5.3.2-5.3.3',
+          title: '矿物掺合料掺量确定及试配调整说明',
+          checkType: 'constraint',
+          condition: '掺加矿物掺合料时',
+          rule: '矿物掺合料掺量应通过试验确定，并在试配过程中调整。',
+          parameters: []
+        }
+      ]
+      const result = ComplianceRuleEngine.evaluateClauses({ strength: 'C30', waterBinderRatio: 0.45 }, clauses)
+
+      assert.strictEqual(result.ruleResults.length, 0)
+      assert.strictEqual(result.manualReviewItems.length, 0)
+    }
+  },
+  {
+    name: 'ComplianceRuleEngine does not parse coarse aggregate sizes as air content limits',
+    run() {
+      const clause = {
+        section: '3.0.7',
+        title: '引气剂掺量及混凝土含气量要求',
+        checkType: 'lookup',
+        condition: '混凝土长期处于潮湿或水位变动的寒冷和严寒环境，以及盐冻环境',
+        rule: '混凝土最小含气量应符合表3.0.7的规定（根据粗骨料最大公称粒径和环境类型查表），最大含气量不宜超过7.0%',
+        parameters: [
+          { name: '粗骨料最大公称粒径', value: '40.0, 25.0, 20.0', unit: 'mm' },
+          { name: '潮湿或水位变动的寒冷和严寒环境最小含气量', value: '4.5, 5.0, 5.5', unit: '%' },
+          { name: '最大含气量', value: '7.0', unit: '%' }
+        ]
+      }
+      const result = ComplianceRuleEngine.evaluateClauses({ strength: 'C30', environment: '寒冷环境', airContent: 4.8 }, [clause])
+
+      assert.strictEqual(result.manualReviewItems.length, 0)
+      assert.strictEqual(result.ruleResults.some(rule => rule.checkType === 'airContent' && rule.limitValue === 40), false)
+    }
+  },
+  {
+    name: 'ComplianceRuleEngine evaluates chloride content table by environment and concrete type',
+    run() {
+      const clause = {
+        section: '3.0.6',
+        title: '混凝土拌合物中水溶性氯离子最大含量限值',
+        checkType: 'constraint',
+        condition: '根据环境条件（干燥环境、潮湿但不含氯离子的环境、潮湿且含有氯离子的环境/盐渍土环境、除冰盐等侵蚀性物质的腐蚀环境）和混凝土类型（钢筋混凝土、预应力混凝土、素混凝土）',
+        rule: '混凝土拌合物中水溶性氯离子最大含量（以水泥用量的质量百分比计）不得超过表3.0.6规定的限值：干燥环境：钢筋混凝土0.30%，预应力混凝土0.06%，素混凝土1.00%；潮湿但不含氯离子的环境：钢筋混凝土0.20%，预应力混凝土0.06%，素混凝土1.00%；潮湿且含有氯离子的环境、盐渍土环境：钢筋混凝土0.10%，预应力混凝土0.06%，素混凝土1.00%；除冰盐等侵蚀性物质的腐蚀环境：钢筋混凝土0.06%，预应力混凝土0.06%，素混凝土1.00%。',
+        parameters: [{ name: '水溶性氯离子最大含量', value: '见表3.0.6', unit: '%' }]
+      }
+      const result = ComplianceRuleEngine.evaluateClauses({
+        environment: '干燥环境',
+        concreteType: '钢筋混凝土',
+        chlorideContent: 0.20
+      }, [clause])
+
+      assert.strictEqual(result.manualReviewItems.length, 0)
+      assert.strictEqual(result.ruleResults.length, 1)
+      assert.strictEqual(result.ruleResults[0].checkType, 'chlorideContent')
+      assert.strictEqual(result.ruleResults[0].limitValue, 0.30)
     }
   },
   {

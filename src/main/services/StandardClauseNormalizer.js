@@ -111,6 +111,159 @@ const isInformationalText = (text) => (
   !hasLimitIntent(text)
 )
 
+const isLookupGradeTableClause = (clause = {}, text = '') => (
+  clause.checkType === 'lookup' &&
+  /(等级划分|等级按|划分为.*等级|维勃稠度等级|V0|V1|V2|V3|V4)/.test(text)
+)
+
+const isFormulaOrProcedureClause = (clause = {}, text = '') => (
+  (
+    /(formula|lookup)/i.test(toText(clause.checkType)) ||
+    /(经试配|试配|调整确定|经试验确定|通过试验确定|试配过程中|调整)/.test(text)
+  ) &&
+  /(计算公式|按公式|公式|查表取值|经试配|试配|调整确定|经试验确定|通过试验确定|按表.*确定|根据.*查表|试配过程中)/.test(text)
+)
+
+const isContextParameterName = (name) => (
+  /(粗骨料.*粒径|最大公称粒径|环境类型|环境条件|混凝土类型|强度等级|等级)$/.test(toText(name))
+)
+
+const countNumbers = (value) => {
+  const matches = toText(value).match(/-?\d+(?:\.\d+)?/g)
+  return matches ? matches.length : 0
+}
+
+const hasTableLookupValue = (value) => (
+  /(查表|按表|表\d|,|，|\||、|；|;)/.test(toText(value)) && countNumbers(value) > 1
+)
+
+const isChlorideContentTableClause = (text = '') => (
+  /水溶性氯离子最大含量/.test(text) &&
+  /钢筋混凝土/.test(text) &&
+  /预应力混凝土/.test(text) &&
+  /素混凝土/.test(text)
+)
+
+const buildChlorideContentTableRules = (text = '') => {
+  if (!isChlorideContentTableClause(text)) return []
+
+  const rows = [
+    { environment: '干燥', values: { '钢筋混凝土': 0.30, '预应力混凝土': 0.06, '素混凝土': 1.00 } },
+    { environment: '潮湿但不含氯离子', values: { '钢筋混凝土': 0.20, '预应力混凝土': 0.06, '素混凝土': 1.00 } },
+    { environment: '潮湿且含有氯离子', values: { '钢筋混凝土': 0.10, '预应力混凝土': 0.06, '素混凝土': 1.00 } },
+    { environment: '盐渍土', values: { '钢筋混凝土': 0.10, '预应力混凝土': 0.06, '素混凝土': 1.00 } },
+    { environment: '除冰盐', values: { '钢筋混凝土': 0.06, '预应力混凝土': 0.06, '素混凝土': 1.00 } },
+    { environment: '腐蚀', values: { '钢筋混凝土': 0.06, '预应力混凝土': 0.06, '素混凝土': 1.00 } }
+  ]
+
+  return rows.flatMap(row => Object.entries(row.values).map(([concreteType, limitValue]) => ({
+    targetField: 'chlorideContent',
+    operator: '<=',
+    limitValue,
+    constraintLevel: 'mandatory',
+    rawText: text,
+    applicability: {
+      environment: [row.environment],
+      concreteType: [concreteType]
+    }
+  })))
+}
+
+const isMinimumBinderContentTableClause = (text = '') => (
+  /最小胶凝材料用量/.test(text) &&
+  /最大水胶比/.test(text) &&
+  /(素混凝土|素\d)/.test(text) &&
+  /(钢筋混凝土|钢筋)/.test(text)
+)
+
+const buildMinimumBinderContentTableRules = (text = '') => {
+  if (!isMinimumBinderContentTableClause(text)) return []
+
+  const typedRows = [
+    {
+      maxWaterBinderRatio: 0.60,
+      minExclusiveWaterBinderRatio: 0.55,
+      values: { '素混凝土': 250, '钢筋混凝土': 280, '预应力混凝土': 300 }
+    },
+    {
+      maxWaterBinderRatio: 0.55,
+      minExclusiveWaterBinderRatio: 0.50,
+      values: { '素混凝土': 280, '钢筋混凝土': 300, '预应力混凝土': 300 }
+    }
+  ]
+  const commonRows = [
+    { maxWaterBinderRatio: 0.50, minExclusiveWaterBinderRatio: 0.45, limitValue: 320 },
+    { maxWaterBinderRatio: 0.45, limitValue: 330 }
+  ]
+
+  return [
+    ...typedRows.flatMap(row => Object.entries(row.values).map(([concreteType, limitValue]) => ({
+      targetField: 'binderContent',
+      operator: '>=',
+      limitValue,
+      constraintLevel: 'mandatory',
+      rawText: text,
+      applicability: {
+        concreteType: [concreteType],
+        maxWaterBinderRatio: row.maxWaterBinderRatio,
+        minExclusiveWaterBinderRatio: row.minExclusiveWaterBinderRatio
+      }
+    }))),
+    ...commonRows.map(row => ({
+      targetField: 'binderContent',
+      operator: '>=',
+      limitValue: row.limitValue,
+      constraintLevel: 'mandatory',
+      rawText: text,
+      applicability: {
+        maxWaterBinderRatio: row.maxWaterBinderRatio,
+        minExclusiveWaterBinderRatio: row.minExclusiveWaterBinderRatio
+      }
+    }))
+  ]
+}
+
+const isContextTableConditionRule = (rule) => (
+  rule?.targetField === 'waterBinderRatio' &&
+  /最小胶凝材料用量/.test(toText(rule.rawText)) &&
+  hasTableLookupValue(rule.rawText)
+)
+
+const isPlausibleLimitRule = (rule) => {
+  if (!rule) return false
+  if (isContextTableConditionRule(rule)) return false
+  const values = rule.operator === 'between'
+    ? [rule.minValue, rule.maxValue]
+    : [rule.limitValue]
+
+  return values.every(value => {
+    const num = normalizeNumber(value)
+    if (num == null) return false
+    switch (rule.targetField) {
+      case 'waterBinderRatio':
+        return num > 0 && num <= 2
+      case 'airContent':
+      case 'flyAshRatio':
+      case 'slagRatio':
+      case 'lithiumSlagRatio':
+      case 'compositePowderRatio':
+      case 'sandRatio':
+      case 'chlorideContent':
+      case 'micaContent':
+      case 'mudContent':
+        return num >= 0 && num <= 100
+      case 'binderContent':
+      case 'cementContent':
+      case 'waterAmount':
+        return num >= 1 && num <= 2000
+      case 'slump':
+        return num >= 0 && num <= 1000
+      default:
+        return true
+    }
+  })
+}
+
 const normalizeCompleteLimitRule = (rule) => {
   if (!rule || typeof rule !== 'object') return null
   if (!rule.targetField || !rule.operator) return null
@@ -278,6 +431,90 @@ const hasReferenceOnlyRequirement = (text) => (
   )
 )
 
+const RULE_LAYER = {
+  AUTO_RULE: 'auto_rule',
+  DEFAULT_CONDITION_RULE: 'default_condition_rule',
+  INFO_REFERENCE: 'info_reference',
+  RAW_EVIDENCE: 'raw_evidence'
+}
+
+const DEFAULT_POLICY = {
+  defaultEnvironment: '常规环境',
+  defaultConcreteType: '普通混凝土',
+  useWhenEnvironmentMissing: true,
+  useWhenConcreteTypeMissing: true
+}
+
+const normalizeTextArray = (value) => {
+  if (Array.isArray(value)) return value.map(item => String(item).trim()).filter(Boolean)
+  if (typeof value === 'string' && value.trim()) return [value.trim()]
+  return []
+}
+
+const uniqueArray = (values) => [...new Set(values.filter(Boolean))]
+
+const mergeApplicability = (explicitApplicability = {}, detectedApplicability = {}) => ({
+  ...detectedApplicability,
+  ...explicitApplicability,
+  environment: uniqueArray([
+    ...normalizeTextArray(detectedApplicability.environment),
+    ...normalizeTextArray(explicitApplicability.environment)
+  ]),
+  concreteType: uniqueArray([
+    ...normalizeTextArray(detectedApplicability.concreteType),
+    ...normalizeTextArray(explicitApplicability.concreteType)
+  ]),
+  durabilityRequirements: uniqueArray([
+    ...normalizeTextArray(detectedApplicability.durabilityRequirements),
+    ...normalizeTextArray(explicitApplicability.durabilityRequirements)
+  ]),
+  requiresUserInput: uniqueArray([
+    ...normalizeTextArray(detectedApplicability.requiresUserInput),
+    ...normalizeTextArray(explicitApplicability.requiresUserInput)
+  ])
+})
+
+const hasConditionalApplicability = (applicability = {}) => (
+  normalizeTextArray(applicability.environment).length > 0 ||
+  normalizeTextArray(applicability.concreteType).length > 0 ||
+  normalizeTextArray(applicability.durabilityRequirements).length > 0
+)
+
+const classifyRuleLayer = (clause = {}) => {
+  if (
+    clause.clauseRole === ROLE.REVIEW_RULE ||
+    clause.clauseRole === ROLE.MATERIAL_REQUIREMENT
+  ) {
+    if (Array.isArray(clause.limitRules) && clause.limitRules.length > 0) {
+      return hasConditionalApplicability(clause.applicability)
+        ? RULE_LAYER.DEFAULT_CONDITION_RULE
+        : RULE_LAYER.AUTO_RULE
+    }
+    return RULE_LAYER.RAW_EVIDENCE
+  }
+
+  if (
+    clause.clauseRole === ROLE.DEFINITION ||
+    clause.clauseRole === ROLE.TEST_METHOD ||
+    clause.clauseRole === ROLE.REFERENCE_REQUIREMENT ||
+    clause.clauseRole === ROLE.MANAGEMENT_REQUIREMENT ||
+    clause.clauseRole === ROLE.INFORMATIONAL
+  ) {
+    return RULE_LAYER.INFO_REFERENCE
+  }
+
+  return RULE_LAYER.RAW_EVIDENCE
+}
+
+const finalizeClause = (normalized) => ({
+  ...normalized,
+  ruleLayer: classifyRuleLayer(normalized),
+  defaultPolicy: {
+    ...DEFAULT_POLICY,
+    ...(normalized.defaultPolicy || {})
+  }
+})
+
 const detectClauseRole = (clause, text) => {
   const explicitRole = clause.clauseRole || clause.role || clause.type
   if (
@@ -289,6 +526,8 @@ const detectClauseRole = (clause, text) => {
     return explicitRole
   }
 
+  if (isLookupGradeTableClause(clause, text)) return ROLE.INFORMATIONAL
+  if (isMinimumBinderContentTableClause(text) || isChlorideContentTableClause(text)) return ROLE.MATERIAL_REQUIREMENT
   if (/(定义|术语|称为|是指|以下简称|本规范所称|瀹氫箟|鏈|绉颁负|鏄寚|浠ヤ笅绠€绉皘鏈绋嬫墍绉?)/.test(text)) return ROLE.DEFINITION
   if (/(试验方法|检测方法|测定方法|取样|试件|试验应按|按.+试验|成型|养护|检测|璇曢獙鏂规硶|妫€娴嬫柟娉晐娴嬪畾鏂规硶|鍙栨牱|璇曚欢|璇曢獙搴旀寜|鎸.*璇曢獙)/.test(text)) return ROLE.TEST_METHOD
   if (hasReferenceOnlyRequirement(text)) return ROLE.REFERENCE_REQUIREMENT
@@ -321,12 +560,18 @@ const detectEnvironment = (text) => {
 }
 
 const detectDurabilityRequirements = (text) => (
-  DURABILITY_KEYWORDS.filter(keyword => text.includes(keyword))
+  DURABILITY_KEYWORDS.filter(keyword => {
+    if (keyword === '耐久性') return /(耐久性要求|耐久要求)/.test(text)
+    if (keyword === '腐蚀') return /(抗腐蚀|防腐蚀|腐蚀性要求)/.test(text)
+    return text.includes(keyword)
+  })
 )
 
 const buildApplicability = (text) => {
   const environment = detectEnvironment(text)
-  const durabilityRequirements = detectDurabilityRequirements(text)
+  const durabilityRequirements = isChlorideContentTableClause(text)
+    ? []
+    : detectDurabilityRequirements(text)
   const requiresUserInput = []
 
   if (environment.length > 0) requiresUserInput.push('environment')
@@ -368,18 +613,23 @@ const getParameterRules = (clause = {}, ruleText = '') => {
     .map(parameter => {
       const rawName = parameter?.name ?? parameter?.parameterName ?? parameter?.rawName
       const rawValue = parameter?.value ?? parameter?.limitValue ?? parameter?.rawValue
+      if (isContextParameterName(rawName)) return null
+      if (clause.checkType === 'lookup' && hasTableLookupValue(rawValue)) return null
+
       const rawUnit = parameter?.unit
       const paramContext = extractParamContext(ruleText, rawName)
       const localText = [rawValue, rawUnit, paramContext].map(toText).filter(Boolean).join(' ')
       return parseLimit(rawValue, rawName, localText)
     })
-    .filter(Boolean)
+    .filter(isPlausibleLimitRule)
 }
 
 const normalizeClause = (clause = {}) => {
   const text = getClauseText(clause)
+  const extendedText = [text, clause.originalText].map(toText).filter(Boolean).join(' ')
   const clauseRole = detectClauseRole(clause, text)
-  const applicability = buildApplicability(text)
+  const detectedApplicability = buildApplicability(text)
+  const applicability = mergeApplicability(clause.applicability || {}, detectedApplicability)
   const normalized = {
     ...clause,
     clauseRole,
@@ -389,7 +639,7 @@ const normalizeClause = (clause = {}) => {
 
   if (clauseRole === ROLE.REFERENCE_REQUIREMENT) {
     delete normalized.manualReviewReason
-    return normalized
+    return finalizeClause(normalized)
   }
 
   if (
@@ -398,7 +648,7 @@ const normalizeClause = (clause = {}) => {
     clauseRole === ROLE.MANAGEMENT_REQUIREMENT ||
     clauseRole === ROLE.INFORMATIONAL
   ) {
-    return normalized
+    return finalizeClause(normalized)
   }
 
   const rawRule = getRawRule(clause)
@@ -406,8 +656,22 @@ const normalizeClause = (clause = {}) => {
   const limitRule = parseLimit(getRawLimitValue(clause), getRawName(clause), rawRule)
   normalized.limitRules = [...parameterRules]
 
-  if (limitRule && !normalized.limitRules.some(rule => rule.targetField === limitRule.targetField)) {
+  if (
+    isPlausibleLimitRule(limitRule) &&
+    !normalized.limitRules.some(rule => rule.targetField === limitRule.targetField)
+  ) {
     normalized.limitRules.push(limitRule)
+  }
+
+  const contextTableRules = [
+    ...buildChlorideContentTableRules(extendedText),
+    ...buildMinimumBinderContentTableRules(extendedText)
+  ]
+  if (
+    contextTableRules.length > 0 &&
+    !normalized.limitRules.some(rule => contextTableRules.some(tableRule => tableRule.targetField === rule.targetField))
+  ) {
+    normalized.limitRules.push(...contextTableRules)
   }
 
   if (
@@ -417,7 +681,17 @@ const normalizeClause = (clause = {}) => {
   ) {
     normalized.limitRules = clause.limitRules
       .map(normalizeCompleteLimitRule)
-      .filter(Boolean)
+      .filter(isPlausibleLimitRule)
+  }
+
+  if (
+    normalized.limitRules.length === 0 &&
+    (clauseRole === ROLE.REVIEW_RULE || clauseRole === ROLE.MATERIAL_REQUIREMENT) &&
+    isFormulaOrProcedureClause(clause, extendedText)
+  ) {
+    normalized.clauseRole = ROLE.INFORMATIONAL
+    delete normalized.manualReviewReason
+    return finalizeClause(normalized)
   }
 
   if (clauseRole === ROLE.MATERIAL_REQUIREMENT && normalized.limitRules.length === 0 && hasLimitIntent(text)) {
@@ -428,7 +702,7 @@ const normalizeClause = (clause = {}) => {
     normalized.manualReviewReason = '该审查规则未识别到可直接计算的明确限值，需要人工复核后再判断。'
   }
 
-  return normalized
+  return finalizeClause(normalized)
 }
 
 const normalizeClauses = (clauses) => (
@@ -443,12 +717,17 @@ const buildQualitySummary = (clauses) => {
     normalizedRuleClauses: normalizedClauses.filter(clause => clause.clauseRole === ROLE.REVIEW_RULE && clause.limitRules.length > 0).length,
     definitionClauses: normalizedClauses.filter(clause => clause.clauseRole === ROLE.DEFINITION).length,
     referenceOnlyClauses: normalizedClauses.filter(clause => clause.clauseRole === ROLE.REFERENCE_REQUIREMENT).length,
-    informationalClauses: normalizedClauses.filter(clause => clause.clauseRole === ROLE.INFORMATIONAL).length
+    informationalClauses: normalizedClauses.filter(clause => clause.clauseRole === ROLE.INFORMATIONAL).length,
+    autoRuleClauses: normalizedClauses.filter(clause => clause.ruleLayer === RULE_LAYER.AUTO_RULE).length,
+    defaultConditionRuleClauses: normalizedClauses.filter(clause => clause.ruleLayer === RULE_LAYER.DEFAULT_CONDITION_RULE).length,
+    infoReferenceClauses: normalizedClauses.filter(clause => clause.ruleLayer === RULE_LAYER.INFO_REFERENCE).length,
+    rawEvidenceClauses: normalizedClauses.filter(clause => clause.ruleLayer === RULE_LAYER.RAW_EVIDENCE).length
   }
 }
 
 module.exports = {
   ROLE,
+  RULE_LAYER,
   normalizeClause,
   normalizeClauses,
   buildQualitySummary,
