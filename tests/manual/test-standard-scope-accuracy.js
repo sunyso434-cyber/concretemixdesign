@@ -1058,6 +1058,64 @@ const tests = [
     }
   },
   {
+    name: 'StandardComplianceService audit prompt includes assumptions and excludes vector only clauses',
+    run() {
+      const service = new StandardComplianceService({ apiKey: 'test' })
+      const prompt = service._buildAuditPrompt(
+        { strength: 'C30', waterBinderRatio: 0.46 },
+        [
+          {
+            clause: '5.1.1',
+            standardName: '测试规范',
+            checkType: 'waterBinderRatio',
+            status: 'compliant',
+            severity: 'info',
+            message: '水胶比满足规范要求',
+            currentValue: 0.46,
+            limitValue: 0.5,
+            comparison: '<= 0.5',
+            originalText: '普通混凝土最大水胶比不应大于0.50。'
+          }
+        ],
+        [
+          {
+            section: '1.0.1',
+            source: 'vector',
+            originalText: '这是一段不应进入AI提示词的向量候选说明条文。'
+          }
+        ],
+        [],
+        null,
+        {
+          assumptions: [
+            { field: 'environment', defaultValue: '常规环境', reason: '用户未指定环境类别' }
+          ],
+          assumptionNotice: '由于用户未指定环境类别/混凝土类别，本次审查按常规环境和类别进行审查；如有环境类别或混凝土类别要求，请补充后重新调用审查。',
+          skippedSpecialRules: []
+        }
+      )
+
+      assert.strictEqual(prompt.includes('默认假设'), true)
+      assert.strictEqual(prompt.includes('用户未指定环境类别'), true)
+      assert.strictEqual(prompt.includes('普通混凝土最大水胶比不应大于0.50'), true)
+      assert.strictEqual(prompt.includes('不应进入AI提示词'), false)
+    }
+  },
+  {
+    name: 'StandardComplianceService fallback report carries assumptions',
+    run() {
+      const service = new StandardComplianceService({ apiKey: 'test' })
+      const report = service._buildFallbackReport([], { strength: 'C30' }, [], null, {}, {
+        assumptions: [{ field: 'concreteType', defaultValue: '普通混凝土', reason: '用户未指定混凝土类别' }],
+        assumptionNotice: '由于用户未指定环境类别/混凝土类别，本次审查按常规环境和类别进行审查；如有环境类别或混凝土类别要求，请补充后重新调用审查。',
+        skippedSpecialRules: []
+      })
+
+      assert.strictEqual(report.assumptions.length, 1)
+      assert.strictEqual(report.assumptionNotice.includes('按常规环境和类别进行审查'), true)
+    }
+  },
+  {
     name: 'StandardComplianceService filters informational vector clauses before prompt merge',
     run() {
       const service = new StandardComplianceService({ apiKey: 'test' })

@@ -210,6 +210,11 @@ class StandardComplianceService {
       const ruleResults = deterministic.ruleResults
       const manualReviewItems = deterministic.manualReviewItems
       const filteredClauseCounts = deterministic.filteredClauseCounts || {}
+      const reviewContext = {
+        assumptions: deterministic.assumptions || [],
+        assumptionNotice: deterministic.assumptionNotice || '',
+        skippedSpecialRules: deterministic.skippedSpecialRules || []
+      }
 
       // 第六步：合并去重（规则匹配优先）
       const mergedResults = this._mergeResults(vectorResults, ruleResults)
@@ -221,12 +226,12 @@ class StandardComplianceService {
       // 第七步：调用 DeepSeek 生成审查报告
       try {
         console.log('[StandardCompliance] 正在调用DeepSeek生成审查报告...')
-        const report = await this._generateReport(mixDesign, ruleResults, mergedResults, manualReviewItems, scopeResult)
-        return this._attachDeterministicReportGuards(report, ruleResults, manualReviewItems, scopeResult, filteredClauseCounts)
+        const report = await this._generateReport(mixDesign, ruleResults, mergedResults, manualReviewItems, scopeResult, reviewContext)
+        return this._attachDeterministicReportGuards(report, ruleResults, manualReviewItems, scopeResult, filteredClauseCounts, reviewContext)
       } catch (aiError) {
         console.error('[StandardCompliance] DeepSeek生成报告失败，降级返回规则匹配结果:', aiError.message)
         // 降级：返回结构化规则匹配结果
-        return this._buildFallbackReport(ruleResults, mixDesign, manualReviewItems, scopeResult, filteredClauseCounts)
+        return this._buildFallbackReport(ruleResults, mixDesign, manualReviewItems, scopeResult, filteredClauseCounts, reviewContext)
       }
     } catch (error) {
       console.error('[StandardCompliance] 规范审查失败:', error)
@@ -253,7 +258,7 @@ class StandardComplianceService {
     } : null
   }
 
-  _attachDeterministicReportGuards(report, ruleResults, manualReviewItems, scopeResult, filteredClauseCounts = {}) {
+  _attachDeterministicReportGuards(report, ruleResults, manualReviewItems, scopeResult, filteredClauseCounts = {}, reviewContext = {}) {
     const deterministicErrorKeys = new Set(
       ruleResults
         .filter(r => r.severity === 'error' || r.level === '明确不合规')
@@ -306,6 +311,9 @@ class StandardComplianceService {
       issues: guardedIssues,
       manualReviewItems,
       filteredClauseCounts,
+      assumptions: reviewContext.assumptions || report.assumptions || [],
+      assumptionNotice: reviewContext.assumptionNotice || report.assumptionNotice || '',
+      skippedSpecialRules: reviewContext.skippedSpecialRules || report.skippedSpecialRules || [],
       complianceStatus: hasError ? 'non_compliant' : (hasWarning ? 'conditional' : 'compliant')
     }
   }
@@ -839,7 +847,7 @@ class StandardComplianceService {
    * @param {Array} relevantClauses - 相关条款（合并去重后）
    * @returns {Promise<object>} 审查报告
    */
-  async _generateReport(mixDesign, ruleResults, relevantClauses, manualReviewItems = [], scopeResult = null) {
+  async _generateReport(mixDesign, ruleResults, relevantClauses, manualReviewItems = [], scopeResult = null, reviewContext = {}) {
     const systemPrompt = `你是一个混凝土规范审查专家。请根据提供的规范条款和配合比数据，生成详细的合规审查报告。
 
 要求：
@@ -858,7 +866,7 @@ class StandardComplianceService {
 - 如果语义相关条款看起来有风险，但程序没有给出明确违规结论，只能写入 warning 或需人工确认
 - 不允许新增没有 originalText、standardName、clause 支撑的明确违规项`
 
-    const userMessage = this._buildAuditPrompt(mixDesign, ruleResults, relevantClauses, manualReviewItems, scopeResult)
+    const userMessage = this._buildAuditPrompt(mixDesign, ruleResults, relevantClauses, manualReviewItems, scopeResult, reviewContext)
 
     // 直接调用 DeepSeek API
     const response = await axios.post(
@@ -907,7 +915,7 @@ class StandardComplianceService {
         console.error('[StandardCompliance] DeepSeek响应JSON解析失败:', parseError.message)
         console.error('[StandardCompliance] 原始响应:', content.substring(0, 200))
         // 降级返回
-        return this._buildFallbackReport(ruleResults, mixDesign, manualReviewItems, scopeResult)
+        return this._buildFallbackReport(ruleResults, mixDesign, manualReviewItems, scopeResult, {}, reviewContext)
       }
     }
 
@@ -922,7 +930,7 @@ class StandardComplianceService {
    * @param {Array} relevantClauses - 相关条款
    * @returns {string} 审查 Prompt
    */
-  _buildAuditPrompt(mixDesign, ruleResults, relevantClauses, manualReviewItems = [], scopeResult = null) {
+  _buildAuditPrompt(mixDesign, ruleResults, relevantClauses, manualReviewItems = [], scopeResult = null, reviewContext = {}) {
     // 配合比参数摘要
     const paramSummary = this._buildQueryText(mixDesign)
 
@@ -931,30 +939,30 @@ class StandardComplianceService {
       `[${r.status.toUpperCase()}|${r.severity || 'info'}] ${r.standardName} ${r.clause} ${r.checkType} - ${r.message} (current=${r.currentValue}, limit=${r.limitValue}, comparison=${r.comparison || ''}) originalText=${r.originalText || ''}`
     ).join('\n')
 
-    // 相关条款摘要（去除 embedding 等大体积字段）
-    const clausesSummary = relevantClauses.map(c => ({
-      section: c.section || c.clause,
-      title: c.title,
-      standardName: c.standardName,
-      checkType: c.checkType,
-      currentValue: c.currentValue,
-      limitValue: c.limitValue,
-      comparison: c.comparison,
-      severity: c.severity,
-      rule: c.rule,
-      condition: c.condition,
-      originalText: c.originalText,
-      parameters: c.parameters,
-      similarity: c.similarity ? c.similarity.toFixed(4) : undefined,
-      source: c.source
+    // 程序确认的证据（只用规则匹配结果，不用向量候选条文）
+    const evidenceSummary = ruleResults.map(r => ({
+      clause: r.clause,
+      standardName: r.standardName,
+      checkType: r.checkType,
+      currentValue: r.currentValue,
+      limitValue: r.limitValue,
+      comparison: r.comparison,
+      severity: r.severity,
+      originalText: r.originalText
     }))
     const manualReviewSummary = manualReviewItems.map(item =>
       `[需人工确认] ${item.standardName} ${item.clause} - ${item.reason}`
     ).join('\n')
 
+    const assumptionSummary = (reviewContext.assumptions || []).map(item =>
+      `[默认假设] ${item.field}=${item.defaultValue} - ${item.reason}`
+    ).join('\n')
+
     return `请对以下混凝土配合比进行规范合规审查：
 
 **重要约束**：本次审查的对象是强度等级为 ${mixDesign.strength || '（未指定）'} 的混凝土配合比。请只使用适用于该强度等级的规范条款进行审查，不要将其他强度等级（如C25、C35等）的限值用于本配合比的评判。
+
+不要根据向量候选条文新增明确不合规项；明确不合规只能来自"结构化规则匹配结果"。
 
 ## 配合比参数
 ${paramSummary}
@@ -964,14 +972,18 @@ ${mixDesign.environment ? `环境条件: ${mixDesign.environment}` : ''}
 ## 本次审查范围
 ${scopeResult ? JSON.stringify(scopeResult.matchedStandards || scopeResult.standards || [], null, 2) : '全部规范'}
 
+## 默认假设
+${reviewContext.assumptionNotice || '无'}
+${assumptionSummary || ''}
+
+## 程序确认的证据
+${JSON.stringify(evidenceSummary, null, 2)}
+
 ## 结构化规则匹配结果
 ${ruleSummary || '（无直接规则匹配结果）'}
 
 ## 需人工确认项
 ${manualReviewSummary || '无'}
-
-## 语义相关条款
-${JSON.stringify(clausesSummary, null, 2)}
 
 请输出以下JSON格式的审查报告：
 {
@@ -1049,7 +1061,7 @@ ${JSON.stringify(clausesSummary, null, 2)}
    * @param {object} mixDesign - 配合比参数
    * @returns {object} 降级审查报告
    */
-  _buildFallbackReport(ruleResults, mixDesign, manualReviewItems = [], scopeResult = null, filteredClauseCounts = {}) {
+  _buildFallbackReport(ruleResults, mixDesign, manualReviewItems = [], scopeResult = null, filteredClauseCounts = {}, reviewContext = {}) {
     // 分类规则匹配结果
     const nonCompliant = ruleResults.filter(r => r.status === 'non_compliant')
     const marginal = ruleResults.filter(r => r.status === 'marginal')
@@ -1115,6 +1127,9 @@ ${JSON.stringify(clausesSummary, null, 2)}
       compliantItems,
       manualReviewItems,
       filteredClauseCounts,
+      assumptions: reviewContext.assumptions || [],
+      assumptionNotice: reviewContext.assumptionNotice || '',
+      skippedSpecialRules: reviewContext.skippedSpecialRules || [],
       summary: summaryParts.join(''),
       _fallback: true // 标记为降级报告
     }
