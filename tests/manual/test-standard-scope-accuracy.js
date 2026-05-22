@@ -797,7 +797,7 @@ const tests = [
 
       assert.strictEqual(result.ruleResults.length, 0)
       assert.strictEqual(result.manualReviewItems.length, 1)
-      assert.strictEqual(result.manualReviewItems[0].reason, '未知限值比较符，无法自动判断。')
+      assert.strictEqual(result.manualReviewItems[0].reason.includes('未知限值比较符'), true)
     }
   },
   {
@@ -1012,6 +1012,49 @@ const tests = [
       assert.strictEqual(result.skippedSpecialRules.length, 0)
       assert.strictEqual(result.ruleResults.length, 1)
       assert.strictEqual(result.ruleResults[0].severity, 'error')
+    }
+  },
+  {
+    name: 'ComplianceRuleEngine compresses repeated missing material value reviews',
+    run() {
+      const result = ComplianceRuleEngine.evaluateClauses({
+        strength: 'C30'
+      }, [
+        {
+          section: '6.1.1',
+          standardName: '测试规范',
+          clauseRole: 'material_requirement',
+          limitRules: [
+            {
+              targetField: 'chlorideContent',
+              operator: '<=',
+              limitValue: 0.06,
+              constraintLevel: 'mandatory'
+            }
+          ],
+          originalText: '氯离子含量不应大于0.06%。'
+        },
+        {
+          section: '6.1.2',
+          standardName: '测试规范',
+          clauseRole: 'material_requirement',
+          limitRules: [
+            {
+              targetField: 'chlorideContent',
+              operator: '<=',
+              limitValue: 0.1,
+              constraintLevel: 'mandatory'
+            }
+          ],
+          originalText: '氯离子含量不应大于0.10%。'
+        }
+      ])
+
+      assert.strictEqual(result.ruleResults.length, 0)
+      assert.strictEqual(result.manualReviewItems.length, 1)
+      assert.strictEqual(result.manualReviewItems[0].count, 2)
+      assert.strictEqual(result.manualReviewItems[0].field, 'chlorideContent')
+      assert.strictEqual(result.manualReviewItems[0].reason.includes('缺少氯离子含量'), true)
     }
   },
   {

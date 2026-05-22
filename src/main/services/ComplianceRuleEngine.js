@@ -206,6 +206,48 @@ const evaluateLimit = (currentValue, rule) => {
   }
 }
 
+const inferManualField = (reason = '') => {
+  if (reason.includes('氯离子')) return 'chlorideContent'
+  if (reason.includes('云母')) return 'micaContent'
+  if (reason.includes('含泥')) return 'mudContent'
+  if (reason.includes('含气')) return 'airContent'
+  if (reason.includes('坍落')) return 'slump'
+  if (reason.includes('水胶比')) return 'waterBinderRatio'
+  if (reason.includes('胶凝材料')) return 'binderContent'
+  return ''
+}
+
+const manualFieldLabel = (field) => FIELD_LABELS[field] || field || '必要审查数据'
+
+const compressManualReviewItems = (items = []) => {
+  const grouped = new Map()
+
+  for (const item of items) {
+    const field = item.field || inferManualField(item.reason || '')
+    const key = field || item.reason || 'manual_review'
+    const current = grouped.get(key) || {
+      ...item,
+      field,
+      count: 0,
+      clauses: []
+    }
+    current.count += 1
+    current.clauses.push({
+      clause: item.clause || '',
+      standardName: item.standardName || '',
+      originalText: item.originalText || ''
+    })
+    grouped.set(key, current)
+  }
+
+  return [...grouped.values()].map(item => ({
+    ...item,
+    reason: item.field && item.reason.includes('缺少')
+      ? `缺少${manualFieldLabel(item.field)}，无法判断 ${item.count} 条材料或配合比限值。`
+      : `${item.reason || '缺少必要审查数据'}；共 ${item.count} 条规则需要复核。`
+  }))
+}
+
 const buildSkippedRule = (clause, reason, field, rule = null) => ({
   clause: clause.section || '',
   standardName: clause.standardName || '',
@@ -219,7 +261,7 @@ const buildSkippedRule = (clause, reason, field, rule = null) => ({
   field
 })
 
-const buildManualItem = (clause, reason) => ({
+const buildManualItem = (clause, reason, field = '') => ({
   clause: clause.section || '',
   standardName: clause.standardName || '',
   standardVersion: clause.standardVersion || '',
@@ -227,6 +269,7 @@ const buildManualItem = (clause, reason) => ({
   title: clause.title || '',
   condition: clause.condition || '',
   originalText: clause.originalText || '',
+  field,
   reason
 })
 
@@ -313,7 +356,8 @@ const evaluateClauses = (rawMixDesign, rawClauses) => {
       if (evaluation.status === 'manual_review') {
         manualReviewItems.push(buildManualItem(
           clause,
-          evaluation.message || `缺少${FIELD_LABELS[rule.targetField] || rule.targetField}当前值，无法判断。`
+          evaluation.message || `缺少${FIELD_LABELS[rule.targetField] || rule.targetField}当前值，无法判断。`,
+          rule.targetField
         ))
         continue
       }
@@ -352,7 +396,7 @@ const evaluateClauses = (rawMixDesign, rawClauses) => {
     assumptions: reviewContext.assumptions,
     assumptionNotice: reviewContext.assumptionNotice,
     ruleResults,
-    manualReviewItems,
+    manualReviewItems: compressManualReviewItems(manualReviewItems),
     skippedSpecialRules,
     filteredClauseCounts
   }
@@ -365,5 +409,6 @@ module.exports = {
   evaluateLimit,
   evaluateClauses,
   isReviewableClause,
-  buildFilteredClauseCounts
+  buildFilteredClauseCounts,
+  compressManualReviewItems
 }
