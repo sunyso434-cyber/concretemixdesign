@@ -1,5 +1,9 @@
 const StandardClauseNormalizer = require('./StandardClauseNormalizer')
 const { ROLE } = StandardClauseNormalizer
+const {
+  buildReviewContext,
+  shouldSkipByDefaultAssumption
+} = require('./StandardReviewContext')
 
 const FIELD_LABELS = {
   waterBinderRatio: '水胶比',
@@ -112,6 +116,35 @@ const includesAny = (provided, required) => {
   })
 }
 
+const matchRuleApplicability = (rule, mixDesign) => {
+  const applicability = rule.applicability || {}
+  const requiredEnvironments = normalizeStringArray(applicability.environment)
+  if (requiredEnvironments.length > 0 && !includesAny(mixDesign.environment, requiredEnvironments)) {
+    return { status: 'not_applicable' }
+  }
+
+  const requiredConcreteTypes = normalizeStringArray(applicability.concreteType)
+  if (requiredConcreteTypes.length > 0) {
+    const concreteType = mixDesign.concreteType ?? mixDesign.structureType ?? null
+    if (!concreteType) return { status: 'manual_review', reason: '缺少混凝土类型，无法判断该条款是否适用。' }
+    if (!includesAny(concreteType, requiredConcreteTypes)) return { status: 'not_applicable' }
+  }
+
+  const maxWaterBinderRatio = toNumber(applicability.maxWaterBinderRatio)
+  if (maxWaterBinderRatio != null) {
+    if (mixDesign.waterBinderRatio == null) return { status: 'manual_review', reason: '缺少水胶比，无法判断该条款是否适用。' }
+    if (mixDesign.waterBinderRatio > maxWaterBinderRatio) return { status: 'not_applicable' }
+  }
+
+  const minExclusiveWaterBinderRatio = toNumber(applicability.minExclusiveWaterBinderRatio)
+  if (minExclusiveWaterBinderRatio != null) {
+    if (mixDesign.waterBinderRatio == null) return { status: 'manual_review', reason: '缺少水胶比，无法判断该条款是否适用。' }
+    if (mixDesign.waterBinderRatio <= minExclusiveWaterBinderRatio) return { status: 'not_applicable' }
+  }
+
+  return { status: 'applicable' }
+}
+
 const matchApplicability = (clause, mixDesign) => {
   const applicability = clause.applicability || {}
 
@@ -173,6 +206,19 @@ const evaluateLimit = (currentValue, rule) => {
   }
 }
 
+const buildSkippedRule = (clause, reason, field, rule = null) => ({
+  clause: clause.section || '',
+  standardName: clause.standardName || '',
+  standardVersion: clause.standardVersion || '',
+  category: clause.standardCategory || '',
+  title: clause.title || '',
+  condition: clause.condition || '',
+  originalText: clause.originalText || '',
+  checkType: rule?.targetField || '',
+  reason,
+  field
+})
+
 const buildManualItem = (clause, reason) => ({
   clause: clause.section || '',
   standardName: clause.standardName || '',
@@ -208,7 +254,10 @@ const buildFilteredClauseCounts = (clauses) => {
 }
 
 const evaluateClauses = (rawMixDesign, rawClauses) => {
-  const mixDesign = normalizeMixDesign(rawMixDesign)
+  const normalizedMixDesign = normalizeMixDesign(rawMixDesign)
+  const reviewContext = buildReviewContext(normalizedMixDesign)
+  const mixDesign = reviewContext.mixDesign
+  const skippedSpecialRules = []
   const clauses = (rawClauses || []).map(clause => StandardClauseNormalizer.normalizeClause(clause))
   const filteredClauseCounts = buildFilteredClauseCounts(clauses)
   const ruleResults = []
@@ -217,6 +266,12 @@ const evaluateClauses = (rawMixDesign, rawClauses) => {
   for (const clause of clauses) {
     const role = clause.clauseRole
     if (NON_EVALUATED_ROLES.has(role)) {
+      continue
+    }
+
+    const clauseSkip = shouldSkipByDefaultAssumption(clause, reviewContext)
+    if (clauseSkip.skip) {
+      skippedSpecialRules.push(buildSkippedRule(clause, clauseSkip.reason, clauseSkip.field))
       continue
     }
 
@@ -234,6 +289,25 @@ const evaluateClauses = (rawMixDesign, rawClauses) => {
     }
 
     for (const rule of limitRules) {
+      const ruleApplicability = matchRuleApplicability(rule, mixDesign)
+      if (ruleApplicability.status === 'not_applicable') continue
+      if (ruleApplicability.status === 'manual_review') {
+        manualReviewItems.push(buildManualItem(clause, ruleApplicability.reason))
+        continue
+      }
+
+      const ruleSkip = shouldSkipByDefaultAssumption({
+        ...clause,
+        applicability: {
+          ...(clause.applicability || {}),
+          ...(rule.applicability || {})
+        }
+      }, reviewContext)
+      if (ruleSkip.skip) {
+        skippedSpecialRules.push(buildSkippedRule(clause, ruleSkip.reason, ruleSkip.field, rule))
+        continue
+      }
+
       const currentValue = mixDesign[rule.targetField]
       const evaluation = evaluateLimit(currentValue, rule)
       if (evaluation.status === 'manual_review') {
@@ -273,7 +347,15 @@ const evaluateClauses = (rawMixDesign, rawClauses) => {
     }
   }
 
-  return { normalizedMixDesign: mixDesign, ruleResults, manualReviewItems, filteredClauseCounts }
+  return {
+    normalizedMixDesign: mixDesign,
+    assumptions: reviewContext.assumptions,
+    assumptionNotice: reviewContext.assumptionNotice,
+    ruleResults,
+    manualReviewItems,
+    skippedSpecialRules,
+    filteredClauseCounts
+  }
 }
 
 module.exports = {

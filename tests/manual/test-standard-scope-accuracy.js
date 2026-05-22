@@ -612,7 +612,7 @@ const tests = [
     }
   },
   {
-    name: 'ComplianceRuleEngine sends missing environment clauses to manual review',
+    name: 'ComplianceRuleEngine skips special environment clauses when environment missing',
     run() {
       const clause = {
         section: '5.2.1',
@@ -630,8 +630,8 @@ const tests = [
       const result = ComplianceRuleEngine.evaluateClauses({ strength: 'C30', waterBinderRatio: 0.56 }, [clause])
 
       assert.strictEqual(result.ruleResults.length, 0)
-      assert.strictEqual(result.manualReviewItems.length, 1)
-      assert.strictEqual(result.manualReviewItems[0].reason, '缺少环境类别，无法判断该条款是否适用。')
+      assert.strictEqual(result.manualReviewItems.length, 0)
+      assert.strictEqual(result.skippedSpecialRules.length >= 1, true)
     }
   },
   {
@@ -706,7 +706,7 @@ const tests = [
     }
   },
   {
-    name: 'ComplianceRuleEngine sends missing durability clauses to manual review',
+    name: 'ComplianceRuleEngine skips durability clauses when durability requirements missing',
     run() {
       const clause = {
         section: '5.2.2',
@@ -723,8 +723,8 @@ const tests = [
       const result = ComplianceRuleEngine.evaluateClauses({ strength: 'C30', waterBinderRatio: 0.4 }, [clause])
 
       assert.strictEqual(result.ruleResults.length, 0)
-      assert.strictEqual(result.manualReviewItems.length, 1)
-      assert.strictEqual(result.manualReviewItems[0].reason, '缺少耐久性要求，无法判断该条款是否适用。')
+      assert.strictEqual(result.manualReviewItems.length, 0)
+      assert.strictEqual(result.skippedSpecialRules.length >= 1, true)
     }
   },
   {
@@ -763,7 +763,7 @@ const tests = [
     }
   },
   {
-    name: 'ComplianceRuleEngine keeps missing environment limit clause in manual review',
+    name: 'ComplianceRuleEngine skips special environment limit clause when environment missing',
     run() {
       const clause = {
         section: '5.2.1',
@@ -779,8 +779,8 @@ const tests = [
       const result = ComplianceRuleEngine.evaluateClauses({ strength: 'C30', waterBinderRatio: 0.45 }, [clause])
 
       assert.strictEqual(result.ruleResults.length, 0)
-      assert.strictEqual(result.manualReviewItems.length, 1)
-      assert.strictEqual(result.manualReviewItems[0].reason, '缺少环境类别，无法判断该条款是否适用。')
+      assert.strictEqual(result.manualReviewItems.length, 0)
+      assert.strictEqual(result.skippedSpecialRules.length >= 1, true)
     }
   },
   {
@@ -919,6 +919,99 @@ const tests = [
       assert.strictEqual(result.ruleResults.length, 1)
       assert.strictEqual(result.ruleResults[0].checkType, 'chlorideContent')
       assert.strictEqual(result.ruleResults[0].limitValue, 0.30)
+    }
+  },
+  {
+    name: 'ComplianceRuleEngine uses ordinary defaults when environment and concrete type are missing',
+    run() {
+      const result = ComplianceRuleEngine.evaluateClauses({
+        strength: 'C30',
+        waterBinderRatio: 0.46
+      }, [
+        {
+          section: '5.1.1',
+          standardName: '测试规范',
+          clauseRole: 'review_rule',
+          limitRules: [
+            {
+              targetField: 'waterBinderRatio',
+              operator: '<=',
+              limitValue: 0.5,
+              constraintLevel: 'mandatory'
+            }
+          ],
+          originalText: '普通混凝土最大水胶比不应大于0.50。'
+        },
+        {
+          section: '5.1.2',
+          standardName: '测试规范',
+          clauseRole: 'review_rule',
+          applicability: { environment: ['二类环境'] },
+          limitRules: [
+            {
+              targetField: 'waterBinderRatio',
+              operator: '<=',
+              limitValue: 0.45,
+              constraintLevel: 'mandatory'
+            }
+          ],
+          originalText: '二类环境最大水胶比不应大于0.45。'
+        },
+        {
+          section: '5.1.3',
+          standardName: '测试规范',
+          clauseRole: 'review_rule',
+          applicability: { concreteType: ['预应力混凝土'] },
+          limitRules: [
+            {
+              targetField: 'waterBinderRatio',
+              operator: '<=',
+              limitValue: 0.4,
+              constraintLevel: 'mandatory'
+            }
+          ],
+          originalText: '预应力混凝土最大水胶比不应大于0.40。'
+        }
+      ])
+
+      assert.strictEqual(result.assumptions.length, 2)
+      assert.strictEqual(result.assumptionNotice.includes('由于用户未指定环境类别/混凝土类别'), true)
+      assert.strictEqual(result.manualReviewItems.length, 0)
+      assert.strictEqual(result.ruleResults.length, 1)
+      assert.strictEqual(result.ruleResults[0].clause, '5.1.1')
+      assert.strictEqual(result.skippedSpecialRules.length, 2)
+    }
+  },
+  {
+    name: 'ComplianceRuleEngine enables special environment when user provides environment',
+    run() {
+      const result = ComplianceRuleEngine.evaluateClauses({
+        strength: 'C30',
+        environment: '二类环境',
+        concreteType: '普通混凝土',
+        waterBinderRatio: 0.46
+      }, [
+        {
+          section: '5.1.2',
+          standardName: '测试规范',
+          clauseRole: 'review_rule',
+          applicability: { environment: ['二类环境'] },
+          limitRules: [
+            {
+              targetField: 'waterBinderRatio',
+              operator: '<=',
+              limitValue: 0.45,
+              constraintLevel: 'mandatory'
+            }
+          ],
+          originalText: '二类环境最大水胶比不应大于0.45。'
+        }
+      ])
+
+      assert.strictEqual(result.assumptions.length, 0)
+      assert.strictEqual(result.skippedSpecialRules.length, 0)
+      assert.strictEqual(result.ruleResults.length, 1)
+      assert.strictEqual(result.ruleResults[0].severity, 'error')
     }
   },
   {
