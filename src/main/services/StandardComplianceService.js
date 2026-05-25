@@ -907,7 +907,8 @@ class StandardComplianceService {
 - 不要将一个强度等级的限值套用到另一个强度等级上
 - 明确不合规项必须来自结构化规则匹配结果中 severity=error 或 level=明确不合规 的项目
 - 如果语义相关条款看起来有风险，但程序没有给出明确违规结论，只能写入 warning 或需人工确认
-- 不允许新增没有 originalText、standardName、clause 支撑的明确违规项`
+- 不允许新增没有 originalText、standardName、clause 支撑的明确违规项
+	- "语义相关条款"区块中的内容没有经过结构化规则验证，只能用于warning/info级别发现，严禁将其升级为error级别`
 
     const userMessage = this._buildAuditPrompt(mixDesign, ruleResults, relevantClauses, manualReviewItems, scopeResult, reviewContext)
 
@@ -993,6 +994,26 @@ class StandardComplianceService {
       severity: r.severity,
       originalText: r.originalText
     }))
+    // 筛选向量检索独有的条款（排除已被规则引擎覆盖的）
+    const ruleResultKeys = new Set(
+      ruleResults.map(r => `${r.standardName || ''}__${r.section || r.clause || ''}`)
+    )
+    const NON_REVIEWABLE_ROLES = ['INFORMATIONAL', 'DEFINITION', 'TEST_METHOD']
+    const vectorOnlyClauses = (relevantClauses || [])
+      .filter(c => {
+        const key = `${c.standardName || ''}__${c.section || c.clause || ''}`
+        return !ruleResultKeys.has(key)
+      })
+      .filter(c => {
+        const role = c.role || c.normalizedRole || ''
+        return !NON_REVIEWABLE_ROLES.includes(role)
+      })
+      .slice(0, 15)
+
+    const vectorOnlySummary = vectorOnlyClauses.map(c =>
+      `[语义相关] ${c.standardName || ''} ${c.section || c.clause || ''} - ${(c.originalText || c.text || '').substring(0, 120)}`
+    ).join('\n')
+
     const manualReviewSummary = manualReviewItems.map(item =>
       `[需人工确认] ${item.standardName} ${item.clause} - ${item.reason}`
     ).join('\n')
@@ -1024,6 +1045,10 @@ ${JSON.stringify(evidenceSummary, null, 2)}
 
 ## 结构化规则匹配结果
 ${ruleSummary || '（无直接规则匹配结果）'}
+
+## 语义相关条款（仅供参考，不可升级为明确违规）
+以下条款由向量语义检索匹配但未经结构化规则验证，只能用于生成warning/info级别发现，严禁将其升级为error级别。
+${vectorOnlySummary || '无'}
 
 ## 需人工确认项
 ${manualReviewSummary || '无'}

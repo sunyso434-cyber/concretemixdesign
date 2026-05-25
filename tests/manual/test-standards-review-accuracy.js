@@ -171,8 +171,71 @@ tests.push({
 
 // ============================================================
 // Bug 1 Tests: 向量检索结果应传入AI Prompt
-// （将在 Task 4 中实现）
 // ============================================================
+
+tests.push({
+  name: 'Bug1: _buildAuditPrompt输出包含语义相关条款区块',
+  run() {
+    const Module = require('module')
+    const originalRequire = Module.prototype.require
+    Module.prototype.require = function(p) {
+      if (p === 'electron') return { app: { getPath: () => process.cwd() } }
+      return originalRequire.apply(this, arguments)
+    }
+    const StandardComplianceService = require('../../src/main/services/StandardComplianceService')
+    Module.prototype.require = originalRequire
+
+    const service = new StandardComplianceService({ apiKey: 'test-key' })
+
+    const mixDesign = { strength: 'C30', waterBinderRatio: 0.45, cementContent: 280, binderContent: 380 }
+    const ruleResults = [
+      {
+        standardName: 'JGJ 55-2011',
+        clause: '6.2.4-1',
+        checkType: 'maxWaterBinderRatio',
+        status: 'compliant',
+        severity: 'info',
+        message: '水胶比0.45未超过限值0.60',
+        currentValue: 0.45,
+        limitValue: 0.60,
+        originalText: '水胶比不宜大于0.60'
+      }
+    ]
+    const relevantClauses = [
+      // 规则引擎已覆盖的条款（应被去重过滤）
+      {
+        standardName: 'JGJ 55-2011',
+        section: '6.2.4-1',
+        checkType: 'maxWaterBinderRatio',
+        role: 'REVIEW_RULE',
+        originalText: '水胶比不宜大于0.60'
+      },
+      // 向量检索独有的条款（应被保留）
+      {
+        standardName: 'GB 50010-2010',
+        section: '3.5.3',
+        checkType: 'minBinderContent',
+        role: 'REVIEW_RULE',
+        originalText: '一类环境中C30混凝土最小胶凝材料用量不应低于280kg/m³'
+      }
+    ]
+
+    const prompt = service._buildAuditPrompt(
+      mixDesign,
+      ruleResults,
+      relevantClauses,
+      [],
+      null,
+      { assumptions: [], assumptionNotice: '' }
+    )
+
+    assert.ok(prompt.includes('语义相关条款'), 'prompt应包含"语义相关条款"区块')
+    assert.ok(prompt.includes('GB 50010-2010'), '向量独有条款应在prompt中')
+    // 规则引擎已覆盖的条款不应在语义相关区块中重复
+    const semanticSection = prompt.substring(prompt.indexOf('语义相关'))
+    assert.ok(!semanticSection.includes('6.2.4-1'), '规则已覆盖条款不应在语义相关区块重复')
+  }
+})
 
 // ============================================================
 // Run all tests
