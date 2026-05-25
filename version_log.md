@@ -1,5 +1,227 @@
 # 版本更新记录
 
+## 规范审查准确率修复 (2026-05-25)
+
+- **版本**: 代码修改，未打包
+- **说明**:
+  1. **修复向量检索未传入AI Prompt** — 向量检索独有条款现在以"语义相关条款"形式传入AI，带warning级别约束，解决检索结果形同虚设的问题
+  2. **修复常规环境不匹配一类环境** — 增加环境等价映射层，默认"常规环境"展开匹配"一类环境"，解决最常见条款被跳过的问题
+  3. **修复minTotalBinder字段映射错误** — 从cementContent改为binderContent，解决胶凝材料总量误判问题
+  4. **新增PARAM_RULES映射** — 氯离子含量、含泥量、云母含量规则可走结构化匹配
+  5. **_buildQueryText补充参数** — 增加胶凝材料总量、用水量、氯离子含量、含泥量、云母含量的向量化查询
+- **修改文件**:
+  - `src/main/services/StandardReviewContext.js`
+  - `src/main/services/ComplianceRuleEngine.js`
+  - `src/main/services/StandardComplianceService.js`
+  - `tests/manual/test-standards-review-accuracy.js`
+
+## 打包记录 (2026-05-25 智能设计输入区固定底部)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.8.1**
+- **输出目录**: `dist-3.8.0/`
+- **说明**:
+  1. **智能设计输入区固定页面底部** — 去掉 `position: sticky`（flex 布局已自然固定），输入区 `padding: 12px 0 0 0` 底部零间距紧贴页面下边缘
+  2. 输入区顶部添加 `border-top` 细线，分隔消息区和输入区
+- **修改文件**:
+  - `src/renderer/index.css`
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 3.8.1.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-3.8.1-x64.exe`
+
+## 打包记录 (2026-05-25 智能设计输入区固定底部 v4)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.8.1**
+- **输出目录**: `dist-3.8.0/`
+- **说明**:
+  1. 补回 `.ant-tabs-content { height: 100%; }` — 仅传高度不改 display，不影响其他标签页
+- **修改文件**:
+  - `src/renderer/index.css`
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 3.8.1.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-3.8.1-x64.exe`
+
+## 打包记录 (2026-05-25 智能设计输入区固定底部 v3)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.8.1**
+- **输出目录**: `dist-3.8.0/`
+- **说明**:
+  1. **修复其他标签页点不开** — 撤销对 `.ant-tabs-tabpane` 的公共 flex 样式，改为在 AIAnalysisPage.jsx 中只给智能设计 tab 套 `display:flex; flex-direction:column; height:100%` 容器
+  2. flex 链条限定在智能设计标签页内部，不影响智能解析和规范管理
+- **修改文件**:
+  - `src/renderer/index.css`
+  - `src/renderer/pages/AIAnalysisPage.jsx`
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 3.8.1.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-3.8.1-x64.exe`
+
+## 打包记录 (2026-05-25 智能设计输入区固定底部 v2)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.8.1**
+- **输出目录**: `dist-3.8.0/`
+- **说明**:
+  1. **修复 flex 链条断裂** — 补全 `.ant-tabs-content` (`height:100%`) 和 `.ant-tabs-tabpane` (`display:flex; flex-direction:column`) 的样式，使 height 从页面容器一路传递到 `.smart-design-chat`
+  2. `.smart-design-chat` 从 `height:100%` 改为 `flex:1`，与原材料管理页分页栏采用相同的 flex 沉底方案
+- **修改文件**:
+  - `src/renderer/index.css`
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 3.8.1.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-3.8.1-x64.exe`
+
+## 打包记录 (2026-05-23 界面布局优化 v2)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.8.1**
+- **输出目录**: `dist-3.8.0/`
+- **说明**:
+  1. **原材料管理填充满页面** — page-container 使用 flex 布局填满面板高度，表格区域自动扩展
+  2. **按钮改图标移至标题栏** — "新增材料"和"刷新"改为纯图标按钮，移到"原材料管理"标题栏右侧
+  3. **表格行间距缩小** — 单元格内边距从 8px 缩小到 4px，行间距约为文字 1/3
+  4. **智能设计填满页面** — smart-design-chat 改为 flex 布局填满面板，不再使用固定高度
+  5. **智能设计输入区重设计** — 拆为两行：上行文字输入框，下行左放上传/清空图标，下行右放发送图标（纯图标去文字）
+  6. **修复分页下拉失效** — 去掉 custom-table 的 overflow:hidden，分页"每页条数"下拉恢复可用
+  7. **分页信息+对话框紧贴底部** — flex 链条串联，表格分页栏和智能设计输入区固定在页面最下方
+  8. **标题栏版本号更新** — 顶栏版本号从 v3.4.0 更新为 v3.8.1
+- **修改文件**:
+  - `src/renderer/pages/MaterialsPage.jsx`
+  - `src/renderer/pages/WorkspacePage.jsx`
+  - `src/renderer/pages/AIAnalysisPage.jsx`
+  - `src/renderer/components/SmartDesignChat.jsx`
+  - `src/renderer/index.css`
+  - `package.json`
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 3.8.1.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-3.8.1-x64.exe`
+
+## 打包记录 (2026-05-22 智能设计保存功能)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.8.0**
+- **输出目录**: `dist-3.8.0/`
+- **说明**:
+  1. **修复保存按钮不显示**：tool_done 流式事件中直接构建 toolCall，配合比计算结果卡片（含保存按钮）立即渲染，不再依赖最终结果解析
+  2. **新增 AI 保存工具**：支持自然语言保存，用户说"保存方案"→ save_mix_design 保存到方案库；说"保存到基准配合比库"→ save_to_basic_mix_library 保存到基准库
+  3. **新增结果缓存**：calculate_mix_design 和 optimize_mix_cost 结果自动缓存，供后续保存工具使用
+  4. 系统提示词新增「保存方案」章节
+- **修改文件**:
+  - `src/renderer/components/SmartDesignChat.jsx`
+  - `src/main/services/DeepSeekService.js`
+  - `src/main/ipcHandlers/aiAnalysisHandler.js`
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 3.8.0.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-3.8.0-x64.exe`
+
+## 打包记录 (2026-05-22 智能设计细骨料组合修复)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.8.0**
+- **输出目录**: `dist-3.8.0/`
+- **说明**:
+  1. 系统提示词新增「细骨料组合规则」：AI不再建议具体比例，比例由系统根据组合细度模数自动计算
+  2. 修复细度模数参数语义：用户指定的 targetFinenessModulusBase 直接作为当前强度等级的最终目标细度模数，不再叠加等级调整
+  3. 修复结果卡片显示：多种细骨料/粗骨料时展开为独立行，显示每个砂/石的独立用量
+  4. 修复保存到基准配合比库：使用 fineAggregateBreakdown 中各砂独立用量，避免每种砂都存入总量
+- **验证**:
+  - `npm run electron:build` 通过
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 3.8.0.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-3.8.0-x64.exe`
+
+## 打包记录 (2026-05-22 规范审查引擎重构)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.7.2**
+- **输出目录**: `dist-3.7.1/`
+- **说明**:
+  1. 规范条款增加规则层级分类（auto_rule / default_condition_rule / info_reference / raw_evidence）
+  2. 审查引擎默认按普通环境/普通混凝土做假设，自动跳过用户未指定的特殊规则
+  3. 人工复核项按字段合并压缩，重复项合并计数
+  4. AI 审查报告改用程序证据，排除向量候选条文，加入默认假设提示
+  5. 前端审查卡片显示默认假设提示面板和压缩后的人工复核统计
+- **验证**:
+  - `node tests/manual/test-standard-scope-accuracy.js` 通过 (56/56)
+  - `npm test` 全部通过
+  - `npm run electron:build` 通过
+- **输出文件**:
+  - `dist-3.7.1/混凝土配合比设计软件 Setup 3.7.2.exe`
+  - `dist-3.7.1/混凝土配合比设计软件-3.7.2-x64.exe`
+  - 旧版 3.7.1 安装包仍保留在 dist-3.7.1/ 目录
+
+## 打包记录 (2026-05-22 销售报价规则新增与水材料修复)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.7.1**
+- **输出目录**: `dist-3.7.1/`
+- **说明**:
+  1. 销售报价设置中新增“新增报价规则”入口，支持创建自定义混凝土报价规则。
+  2. 手动创建或编辑基础配合比时，材料选择支持固定“水”选项，不再依赖材料库。
+  3. 保存基础配合比时保留无材料库 ID 的“水”用量，避免水被过滤掉。
+  4. 补充报价规则新增和水材料保存的回归测试。
+- **验证**:
+  - `node tests/unit/SalesQuoteSettingsMaterials.test.js` 通过
+  - `node tests/manual/test-sales-quote.js` 通过
+  - `npm run electron:build` 通过
+- **输出文件**:
+  - `dist-3.7.1/混凝土配合比设计软件 Setup 3.7.1.exe`（258,835,540 字节）
+  - `dist-3.7.1/混凝土配合比设计软件-3.7.1-x64.exe`（258,214,441 字节）
+
+## 打包记录 (2026-05-22 规范人工确认降噪修复)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.7.1**
+- **输出目录**: `dist-3.7.1/`
+- **说明**:
+  1. 过滤维勃稠度等级划分、公式/试配说明等非直接审查条款，避免进入人工确认
+  2. 修复最小胶凝材料用量表格被误解析成水胶比限值的问题，按水胶比区间生成胶凝材料用量限值
+  3. 修复水溶性氯离子表格按环境和混凝土类型自动选限值，减少 3.0.6 人工确认
+- **输出文件**:
+  - `dist-3.7.1/混凝土配合比设计软件 Setup 3.7.1.exe`（258,836,876 字节）
+  - `dist-3.7.1/混凝土配合比设计软件-3.7.1-x64.exe`（258,215,784 字节）
+
+## 打包记录 (2026-05-22 第二次 基准配合比水材料修复)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.7.1**
+- **输出目录**: `dist-3.7.1/`
+- **说明**:
+  1. 修复基准配合比保存时缺少"水"材料的问题（SaveBasicMixModal 的 buildMaterialsFromResult 未包含水）
+
+## 打包记录 (2026-05-22 数据库表创建修复)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.7.1**
+- **输出目录**: `dist-3.7.1/`
+- **说明**:
+  1. **修复 basicMixDesigns 表缺失** - 删除 Material.js 中重复的 price 字段定义
+  2. **syncModels 健壮性改造** - 从全量同步改为逐个模型同步，单个模型 sync 失败不影响其他新表的创建
+- **提交**: 当前分支 `codex-standards-scope-accuracy`
+
+## 打包记录 (2026-05-21 第三次 规范范围准确性修复)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.7.1**
+- **输出目录**: `dist-3.7.1/`
+- **说明**:
+  1. **规范范围准确性** - 支持按单本规范、规范别名和规范类别限定审查范围
+  2. **人工确认降噪** - 缺少环境或耐久性条件时，相关条款进入"需人工确认"，不再直接套用为明确违规
+  3. **前端展示增强** - 规范管理页和审查结果卡片补充规范分类、解析质量、审查范围、规范原文和人工确认项展示
+
 ## 打包记录 (2026-05-21 下午 销售报价工作流修复)
 
 - **命令**: `npm run electron:build`
@@ -482,3 +704,14 @@
 - **便携版**: `混凝土配合比设计软件-3.7.0-x64.exe` (246.2 MB)
 - **说明**: 本版本包含规范审查范围准确性改进：支持按单本规范、规范别名、规范类别限定审查；缺少环境或耐久性条件时进入“需人工确认”，避免直接套用环境/耐久指标为明确违规；规范管理页和审查结果卡片补充分类、解析质量、审查范围、规范原文和人工确认项展示。
 - **备注**: 打包过程中有 Vite 常见提示：`CJS build of Vite's Node API is deprecated` 和 `Some chunks are larger than 500 kB`；npm 提示可升级到 11.15.0。以上均未影响安装包和便携版生成。
+
+## 打包记录 (2026-05-22)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.8.0**
+- **输出目录**: `dist-3.8.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 3.8.0.exe` (246.9 MB)
+- **便携版**: `混凝土配合比设计软件-3.8.0-x64.exe` (246.3 MB)
+- **说明**: 按当前工作区代码重新打包。本次包包含全局表格样式紧凑化调整：去除 `custom-table` 外框，压缩表头和表格行间距，并统一表格内操作按钮尺寸。
+- **备注**: 打包过程有 Vite 常见提示：`The CJS build of Vite's Node API is deprecated` 和 `Some chunks are larger than 500 kB`，不影响安装包和便携版生成。
