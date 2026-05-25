@@ -591,6 +591,7 @@ class StandardComplianceService {
     const labels = {
       waterBinderRatio: '水胶比',
       cementContent: '水泥用量',
+      binderContent: '胶凝材料总量',
       sandRatio: '砂率',
       flyAshRatio: '粉煤灰掺量',
       slagRatio: '矿渣粉掺量',
@@ -599,7 +600,10 @@ class StandardComplianceService {
       slump: '坍落度',
       airContent: '含气量',
       waterAmount: '用水量',
-      strength: '配置强度'
+      strength: '配置强度',
+      chlorideContent: '氯离子含量',
+      mudContent: '含泥量',
+      micaContent: '云母含量'
     }
     return labels[field] || field
   }
