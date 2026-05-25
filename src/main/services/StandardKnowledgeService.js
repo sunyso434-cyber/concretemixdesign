@@ -475,16 +475,22 @@ class StandardKnowledgeService {
       reportProgress('save', '正在保存知识包...', 96)
 
       const standardId = `std_${Date.now()}_${md5.slice(0, 8)}`
+      const normalizedClauses = StandardClauseNormalizer.normalizeClauses(allClauses)
+      const quality = StandardClauseNormalizer.buildQualitySummary(normalizedClauses)
       const knowledgePackage = {
         id: standardId,
         name,
         version,
+        category: inferredCategory,
+        aliases: normalizedAliases,
+        scopeKeywords,
+        quality,
         sourceFile: path.basename(filePath),
         md5,
         createdAt: new Date().toISOString(),
         totalChunks: chunks.length,
-        totalClauses: allClauses.length,
-        clauses: allClauses,
+        totalClauses: normalizedClauses.length,
+        clauses: normalizedClauses,
         metadata: {
           textLength: fullText.length,
           chunkSize: MAX_CHUNK_SIZE
@@ -501,7 +507,11 @@ class StandardKnowledgeService {
         id: standardId,
         name,
         version,
-        totalClauses: allClauses.length,
+        category: inferredCategory,
+        aliases: normalizedAliases,
+        scopeKeywords,
+        quality,
+        totalClauses: normalizedClauses.length,
         totalChunks: chunks.length,
         md5,
         createdAt: knowledgePackage.createdAt
@@ -526,12 +536,20 @@ class StandardKnowledgeService {
         const filePath = path.join(STANDARDS_DIR, file)
         const content = fs.readFileSync(filePath, 'utf-8')
         const pkg = JSON.parse(content)
+        const category = getPackageCategory(pkg)
+        const aliases = getPackageAliases(pkg)
+        const scopeKeywords = getPackageScopeKeywords(pkg, category, aliases)
+        const quality = getPackageQuality(pkg)
 
         // 不返回 embedding，减少数据量
         standards.push({
           id: pkg.id,
           name: pkg.name,
           version: pkg.version,
+          category,
+          aliases,
+          scopeKeywords,
+          quality,
           sourceFile: pkg.sourceFile,
           md5: pkg.md5,
           createdAt: pkg.createdAt,
@@ -563,6 +581,10 @@ class StandardKnowledgeService {
     try {
       const content = fs.readFileSync(filePath, 'utf-8')
       const pkg = JSON.parse(content)
+      const category = getPackageCategory(pkg)
+      const aliases = getPackageAliases(pkg)
+      const scopeKeywords = getPackageScopeKeywords(pkg, category, aliases)
+      const quality = getPackageQuality(pkg)
 
       // 返回条款但不含 embedding（节省传输量）
       const clausesWithoutEmbedding = pkg.clauses.map(c => {
@@ -574,6 +596,10 @@ class StandardKnowledgeService {
         id: pkg.id,
         name: pkg.name,
         version: pkg.version,
+        category,
+        aliases,
+        scopeKeywords,
+        quality,
         sourceFile: pkg.sourceFile,
         md5: pkg.md5,
         createdAt: pkg.createdAt,
@@ -628,12 +654,17 @@ class StandardKnowledgeService {
         const pkg = JSON.parse(content)
 
         // 为每条条款附加来源信息
+        const category = getPackageCategory(pkg)
+        const quality = getPackageQuality(pkg)
+
         for (const clause of pkg.clauses) {
           allClauses.push({
             ...clause,
             standardId: pkg.id,
             standardName: pkg.name,
-            standardVersion: pkg.version
+            standardVersion: pkg.version,
+            standardCategory: category,
+            standardQuality: quality
           })
         }
       } catch (error) {

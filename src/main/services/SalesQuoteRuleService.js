@@ -73,6 +73,22 @@ async function matchRuleByText(text) {
   return rules.find(rule => (rule.keywords || []).some(keyword => String(text || '').includes(keyword))) || null
 }
 
+async function createRule(data) {
+  const concreteType = String(data.concreteType || '').trim()
+  if (!concreteType) throw new Error('销售报价规则类型不能为空')
+  const existing = await SalesQuoteRule.findOne({ where: { concreteType } })
+  if (existing) throw new Error('销售报价规则类型已存在')
+  return await SalesQuoteRule.create({
+    ...data,
+    concreteType,
+    keywords: Array.isArray(data.keywords) ? data.keywords : [],
+    costDrivers: Array.isArray(data.costDrivers) ? data.costDrivers : [],
+    productionDifficulties: Array.isArray(data.productionDifficulties) ? data.productionDifficulties : [],
+    technicalServiceFeeRange: Array.isArray(data.technicalServiceFeeRange) ? data.technicalServiceFeeRange : [0, 0],
+    enabled: data.enabled !== false
+  })
+}
+
 async function updateRule(id, data) {
   const row = await SalesQuoteRule.findByPk(id)
   if (!row) throw new Error('销售报价规则不存在')
@@ -80,4 +96,4 @@ async function updateRule(id, data) {
   return row
 }
 
-module.exports = { DEFAULT_RULES, initDefaultRules, listRules, findRuleByType, matchRuleByText, updateRule }
+module.exports = { DEFAULT_RULES, initDefaultRules, listRules, findRuleByType, matchRuleByText, createRule, updateRule }

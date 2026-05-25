@@ -65,6 +65,15 @@ class SalesQuoteHandler {
       }
     })
 
+    ipcMain.handle('salesQuote:createRule', async (_, data) => {
+      try {
+        const row = await SalesQuoteRuleService.createRule(data)
+        return { success: true, data: row.toJSON() }
+      } catch (error) {
+        return { success: false, error: error.message }
+      }
+    })
+
     ipcMain.handle('salesQuote:updateRule', async (_, { id, data }) => {
       try {
         const row = await SalesQuoteRuleService.updateRule(id, data)

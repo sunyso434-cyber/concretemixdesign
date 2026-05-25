@@ -30,6 +30,39 @@ async function main() {
     assert.ok(rules.some(rule => rule.keywords.includes('P8')))
   })
 
+  await run('creates a custom sales quote rule and rejects duplicate type', async () => {
+    const concreteType = `TDD-CUSTOM-${Date.now()}`
+    const created = await SalesQuoteRuleService.createRule({
+      concreteType,
+      keywords: ['TDD-CUSTOM'],
+      salesExplanation: 'custom rule for regression test',
+      costDrivers: ['driver'],
+      productionDifficulties: ['difficulty'],
+      suggestedSlump: 180,
+      suggestedManufacturingFee: 18,
+      suggestedTechnicalServiceFee: 10,
+      technicalServiceFeeRange: [5, 15],
+      suggestedProfitRate: 0.12,
+      suggestedTransportFee: 0,
+      suggestedPumpingFee: 0,
+      vatRate: 0.13,
+      quoteRangeDelta: 5,
+      enabled: true
+    })
+
+    assert.strictEqual(created.concreteType, concreteType)
+    const matched = await SalesQuoteRuleService.findRuleByType(concreteType)
+    assert.strictEqual(matched.id, created.id)
+
+    await assert.rejects(
+      () => SalesQuoteRuleService.createRule({
+        concreteType,
+        keywords: ['TDD-CUSTOM-DUPLICATE']
+      }),
+      /already exists|已存在|存在/
+    )
+  })
+
   await run('creates and resolves default basic mix design', async () => {
     const mix = await BasicMixDesignService.createBasicMixDesign({
       name: 'C35抗渗默认报价配比',
@@ -47,6 +80,39 @@ async function main() {
     const resolved = await BasicMixDesignService.findDefaultMix('C35', '抗渗')
     assert.strictEqual(resolved.id, mix.id)
     assert.strictEqual(resolved.materials[0].usage, 320)
+  })
+
+  await run('updates and deletes basic mix design for manual maintenance', async () => {
+    const mix = await BasicMixDesignService.createBasicMixDesign({
+      name: 'C30普通手工维护配比',
+      strengthGrade: 'C30',
+      concreteType: '普通',
+      slump: 160,
+      materials: [
+        { materialId: 1, materialType: '水泥', materialName: 'P.O 42.5', usage: 280 },
+        { materialId: 3, materialType: '细骨料', materialName: '机制砂', usage: 820 }
+      ],
+      isDefault: false,
+      remarks: '待编辑'
+    })
+
+    const updated = await BasicMixDesignService.updateBasicMixDesign(mix.id, {
+      name: 'C30普通已编辑配比',
+      slump: 180,
+      materials: [
+        { materialId: 1, materialType: '水泥', materialName: 'P.O 42.5', usage: 300 },
+        { materialId: 3, materialType: '细骨料', materialName: '机制砂', usage: 800 }
+      ],
+      remarks: '已编辑'
+    })
+
+    assert.strictEqual(updated.name, 'C30普通已编辑配比')
+    assert.strictEqual(updated.slump, 180)
+    assert.strictEqual(updated.materials[0].usage, 300)
+
+    await BasicMixDesignService.deleteBasicMixDesign(mix.id)
+    const rows = await BasicMixDesignService.listBasicMixDesigns({ strengthGrade: 'C30', concreteType: '普通' })
+    assert.ok(!rows.some(row => row.id === mix.id))
   })
 
   await run('calculates quote from default basic mix and rule suggestions', async () => {

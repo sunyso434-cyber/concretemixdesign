@@ -62,7 +62,7 @@ const TOOLS = [
               mbInfluence: { type: 'number', description: 'MB值影响(%)，默认0.1' },
               finenessInfluence: { type: 'number', description: '细度模数影响(%)，默认0.1' },
               strengthInfluence: { type: 'number', description: '强度等级影响(%)，默认0.1' },
-              targetFinenessModulusBase: { type: 'number', description: 'C30基准细度模数，默认2.7' }
+              targetFinenessModulusBase: { type: 'number', description: '用户指定的当前强度等级最终目标组合细度模数（不是C30基准值）。例如用户说"C45目标细度模数3.0"则传3.0，系统直接使用该值作为C45的最终目标。' }
             }
           }
         },
@@ -104,7 +104,7 @@ const TOOLS = [
               mbInfluence: { type: 'number', description: 'MB值影响(%)，默认0.1' },
               finenessInfluence: { type: 'number', description: '细度模数影响(%)，默认0.1' },
               strengthInfluence: { type: 'number', description: '强度等级影响(%)，默认0.1' },
-              targetFinenessModulusBase: { type: 'number', description: 'C30基准细度模数，默认2.7' }
+              targetFinenessModulusBase: { type: 'number', description: '用户指定的当前强度等级最终目标组合细度模数（不是C30基准值）。例如用户说"C45目标细度模数3.0"则传3.0，系统直接使用该值作为C45的最终目标。' }
             }
           }
         },
@@ -304,6 +304,40 @@ const TOOLS = [
           pricing: { type: 'object' }
         },
         required: ['basicMixId', 'pricing']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'save_mix_design',
+      description: '将当前配合比方案保存到方案库。当用户说"保存方案"、"把这个存起来"、"保存这个配合比"时调用。必须先完成配合比计算或成本优化。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '方案名称（可选），不填则自动生成' },
+          projectName: { type: 'string', description: '项目名称（可选），默认"AI智能设计"' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'save_to_basic_mix_library',
+      description: '将当前配合比方案保存到基础配合比库（用于销售报价）。当用户说"保存到基准配合比库"、"存入基础库"、"加到报价库"时调用。必须先完成配合比计算。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '方案名称（可选），不填则自动生成' },
+          strengthGrade: { type: 'string', description: '强度等级（可选），默认使用当前配合比的强度等级' },
+          concreteType: { type: 'string', description: '混凝土类型（可选）：普通/泵送/抗渗/早强/缓凝/大体积/高强，默认"普通"' },
+          slump: { type: 'number', description: '坍落度mm（可选），默认使用当前配合比的坍落度' },
+          isDefault: { type: 'boolean', description: '是否设为默认基准配合比（可选），默认false' },
+          remarks: { type: 'string', description: '备注（可选）' }
+        },
+        required: []
       }
     }
   }
@@ -563,6 +597,11 @@ class DeepSeekService {
 - 缺少必填参数时必须向用户追问，不可自行填充
 - 只有当用户明确说"用默认值"、"默认就行"时，才允许省略非必填参数
 
+### 细骨料组合规则（重要）
+- **不要建议具体比例**：用户选择多种细骨料时，配合比计算工具会根据目标组合细度模数自动计算最佳比例。你不需要也不应该建议"60%砂A + 40%砂B"这类具体比例。
+- **组合细度模数的默认值**：系统默认C30的目标组合细度模数为2.7，每提高一个强度等级（5MPa）细度模数增加0.1。
+- **用户指定组合细度模数**：当用户提出细骨料组合的细度模数要求时（如"C45目标细度模数3.0"），通过 tempSettings.targetFinenessModulusBase 参数传入。注意：这个值代表用户对**当前强度等级**最终组合细度模数的要求，而非C30的基准值。
+
 ### 材料对比
 - 能力1（免费）: 获取材料列表后，基于属性做定性对比（如"P.O 42.5比P.O 42.5R便宜40元/吨"）
 - 能力2（精确）: 用户追问"具体差多少"时，调用 compare_materials 工具给出量化对比
@@ -577,7 +616,13 @@ class DeepSeekService {
   **禁止自动生成配合比、禁止替用户选择材料。**
 - 报价统一为单方价格，不能询问数量，不能输出总金额。
 - 运输费、泵送费、税费默认计入；税费默认按13%增值税。
-- 特种混凝土额外费用统一叫技术服务费。`
+- 特种混凝土额外费用统一叫技术服务费。
+
+### 保存方案
+- 用户说"保存方案"、"把这个存起来"、"保存这个配合比"等，调用 save_mix_design 保存到方案库。
+- 用户说"保存到基准配合比库"、"存入基础库"、"加到报价库"等，调用 save_to_basic_mix_library 保存到基础配合比库。
+- **必须先完成配合比计算或成本优化才能保存**。如果还没有计算结果，告诉用户先进行计算。
+- 保存成功后告诉用户已保存，让用户放心。`
     }
 
     let userMessage = message

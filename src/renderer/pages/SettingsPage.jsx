@@ -12,7 +12,7 @@ import { PARAM_CONFIG, PARAM_TABS } from '../config/paramConfig'
 
 const { Text, Paragraph } = Typography
 
-const TAB_KEYS = ['使用帮助', 'JGJ55标准', '备份设置', 'AI设置', '销售报价', '系统设置']
+const PARAM_TAB_KEYS = ['使用帮助', 'JGJ55标准', '备份设置', 'AI设置']
 
 const SettingsPage = () => {
   const [params, setParams] = useState([])
@@ -184,7 +184,7 @@ const SettingsPage = () => {
           activeKey={activeTab}
           onChange={setActiveTab}
           items={[
-          ...TAB_KEYS.map(key => ({
+          ...PARAM_TAB_KEYS.map(key => ({
             key,
             label: key,
             children: key === '使用帮助' ? <HelpContent /> : (

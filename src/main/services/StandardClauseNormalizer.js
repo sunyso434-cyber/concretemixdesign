@@ -37,6 +37,19 @@ const DURABILITY_KEYWORDS = [
   '硫酸盐'
 ]
 
+const SPECIAL_CONCRETE_TYPE_KEYWORDS = [
+  '预应力混凝土',
+  '高强混凝土',
+  '基础大体积混凝土',
+  '大体积混凝土',
+  '泵送混凝土',
+  '喷射混凝土',
+  '水下混凝土',
+  '自密实混凝土',
+  '轻骨料混凝土',
+  '重混凝土'
+]
+
 const toText = (value) => {
   if (value == null) return ''
   if (Array.isArray(value)) return value.map(toText).filter(Boolean).join(' ')
@@ -65,6 +78,13 @@ const normalizeNumber = (value) => {
   const number = Number.parseFloat(normalized)
   return Number.isFinite(number) ? number : null
 }
+
+const stripReferenceNumbers = (value) => (
+  toText(value)
+    .replace(/表\s*\d+(?:\.\d+)+(?:-\d+)?/g, '表')
+    .replace(/(?:公式|式)?[（(]\s*\d+(?:\.\d+)+(?:-\d+)?\s*[）)]/g, '公式')
+    .replace(/\b\d+(?:\.\d+){2,}(?:-\d+)?\b/g, '条文编号')
+)
 
 const detectTargetField = (name) => {
   const text = toText(name)
@@ -95,7 +115,7 @@ const hasLimitIntent = (text) => (
 )
 
 const hasExplicitNumericLimit = (text) => {
-  const withoutStandardCodes = toText(text).replace(
+  const withoutStandardCodes = stripReferenceNumbers(text).replace(
     /\b(?:GB\/T|GB|JGJ|JTG|JT\/T|TB|SL|DL|CECS|T\/)\s*[\dA-Z/-]+/gi,
     ''
   )
@@ -118,14 +138,66 @@ const isLookupGradeTableClause = (clause = {}, text = '') => (
 
 const isFormulaOrProcedureClause = (clause = {}, text = '') => (
   (
-    /(formula|lookup)/i.test(toText(clause.checkType)) ||
-    /(经试配|试配|调整确定|经试验确定|通过试验确定|试配过程中|调整)/.test(text)
+    /formula/i.test(toText(clause.checkType)) ||
+    /(经试配|试配|调整确定|经试验确定|通过试验确定|试配过程中|调整|水胶比间距|间距宜为|变化量)/.test(text)
   ) &&
-  /(计算公式|按公式|公式|查表取值|经试配|试配|调整确定|经试验确定|通过试验确定|按表.*确定|根据.*查表|试配过程中)/.test(text)
+  /(计算公式|按公式|公式|查表取值|经试配|试配|调整确定|经试验确定|通过试验确定|按表.*确定|根据.*查表|试配过程中|水胶比间距|间距宜为|变化量)/.test(text)
 )
 
 const isContextParameterName = (name) => (
-  /(粗骨料.*粒径|最大公称粒径|环境类型|环境条件|混凝土类型|强度等级|等级)$/.test(toText(name))
+  /(粗骨料.*粒径|最大公称粒径|环境类型|环境条件|混凝土类型|强度等级|等级|条件|种类|类型|品种|间距|变化量|触发条件|经时损失|基准用水量|调整后用水量|公式编号|编号)$/.test(toText(name))
+)
+
+const isDirectoryOrTocClause = (clause = {}, text = '') => {
+  const source = [
+    clause.originalText,
+    clause.rule,
+    clause.rawRule,
+    clause.content,
+    clause.text,
+    text
+  ].map(toText).filter(Boolean).join('\n')
+  if (!source) return false
+  if (/(不得|不应|不宜|应符合|应控制|控制在|最大|最小|不大于|不小于|不低于|不高于|限值)/.test(source)) return false
+
+  const entries = source
+    .split(/\r?\n|；|;|。/)
+    .map(line => line.trim())
+    .filter(Boolean)
+  const tocEntries = entries.filter(line => (
+    /^\d+(?:\.\d+)+\s+\S+.*\s+\d+$/.test(line) ||
+    /Ratio of Sand to Aggregate/.test(line)
+  ))
+
+  return tocEntries.length >= 2
+}
+
+const isReferenceNumberOnlyClause = (clause = {}, text = '') => {
+  const source = [
+    clause.originalText,
+    clause.rule,
+    clause.rawRule,
+    clause.content,
+    clause.text,
+    text
+  ].map(toText).filter(Boolean).join(' ')
+  if (!/(表\s*\d+(?:\.\d+)+(?:-\d+)?|公式|式\s*[（(]\s*\d)/.test(source)) return false
+
+  const withoutRefs = stripReferenceNumbers(source)
+  if (hasExplicitNumericLimit(withoutRefs)) return false
+  return !/(不得|不应|不宜|应符合|应控制|控制在|最大|最小|不大于|不小于|不低于|不高于|限值|范围)/.test(withoutRefs)
+}
+
+const isNonCurrentMixPropertyClause = (text = '') => (
+  /(安定性检验|经时损失|碱含量|总碱量)/.test(text)
+)
+
+const isTerminologyOrNarrativeClause = (text = '') => (
+  /(含义|说明|证明|全盘否定不妥|实践经验|指导意义|非常必要|优点|近年来|研究|应用|单掺时的最大掺量|符合表中复合掺合料的规定|计入矿物掺合料|试验论证)/.test(text)
+)
+
+const isAdjustmentOrVerificationProcedureClause = (text = '') => (
+  /(配合比调整|应按下式计算|按下式|校正系数|表观密度|测定|试验验证|试验结果应符合.*表|绘制.*关系图|插值法|乘以校正系数)/.test(text)
 )
 
 const countNumbers = (value) => {
@@ -221,6 +293,47 @@ const buildMinimumBinderContentTableRules = (text = '') => {
       }
     }))
   ]
+}
+
+const isMineralAdmixtureLimitTableClause = (text = '') => (
+  /(矿物掺合料|粉煤灰)/.test(text) &&
+  /粉煤灰/.test(text) &&
+  /水胶比/.test(text) &&
+  /(最大掺量|掺量)/.test(text) &&
+  /(3\.0\.5|表\s*3\.0\.5)/.test(text)
+)
+
+const buildMineralAdmixtureLimitTableRules = (text = '') => {
+  if (!isMineralAdmixtureLimitTableClause(text)) return []
+
+  const rules = []
+  if (/(≤|<=|不大于|不超过)?\s*35\s*%?/.test(text)) {
+    rules.push({
+      targetField: 'flyAshRatio',
+      operator: '<=',
+      limitValue: 35,
+      constraintLevel: 'recommended',
+      rawText: text,
+      applicability: {
+        maxWaterBinderRatio: 0.40
+      }
+    })
+  }
+
+  if (/(≤|<=|不大于|不超过)?\s*30\s*%?/.test(text)) {
+    rules.push({
+      targetField: 'flyAshRatio',
+      operator: '<=',
+      limitValue: 30,
+      constraintLevel: 'recommended',
+      rawText: text,
+      applicability: {
+        minExclusiveWaterBinderRatio: 0.40
+      }
+    })
+  }
+
+  return rules
 }
 
 const isContextTableConditionRule = (rule) => (
@@ -346,11 +459,21 @@ const extractParamContext = (ruleText, paramName) => {
 
 const parseLimit = (rawValue, rawName, rawRule) => {
   const text = [rawName, rawRule, rawValue].map(toText).filter(Boolean).join(' ')
-  const targetField = detectTargetField(rawName) || detectTargetField(text)
+  const targetFieldFromName = detectTargetField(rawName)
+  const targetField = targetFieldFromName || detectTargetField(text)
   if (!targetField) return null
+  if (isNonCurrentMixPropertyClause(text)) return null
+  if (
+    !targetFieldFromName &&
+    targetField === 'waterBinderRatio' &&
+    /(水胶比条件|水胶比.*条件|矿物掺合料|粉煤灰)/.test(text)
+  ) {
+    return null
+  }
 
+  const limitText = stripReferenceNumbers(text)
   const constraintLevel = detectConstraintLevel(text)
-  const rangeMatch = text.match(/(-?\d+(?:\.\d+)?)\s*%?\s*(?:~|～|-|至|到)\s*(-?\d+(?:\.\d+)?)\s*%?/)
+  const rangeMatch = limitText.match(/(-?\d+(?:\.\d+)?)\s*%?\s*(?:~|～|-|至|到)\s*(-?\d+(?:\.\d+)?)\s*%?/)
   if (rangeMatch) {
     const firstValue = normalizeNumber(rangeMatch[1])
     const secondValue = normalizeNumber(rangeMatch[2])
@@ -376,7 +499,7 @@ const parseLimit = (rawValue, rawName, rawRule) => {
   ]
 
   for (const pattern of patterns) {
-    const match = text.match(pattern.regex)
+    const match = limitText.match(pattern.regex)
     if (!match) continue
 
     return {
@@ -388,7 +511,7 @@ const parseLimit = (rawValue, rawName, rawRule) => {
     }
   }
 
-  const equalMatch = text.match(/(?:=|＝|为|宜为|应为|控制为|取)\s*(-?\d+(?:\.\d+)?)\s*%?/)
+  const equalMatch = limitText.match(/(?:=|＝|为|宜为|应为|控制为|取)\s*(-?\d+(?:\.\d+)?)\s*%?/)
   if (equalMatch) {
     return {
       targetField,
@@ -528,8 +651,9 @@ const detectClauseRole = (clause, text) => {
 
   if (isLookupGradeTableClause(clause, text)) return ROLE.INFORMATIONAL
   if (isMinimumBinderContentTableClause(text) || isChlorideContentTableClause(text)) return ROLE.MATERIAL_REQUIREMENT
+  if (isNonCurrentMixPropertyClause(text)) return ROLE.TEST_METHOD
   if (/(定义|术语|称为|是指|以下简称|本规范所称|瀹氫箟|鏈|绉颁负|鏄寚|浠ヤ笅绠€绉皘鏈绋嬫墍绉?)/.test(text)) return ROLE.DEFINITION
-  if (/(试验方法|检测方法|测定方法|取样|试件|试验应按|按.+试验|成型|养护|检测|璇曢獙鏂规硶|妫€娴嬫柟娉晐娴嬪畾鏂规硶|鍙栨牱|璇曚欢|璇曢獙搴旀寜|鎸.*璇曢獙)/.test(text)) return ROLE.TEST_METHOD
+  if (/(试验方法|检测方法|测定方法|取样|试件|检验|试验应按|按.+试验|成型|养护|检测|璇曢獙鏂规硶|妫€娴嬫柟娉晐娴嬪畾鏂规硶|鍙栨牱|璇曚欢|璇曢獙搴旀寜|鎸.*璇曢獙)/.test(text)) return ROLE.TEST_METHOD
   if (hasReferenceOnlyRequirement(text)) return ROLE.REFERENCE_REQUIREMENT
   if (/(资料|台账|记录|验收|报审|审批|管理|施工组织|质量管理|人员|制度|璧勬枡|鍙拌处|璁板綍|楠屾敹|鎶ュ|瀹℃壒|绠＄悊|鏂藉伐缁勭粐|璐ㄩ噺绠＄悊|浜哄憳|鍒跺害)/.test(text)) return ROLE.MANAGEMENT_REQUIREMENT
   if (isInformationalText(text)) return ROLE.INFORMATIONAL
@@ -567,18 +691,60 @@ const detectDurabilityRequirements = (text) => (
   })
 )
 
+const detectConcreteTypes = (text) => (
+  SPECIAL_CONCRETE_TYPE_KEYWORDS.filter(keyword => text.includes(keyword))
+)
+
+const detectStrengthApplicability = (text) => {
+  const source = toText(text)
+  if (/除配制\s*C\s*15\s*及其以下/.test(source)) {
+    return {
+      operator: '>',
+      value: 15
+    }
+  }
+
+  const patterns = [
+    { operator: '>=', regex: /(?:强度等级)?(?:不低于|不小于|≥|>=|大于等于)\s*C\s*(\d+)/i },
+    { operator: '>=', regex: /C\s*(\d+)\s*(?:及以上|以上)/i },
+    { operator: '<=', regex: /(?:强度等级)?(?:不高于|不大于|≤|<=|小于等于)\s*C\s*(\d+)/i },
+    { operator: '<=', regex: /C\s*(\d+)\s*(?:及其以下|及以下|以下)/i },
+    { operator: '<', regex: /(?:强度等级)?(?:低于|小于)\s*C\s*(\d+)/i },
+    { operator: '==', regex: /(?:强度等级为|强度等级)\s*C\s*(\d+)/i }
+  ]
+
+  for (const pattern of patterns) {
+    const match = source.match(pattern.regex)
+    if (match) {
+      return {
+        operator: pattern.operator,
+        value: normalizeNumber(match[1])
+      }
+    }
+  }
+
+  return null
+}
+
 const buildApplicability = (text) => {
   const environment = detectEnvironment(text)
+  const concreteType = (isMinimumBinderContentTableClause(text) || isChlorideContentTableClause(text))
+    ? []
+    : detectConcreteTypes(text)
   const durabilityRequirements = isChlorideContentTableClause(text)
     ? []
     : detectDurabilityRequirements(text)
+  const strength = detectStrengthApplicability(text)
   const requiresUserInput = []
 
   if (environment.length > 0) requiresUserInput.push('environment')
+  if (concreteType.length > 0) requiresUserInput.push('concreteType')
   if (durabilityRequirements.length > 0) requiresUserInput.push('durabilityRequirements')
 
   return {
+    strength,
     environment,
+    concreteType,
     durabilityRequirements,
     requiresUserInput
   }
@@ -637,6 +803,25 @@ const normalizeClause = (clause = {}) => {
     limitRules: []
   }
 
+  if (
+    isDirectoryOrTocClause(clause, extendedText) ||
+    isReferenceNumberOnlyClause(clause, extendedText) ||
+    (
+      clauseRole !== ROLE.TEST_METHOD &&
+      (isTerminologyOrNarrativeClause(extendedText) || isAdjustmentOrVerificationProcedureClause(extendedText))
+    ) ||
+    (
+      isFormulaOrProcedureClause(clause, extendedText) &&
+      !isMinimumBinderContentTableClause(extendedText) &&
+      !isChlorideContentTableClause(extendedText) &&
+      !isMineralAdmixtureLimitTableClause(extendedText)
+    )
+  ) {
+    normalized.clauseRole = ROLE.INFORMATIONAL
+    delete normalized.manualReviewReason
+    return finalizeClause(normalized)
+  }
+
   if (clauseRole === ROLE.REFERENCE_REQUIREMENT) {
     delete normalized.manualReviewReason
     return finalizeClause(normalized)
@@ -665,7 +850,8 @@ const normalizeClause = (clause = {}) => {
 
   const contextTableRules = [
     ...buildChlorideContentTableRules(extendedText),
-    ...buildMinimumBinderContentTableRules(extendedText)
+    ...buildMinimumBinderContentTableRules(extendedText),
+    ...buildMineralAdmixtureLimitTableRules(extendedText)
   ]
   if (
     contextTableRules.length > 0 &&

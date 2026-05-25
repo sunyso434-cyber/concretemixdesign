@@ -123,8 +123,14 @@ const defaultInsulationMaterials = [
 
 // 同步所有模型并初始化数据
 async function syncModels() {
-  // 同步所有模型到数据库，alter: true 会自动添加新列
-  await sequelize.sync({ alter: true })
+  // 逐个同步模型，单个失败不影响其他模型（避免 SQLite alter 异常导致整批失败）
+  for (const model of [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, SalesQuoteRule]) {
+    try {
+      await model.sync({ alter: true })
+    } catch (error) {
+      console.error(`模型 ${model.name} 同步失败:`, error.message)
+    }
+  }
   console.log('数据库模型同步完成')
 
   // 检查并初始化默认保温材料

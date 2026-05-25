@@ -46,16 +46,19 @@ class MixDesignService_Strength {
   }
 
   // 根据强度等级和临时设置计算目标细度模数（同步）
+  // 当用户显式指定 targetFinenessModulusBase 时，该值表示当前强度等级的最终目标细度模数，直接使用，不叠加等级调整
+  // 当用户未指定时，使用默认C30基准2.7 + 等级调整
   computeTargetFinenessModulus(strength, tempSettings = null) {
     try {
-      // 优先使用临时设置中的基准细度模数
-      const baseFm = (tempSettings && tempSettings.targetFinenessModulusBase !== undefined && tempSettings.targetFinenessModulusBase !== null)
-        ? parseFloat(tempSettings.targetFinenessModulusBase)
-        : 2.7
-
       const strengthNum = parseInt(String(strength || '').replace('C', '')) || 30
 
-      // 以 C30 为基准，每增加 5MPa，细度模数增加 0.1（即每 1MPa 增加 0.02）
+      // 用户显式指定了目标细度模数：直接作为当前强度等级的最终目标，不叠加等级调整
+      if (tempSettings && tempSettings.targetFinenessModulusBase !== undefined && tempSettings.targetFinenessModulusBase !== null) {
+        return parseFloat(tempSettings.targetFinenessModulusBase)
+      }
+
+      // 用户未指定：使用默认C30基准2.7 + 等级调整（每5MPa增加0.1）
+      const baseFm = 2.7
       const target = baseFm + (strengthNum - 30) * 0.02
 
       return Number(target.toFixed(2))

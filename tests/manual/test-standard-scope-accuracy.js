@@ -922,6 +922,131 @@ const tests = [
     }
   },
   {
+    name: 'ComplianceRuleEngine avoids JGJ55 false positives from directory formulas and table conditions',
+    run() {
+      const mixDesign = {
+        strength: 'C30',
+        waterBinderRatio: 0.473,
+        cementContent: 259.1,
+        waterAmount: 163.4,
+        sandRatio: 42,
+        flyAshRatio: 15,
+        slump: 180
+      }
+      const clauses = [
+        {
+          section: '5.4',
+          title: '砂率',
+          parameters: [{ name: '砂率', value: '14%~40%', unit: '%' }],
+          rule: '5.4 砂率 14\n5.4 Ratio of Sand to Aggregate 14\n5.4 砂率 40',
+          originalText: '目录页：5.4 砂率 14；5.4 Ratio of Sand to Aggregate 14；5.4 砂率 40。'
+        },
+        {
+          section: '3.0.4',
+          title: '混凝土最小胶凝材料用量',
+          checkType: 'lookup',
+          rule: '混凝土的最小胶凝材料用量应符合表3.0.4的规定。表中含素混凝土、钢筋混凝土、预应力混凝土；最大水胶比为0.50时，最小胶凝材料用量为320kg/m3。',
+          originalText: '混凝土的最小胶凝材料用量应符合表3.0.4的规定：素混凝土、钢筋混凝土、预应力混凝土；最大水胶比0.50，最小胶凝材料用量320kg/m3。'
+        },
+        {
+          section: '3.0.5',
+          title: '矿物掺合料最大掺量',
+          checkType: 'lookup',
+          rule: '采用普通硅酸盐水泥时，粉煤灰最大掺量应符合表3.0.5-1的规定。水胶比条件≤0.40或>0.40，>0.40时粉煤灰掺量不宜大于30%。',
+          parameters: [
+            { name: '水胶比条件', value: '≤0.40 或 >0.40' },
+            { name: '粉煤灰掺量', value: '≤30%', unit: '%' }
+          ],
+          originalText: '表3.0.5-1规定普通硅酸盐水泥中粉煤灰最大掺量，水胶比>0.40时不宜大于30%。'
+        },
+        {
+          section: '3.0.5',
+          title: 'C类粉煤灰安定性检验',
+          rule: '采用掺量30%以上的C类粉煤灰应进行安定性检验。',
+          originalText: '采用掺量大于30%的C类粉煤灰应进行安定性检验。'
+        },
+        {
+          section: '3.0.8',
+          title: '粉煤灰碱含量',
+          rule: '粉煤灰碱含量应按实测值的1/6计，碱含量不应大于3%。',
+          originalText: '粉煤灰碱含量取实测值的1/6计入混凝土碱含量。'
+        },
+        {
+          section: '5.5.2',
+          title: '砂率计算公式',
+          checkType: 'formula',
+          parameters: [{ name: '砂率', value: '公式（5.5.1-2）' }],
+          rule: '砂率应按公式（5.5.1-2）计算，并经试配调整确定。',
+          originalText: '砂率应按公式（5.5.1-2）计算。'
+        },
+        {
+          section: '5.2.1',
+          title: '未掺加外加剂混凝土的用水量查表',
+          rule: '表5.2.1-1和表5.2.1-2是未掺加外加剂的干硬性和塑性混凝土的用水量，经多年应用，证明基本符合实际。',
+          originalText: '表 5.2.1-1 和表 5.2.1-2 是未掺加外加剂的干硬性和塑性混凝土的用水量，经多年应用，证明基本符合实际。'
+        },
+        {
+          section: '7.3.3',
+          title: '试配水胶比间距',
+          rule: '试配时水胶比间距宜为0.02。',
+          originalText: '三个水胶比的间距宜为0.02。'
+        },
+        {
+          section: '7.4.3',
+          title: '坍落度经时损失',
+          rule: '坍落度经时损失不宜大于30mm/h。',
+          originalText: '坍落度经时损失不宜大于30mm/h。'
+        },
+        {
+          section: '2.1.15',
+          title: '掺量与用量的含义说明',
+          rule: '本规程中，掺量含义是相对质量百分比，用量含义是绝对质量。',
+          originalText: '2.1.14、2.1.15 本规程中，掺量含义是相对质量百分比，用量含义是绝对质量。'
+        },
+        {
+          section: '6.2.1',
+          title: '配合比调整步骤',
+          rule: '配合比调整时，用水量和外加剂用量应根据确定的水胶比作调整，胶凝材料用量应以用水量乘以确定的胶水比计算得出。',
+          originalText: '6.2.1 配合比调整应符合规定，用水量和外加剂用量应根据确定的水胶比作调整。'
+        },
+        {
+          section: '6.2.4',
+          title: '配合比验证说明',
+          rule: '配合比调整后，应测定拌合物水溶性氯离子含量，试验结果应符合本规程表3.0.6的规定。',
+          originalText: '在确定设计配合比前，对混凝土氯离子含量进行试验验证是非常必要的。'
+        },
+        {
+          section: '3.0.5',
+          title: '复合掺合料组分掺量限制（注2）',
+          rule: '复合掺合料各组分的掺量不宜超过单掺时的最大掺量。',
+          originalText: '复合掺合料各组分的掺量不宜超过单掺时的最大掺量。'
+        }
+      ]
+
+      const result = ComplianceRuleEngine.evaluateClauses(mixDesign, clauses)
+
+      assert.strictEqual(result.normalizedMixDesign.binderContent > 345, true)
+      assert.deepStrictEqual(result.ruleResults.filter(rule => rule.severity === 'error'), [])
+      assert.strictEqual(result.ruleResults.some(rule => rule.clause === '5.4' && rule.checkType === 'sandRatio'), false)
+      assert.strictEqual(result.ruleResults.some(rule => rule.clause === '3.0.5' && rule.checkType === 'waterBinderRatio'), false)
+      assert.strictEqual(result.ruleResults.some(rule => rule.clause === '5.2.1' && rule.checkType === 'waterAmount'), false)
+      assert.strictEqual(result.ruleResults.some(rule => rule.clause === '7.4.3' && rule.checkType === 'slump'), false)
+      assert.strictEqual(result.manualReviewItems.length, 0)
+      assert.strictEqual(result.ruleResults.some(rule => (
+        rule.clause === '3.0.4' &&
+        rule.checkType === 'binderContent' &&
+        rule.status === 'compliant' &&
+        rule.limitValue === 320
+      )), true)
+      assert.strictEqual(result.ruleResults.some(rule => (
+        rule.clause === '3.0.5' &&
+        rule.checkType === 'flyAshRatio' &&
+        rule.status === 'compliant' &&
+        rule.limitValue === 30
+      )), true)
+    }
+  },
+  {
     name: 'ComplianceRuleEngine uses ordinary defaults when environment and concrete type are missing',
     run() {
       const result = ComplianceRuleEngine.evaluateClauses({
@@ -979,6 +1104,32 @@ const tests = [
       assert.strictEqual(result.manualReviewItems.length, 0)
       assert.strictEqual(result.ruleResults.length, 1)
       assert.strictEqual(result.ruleResults[0].clause, '5.1.1')
+      assert.strictEqual(result.skippedSpecialRules.length, 2)
+    }
+  },
+  {
+    name: 'ComplianceRuleEngine skips special concrete type clauses when concrete type is missing',
+    run() {
+      const result = ComplianceRuleEngine.evaluateClauses({
+        strength: 'C30',
+        waterBinderRatio: 0.473,
+        flyAshRatio: 15
+      }, [
+        {
+          section: '3.0.5',
+          title: '预应力混凝土中矿物掺合料最大掺量',
+          rule: '预应力混凝土中粉煤灰掺量不宜大于30%。',
+          parameters: [{ name: '粉煤灰掺量', value: '≤30%', unit: '%' }]
+        },
+        {
+          section: '7.3.1',
+          title: '高强混凝土粗骨料技术要求',
+          rule: '配制高强混凝土时，粗骨料含泥量不应大于0.5%。'
+        }
+      ])
+
+      assert.strictEqual(result.ruleResults.length, 0)
+      assert.strictEqual(result.manualReviewItems.length, 0)
       assert.strictEqual(result.skippedSpecialRules.length, 2)
     }
   },

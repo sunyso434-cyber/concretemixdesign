@@ -15,6 +15,7 @@ const standardKnowledgeService = require('../services/StandardKnowledgeService')
 const BasicMixDesignService = require('../services/BasicMixDesignService')
 const SalesQuoteRuleService = require('../services/SalesQuoteRuleService')
 const SalesQuoteCalculationService = require('../services/SalesQuoteCalculationService')
+const SalesQuoteToolGuard = require('../services/SalesQuoteToolGuard')
 
 // 从系统参数获取API密钥
 const getDeepSeekApiKey = async () => {
@@ -33,6 +34,9 @@ const getDeepSeekApiKey = async () => {
 let deepSeekService = null
 let cachedApiKey = null
 const CHAT_STREAM_EVENT = 'aiAnalysis:chatStream:event'
+
+// 缓存最近一次计算/优化结果，供 save_mix_design / save_to_basic_mix_library 使用
+const lastResultCache = new Map()
 
 // 获取或创建DeepSeek服务实例
 const getDeepSeekService = async () => {
@@ -122,6 +126,10 @@ const checkApiStatus = async () => {
  * @returns {Promise<object>} 执行结果
  */
 const executeToolCall = async (toolName, args) => {
+  if (SalesQuoteToolGuard.shouldBlockTool(toolName, args._salesQuoteGuard)) {
+    return SalesQuoteToolGuard.buildBlockedToolResult(toolName)
+  }
+
   switch (toolName) {
     case 'run_parameter_diagnosis': {
       const mixDesigns = args._mixDesigns || []
@@ -209,7 +217,7 @@ const executeToolCall = async (toolName, args) => {
         tempSettings: args.tempSettings
       })
 
-      return {
+      const mixDesignResult = {
         success: true,
         type: 'mix_design',
         data: {
@@ -228,6 +236,9 @@ const executeToolCall = async (toolName, args) => {
           selectedMaterials: materials
         }
       }
+      // 缓存以供后续 save 工具使用
+      lastResultCache.set('lastMixDesign', mixDesignResult)
+      return mixDesignResult
     }
 
     case 'optimize_mix_cost': {
@@ -270,7 +281,7 @@ const executeToolCall = async (toolName, args) => {
       const optimizer = new MixDesignOptimizer()
       const result = await optimizer.optimizeMixDesign({ constraints, userLimits })
 
-      return {
+      const optimizeResult = {
         success: true,
         type: 'optimization',
         data: {
@@ -307,6 +318,8 @@ const executeToolCall = async (toolName, args) => {
           historyId: result.historyId
         }
       }
+      lastResultCache.set('lastMixDesign', optimizeResult)
+      return optimizeResult
     }
 
     case 'compare_materials': {
@@ -425,7 +438,14 @@ const executeToolCall = async (toolName, args) => {
       }
       const basicMix = await BasicMixDesignService.findDefaultMix(args.strengthGrade, args.concreteType)
       if (!basicMix) {
-        return { success: false, error: `没有找到${args.strengthGrade}${args.concreteType}基础配合比，请先让智能设计生成并保存基础配合比。` }
+        return {
+          success: false,
+          type: 'sales_quote_action_required',
+          requiresUserConfirmation: true,
+          action: 'select_or_create_basic_mix',
+          error: `没有找到${args.strengthGrade}${args.concreteType}基础配合比。`,
+          hint: '请先让用户选择已有基础配合比，或明确授权生成新配合比并确认材料后，再进入配合比设计流程。不能自动调用配合比设计工具。'
+        }
       }
       return {
         success: true,
@@ -468,6 +488,101 @@ const executeToolCall = async (toolName, args) => {
       return { success: true, type: 'sales_quote', data: quote }
     }
 
+    case 'save_mix_design': {
+      const cached = lastResultCache.get('lastMixDesign')
+      if (!cached || !cached.data) {
+        return { success: false, error: '没有可保存的配合比方案。请先执行配合比计算或成本优化。' }
+      }
+      const d = cached.data
+      const bestSol = d.bestSolution || {}
+      const source = d.bestSolution ? bestSol : d
+      const now = new Date()
+      const timestamp = now.toLocaleString('zh-CN', { hour12: false })
+      const saveData = {
+        name: args.name || `${d.strength || 'AI'}${d.bestSolution ? '成本优化方案' : '智能设计方案'} - ${timestamp}`,
+        projectName: args.projectName || 'AI智能设计',
+        strength: d.strength || source.strength,
+        slump: d.slump || source.slump,
+        waterRatio: source.waterRatio || d.waterRatio || bestSol.waterRatio,
+        sandRatio: source.sandRatio || d.sandRatio || bestSol.sandRatio,
+        density: source.density || d.density || bestSol.density,
+        materials: source.materials || d.materials || bestSol.materials,
+        materialCosts: source.materialCosts || d.materialCosts || bestSol.materialCosts,
+        totalCost: source.totalCost || d.totalCost || bestSol.totalCost,
+        materialDetails: source.selectedMaterials || d.selectedMaterials || bestSol.selectedMaterials,
+        fineAggregateBreakdown: source.fineAggregateBreakdown || d.fineAggregateBreakdown || bestSol.fineAggregateBreakdown,
+        coarseAggregateBreakdown: source.coarseAggregateBreakdown || d.coarseAggregateBreakdown || bestSol.coarseAggregateBreakdown,
+        status: 'AI生成'
+      }
+      try {
+        const created = await MixDesignService.createMixDesign(saveData)
+        return { success: true, type: 'save_result', message: `方案「${saveData.name}」已保存`, id: created.id }
+      } catch (err) {
+        return { success: false, error: `保存失败: ${err.message}` }
+      }
+    }
+
+    case 'save_to_basic_mix_library': {
+      const cached = lastResultCache.get('lastMixDesign')
+      if (!cached || !cached.data) {
+        return { success: false, error: '没有可保存的配合比方案。请先执行配合比计算或成本优化。' }
+      }
+      const d = cached.data
+      const bestSol = d.bestSolution || {}
+      const source = d.bestSolution ? bestSol : d
+      const materials = source.materials || d.materials || bestSol.materials
+      // 将 materials 对象转换为 BasicMixDesign 所需的数组格式
+      const buildMaterialsArray = (mats, selected, fineBreakdown, coarseBreakdown) => {
+        const arr = []
+        const findName = (key, fallback) => {
+          if (selected && selected[key] && typeof selected[key] === 'object') return selected[key].name || selected[key]
+          if (selected && selected[key] && typeof selected[key] === 'string') return selected[key]
+          return fallback || key
+        }
+        const findId = (key) => {
+          if (selected && selected[key] && typeof selected[key] === 'object') return selected[key].id
+          return null
+        }
+        if (mats.cement != null) arr.push({ materialId: findId('cement'), materialType: '水泥', materialName: findName('cement', '水泥'), usage: mats.cement })
+        if (mats.flyAsh != null && mats.flyAsh > 0) arr.push({ materialId: findId('flyAsh'), materialType: '粉煤灰', materialName: findName('flyAsh', '粉煤灰'), usage: mats.flyAsh })
+        if (mats.slag != null && mats.slag > 0) arr.push({ materialId: findId('slag'), materialType: '矿渣粉', materialName: findName('slag', '矿渣粉'), usage: mats.slag })
+        if (mats.lithiumSlag != null && mats.lithiumSlag > 0) arr.push({ materialId: findId('lithiumSlag'), materialType: '锂渣', materialName: findName('lithiumSlag', '锂渣'), usage: mats.lithiumSlag })
+        if (mats.compositePowder != null && mats.compositePowder > 0) arr.push({ materialId: findId('compositePowder'), materialType: '复合粉', materialName: findName('compositePowder', '复合粉'), usage: mats.compositePowder })
+        if (mats.superplasticizer != null && mats.superplasticizer > 0) arr.push({ materialId: findId('superplasticizer'), materialType: '减水剂', materialName: findName('superplasticizer', '减水剂'), usage: mats.superplasticizer })
+        // 细骨料
+        if (fineBreakdown && fineBreakdown.length > 0) {
+          fineBreakdown.forEach((f, i) => arr.push({ materialId: f.id || null, materialType: '细骨料', materialName: f.name || `细骨料${i + 1}`, usage: f.amount }))
+        } else if (mats.sand != null && mats.sand > 0) {
+          arr.push({ materialId: findId('sand'), materialType: '细骨料', materialName: findName('sand', '细骨料'), usage: mats.sand })
+        }
+        // 粗骨料
+        if (coarseBreakdown && coarseBreakdown.length > 0) {
+          coarseBreakdown.forEach((c, i) => arr.push({ materialId: c.id || null, materialType: '粗骨料', materialName: c.name || `粗骨料${i + 1}`, usage: c.amount }))
+        } else if (mats.stone != null && mats.stone > 0) {
+          arr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone })
+        }
+        if (mats.water != null && mats.water > 0) arr.push({ materialId: null, materialType: '水', materialName: '水', usage: mats.water })
+        return arr
+      }
+      const strength = d.strength || source.strength || 'C30'
+      const slump = d.slump || source.slump || 180
+      try {
+        const created = await BasicMixDesignService.createBasicMixDesign({
+          name: args.name || `${strength}智能设计基准 - ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+          strengthGrade: args.strengthGrade || strength,
+          concreteType: args.concreteType || '普通',
+          slump: args.slump != null ? args.slump : slump,
+          materials: buildMaterialsArray(materials, source.selectedMaterials || d.selectedMaterials, source.fineAggregateBreakdown || d.fineAggregateBreakdown, source.coarseAggregateBreakdown || d.coarseAggregateBreakdown),
+          isDefault: args.isDefault || false,
+          remarks: args.remarks || '',
+          source: '智能设计保存'
+        })
+        return { success: true, type: 'save_result', message: `方案「${args.name || strength}」已保存到基础配合比库`, id: created.id }
+      } catch (err) {
+        return { success: false, error: `保存到基础配合比库失败: ${err.message}` }
+      }
+    }
+
     default:
       return { success: false, error: `未知工具: ${toolName}` }
   }
@@ -486,6 +601,10 @@ const chatWithAI = async (event, { message, context }) => {
     // 将配合比数据注入工具执行上下文（供 run_parameter_diagnosis 使用）
     const toolExecutorWithContext = (toolName, args) => {
       const enrichedArgs = { ...args }
+      enrichedArgs._salesQuoteGuard = {
+        isSalesQuoteIntent: SalesQuoteToolGuard.isSalesQuoteIntent(message),
+        userApprovedMixDesignForQuote: SalesQuoteToolGuard.hasExplicitMixDesignAuthorization(message)
+      }
       if (context && context.mixDesigns) {
         enrichedArgs._mixDesigns = context.mixDesigns
       }
@@ -518,6 +637,10 @@ const chatWithAIStream = async (event, { requestId, message, context }) => {
   try {
     const toolExecutorWithContext = (toolName, args) => {
       const enrichedArgs = { ...args }
+      enrichedArgs._salesQuoteGuard = {
+        isSalesQuoteIntent: SalesQuoteToolGuard.isSalesQuoteIntent(message),
+        userApprovedMixDesignForQuote: SalesQuoteToolGuard.hasExplicitMixDesignAuthorization(message)
+      }
       if (context && context.mixDesigns) {
         enrichedArgs._mixDesigns = context.mixDesigns
       }

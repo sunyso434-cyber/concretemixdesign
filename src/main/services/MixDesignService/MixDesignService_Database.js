@@ -122,7 +122,8 @@ class MixDesignService_Database {
 
       // 计算并记录目标细度模数（根据强度等级调整）
       const targetFinenessModulus = MixDesignService_Strength.computeTargetFinenessModulus(strength, tempSettings)
-      const baseFm = (tempSettings && tempSettings.targetFinenessModulusBase !== undefined) ? tempSettings.targetFinenessModulusBase : 2.7
+      const userSpecifiedFm = tempSettings && tempSettings.targetFinenessModulusBase !== undefined && tempSettings.targetFinenessModulusBase !== null
+      const baseFm = userSpecifiedFm ? tempSettings.targetFinenessModulusBase : 2.7
 
       // ========== 步骤3：回归系数 ==========
       const { alphaA, alphaB } = await MixDesignService_WaterRatio.getRegressionCoefficients(tempSettings)
@@ -598,7 +599,7 @@ class MixDesignService_Database {
           step: 10,
           title: '细骨料组合计算',
           details: [
-            { label: '目标细度模数', value: targetFinenessModulus.toFixed(2), formula: `C30基准${baseFm} + (${strengthNum} - 30) × 0.02` },
+            { label: '目标细度模数', value: targetFinenessModulus.toFixed(2), formula: userSpecifiedFm ? `用户指定: ${targetFinenessModulus.toFixed(2)}（当前强度等级最终目标）` : `C30基准${baseFm} + (${strengthNum} - 30) × 0.02` },
             { label: '组合方式', value: fineAggregateOptimalRatio?.combinedFinenessModulus !== undefined ? `组合细度模数: ${fineAggregateOptimalRatio.combinedFinenessModulus.toFixed(3)}` : '按比例分配' }
           ]
         })

@@ -1,6 +1,6 @@
-import React, { Suspense, lazy, useState, useCallback, useEffect } from 'react'
-import { Spin, Drawer } from 'antd'
-import { AppstoreOutlined, SettingOutlined } from '@ant-design/icons'
+import React, { Suspense, lazy, useState, useCallback, useEffect, useRef } from 'react'
+import { Spin, Drawer, Button, Space, Tooltip } from 'antd'
+import { AppstoreOutlined, SettingOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import ResizablePanels from '../components/ResizablePanels'
 import WorkspaceTabs from '../components/WorkspaceTabs'
 import BackgroundTaskBar from '../components/BackgroundTaskBar'
@@ -40,6 +40,7 @@ const LoadingFallback = () => (
 )
 
 export default function WorkspacePage() {
+  const materialsRef = useRef(null)
   const [middleTab, setMiddleTab] = useState(() => loadTab('middleActiveTab', 'ai-analysis'))
   const [hasTasks, setHasTasks] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(null) // null | 'schemes' | 'settings'
@@ -84,7 +85,7 @@ export default function WorkspacePage() {
   }, [])
 
   const renderMiddleContent = () => {
-    const style = hidden => ({ display: hidden ? 'none' : 'flex', flexDirection: 'column', flex: 1, minHeight: 0 })
+    const style = hidden => hidden ? { display: 'none' } : { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }
     return (
       <>
         <div style={style(middleTab !== 'mixdesign')} className="panel-content">
@@ -105,40 +106,63 @@ export default function WorkspacePage() {
 
   const leftContent = (
     <>
-      <WorkspaceTabs
-        tabs={[{ key: 'materials', label: '原材料管理' }]}
-        activeKey="materials"
-        readonly
-      />
+      <div className="workspace-tabs" style={{ justifyContent: 'space-between', alignItems: 'center', paddingRight: 8 }}>
+        <span className="workspace-tab-label">原材料管理</span>
+        <Space size={0}>
+          <Button
+            type="text"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={() => materialsRef.current?.addNew()}
+            title="新增材料"
+          />
+          <Button
+            type="text"
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={() => materialsRef.current?.refresh()}
+            title="刷新"
+          />
+        </Space>
+      </div>
       <div className="panel-content">
-        <Suspense fallback={<LoadingFallback />}><MaterialsPage /></Suspense>
+        <Suspense fallback={<LoadingFallback />}><MaterialsPage ref={materialsRef} hideActionBar /></Suspense>
       </div>
     </>
   )
 
   const middleContent = (
     <>
-      <WorkspaceTabs tabs={MIDDLE_TABS} activeKey={middleTab} onChange={handleMiddleChange} />
+      <div className="workspace-tabs">
+        {MIDDLE_TABS.map(tab => {
+          const isActive = middleTab === tab.key
+          return (
+            <button
+              key={tab.key}
+              className={`workspace-tab ${isActive ? 'active' : ''}`}
+              onClick={() => handleMiddleChange(tab.key)}
+              type="button"
+            >
+              {tab.label}
+            </button>
+          )
+        })}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Tooltip title="方案管理">
+            <span className="topbar-icon" onClick={() => setDrawerOpen('schemes')}><AppstoreOutlined /></span>
+          </Tooltip>
+          <Tooltip title="系统设置">
+            <span className="topbar-icon" onClick={() => setDrawerOpen('settings')}><SettingOutlined /></span>
+          </Tooltip>
+          <span className="topbar-version">v3.8.1</span>
+        </div>
+      </div>
       {renderMiddleContent()}
     </>
   )
 
   return (
     <div className="workspace-container">
-      <header className="topbar">
-        <img src={new URL('/logo.png', import.meta.url).href} alt="logo" className="topbar-logo" />
-        <span className="topbar-title">混凝土配合比设计系统</span>
-        <div className="topbar-right">
-          <span className="topbar-icon" onClick={() => setDrawerOpen('schemes')} title="方案管理">
-            <AppstoreOutlined />
-          </span>
-          <span className="topbar-icon" onClick={() => setDrawerOpen('settings')} title="系统设置">
-            <SettingOutlined />
-          </span>
-          <span className="topbar-version">v3.4.0</span>
-          <span className={`topbar-task-dot${hasTasks ? ' has-tasks' : ''}`} />
-        </div>
-      </header>
       <ResizablePanels left={leftContent} middle={middleContent} />
       <Drawer
         title="方案管理"

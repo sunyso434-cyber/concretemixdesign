@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Button, Table, message, Typography, Space, Tag, Popconfirm, Empty, Spin, Modal, Input, Form, Progress, Steps } from 'antd'
+import { Button, Table, message, Typography, Space, Tag, Popconfirm, Empty, Spin, Modal, Input, Form, Progress, Steps, Select } from 'antd'
 import { UploadOutlined, DeleteOutlined, FileTextOutlined, ReloadOutlined, LoadingOutlined, CheckCircleOutlined } from '@ant-design/icons'
 
 const { Title, Text, Paragraph } = Typography
@@ -11,6 +11,31 @@ const PROGRESS_STAGES = [
   { key: 'embed', title: '计算向量' },
   { key: 'save', title: '保存知识包' },
 ]
+
+const CATEGORY_OPTIONS = [
+  { label: '公路', value: '公路' },
+  { label: '铁路', value: '铁路' },
+  { label: '水工', value: '水工' },
+  { label: '建筑', value: '建筑' },
+  { label: '通用', value: '通用' },
+  { label: '其他', value: '其他' },
+]
+
+const inferCategoryFromName = (name) => {
+  if (/JTG|JT\/T|公路|桥涵|路面|道路/.test(name)) return '公路'
+  if (/TB|铁路/.test(name)) return '铁路'
+  if (/SL|水工|水利/.test(name)) return '水工'
+  if (/JGJ|建筑/.test(name)) return '建筑'
+  if (/GB|GB\/T/.test(name)) return '通用'
+  return '其他'
+}
+
+const getQualityTag = (quality) => {
+  const level = quality?.reviewLevel || 'normal'
+  if (level === 'good') return <Tag color="green">质量良好</Tag>
+  if (level === 'weak') return <Tag color="orange">需复核</Tag>
+  return <Tag color="blue">质量普通</Tag>
+}
 
 const StandardsManager = () => {
   const [standards, setStandards] = useState([])
@@ -66,7 +91,12 @@ const StandardsManager = () => {
         const filePath = filePaths[0]
         setSelectedFilePath(filePath)
         const fileName = filePath.split(/[/\\]/).pop().replace(/\.md$/i, '')
-        form.setFieldsValue({ standardName: fileName, version: '1.0' })
+        form.setFieldsValue({
+          standardName: fileName,
+          version: '1.0',
+          category: inferCategoryFromName(fileName),
+          aliases: ''
+        })
         setModalVisible(true)
       }
     } catch (error) {
@@ -111,6 +141,8 @@ const StandardsManager = () => {
         filePath: selectedFilePath,
         standardName: values.standardName,
         version: values.version,
+        category: values.category,
+        aliases: values.aliases,
       })
 
       // 移除监听
@@ -215,6 +247,20 @@ const StandardsManager = () => {
       render: (text) => <Tag color="blue">{text}</Tag>,
     },
     {
+      title: '分类',
+      dataIndex: 'category',
+      key: 'category',
+      width: 100,
+      render: (text) => <Tag color="geekblue">{text || '其他'}</Tag>,
+    },
+    {
+      title: '质量',
+      dataIndex: 'quality',
+      key: 'quality',
+      width: 110,
+      render: (quality) => getQualityTag(quality),
+    },
+    {
       title: '条款数',
       dataIndex: 'totalClauses',
       key: 'totalClauses',
@@ -262,7 +308,7 @@ const StandardsManager = () => {
             规范管理
           </Title>
           <Text type="secondary">
-            上传施工规范Markdown文件，AI将自动解析规范条款，用于配合比设计的合规性校验。需要联网。
+            上传施工规范 Markdown 文件，并设置分类和别名。AI 会解析规范条款，系统会标记结构化质量并用于配合比审查。
           </Text>
         </Space>
       </div>
@@ -339,6 +385,19 @@ const StandardsManager = () => {
             rules={[{ required: true, message: '请输入版本号' }]}
           >
             <Input placeholder="例如：1.0 或 2011版" />
+          </Form.Item>
+          <Form.Item
+            name="category"
+            label="规范分类"
+            rules={[{ required: true, message: '请选择规范分类' }]}
+          >
+            <Select options={CATEGORY_OPTIONS} placeholder="请选择规范分类" />
+          </Form.Item>
+          <Form.Item
+            name="aliases"
+            label="别名"
+          >
+            <Input placeholder="例如：JGJ55、公路桥涵；多个别名可用逗号分隔" />
           </Form.Item>
         </Form>
         <Paragraph type="warning" style={{ marginTop: 8, marginBottom: 0 }}>

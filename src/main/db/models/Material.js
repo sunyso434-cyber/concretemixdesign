@@ -21,9 +21,6 @@ const Material = sequelize.define('Material', {
   manufacturer: {
     type: DataTypes.STRING
   },
-  price: {
-    type: DataTypes.FLOAT
-  },
   density: {
     type: DataTypes.FLOAT
   },

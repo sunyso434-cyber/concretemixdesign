@@ -1,12 +1,15 @@
 # 版本更新记录
 
-## 规范审查准确率修复 (2026-05-25)
+## 打包记录 (2026-05-25 规范审查准确率修复)
 
-- **版本**: 代码修改，未打包
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.8.1**
+- **输出目录**: `dist-3.8.0/`
 - **说明**:
-  1. **修复向量检索未传入AI Prompt** — 向量检索独有条款现在以"语义相关条款"形式传入AI，带warning级别约束，解决检索结果形同虚设的问题
-  2. **修复常规环境不匹配一类环境** — 增加环境等价映射层，默认"常规环境"展开匹配"一类环境"，解决最常见条款被跳过的问题
-  3. **修复minTotalBinder字段映射错误** — 从cementContent改为binderContent，解决胶凝材料总量误判问题
+  1. **修复向量检索未传入AI Prompt** — 向量检索独有条款以"语义相关条款"形式传入AI，带warning级别约束
+  2. **修复常规环境不匹配一类环境** — 增加环境等价映射层，默认"常规环境"展开匹配"一类环境"
+  3. **修复minTotalBinder字段映射错误** — 从cementContent改为binderContent，解决胶凝材料总量误判
   4. **新增PARAM_RULES映射** — 氯离子含量、含泥量、云母含量规则可走结构化匹配
   5. **_buildQueryText补充参数** — 增加胶凝材料总量、用水量、氯离子含量、含泥量、云母含量的向量化查询
 - **修改文件**:
@@ -14,6 +17,9 @@
   - `src/main/services/ComplianceRuleEngine.js`
   - `src/main/services/StandardComplianceService.js`
   - `tests/manual/test-standards-review-accuracy.js`
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 3.8.1.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-3.8.1-x64.exe`
 
 ## 打包记录 (2026-05-25 智能设计输入区固定底部)
 

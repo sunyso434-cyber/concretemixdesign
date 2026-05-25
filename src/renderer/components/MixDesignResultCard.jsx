@@ -6,7 +6,7 @@ const { Text } = Typography
 const { Panel } = Collapse
 
 const MixDesignResultCard = ({ data, onSave, onSaveBasicMix }) => {
-  const { strength, slump, materials, totalCost, waterRatio, sandRatio, density, targetStrength, calculationSteps } = data
+  const { strength, slump, materials, totalCost, waterRatio, sandRatio, density, targetStrength, calculationSteps, fineAggregateBreakdown, coarseAggregateBreakdown } = data
 
   const materialColumns = [
     { title: '材料', dataIndex: 'name', key: 'name' },
@@ -25,8 +25,24 @@ const MixDesignResultCard = ({ data, onSave, onSaveBasicMix }) => {
     ...(materials?.slag > 0 ? [{ key: 'slag', name: '矿渣粉', amount: materials.slag, pct: ((materials.slag / totalWeight) * 100).toFixed(1) }] : []),
     ...(materials?.lithiumSlag > 0 ? [{ key: 'lithiumSlag', name: '锂渣', amount: materials.lithiumSlag, pct: ((materials.lithiumSlag / totalWeight) * 100).toFixed(1) }] : []),
     ...(materials?.compositePowder > 0 ? [{ key: 'compositePowder', name: '复合粉', amount: materials.compositePowder, pct: ((materials.compositePowder / totalWeight) * 100).toFixed(1) }] : []),
-    { key: 'sand', name: '细骨料', amount: materials?.sand, pct: totalWeight ? ((materials?.sand || 0) / totalWeight * 100).toFixed(1) : 0 },
-    { key: 'stone', name: '粗骨料', amount: materials?.stone, pct: totalWeight ? ((materials?.stone || 0) / totalWeight * 100).toFixed(1) : 0 },
+    ...(fineAggregateBreakdown && fineAggregateBreakdown.length > 1
+      ? fineAggregateBreakdown.map((f, i) => ({
+          key: `sand_${f.id || i}`,
+          name: `细骨料-${f.name || `砂${i + 1}`}`,
+          amount: f.amount,
+          pct: totalWeight ? ((f.amount || 0) / totalWeight * 100).toFixed(1) : 0
+        }))
+      : [{ key: 'sand', name: '细骨料', amount: materials?.sand, pct: totalWeight ? ((materials?.sand || 0) / totalWeight * 100).toFixed(1) : 0 }]
+    ),
+    ...(coarseAggregateBreakdown && coarseAggregateBreakdown.length > 1
+      ? coarseAggregateBreakdown.map((c, i) => ({
+          key: `stone_${c.id || i}`,
+          name: `粗骨料-${c.name || `石${i + 1}`}`,
+          amount: c.amount,
+          pct: totalWeight ? ((c.amount || 0) / totalWeight * 100).toFixed(1) : 0
+        }))
+      : [{ key: 'stone', name: '粗骨料', amount: materials?.stone, pct: totalWeight ? ((materials?.stone || 0) / totalWeight * 100).toFixed(1) : 0 }]
+    ),
     ...(materials?.superplasticizer > 0 ? [{ key: 'sp', name: '减水剂', amount: materials.superplasticizer, pct: ((materials.superplasticizer / totalWeight) * 100).toFixed(2) }] : [])
   ]
 

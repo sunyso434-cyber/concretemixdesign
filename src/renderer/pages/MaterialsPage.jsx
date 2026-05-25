@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react'
-import { Table, Button, Modal, Form, Input, InputNumber, Select, Space, message, Row, Col, Divider, Tabs } from 'antd'
+import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react'
+import { Table, Button, Modal, Form, Input, InputNumber, Select, Space, message, Row, Col, Divider } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
 import { getFieldsForType, calculateFinenessModulus, autoMatchGrading } from '../utils/materialFieldsConfig'
 
 const MATERIAL_TYPES = ['水泥', '粉煤灰', '矿渣粉', '锂渣', '复合粉', '细骨料', '粗骨料', '减水剂', '其他']
 
-const MaterialsPage = () => {
+const MaterialsPage = forwardRef((props, ref) => {
+  const { hideActionBar } = props || {}
   const [form] = Form.useForm()
   const [materials, setMaterials] = useState([])
   const [loading, setLoading] = useState(false)
@@ -13,6 +14,7 @@ const MaterialsPage = () => {
   const [editingId, setEditingId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [selectedType, setSelectedType] = useState(null)
+  const [pageSize, setPageSize] = useState(10)
 
   const loadMaterials = async () => {
     setLoading(true)
@@ -45,6 +47,18 @@ const MaterialsPage = () => {
       window.electron.ipcRenderer.removeListener('data-refresh', handleDataRefresh)
     }
   }, [])
+
+  useImperativeHandle(ref, () => ({
+    addNew: () => {
+      form.resetFields()
+      setEditingId(null)
+      setSelectedType(null)
+      setModalVisible(true)
+    },
+    refresh: () => {
+      loadMaterials()
+    }
+  }), [])
 
   const handleAddNew = () => {
     form.resetFields()
@@ -301,14 +315,16 @@ const MaterialsPage = () => {
 
   return (
     <div className="page-container">
-      <div className="action-bar">
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleAddNew} className="custom-btn">
-          新增材料
-        </Button>
-        <Button icon={<ReloadOutlined />} onClick={loadMaterials} loading={loading} className="custom-btn">
-          刷新
-        </Button>
-      </div>
+      {!hideActionBar && (
+        <div className="action-bar">
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleAddNew} className="custom-btn">
+            新增材料
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={loadMaterials} loading={loading} className="custom-btn">
+            刷新
+          </Button>
+        </div>
+      )}
 
       <div className="custom-card">
         <Table
@@ -317,9 +333,10 @@ const MaterialsPage = () => {
           loading={loading}
           rowKey="id"
           pagination={{
-            pageSize: 10,
+            pageSize,
             showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 条`
+            showTotal: (total) => `共 ${total} 条`,
+            onShowSizeChange: (_, size) => setPageSize(size)
           }}
           scroll={{ x: 650 }}
           className="custom-table"
@@ -344,6 +361,6 @@ const MaterialsPage = () => {
       </Modal>
     </div>
   )
-}
+})
 
 export default MaterialsPage

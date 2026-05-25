@@ -244,6 +244,8 @@ const SmartDesignChat = () => {
     updateStreamMessage(streamId, item => ({
       ...item,
       ...finalMsg,
+      // 流式事件中已设置 toolCall 时，不被 finalMsg 的 null 覆盖
+      toolCall: item.toolCall || finalMsg.toolCall,
       content: item.content?.trim() ? item.content : finalMsg.content,
       streaming: false,
       toolEvents: (item.toolEvents || []).map(tool => (
@@ -275,16 +277,28 @@ const SmartDesignChat = () => {
     }
 
     if (payload.type === 'tool_done' || payload.type === 'tool_error') {
-      updateStreamMessage(streamId, item => ({
-        ...item,
-        toolEvents: mergeToolEvent(item.toolEvents, {
-          id: payload.toolCallId,
-          toolName: payload.toolName,
-          status: payload.type === 'tool_error' ? 'error' : 'done',
-          summary: createToolSummary(payload.toolName, payload.args),
-          error: payload.error || payload.result?.error
-        })
-      }))
+      const toolResult = payload.result
+      updateStreamMessage(streamId, item => {
+        const next = {
+          ...item,
+          toolEvents: mergeToolEvent(item.toolEvents, {
+            id: payload.toolCallId,
+            toolName: payload.toolName,
+            status: payload.type === 'tool_error' ? 'error' : 'done',
+            summary: createToolSummary(payload.toolName, payload.args),
+            error: payload.error || toolResult?.error
+          })
+        }
+        // tool_done 携带了可视化结果，直接构建 toolCall 以渲染结果卡片（含保存按钮）
+        if (payload.type === 'tool_done' && toolResult?.type && toolResult?.data) {
+          next.toolCall = {
+            status: 'done',
+            type: toolResult.type,
+            data: toolResult.data
+          }
+        }
+        return next
+      })
       return
     }
 
@@ -987,45 +1001,47 @@ const SmartDesignChat = () => {
           </Tag>
         )}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div className="smart-chat-input-area">
         <Input
           placeholder={analysisMode ? '输入你的追问，或继续对话...' : '输入你的需求，如：帮我设计C50泵送混凝土...'}
           value={chatInput}
           onChange={(e) => setChatInput(e.target.value)}
           onPressEnter={handleSendChat}
           disabled={chatLoading}
-          style={{ flex: 1 }}
         />
-        <Upload
-          showUploadList={false}
-          beforeUpload={(file) => {
-            const type = getAttachmentType(file.name)
-            if (type === 'unsupported') {
-              message.error('仅支持Excel和Markdown文件')
-              return false
-            }
-            setAttachment({ file, type, name: file.name })
-            return false
-          }}
-        >
-          <Button icon={<PlusOutlined />} title="上传附件" aria-label="上传附件" />
-        </Upload>
-        <Button
-          icon={<ClearOutlined />}
-          onClick={handleClearChat}
-          disabled={chatMessages.length === 0}
-          title="清空对话"
-          aria-label="清空对话"
-        />
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          onClick={handleSendChat}
-          loading={chatLoading}
-          disabled={!chatInput.trim()}
-        >
-          发送
-        </Button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+          <Space size={0}>
+            <Upload
+              showUploadList={false}
+              beforeUpload={(file) => {
+                const type = getAttachmentType(file.name)
+                if (type === 'unsupported') {
+                  message.error('仅支持Excel和Markdown文件')
+                  return false
+                }
+                setAttachment({ file, type, name: file.name })
+                return false
+              }}
+            >
+              <Button type="text" size="small" icon={<PlusOutlined />} title="上传附件" />
+            </Upload>
+            <Button
+              type="text"
+              size="small"
+              icon={<ClearOutlined />}
+              onClick={handleClearChat}
+              disabled={chatMessages.length === 0}
+              title="清空对话"
+            />
+          </Space>
+          <Button
+            type="primary"
+            icon={<SendOutlined />}
+            onClick={handleSendChat}
+            loading={chatLoading}
+            disabled={!chatInput.trim()}
+          />
+        </div>
       </div>
       <SaveBasicMixModal
         open={!!basicMixModalData}

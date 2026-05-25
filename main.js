@@ -99,6 +99,8 @@ async function createWindow() {
     }
   })
 
+  mainWindow.setMenuBarVisibility(false)
+
   // 加载应用
   console.log('当前环境:', process.env.NODE_ENV)
   console.log('当前目录:', __dirname)

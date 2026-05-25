@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { Component, useState, useEffect, useRef } from 'react'
 import { Tabs, Button, message, Upload, Table, Select, Space, Card, Tag, Alert, Descriptions, Divider, Form, InputNumber, Row, Col, Input, List, Avatar, Checkbox } from 'antd'
 import { DownloadOutlined, UploadOutlined, ExperimentOutlined, SettingOutlined, SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, DeleteOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
@@ -650,6 +650,29 @@ const AnalysisReport = ({ result }) => {
   )
 }
 
+class ResultsErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error }
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 24, textAlign: 'center', color: '#999' }}>
+          <p>分析报告渲染异常</p>
+          <pre style={{ fontSize: 12, textAlign: 'left', maxWidth: '100%', overflow: 'auto', color: '#e53e3e' }}>
+            {this.state.error?.message}
+          </pre>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 const AIAnalysisPage = () => {
   const [mixDesigns, setMixDesigns] = useState([])
   const [materials, setMaterials] = useState([])
@@ -974,7 +997,7 @@ const AIAnalysisPage = () => {
     {
       key: 'analysis-report',
       label: '分析报告呈现',
-      children: <AIAnalysisPage_Results {...resultsProps} />,
+      children: <ResultsErrorBoundary><AIAnalysisPage_Results {...resultsProps} /></ResultsErrorBoundary>,
     },
   ]
 
@@ -982,7 +1005,7 @@ const AIAnalysisPage = () => {
     {
       key: 'smart-design',
       label: '智能设计',
-      children: <SmartDesignChat />,
+      children: <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}><SmartDesignChat /></div>,
     },
     {
       key: 'smart-analysis',
@@ -997,7 +1020,7 @@ const AIAnalysisPage = () => {
   ]
 
   return (
-    <div className="page-container" style={{ padding: '0 0 24px 0' }}>
+    <div className="page-container">
       <Tabs
         items={smartItems}
         defaultActiveKey="smart-design"

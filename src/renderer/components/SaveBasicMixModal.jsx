@@ -7,6 +7,10 @@ function buildMaterialsFromResult(result) {
   const selected = result.selectedMaterials || {}
   const usages = result.materials || {}
   const rows = []
+  // 水（不在材料库中，但配合比必须记录）
+  if (usages.water > 0) {
+    rows.push({ materialId: null, materialType: '水', materialName: '水', usage: usages.water })
+  }
   const map = [
     ['cement', '水泥', usages.cement],
     ['flyAsh', '粉煤灰', usages.flyAsh],
@@ -21,10 +25,14 @@ function buildMaterialsFromResult(result) {
     }
   }
   for (const item of selected.sand || []) {
-    rows.push({ materialId: item.id, materialType: '细骨料', materialName: item.name, usage: usages.sand || 0 })
+    // 优先使用 fineAggregateBreakdown 中各砂的独立用量，避免多种细骨料共用同一个总量
+    const breakdown = result.fineAggregateBreakdown?.find(b => String(b.id) === String(item.id))
+    rows.push({ materialId: item.id, materialType: '细骨料', materialName: item.name, usage: breakdown ? breakdown.amount : (usages.sand || 0) })
   }
   for (const item of selected.stone || []) {
-    rows.push({ materialId: item.id, materialType: '粗骨料', materialName: item.name, usage: usages.stone || 0 })
+    // 同样处理粗骨料
+    const breakdown = result.coarseAggregateBreakdown?.find(b => String(b.id) === String(item.id))
+    rows.push({ materialId: item.id, materialType: '粗骨料', materialName: item.name, usage: breakdown ? breakdown.amount : (usages.stone || 0) })
   }
   return rows
 }
