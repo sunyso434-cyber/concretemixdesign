@@ -2,7 +2,8 @@ const StandardClauseNormalizer = require('./StandardClauseNormalizer')
 const { ROLE } = StandardClauseNormalizer
 const {
   buildReviewContext,
-  shouldSkipByDefaultAssumption
+  shouldSkipByDefaultAssumption,
+  expandEnvironmentForMatching
 } = require('./StandardReviewContext')
 
 const FIELD_LABELS = {
@@ -58,13 +59,35 @@ const normalizeMixDesign = (input = {}) => {
   const slagAmount = input.slagAmount ?? input.slag ?? readAmount(materials.slag)
   const lithiumSlagAmount = input.lithiumSlagAmount ?? input.lithiumSlag ?? readAmount(materials.lithiumSlag)
   const compositePowderAmount = input.compositePowderAmount ?? input.compositePowder ?? readAmount(materials.compositePowder)
+  const waterAmount = toNumber(input.waterAmount ?? input.waterUsage ?? input.water ?? readAmount(materials.water))
+  const explicitWaterBinderRatio = toNumber(input.waterBinderRatio ?? input.waterRatio)
+  const cementContent = toNumber(cement)
   const explicitBinderContent = toNumber(input.binderContent)
   const calculatedBinderContent = [cement, flyAshAmount, slagAmount, lithiumSlagAmount, compositePowderAmount]
     .map(v => toNumber(v) || 0)
     .reduce((sum, v) => sum + v, 0)
-  const binderContent = explicitBinderContent ?? (calculatedBinderContent > 0 ? calculatedBinderContent : null)
-  const waterAmount = toNumber(input.waterAmount ?? input.waterUsage ?? input.water ?? readAmount(materials.water))
-  const waterBinderRatio = toNumber(input.waterBinderRatio ?? input.waterRatio)
+
+  const materialBinderContent = calculatedBinderContent > 0 ? calculatedBinderContent : null
+  const inferredBinderFromWaterRatio = waterAmount != null && explicitWaterBinderRatio > 0
+    ? waterAmount / explicitWaterBinderRatio
+    : null
+  const mineralDosageTotal = [
+    input.flyAshRatio ?? input.flyAshDosage,
+    input.slagRatio ?? input.slagDosage,
+    input.lithiumSlagRatio ?? input.lithiumSlagDosage,
+    input.compositePowderRatio ?? input.compositePowderDosage
+  ].map(v => toNumber(v) || 0).reduce((sum, v) => sum + v, 0)
+  const inferredBinderFromDosage = cementContent != null && mineralDosageTotal > 0 && mineralDosageTotal < 100
+    ? cementContent / (1 - mineralDosageTotal / 100)
+    : null
+  const binderContent = explicitBinderContent ??
+    (materialBinderContent != null && (cementContent == null || materialBinderContent > cementContent)
+      ? materialBinderContent
+      : null) ??
+    inferredBinderFromWaterRatio ??
+    inferredBinderFromDosage ??
+    materialBinderContent
+  const waterBinderRatio = explicitWaterBinderRatio
     ?? (waterAmount != null && binderContent > 0 ? waterAmount / binderContent : null)
 
   return {
@@ -74,7 +97,7 @@ const normalizeMixDesign = (input = {}) => {
     sandRatio: toNumber(input.sandRatio ?? input.sandRate),
     slump: toNumber(input.slump),
     airContent: toNumber(input.airContent),
-    cementContent: toNumber(cement),
+    cementContent,
     binderContent,
     flyAshRatio: toNumber(input.flyAshRatio ?? input.flyAshDosage),
     slagRatio: toNumber(input.slagRatio ?? input.slagDosage),
@@ -116,10 +139,13 @@ const includesAny = (provided, required) => {
   })
 }
 
+const environmentIncludesAny = (provided, required) =>
+  includesAny(expandEnvironmentForMatching(provided), required)
+
 const matchRuleApplicability = (rule, mixDesign) => {
   const applicability = rule.applicability || {}
   const requiredEnvironments = normalizeStringArray(applicability.environment)
-  if (requiredEnvironments.length > 0 && !includesAny(mixDesign.environment, requiredEnvironments)) {
+  if (requiredEnvironments.length > 0 && !environmentIncludesAny(mixDesign.environment, requiredEnvironments)) {
     return { status: 'not_applicable' }
   }
 
@@ -157,7 +183,7 @@ const matchApplicability = (clause, mixDesign) => {
     if (!mixDesign.environment) {
       return { status: 'manual_review', reason: '缺少环境类别，无法判断该条款是否适用。' }
     }
-    if (!includesAny(mixDesign.environment, requiredEnvironments)) {
+    if (!environmentIncludesAny(mixDesign.environment, requiredEnvironments)) {
       return { status: 'not_applicable', reason: '环境类别不匹配。' }
     }
   }

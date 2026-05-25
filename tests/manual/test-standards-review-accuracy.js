@@ -73,6 +73,52 @@ tests.push({
   }
 })
 
+tests.push({
+  name: 'Bug2: ComplianceRuleEngine evaluateClauses支持常规环境匹配一类环境条款',
+  run() {
+    const ComplianceRuleEngine = require('../../src/main/services/ComplianceRuleEngine')
+
+    // 模拟配合比，环境为默认"常规环境"
+    const mixDesign = { strength: 'C30', waterBinderRatio: 0.45 }
+
+    // 结构：一类环境水胶比限值条款
+    const clauses = [
+      {
+        standardName: 'JGJ 55-2011',
+        section: '7.2.1',
+        title: '一类环境C30混凝土最大水胶比不应大于0.55',
+        originalText: '一类环境C30混凝土最大水胶比不应大于0.55',
+        applicability: { environment: ['一类环境'] },
+        limitRules: [
+          { targetField: 'waterBinderRatio', operator: '<=', value: 0.55 }
+        ],
+        role: 'REVIEW_RULE'
+      },
+      {
+        standardName: 'JGJ 55-2011',
+        section: '7.2.2',
+        title: '冻融环境C30混凝土最大水胶比不应大于0.50',
+        originalText: '冻融环境C30混凝土最大水胶比不应大于0.50',
+        applicability: { environment: ['冻融环境'] },
+        limitRules: [
+          { targetField: 'waterBinderRatio', operator: '<=', value: 0.50 }
+        ],
+        role: 'REVIEW_RULE'
+      }
+    ]
+
+    const result = ComplianceRuleEngine.evaluateClauses(mixDesign, clauses)
+    // 一类环境条款应被匹配（因为默认常规环境=一类环境）
+    const matchedRule = result.ruleResults.find(r => r.clause === '7.2.1')
+    assert.ok(matchedRule, '一类环境水胶比限值条款应被匹配')
+    // 冻融环境条款应被跳过
+    const skippedFrozen = result.skippedSpecialRules.find(s => s.clause === '7.2.2')
+    assert.ok(skippedFrozen, '冻融环境条款应被跳过')
+    // 假设列表应有环境默认假设
+    assert.ok(result.assumptions.length > 0, '应有默认环境假设')
+  }
+})
+
 // ============================================================
 // Bug 3 Tests: minTotalBinder 应映射到 binderContent 字段
 // （将在 Task 3 中实现）
