@@ -5,6 +5,17 @@ const ASSUMPTION_NOTICE = '由于用户未指定环境类别/混凝土类别，�
 const ORDINARY_ENVIRONMENT_KEYWORDS = ['常规', '普通', '一般', '干燥', '室内']
 const SPECIAL_ENVIRONMENT_KEYWORDS = ['二类', '三类', '严寒', '寒冷', '冻融', '氯盐', '硫酸盐', '腐蚀', '海工', '潮湿', '盐渍土']
 
+const ORDINARY_ENVIRONMENT_EQUIVALENTS = {
+  '常规环境': ['一类环境', '一类', '室内干燥', '室内'],
+  '普通环境': ['一类环境', '一类', '室内干燥', '室内'],
+}
+
+const expandEnvironmentForMatching = (env) => {
+  const envStr = String(env || '').trim()
+  const equivalents = ORDINARY_ENVIRONMENT_EQUIVALENTS[envStr] || []
+  return [envStr, ...equivalents]
+}
+
 const ENVIRONMENT_CLASS_REGEX = /[一二三四五六七八九十][a-eA-E]?\s*(?:类)?\s*环境/
 const ORDINARY_CONCRETE_TYPE_KEYWORDS = ['普通混凝土']
 const SPECIAL_CONCRETE_TYPE_KEYWORDS = ['预应力', '大体积', '抗渗', '抗冻', '喷射', '水下', '自密实', '轻骨料', '重混凝土']
@@ -24,6 +35,8 @@ const includesKeyword = (value, keywords) => {
 
 const isSpecialEnvironment = (value) => {
   if (!value) return false
+  // 一类环境是常规环境，不是特殊环境
+  if (/一类[a-eA-E]?\s*(?:类)?\s*环境/.test(String(value))) return false
   if (ENVIRONMENT_CLASS_REGEX.test(String(value))) return true
   if (includesKeyword(value, ORDINARY_ENVIRONMENT_KEYWORDS) && !includesKeyword(value, SPECIAL_ENVIRONMENT_KEYWORDS)) return false
   return includesKeyword(value, SPECIAL_ENVIRONMENT_KEYWORDS)
@@ -77,11 +90,19 @@ const shouldSkipByDefaultAssumption = (item = {}, reviewContext = {}) => {
   const concreteTypes = normalizeStringArray(applicability.concreteType)
   const durabilityRequirements = normalizeStringArray(applicability.durabilityRequirements)
 
-  if (!userProvided.environment && environments.some(isSpecialEnvironment)) {
-    return {
-      skip: true,
-      reason: '用户未指定环境类别，特殊环境规则未启用',
-      field: 'environment'
+  // 环境匹配：默认"常规环境"等同于一类环境
+  if (!userProvided.environment && environments.length > 0) {
+    const defaultEquivalents = expandEnvironmentForMatching(DEFAULT_ENVIRONMENT)
+    const allOrdinary = environments.every(env => {
+      const envLower = String(env || '').toLowerCase()
+      return defaultEquivalents.some(eq => eq.toLowerCase() === envLower)
+    })
+    if (!allOrdinary && environments.some(isSpecialEnvironment)) {
+      return {
+        skip: true,
+        reason: '用户未指定环境类别，特殊环境规则未启用',
+        field: 'environment'
+      }
     }
   }
 
@@ -110,5 +131,7 @@ module.exports = {
   ASSUMPTION_NOTICE,
   buildReviewContext,
   shouldSkipByDefaultAssumption,
-  normalizeStringArray
+  normalizeStringArray,
+  expandEnvironmentForMatching,
+  ORDINARY_ENVIRONMENT_EQUIVALENTS
 }
