@@ -121,8 +121,53 @@ tests.push({
 
 // ============================================================
 // Bug 3 Tests: minTotalBinder 应映射到 binderContent 字段
-// （将在 Task 3 中实现）
 // ============================================================
+
+tests.push({
+  name: 'Bug3: normalizeMixDesign正确计算binderContent',
+  run() {
+    const { normalizeMixDesign } = require('../../src/main/services/ComplianceRuleEngine')
+    const m = normalizeMixDesign({
+      strength: 'C30',
+      cementContent: 280,
+      flyAshAmount: 100,
+      waterBinderRatio: 0.45
+    })
+    assert.strictEqual(m.cementContent, 280)
+    assert.strictEqual(m.binderContent, 380)
+    assert.strictEqual(m.waterBinderRatio, 0.45)
+  }
+})
+
+tests.push({
+  name: 'Bug3: _buildQueryText包含胶凝材料总量等缺失参数',
+  run() {
+    const Module = require('module')
+    const originalRequire = Module.prototype.require
+    Module.prototype.require = function(p) {
+      if (p === 'electron') return { app: { getPath: () => process.cwd() } }
+      return originalRequire.apply(this, arguments)
+    }
+    const StandardComplianceService = require('../../src/main/services/StandardComplianceService')
+    Module.prototype.require = originalRequire
+
+    const service = new StandardComplianceService({ apiKey: 'test-key' })
+    const query = service._buildQueryText({
+      strength: 'C30',
+      binderContent: 380,
+      chlorideContent: 0.06,
+      mudContent: 3.0,
+      micaContent: 1.5,
+      waterAmount: 175
+    })
+
+    assert.ok(query.includes('胶凝材料总量'), '应包含胶凝材料总量')
+    assert.ok(query.includes('氯离子含量'), '应包含氯离子含量')
+    assert.ok(query.includes('含泥量'), '应包含含泥量')
+    assert.ok(query.includes('云母含量'), '应包含云母含量')
+    assert.ok(query.includes('用水量'), '应包含用水量')
+  }
+})
 
 // ============================================================
 // Bug 1 Tests: 向量检索结果应传入AI Prompt

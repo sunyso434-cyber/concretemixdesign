@@ -44,7 +44,7 @@ const PARAM_RULES = {
     message: (current, limit) => `水泥用量 ${current} kg/m³ 超过规范最大值 ${limit} kg/m³`
   },
   minTotalBinder: {
-    field: 'cementContent',
+    field: 'binderContent',
     keywords: ['胶凝材料总量', '胶材总量', '总胶材', '最小胶凝'],
     compare: (current, limit) => current >= limit,
     message: (current, limit) => `胶凝材料总量 ${current} kg/m³ 低于规范最小值 ${limit} kg/m³`
@@ -114,6 +114,24 @@ const PARAM_RULES = {
     keywords: ['用水量', '单位用水量', 'water amount', '最大用水量'],
     compare: (current, limit) => current <= limit,
     message: (current, limit) => `单位用水量 ${current} kg/m³ 超过规范最大值 ${limit} kg/m³`
+  },
+  maxChlorideContent: {
+    field: 'chlorideContent',
+    keywords: ['氯离子含量', '氯含量', '氯离子', 'chloride', 'cl-', '最大氯离子'],
+    compare: (current, limit) => current <= limit,
+    message: (current, limit) => `氯离子含量 ${current}% 超过规范限值 ${limit}%`
+  },
+  maxMudContent: {
+    field: 'mudContent',
+    keywords: ['含泥量', '泥含量', 'mud', '最大含泥量'],
+    compare: (current, limit) => current <= limit,
+    message: (current, limit) => `含泥量 ${current}% 超过规范限值 ${limit}%`
+  },
+  maxMicaContent: {
+    field: 'micaContent',
+    keywords: ['云母含量', 'mica', '最大云母含量'],
+    compare: (current, limit) => current <= limit,
+    message: (current, limit) => `云母含量 ${current}% 超过规范限值 ${limit}%`
   },
   strengthRequirement: {
     field: 'strength',
@@ -367,6 +385,16 @@ class StandardComplianceService {
       }
     }
 
+    // 胶凝材料总量
+    if (mixDesign.binderContent != null) {
+      parts.push(`胶凝材料总量${mixDesign.binderContent}kg/m³`)
+    }
+
+    // 用水量
+    if (mixDesign.waterAmount != null && !parts.some(p => p.includes('用水量'))) {
+      parts.push(`用水量${mixDesign.waterAmount}kg/m³`)
+    }
+
     // 粉煤灰掺量
     if (mixDesign.flyAshRatio != null) {
       parts.push(`粉煤灰掺量${mixDesign.flyAshRatio}%`)
@@ -386,6 +414,21 @@ class StandardComplianceService {
     // 含气量
     if (mixDesign.airContent != null) {
       parts.push(`含气量${mixDesign.airContent}%`)
+    }
+
+    // 氯离子含量
+    if (mixDesign.chlorideContent != null) {
+      parts.push(`氯离子含量${mixDesign.chlorideContent}%`)
+    }
+
+    // 含泥量
+    if (mixDesign.mudContent != null) {
+      parts.push(`含泥量${mixDesign.mudContent}%`)
+    }
+
+    // 云母含量
+    if (mixDesign.micaContent != null) {
+      parts.push(`云母含量${mixDesign.micaContent}%`)
     }
 
     // 环境条件
