@@ -57,9 +57,10 @@ function calculate({ basicMix, pricing }) {
   const technicalServiceFee = roundMoney(pricing.technicalServiceFee)
   const costBase = roundMoney(materialCostSubtotal + marketAdjustmentAmount + manufacturingFee + technicalServiceFee)
   const baseProfit = roundMoney(costBase * profitRate)
-  const transportFee = roundMoney(pricing.transportFee)
-  const pumpingFee = roundMoney(pricing.pumpingFee)
-  const preTaxPrice = roundMoney(costBase + baseProfit + transportFee + pumpingFee)
+  const transportDistance = Number(pricing.transportDistance) || 20
+  const transportUnitPrice = Number(pricing.transportUnitPrice) || 2.5
+  const transportFee = roundMoney(transportDistance * transportUnitPrice)
+  const preTaxPrice = roundMoney(costBase + baseProfit + transportFee)
   const vatAmount = roundMoney(preTaxPrice * vatRate)
   const suggestedDealPrice = roundMoney(preTaxPrice + vatAmount)
   const quoteRangeDelta = roundMoney(pricing.quoteRangeDelta)
@@ -78,7 +79,8 @@ function calculate({ basicMix, pricing }) {
     profitRate,
     baseProfit,
     transportFee,
-    pumpingFee,
+    transportDistance,
+    transportUnitPrice,
     vatRate,
     preTaxPrice,
     vatAmount,
@@ -90,7 +92,6 @@ function calculate({ basicMix, pricing }) {
     },
     includes: {
       transport: transportFee > 0,
-      pumping: pumpingFee > 0,
       vat: vatRate > 0
     }
   }
