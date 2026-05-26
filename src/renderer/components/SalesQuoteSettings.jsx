@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { Button, Card, Divider, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tabs, message, Typography } from 'antd'
 import { WATER_MATERIAL_ID, buildManualMixMaterials, buildMaterialOptions } from '../utils/salesQuoteMaterials.mjs'
+import PumpingFeeTab from './PumpingFeeTab'
+import QuoteHistoryTab from './QuoteHistoryTab'
 const { Text } = Typography
 
 const CONCRETE_TYPES = ['普通', '泵送', '抗渗', '早强', '缓凝', '大体积', '高强']
@@ -34,6 +36,23 @@ const SalesQuoteSettings = () => {
   const [mixForm] = Form.useForm()
   const [mixModalVisible, setMixModalVisible] = useState(false)
   const [mixMaterials, setMixMaterials] = useState([])
+  const [companyName, setCompanyName] = useState('')
+  const [companyContact, setCompanyContact] = useState('')
+  const [companyPhone, setCompanyPhone] = useState('')
+
+  // Load company info from localStorage on mount
+  useEffect(() => {
+    setCompanyName(localStorage.getItem('salesQuote_companyName') || '')
+    setCompanyContact(localStorage.getItem('salesQuote_companyContact') || '')
+    setCompanyPhone(localStorage.getItem('salesQuote_companyPhone') || '')
+  }, [])
+
+  const saveCompanyInfo = () => {
+    localStorage.setItem('salesQuote_companyName', companyName)
+    localStorage.setItem('salesQuote_companyContact', companyContact)
+    localStorage.setItem('salesQuote_companyPhone', companyPhone)
+    message.success('公司信息已保存')
+  }
 
   const loadData = async () => {
     const ruleResult = await window.electronAPI.invoke('salesQuote:listRules')
@@ -89,8 +108,8 @@ const SalesQuoteSettings = () => {
       minTechnicalServiceFee: 0,
       maxTechnicalServiceFee: 0,
       suggestedProfitRate: 0.12,
-      suggestedTransportFee: 0,
-      suggestedPumpingFee: 0,
+      suggestedTransportDistance: 20,
+      suggestedTransportUnitPrice: 2.5,
       vatRate: 0.13,
       quoteRangeDelta: 5,
       enabled: true
@@ -318,6 +337,16 @@ const SalesQuoteSettings = () => {
                 />
               </div>
             )
+          },
+          {
+            key: 'pumpingFees',
+            label: '泵送费清单',
+            children: <PumpingFeeTab />
+          },
+          {
+            key: 'history',
+            label: '报价历史',
+            children: <QuoteHistoryTab />
           }
         ]}
       />
@@ -337,15 +366,6 @@ const SalesQuoteSettings = () => {
           <Form.Item name="keywords" label="触发关键词">
             <Input />
           </Form.Item>
-          <Form.Item name="salesExplanation" label="销售解释">
-            <Input.TextArea rows={3} />
-          </Form.Item>
-          <Form.Item name="costDrivers" label="成本提升点">
-            <Input.TextArea rows={3} />
-          </Form.Item>
-          <Form.Item name="productionDifficulties" label="生产技术难点">
-            <Input.TextArea rows={3} />
-          </Form.Item>
           <Space wrap>
             <Form.Item name="suggestedManufacturingFee" label="制造费(元/m³)">
               <InputNumber min={0} style={{ width: 120 }} />
@@ -364,6 +384,12 @@ const SalesQuoteSettings = () => {
             </Form.Item>
             <Form.Item name="vatRate" label="税率(小数)">
               <InputNumber min={0} max={1} step={0.01} style={{ width: 120 }} />
+            </Form.Item>
+            <Form.Item name="suggestedTransportDistance" label="建议运距(km)">
+              <InputNumber min={0} style={{ width: 120 }} />
+            </Form.Item>
+            <Form.Item name="suggestedTransportUnitPrice" label="运输单价(元/km/m³)">
+              <InputNumber min={0} step={0.1} style={{ width: 140 }} />
             </Form.Item>
           </Space>
           <Form.Item name="enabled" label="启用" valuePropName="checked">
@@ -457,6 +483,27 @@ const SalesQuoteSettings = () => {
           ]}
         />
       </Modal>
+
+      <Divider style={{ margin: '16px 0' }} />
+      <Typography.Title level={5}>公司信息（导出用）</Typography.Title>
+      <Space wrap align="start">
+        <div>
+          <Text type="secondary" style={{ fontSize: 12 }}>公司名称</Text>
+          <Input placeholder="公司名称" value={companyName} onChange={e => setCompanyName(e.target.value)}
+            style={{ width: 200 }} />
+        </div>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12 }}>联系人</Text>
+          <Input placeholder="联系人" value={companyContact} onChange={e => setCompanyContact(e.target.value)}
+            style={{ width: 120 }} />
+        </div>
+        <div>
+          <Text type="secondary" style={{ fontSize: 12 }}>联系电话</Text>
+          <Input placeholder="联系电话" value={companyPhone} onChange={e => setCompanyPhone(e.target.value)}
+            style={{ width: 140 }} />
+        </div>
+        <Button type="primary" onClick={saveCompanyInfo}>保存</Button>
+      </Space>
     </Card>
   )
 }
