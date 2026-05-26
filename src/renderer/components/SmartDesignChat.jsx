@@ -159,6 +159,7 @@ const SmartDesignChat = () => {
   const [analysisResult, setAnalysisResult] = useState(null)  // 分析结果
   const [contrastPickerSelected, setContrastPickerSelected] = useState([])
   const [basicMixModalData, setBasicMixModalData] = useState(null)
+  const [pumpingFeeItems, setPumpingFeeItems] = useState([])
   const chatEndRef = useRef(null)
   const materialPickerSeqRef = useRef(0)
   const streamSeqRef = useRef(0)
@@ -166,6 +167,12 @@ const SmartDesignChat = () => {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages, pendingMaterialPicker?.pickerKey])
+
+  useEffect(() => {
+    window.electronAPI.invoke('salesQuote:listEnabledPumpingFeeItems')
+      .then(r => { if (r.success) setPumpingFeeItems(r.data) })
+      .catch(() => {})
+  }, [])
 
   const createMaterialPickerId = () => {
     materialPickerSeqRef.current += 1
@@ -829,7 +836,7 @@ const SmartDesignChat = () => {
                             <OptimizationResultCard data={item.toolCall.data} onSave={handleSaveFromCard} />
                           )}
                           {item.toolCall.type === 'sales_quote' && (
-                            <SalesQuoteResultCard data={item.toolCall.data} />
+                            <SalesQuoteResultCard data={item.toolCall.data} pumpingFeeItems={pumpingFeeItems} />
                           )}
                           {item.toolCall.type === 'material_compare' && (
                             <MaterialCompareCard data={item.toolCall.data} />
