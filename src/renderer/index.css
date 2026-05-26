@@ -177,7 +177,7 @@ body {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  padding: 0 12px;
+  padding: 0 2px 0 12px;
 }
 
 .panel-left > .panel-content > .page-container > .custom-card {
@@ -1902,9 +1902,9 @@ body {
 }
 
 .panel-handle {
-  width: 4px;
-  min-width: 4px;
-  background: transparent;
+  width: 2px;
+  min-width: 2px;
+  background: rgba(0, 0, 0, 0.04);
   cursor: col-resize;
   transition: background-color 150ms ease;
   flex-shrink: 0;
