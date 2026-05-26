@@ -62,6 +62,9 @@ const OptimizationHistory = require('./models/OptimizationHistory')
 const InsulationMaterial = require('./models/InsulationMaterial')
 const BasicMixDesign = require('./models/BasicMixDesign')
 const SalesQuoteRule = require('./models/SalesQuoteRule')
+const PumpingFeeItem = require('./models/PumpingFeeItem')
+const SalesQuoteHistory = require('./models/SalesQuoteHistory')
+const AppSetting = require('./models/AppSetting')
 
 // 默认保温材料数据
 const defaultInsulationMaterials = [
@@ -124,7 +127,7 @@ const defaultInsulationMaterials = [
 // 同步所有模型并初始化数据
 async function syncModels() {
   // 逐个同步模型，单个失败不影响其他模型（避免 SQLite alter 异常导致整批失败）
-  for (const model of [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, SalesQuoteRule]) {
+  for (const model of [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, SalesQuoteRule, PumpingFeeItem, SalesQuoteHistory, AppSetting]) {
     try {
       await model.sync({ alter: true })
     } catch (error) {
@@ -148,6 +151,18 @@ async function syncModels() {
   } catch (error) {
     console.error('销售报价默认规则初始化失败:', error)
   }
+
+  // 检查并初始化默认泵送费清单
+  try {
+    const { DEFAULT_PUMPING_FEE_ITEMS } = require('./models/PumpingFeeItem')
+    const count = await PumpingFeeItem.count()
+    if (count === 0) {
+      await PumpingFeeItem.bulkCreate(DEFAULT_PUMPING_FEE_ITEMS)
+      console.log('默认泵送费清单已初始化')
+    }
+  } catch (error) {
+    console.error('默认泵送费清单初始化失败:', error)
+  }
 }
 
 // 导出sequelize实例、关闭函数、同步函数和所有模型
@@ -160,3 +175,6 @@ module.exports.OptimizationHistory = OptimizationHistory
 module.exports.InsulationMaterial = InsulationMaterial
 module.exports.BasicMixDesign = BasicMixDesign
 module.exports.SalesQuoteRule = SalesQuoteRule
+module.exports.PumpingFeeItem = PumpingFeeItem
+module.exports.SalesQuoteHistory = SalesQuoteHistory
+module.exports.AppSetting = AppSetting
