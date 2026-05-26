@@ -98,6 +98,82 @@ class SalesQuoteHandler {
         return { success: false, error: error.message }
       }
     })
+
+    // 泵送费清单
+    ipcMain.handle('salesQuote:listPumpingFeeItems', async () => {
+      try {
+        const PumpingFeeService = require('../services/PumpingFeeService')
+        return { success: true, data: await PumpingFeeService.listItems() }
+      } catch (error) {
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('salesQuote:createPumpingFeeItem', async (_, data) => {
+      try {
+        const PumpingFeeService = require('../services/PumpingFeeService')
+        return { success: true, data: await PumpingFeeService.createItem(data) }
+      } catch (error) {
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('salesQuote:updatePumpingFeeItem', async (_, { id, data }) => {
+      try {
+        const PumpingFeeService = require('../services/PumpingFeeService')
+        return { success: true, data: await PumpingFeeService.updateItem(id, data) }
+      } catch (error) {
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('salesQuote:deletePumpingFeeItem', async (_, id) => {
+      try {
+        const PumpingFeeService = require('../services/PumpingFeeService')
+        await PumpingFeeService.deleteItem(id)
+        return { success: true }
+      } catch (error) {
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('salesQuote:listEnabledPumpingFeeItems', async () => {
+      try {
+        const PumpingFeeService = require('../services/PumpingFeeService')
+        return { success: true, data: await PumpingFeeService.listEnabled() }
+      } catch (error) {
+        return { success: false, error: error.message }
+      }
+    })
+
+    // 报价历史
+    ipcMain.handle('salesQuote:saveQuote', async (_, data) => {
+      try {
+        const SalesQuoteHistoryService = require('../services/SalesQuoteHistoryService')
+        return { success: true, data: await SalesQuoteHistoryService.saveQuote(data) }
+      } catch (error) {
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('salesQuote:listHistory', async (_, filters) => {
+      try {
+        const SalesQuoteHistoryService = require('../services/SalesQuoteHistoryService')
+        return { success: true, ...(await SalesQuoteHistoryService.listHistory(filters || {})) }
+      } catch (error) {
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('salesQuote:deleteQuote', async (_, id) => {
+      try {
+        const SalesQuoteHistoryService = require('../services/SalesQuoteHistoryService')
+        await SalesQuoteHistoryService.deleteQuote(id)
+        return { success: true }
+      } catch (error) {
+        return { success: false, error: error.message }
+      }
+    })
   }
 }
 
