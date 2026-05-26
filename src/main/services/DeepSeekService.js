@@ -332,6 +332,29 @@ const TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'create_sales_quote_rule',
+      description: '创建新的销售报价规则。当用户请求报价但没有找到匹配的混凝土类型规则时使用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          concreteType: { type: 'string', description: '混凝土类型名称，如抗冻、低收缩' },
+          keywords: { type: 'array', items: { type: 'string' }, description: '触发关键词' },
+          suggestedManufacturingFee: { type: 'number', description: '制造费(元/m³)，默认18' },
+          suggestedTechnicalServiceFee: { type: 'number', description: '技术服务费(元/m³)，默认0' },
+          technicalServiceFeeRange: { type: 'array', items: { type: 'number' }, description: '技术服务费区间[min, max]' },
+          suggestedProfitRate: { type: 'number', description: '利润率(小数)，默认0.12' },
+          suggestedTransportDistance: { type: 'number', description: '建议运距(km)，默认20' },
+          suggestedTransportUnitPrice: { type: 'number', description: '运输单价(元/km/m³)，默认2.5' },
+          vatRate: { type: 'number', description: '税率(小数)，默认0.13' },
+          quoteRangeDelta: { type: 'number', description: '报价区间浮动，默认5' }
+        },
+        required: ['concreteType']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'save_mix_design',
       description: '将当前配合比方案保存到方案库。当用户说"保存方案"、"把这个存起来"、"保存这个配合比"时调用。必须先完成配合比计算或成本优化。',
       parameters: {

@@ -509,13 +509,14 @@ const executeToolCall = async (toolName, args) => {
           slump: args.slump || rule.suggestedSlump,
           basicMix: basicMix.toJSON(),
           rule: rule.toJSON(),
+          explanationPrompt: `请根据混凝土类型"${args.concreteType}"向客户解释报价构成，包括：1) 该类型混凝土的特点和适用场景；2) 成本主要提升点；3) 生产技术难点。需要通俗易懂，适合向客户说明。`,
           suggestedPricing: {
             marketAdjustmentRate: 0,
             manufacturingFee: rule.suggestedManufacturingFee,
             technicalServiceFee: rule.suggestedTechnicalServiceFee,
             profitRate: rule.suggestedProfitRate,
-            transportFee: rule.suggestedTransportFee,
-            pumpingFee: rule.suggestedPumpingFee,
+            transportDistance: rule.suggestedTransportDistance,
+            transportUnitPrice: rule.suggestedTransportUnitPrice,
             vatRate: rule.vatRate || 0.13,
             quoteRangeDelta: rule.quoteRangeDelta
           }
@@ -634,6 +635,11 @@ const executeToolCall = async (toolName, args) => {
       } catch (err) {
         return { success: false, error: `保存到基础配合比库失败: ${err.message}` }
       }
+    }
+
+    case 'create_sales_quote_rule': {
+      const rule = await SalesQuoteRuleService.createRule(args)
+      return { success: true, data: rule }
     }
 
     default:
