@@ -195,7 +195,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'check_compliance',
-      description: '审查混凝土配合比是否符合规范要求。根据配合比参数检索规范知识库中相关条款，生成合规审查报告。',
+      description: '审查混凝土配合比是否符合规范要求。根据配合比参数检索规范知识库中相关条款，生成合规审查报告。\n\n**重要**：调用前如果用户没有明确提供所用材料的ID（materialIds），必须先询问用户确认使用的材料，或调用 list_available_materials 查询可用材料列表供用户选择。缺少材料信息会导致原材料性能（水泥强度、骨料含泥量、压碎值等）相关的规范条款无法审查。',
       parameters: {
         type: 'object',
         properties: {
@@ -206,14 +206,36 @@ const TOOLS = [
               strengthGrade: { type: 'string', description: '强度等级，如C30' },
               waterBinderRatio: { type: 'number', description: '水胶比' },
               cementContent: { type: 'number', description: '水泥用量(kg/m³)' },
+              binderContent: { type: 'number', description: '胶凝材料总量(kg/m³)，水泥+粉煤灰+矿渣+锂渣+复合粉的总和' },
+              flyAshAmount: { type: 'number', description: '粉煤灰用量(kg/m³)' },
+              slagAmount: { type: 'number', description: '矿渣粉用量(kg/m³)' },
+              lithiumSlagAmount: { type: 'number', description: '锂渣用量(kg/m³)' },
+              compositePowderAmount: { type: 'number', description: '复合粉用量(kg/m³)' },
+              waterAmount: { type: 'number', description: '用水量(kg/m³)' },
               sandRatio: { type: 'number', description: '砂率(%)' },
               flyAshRatio: { type: 'number', description: '粉煤灰掺量(%)' },
               slagRatio: { type: 'number', description: '矿渣掺量(%)' },
+              lithiumSlagRatio: { type: 'number', description: '锂渣掺量(%)' },
+              compositePowderRatio: { type: 'number', description: '复合粉掺量(%)' },
               slump: { type: 'number', description: '坍落度(mm)' },
               environmentCategory: { type: 'string', description: '环境类别，如二a' },
               strength: { type: 'string', description: 'Strength grade, for example C30 or C40' },
               environment: { type: 'string', description: 'Explicit service environment supplied by the user. Do not infer one if omitted.' },
-              durabilityRequirements: { type: 'array', items: { type: 'string' }, description: 'Explicit durability requirements supplied by the user. Do not infer requirements if omitted.' }
+              durabilityRequirements: { type: 'array', items: { type: 'string' }, description: 'Explicit durability requirements supplied by the user. Do not infer requirements if omitted.' },
+              materialIds: {
+                type: 'object',
+                description: '原材料ID映射，系统会根据ID自动查询材料库中的性能参数，用于更全面的规范审查',
+                properties: {
+                  cementId: { type: 'integer', description: '水泥材料ID' },
+                  sandIds: { type: 'array', items: { type: 'integer' }, description: '细骨料ID列表，支持1-2种' },
+                  stoneIds: { type: 'array', items: { type: 'integer' }, description: '粗骨料ID列表，支持1-2种' },
+                  flyAshId: { type: 'integer', description: '粉煤灰材料ID（可选）' },
+                  slagId: { type: 'integer', description: '矿渣粉材料ID（可选）' },
+                  lithiumSlagId: { type: 'integer', description: '锂渣材料ID（可选）' },
+                  compositePowderId: { type: 'integer', description: '复合粉材料ID（可选）' },
+                  superplasticizerId: { type: 'integer', description: '减水剂材料ID（可选）' }
+                }
+              }
             },
             required: ['strengthGrade', 'waterBinderRatio']
           },
@@ -565,6 +587,13 @@ class DeepSeekService {
    - 用户询问"强度能达到多少"、"这个配比性能怎么样"、"预测一下"时调用
    - 优化配合比后，补充预测验证时调用
    - 注意：先通过 list_available_materials 确认材料ID存在，再调用预测
+
+6. **list_standards**: 查询已加载的规范知识包。用户要进行规范审查前，先调用此工具了解有哪些规范可用。
+
+7. **check_compliance**: 规范审查。审查配合比是否符合规范要求。
+   - **材料信息是必需的**：调用前必须确认用户已明确使用的材料（水泥、骨料、掺合料等）。如果用户没有提供材料信息，必须先用 list_available_materials 查询可用材料列表，让用户选择后再调用审查。
+   - **材料信息来源**：如果之前调用过 calculate_mix_design 或 optimize_mix_cost，结果中会包含材料ID，可直接复用；如果没有，必须先让用户确认材料。
+   - 缺少材料信息会导致原材料性能（水泥强度、骨料含泥量、压碎值、MB值等）相关的规范条款无法审查。
 
 ### 材料选择流程（重要）
 - 第一次收到配合比设计或优化请求时，先调用 list_available_materials 获取可用材料

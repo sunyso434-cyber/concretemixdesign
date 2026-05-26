@@ -436,6 +436,87 @@ class StandardComplianceService {
       parts.push(`环境条件${mixDesign.environment}`)
     }
 
+    // 原材料性能参数（根据材料ID查询到的实际参数）
+    const mp = mixDesign.materialProperties
+    if (mp) {
+      if (mp.cement) {
+        const c = mp.cement
+        const cParts = []
+        if (c.name) cParts.push(c.name)
+        if (c.compressiveStrength28d != null) cParts.push(`28d抗压强度${c.compressiveStrength28d}MPa`)
+        if (c.flexuralStrength28d != null) cParts.push(`28d抗折强度${c.flexuralStrength28d}MPa`)
+        if (c.specificSurfaceArea != null) cParts.push(`比表面积${c.specificSurfaceArea}m²/kg`)
+        if (c.stability) cParts.push(`安定性${c.stability}`)
+        if (c.initialSettingTime != null) cParts.push(`初凝${c.initialSettingTime}min`)
+        if (cParts.length > 0) parts.push(`水泥${cParts.join('、')}`)
+      }
+      if (mp.sands?.length) {
+        for (const sand of mp.sands) {
+          const sParts = []
+          if (sand.name) sParts.push(sand.name)
+          if (sand.mudContent != null) sParts.push(`含泥量${sand.mudContent}%`)
+          if (sand.clayLumpContent != null) sParts.push(`泥块含量${sand.clayLumpContent}%`)
+          if (sand.mbValue != null) sParts.push(`MB值${sand.mbValue}`)
+          if (sand.finenessModulus != null) sParts.push(`细度模数${sand.finenessModulus}`)
+          if (sParts.length > 0) parts.push(`细骨料${sParts.join('、')}`)
+        }
+      }
+      if (mp.stones?.length) {
+        for (const stone of mp.stones) {
+          const stParts = []
+          if (stone.name) stParts.push(stone.name)
+          if (stone.mudContent != null) stParts.push(`含泥量${stone.mudContent}%`)
+          if (stone.crushingValue != null) stParts.push(`压碎值${stone.crushingValue}%`)
+          if (stone.needleFlakeContent != null) stParts.push(`针片状含量${stone.needleFlakeContent}%`)
+          if (stone.grading) stParts.push(`级配${stone.grading}`)
+          if (stParts.length > 0) parts.push(`粗骨料${stParts.join('、')}`)
+        }
+      }
+      if (mp.flyAsh) {
+        const f = mp.flyAsh
+        const fParts = []
+        if (f.name) fParts.push(f.name)
+        if (f.waterDemandRatio != null) fParts.push(`需水量比${f.waterDemandRatio}%`)
+        if (f.lossOnIgnition != null) fParts.push(`烧失量${f.lossOnIgnition}%`)
+        if (f.activityIndex28d != null) fParts.push(`28d活性指数${f.activityIndex28d}%`)
+        if (f.fineness != null) fParts.push(`细度${f.fineness}`)
+        if (fParts.length > 0) parts.push(`粉煤灰${fParts.join('、')}`)
+      }
+      if (mp.slag) {
+        const s = mp.slag
+        const sParts = []
+        if (s.name) sParts.push(s.name)
+        if (s.specificSurfaceArea != null) sParts.push(`比表面积${s.specificSurfaceArea}m²/kg`)
+        if (s.activityIndex28d != null) sParts.push(`28d活性指数${s.activityIndex28d}%`)
+        if (s.lossOnIgnition != null) sParts.push(`烧失量${s.lossOnIgnition}%`)
+        if (sParts.length > 0) parts.push(`矿渣粉${sParts.join('、')}`)
+      }
+      if (mp.lithiumSlag) {
+        const l = mp.lithiumSlag
+        const lParts = []
+        if (l.name) lParts.push(l.name)
+        if (l.activityIndex28d != null) lParts.push(`28d活性指数${l.activityIndex28d}%`)
+        if (l.lossOnIgnition != null) lParts.push(`烧失量${l.lossOnIgnition}%`)
+        if (lParts.length > 0) parts.push(`锂渣${lParts.join('、')}`)
+      }
+      if (mp.compositePowder) {
+        const cp = mp.compositePowder
+        const cpParts = []
+        if (cp.name) cpParts.push(cp.name)
+        if (cp.activityIndex28d != null) cpParts.push(`28d活性指数${cp.activityIndex28d}%`)
+        if (cp.lossOnIgnition != null) cpParts.push(`烧失量${cp.lossOnIgnition}%`)
+        if (cpParts.length > 0) parts.push(`复合粉${cpParts.join('、')}`)
+      }
+      if (mp.superplasticizer) {
+        const sp = mp.superplasticizer
+        const spParts = []
+        if (sp.name) spParts.push(sp.name)
+        if (sp.waterReducingRate != null) spParts.push(`减水率${sp.waterReducingRate}%`)
+        if (sp.solidContent != null) spParts.push(`固含量${sp.solidContent}%`)
+        if (spParts.length > 0) parts.push(`减水剂${spParts.join('、')}`)
+      }
+    }
+
     return parts.join('，') || '混凝土配合比设计'
   }
 
@@ -972,6 +1053,113 @@ class StandardComplianceService {
   }
 
   /**
+   * 将原材料性能参数格式化为审查Prompt中的文本
+   * @param {object} materialProperties - 材料性能参数对象
+   * @returns {string} 格式化后的材料性能文本
+   */
+  _buildMaterialPropertiesText(materialProperties) {
+    if (!materialProperties) return ''
+    const lines = []
+    const mp = materialProperties
+
+    if (mp.cement) {
+      const c = mp.cement
+      const parts = [`- 水泥: ${c.name || '未命名'}`]
+      if (c.compressiveStrength28d != null) parts.push(`28d抗压强度${c.compressiveStrength28d}MPa`)
+      if (c.flexuralStrength28d != null) parts.push(`28d抗折强度${c.flexuralStrength28d}MPa`)
+      if (c.compressiveStrength3d != null) parts.push(`3d抗压强度${c.compressiveStrength3d}MPa`)
+      if (c.specificSurfaceArea != null) parts.push(`比表面积${c.specificSurfaceArea}m²/kg`)
+      if (c.stability) parts.push(`安定性${c.stability}`)
+      if (c.initialSettingTime != null) parts.push(`初凝时间${c.initialSettingTime}min`)
+      if (c.finalSettingTime != null) parts.push(`终凝时间${c.finalSettingTime}min`)
+      if (c.fineness != null) parts.push(`细度${c.fineness}`)
+      if (c.density != null) parts.push(`密度${c.density}g/cm³`)
+      lines.push(parts.join('，'))
+    }
+
+    if (mp.sands?.length) {
+      for (const sand of mp.sands) {
+        const parts = [`- 细骨料: ${sand.name || '未命名'}`]
+        if (sand.mudContent != null) parts.push(`含泥量${sand.mudContent}%`)
+        if (sand.clayLumpContent != null) parts.push(`泥块含量${sand.clayLumpContent}%`)
+        if (sand.mbValue != null) parts.push(`MB值${sand.mbValue}`)
+        if (sand.finenessModulus != null) parts.push(`细度模数${sand.finenessModulus}`)
+        if (sand.density != null) parts.push(`密度${sand.density}g/cm³`)
+        if (sand.waterContent != null) parts.push(`含水率${sand.waterContent}%`)
+        lines.push(parts.join('，'))
+      }
+    }
+
+    if (mp.stones?.length) {
+      for (const stone of mp.stones) {
+        const parts = [`- 粗骨料: ${stone.name || '未命名'}`]
+        if (stone.mudContent != null) parts.push(`含泥量${stone.mudContent}%`)
+        if (stone.crushingValue != null) parts.push(`压碎值${stone.crushingValue}%`)
+        if (stone.needleFlakeContent != null) parts.push(`针片状含量${stone.needleFlakeContent}%`)
+        if (stone.grading) parts.push(`级配${stone.grading}`)
+        if (stone.density != null) parts.push(`密度${stone.density}g/cm³`)
+        if (stone.waterContent != null) parts.push(`含水率${stone.waterContent}%`)
+        lines.push(parts.join('，'))
+      }
+    }
+
+    if (mp.flyAsh) {
+      const f = mp.flyAsh
+      const parts = [`- 粉煤灰: ${f.name || '未命名'}`]
+      if (f.waterDemandRatio != null) parts.push(`需水量比${f.waterDemandRatio}%`)
+      if (f.lossOnIgnition != null) parts.push(`烧失量${f.lossOnIgnition}%`)
+      if (f.activityIndex28d != null) parts.push(`28d活性指数${f.activityIndex28d}%`)
+      if (f.fineness != null) parts.push(`细度${f.fineness}`)
+      if (f.density != null) parts.push(`密度${f.density}g/cm³`)
+      lines.push(parts.join('，'))
+    }
+
+    if (mp.slag) {
+      const s = mp.slag
+      const parts = [`- 矿渣粉: ${s.name || '未命名'}`]
+      if (s.specificSurfaceArea != null) parts.push(`比表面积${s.specificSurfaceArea}m²/kg`)
+      if (s.activityIndex28d != null) parts.push(`28d活性指数${s.activityIndex28d}%`)
+      if (s.activityIndex7d != null) parts.push(`7d活性指数${s.activityIndex7d}%`)
+      if (s.lossOnIgnition != null) parts.push(`烧失量${s.lossOnIgnition}%`)
+      if (s.fluidityRatio != null) parts.push(`流动度比${s.fluidityRatio}%`)
+      if (s.density != null) parts.push(`密度${s.density}g/cm³`)
+      lines.push(parts.join('，'))
+    }
+
+    if (mp.lithiumSlag) {
+      const l = mp.lithiumSlag
+      const parts = [`- 锂渣: ${l.name || '未命名'}`]
+      if (l.activityIndex28d != null) parts.push(`28d活性指数${l.activityIndex28d}%`)
+      if (l.lossOnIgnition != null) parts.push(`烧失量${l.lossOnIgnition}%`)
+      if (l.waterDemandRatio != null) parts.push(`需水量比${l.waterDemandRatio}%`)
+      if (l.density != null) parts.push(`密度${l.density}g/cm³`)
+      lines.push(parts.join('，'))
+    }
+
+    if (mp.compositePowder) {
+      const cp = mp.compositePowder
+      const parts = [`- 复合粉: ${cp.name || '未命名'}`]
+      if (cp.activityIndex28d != null) parts.push(`28d活性指数${cp.activityIndex28d}%`)
+      if (cp.lossOnIgnition != null) parts.push(`烧失量${cp.lossOnIgnition}%`)
+      if (cp.density != null) parts.push(`密度${cp.density}g/cm³`)
+      lines.push(parts.join('，'))
+    }
+
+    if (mp.superplasticizer) {
+      const sp = mp.superplasticizer
+      const parts = [`- 减水剂: ${sp.name || '未命名'}`]
+      if (sp.waterReducingRate != null) parts.push(`减水率${sp.waterReducingRate}%`)
+      if (sp.solidContent != null) parts.push(`固含量${sp.solidContent}%`)
+      if (sp.airContent != null) parts.push(`含气量${sp.airContent}%`)
+      if (sp.recommendedDosage != null) parts.push(`推荐掺量${sp.recommendedDosage}%`)
+      if (sp.density != null) parts.push(`密度${sp.density}g/cm³`)
+      lines.push(parts.join('，'))
+    }
+
+    return lines.join('\n')
+  }
+
+  /**
    * 构建审查 Prompt 给 DeepSeek
    * @param {object} mixDesign - 配合比参数
    * @param {Array} ruleResults - 规则匹配结果
@@ -1026,6 +1214,9 @@ class StandardComplianceService {
       `[默认假设] ${item.field}=${item.defaultValue} - ${item.reason}`
     ).join('\n')
 
+    // 原材料性能参数摘要
+    const materialPropsText = this._buildMaterialPropertiesText(mixDesign.materialProperties)
+
     return `请对以下混凝土配合比进行规范合规审查：
 
 **重要约束**：本次审查的对象是强度等级为 ${mixDesign.strength || '（未指定）'} 的混凝土配合比。请只使用适用于该强度等级的规范条款进行审查，不要将其他强度等级（如C25、C35等）的限值用于本配合比的评判。
@@ -1036,6 +1227,8 @@ class StandardComplianceService {
 ${paramSummary}
 ${mixDesign.strength ? `强度等级: ${mixDesign.strength}` : ''}
 ${mixDesign.environment ? `环境条件: ${mixDesign.environment}` : ''}
+
+${materialPropsText ? `## 原材料性能参数\n${materialPropsText}\n` : ''}
 
 ## 本次审查范围
 ${scopeResult ? JSON.stringify(scopeResult.matchedStandards || scopeResult.standards || [], null, 2) : '全部规范'}

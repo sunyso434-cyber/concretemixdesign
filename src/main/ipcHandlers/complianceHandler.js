@@ -7,6 +7,7 @@ const standardKnowledgeService = require('../services/StandardKnowledgeService')
 const StandardComplianceService = require('../services/StandardComplianceService')
 const SystemService = require('../services/SystemService')
 const DeepSeekService = require('../services/DeepSeekService')
+const MaterialService = require('../services/MaterialService')
 
 // 从系统参数获取API密钥
 const getDeepSeekApiKey = async () => {
@@ -126,9 +127,61 @@ const checkCompliance = async (event, { mixDesign, standards, standardNames, sta
       return { success: false, error: 'DeepSeek API未配置，请在系统设置中配置API密钥' }
     }
 
+    // 方案A：根据材料ID自动查询材料库获取性能参数
+    let enrichedMixDesign = mixDesign
+    const materialIds = mixDesign?.materialIds
+    if (materialIds) {
+      const materialProperties = {}
+      const queries = []
+      if (materialIds.cementId) {
+        queries.push(
+          MaterialService.getMaterialById(materialIds.cementId).then(m => { materialProperties.cement = m })
+        )
+      }
+      if (materialIds.sandIds?.length) {
+        queries.push(
+          Promise.all(materialIds.sandIds.map(id => MaterialService.getMaterialById(id)))
+            .then(list => { materialProperties.sands = list.filter(Boolean) })
+        )
+      }
+      if (materialIds.stoneIds?.length) {
+        queries.push(
+          Promise.all(materialIds.stoneIds.map(id => MaterialService.getMaterialById(id)))
+            .then(list => { materialProperties.stones = list.filter(Boolean) })
+        )
+      }
+      if (materialIds.flyAshId) {
+        queries.push(
+          MaterialService.getMaterialById(materialIds.flyAshId).then(m => { materialProperties.flyAsh = m })
+        )
+      }
+      if (materialIds.slagId) {
+        queries.push(
+          MaterialService.getMaterialById(materialIds.slagId).then(m => { materialProperties.slag = m })
+        )
+      }
+      if (materialIds.lithiumSlagId) {
+        queries.push(
+          MaterialService.getMaterialById(materialIds.lithiumSlagId).then(m => { materialProperties.lithiumSlag = m })
+        )
+      }
+      if (materialIds.compositePowderId) {
+        queries.push(
+          MaterialService.getMaterialById(materialIds.compositePowderId).then(m => { materialProperties.compositePowder = m })
+        )
+      }
+      if (materialIds.superplasticizerId) {
+        queries.push(
+          MaterialService.getMaterialById(materialIds.superplasticizerId).then(m => { materialProperties.superplasticizer = m })
+        )
+      }
+      await Promise.all(queries)
+      enrichedMixDesign = { ...mixDesign, materialProperties }
+    }
+
     const dsService = new DeepSeekService(apiKey)
     const complianceService = new StandardComplianceService(dsService)
-    const report = await complianceService.check(mixDesign, {
+    const report = await complianceService.check(enrichedMixDesign, {
       standards: standards || [],
       standardNames: standardNames || [],
       standardCategories: standardCategories || []

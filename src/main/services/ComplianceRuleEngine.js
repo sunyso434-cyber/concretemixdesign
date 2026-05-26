@@ -99,10 +99,14 @@ const normalizeMixDesign = (input = {}) => {
     airContent: toNumber(input.airContent),
     cementContent,
     binderContent,
-    flyAshRatio: toNumber(input.flyAshRatio ?? input.flyAshDosage),
-    slagRatio: toNumber(input.slagRatio ?? input.slagDosage),
-    lithiumSlagRatio: toNumber(input.lithiumSlagRatio ?? input.lithiumSlagDosage),
-    compositePowderRatio: toNumber(input.compositePowderRatio ?? input.compositePowderDosage),
+    flyAshRatio: toNumber(input.flyAshRatio ?? input.flyAshDosage)
+      ?? (binderContent > 0 ? ((toNumber(flyAshAmount) || 0) / binderContent * 100) : null),
+    slagRatio: toNumber(input.slagRatio ?? input.slagDosage)
+      ?? (binderContent > 0 ? ((toNumber(slagAmount) || 0) / binderContent * 100) : null),
+    lithiumSlagRatio: toNumber(input.lithiumSlagRatio ?? input.lithiumSlagDosage)
+      ?? (binderContent > 0 ? ((toNumber(lithiumSlagAmount) || 0) / binderContent * 100) : null),
+    compositePowderRatio: toNumber(input.compositePowderRatio ?? input.compositePowderDosage)
+      ?? (binderContent > 0 ? ((toNumber(compositePowderAmount) || 0) / binderContent * 100) : null),
     waterAmount,
     chlorideContent: toNumber(input.chlorideContent ?? input.chlorideIonContent),
     micaContent: toNumber(input.micaContent),
