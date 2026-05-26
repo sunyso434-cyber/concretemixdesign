@@ -1,5 +1,27 @@
 # 版本更新记录
 
+## 打包记录 (2026-05-26 规范审查支持原材料性能参数)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.8.2**
+- **输出目录**: `dist-3.8.0/`
+- **说明**:
+  1. **check_compliance工具定义增加materialIds参数** — 水泥/细骨料/粗骨料/粉煤灰/矿渣粉/锂渣/复合粉/减水剂的ID映射
+  2. **AI系统提示加入材料信息要求** — 规范审查前如无材料信息，必须先用list_available_materials查询让用户选择
+  3. **后端自动查询材料库获取性能参数** — aiAnalysisHandler和complianceHandler根据ID查询材料库，附加到审查数据中
+  4. **材料性能数据纳入向量检索和AI审查Prompt** — _buildQueryText加入材料性能描述，_buildAuditPrompt新增原材料性能参数章节
+  5. **ComplianceRuleEngine掺量计算改进** — 优先使用显式掺量，缺失时从材料用量反算
+- **修改文件**:
+  - `src/main/services/DeepSeekService.js`
+  - `src/main/services/StandardComplianceService.js`
+  - `src/main/ipcHandlers/aiAnalysisHandler.js`
+  - `src/main/ipcHandlers/complianceHandler.js`
+  - `src/main/services/ComplianceRuleEngine.js`
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 3.8.2.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-3.8.2-x64.exe`
+
 ## 打包记录 (2026-05-25 规范审查准确率修复)
 
 - **命令**: `npm run electron:build`
