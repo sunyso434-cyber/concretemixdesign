@@ -75,6 +75,7 @@ class AgentOrchestrator {
           // 捕获 LLM 的推理文字（如果有的话）
           if (response.content) {
             step.reasoning = response.content
+            this._notifyProgress({ steps, mode, status: 'running', latestReasoning: response.content })
           }
 
           // assistant 消息只推一次（包含所有 tool_calls）

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Button, Input, Space, Avatar, List, Alert, message, Typography, Upload, Tag, Checkbox } from 'antd'
-import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined } from '@ant-design/icons'
+import { Button, Input, Space, Avatar, List, Alert, message, Typography, Upload, Tag, Checkbox, Segmented, Layout, Menu, Tabs, Descriptions, Popconfirm } from 'antd'
+import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, SettingOutlined, EditOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
@@ -12,12 +12,15 @@ import DiagnosisResultCard from './DiagnosisResultCard'
 import ComplianceResultCard from './ComplianceResultCard'
 import SalesQuoteResultCard from './SalesQuoteResultCard'
 import SaveBasicMixModal from './SaveBasicMixModal'
+import AgentProgressCard from './AgentProgressCard'
+import DecisionGate from './DecisionGate'
 import { getAttachmentType, detectAnalysisModeIntent, processExcelAttachment, processMarkdownAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
 import { AnalysisReport } from '../pages/AIAnalysisPage_Results'
 import { getAllMaterials } from '../services/MaterialService'
 import { buildAnalysisData, MATERIAL_TYPE_MAP } from '../pages/AIAnalysisPage_Upload'
 
 const { Text } = Typography
+const { Sider, Content } = Layout
 
 const ANALYSIS_RESULT_KEYS = [
   'materialInfluenceAnalysis',
@@ -152,17 +155,34 @@ const SmartDesignChat = () => {
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
   const [completedMaterialPickerIds, setCompletedMaterialPickerIds] = useState(() => new Set())
-  const [attachment, setAttachment] = useState(null)          // { file, type, name }
-  const [analysisMode, setAnalysisMode] = useState(false)    // 是否处于分析模式
-  const [analysisData, setAnalysisData] = useState(null)     // 分析模式的数据
-  const [pendingMaterialPicker, setPendingMaterialPicker] = useState(null)  // 待选择的材料
-  const [analysisResult, setAnalysisResult] = useState(null)  // 分析结果
+  const [attachment, setAttachment] = useState(null)
+  const [analysisMode, setAnalysisMode] = useState(false)
+  const [analysisData, setAnalysisData] = useState(null)
+  const [pendingMaterialPicker, setPendingMaterialPicker] = useState(null)
+  const [analysisResult, setAnalysisResult] = useState(null)
   const [contrastPickerSelected, setContrastPickerSelected] = useState([])
   const [basicMixModalData, setBasicMixModalData] = useState(null)
   const [pumpingFeeItems, setPumpingFeeItems] = useState([])
+
+  // ===== Agent 状态 =====
+  const [agentEnabled, setAgentEnabled] = useState(false)
+  const [agentMode, setAgentMode] = useState('chat')          // 标签页：chat | agent
+  const [agentRunMode, setAgentRunMode] = useState('collaborative') // 运行模式：collaborative | auto
+  const [agentSteps, setAgentSteps] = useState([])
+  const [agentStatus, setAgentStatus] = useState(null)
+  const [agentPaused, setAgentPaused] = useState(false)
+  const [pendingConfirmation, setPendingConfirmation] = useState(null)
+  const [sessions, setSessions] = useState([])
+  const [currentSessionId, setCurrentSessionId] = useState(() => 'session-' + Date.now())
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
+  const [sidebarTab, setSidebarTab] = useState('history')
+  const [preferences, setPreferences] = useState({})
+  const [corrections, setCorrections] = useState([])
+
   const chatEndRef = useRef(null)
   const materialPickerSeqRef = useRef(0)
   const streamSeqRef = useRef(0)
+  const agentRequestIdRef = useRef(null)
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -172,7 +192,127 @@ const SmartDesignChat = () => {
     window.electronAPI.invoke('salesQuote:listEnabledPumpingFeeItems')
       .then(r => { if (r.success) setPumpingFeeItems(r.data) })
       .catch(() => {})
+    // 读取 Agent 设置
+    Promise.all([
+      window.electronAPI.invoke('get-param-by-name', 'agentEnabled').catch(() => null),
+      window.electronAPI.invoke('get-param-by-name', 'agentDefaultMode').catch(() => null),
+    ]).then(([enabled, defaultMode]) => {
+      const isEnabled = enabled?.data?.value === 'true'
+      const runMode = defaultMode?.data?.value
+      setAgentEnabled(isEnabled)
+      if (isEnabled) {
+        if (runMode === 'auto' || runMode === 'collaborative') {
+          setAgentRunMode(runMode)
+          setAgentMode('agent')
+        }
+      }
+    }).catch(() => {})
   }, [])
+
+  // Agent进度监听
+  useEffect(() => {
+    const onProgress = (data) => {
+      setAgentSteps(data.steps || [])
+      setAgentStatus(data.status)
+      // 更新/插入进度消息到消息列表（位于用户消息之后、AI回复之前）
+      setChatMessages(prev => {
+        const progressIdx = prev.findIndex(m => m._agentProgress && m._agentRequestId === agentRequestIdRef.current)
+        const progressMsg = {
+          _agentProgress: true,
+          _agentRequestId: agentRequestIdRef.current,
+          steps: data.steps,
+          status: data.status,
+          isPaused: agentPaused,
+          latestReasoning: data.latestReasoning
+        }
+        if (progressIdx >= 0) {
+          const next = [...prev]
+          next[progressIdx] = progressMsg
+          return next
+        } else {
+          // 找到最后一条用户消息，插入其后
+          let insertAt = prev.length
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].role === 'user') { insertAt = i + 1; break }
+          }
+          const next = [...prev]
+          next.splice(insertAt, 0, progressMsg)
+          return next
+        }
+      })
+      if (data.status === 'done') {
+        setChatLoading(false)
+        if (data.result?.reply) {
+          setChatMessages(prev => [...prev, { role: 'assistant', content: data.result.reply }])
+        }
+      }
+      if (data.status === 'error') {
+        setChatLoading(false)
+        if (data.error) {
+          setChatMessages(prev => [...prev, { role: 'assistant', content: data.error, isError: true }])
+        }
+      }
+    }
+
+    const onConfirmationRequest = (data) => {
+      setPendingConfirmation(data)
+    }
+
+    try {
+      window.electronAPI?.on?.('agent:progress', onProgress)
+      window.electronAPI?.on?.('agent:confirmation-request', onConfirmationRequest)
+    } catch (_) {}
+
+    return () => {
+      try {
+        window.electronAPI?.removeListener?.('agent:progress', onProgress)
+        window.electronAPI?.removeListener?.('agent:confirmation-request', onConfirmationRequest)
+      } catch (_) {}
+    }
+  }, [])
+
+  // 加载历史会话列表
+  const loadSessions = () => {
+    window.electronAPI.invoke('agent:listSessions')
+      .then(r => {
+        if (r?.sessions?.length > 0) {
+          setSessions(r.sessions)
+          if (sidebarCollapsed) setSidebarCollapsed(false)
+        }
+      })
+      .catch(e => console.error('加载会话列表失败:', e))
+  }
+
+  useEffect(() => { loadSessions() }, [chatMessages])
+
+  // 加载指定会话的消息
+  const loadSessionMessages = async (sessionId) => {
+    try {
+      const r = await window.electronAPI.invoke('agent:getSessionMessages', { sessionId })
+      if (r?.messages) {
+        setChatMessages(r.messages.map(m => ({
+          role: m.role,
+          content: m.content,
+          agentSteps: m.metadata?.steps
+        })))
+        setCurrentSessionId(sessionId)
+      }
+    } catch (e) {
+      console.error('加载会话消息失败:', e)
+    }
+  }
+
+  const loadPreferences = () => {
+    window.electronAPI.invoke('agent:getPreferences')
+      .then(r => { if (r?.preferences) setPreferences(r.preferences) })
+      .catch(() => {})
+  }
+
+  const loadCorrections = () => {
+    window.electronAPI.invoke('agent:getCorrections')
+      .then(r => { if (r?.corrections) setCorrections(r.corrections) })
+      .catch(() => {})
+  }
 
   const createMaterialPickerId = () => {
     materialPickerSeqRef.current += 1
@@ -751,6 +891,28 @@ const SmartDesignChat = () => {
     setChatInput('')
     setChatMessages(prev => [...prev, { role: 'user', content: userMessage, attachment: attachment ? { name: attachment.name, type: attachment.type } : null }])
 
+    // 情况0：Agent 模式
+    if (agentMode === 'agent') {
+      setChatLoading(true)
+      setAgentSteps([])
+      setAgentStatus('running')
+      agentRequestIdRef.current = 'agent-' + Date.now()
+      try {
+        await window.electronAPI.invoke('agent:run', {
+          requestId: agentRequestIdRef.current,
+          sessionId: currentSessionId,
+          message: userMessage,
+          mode: agentRunMode
+        })
+      } catch (e) {
+        setChatLoading(false)
+        setAgentStatus('error')
+        setChatMessages(prev => [...prev, { role: 'assistant', content: 'Agent执行出错: ' + (e.message || '未知错误'), isError: true }])
+      }
+      setAttachment(null)
+      return
+    }
+
     // 情况1：有附件，直接进入分析模式
     if (attachment) {
       await handleEnterAnalysisMode(attachment, userMessage)
@@ -796,15 +958,153 @@ const SmartDesignChat = () => {
   }
 
   return (
-    <div className="smart-design-chat">
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-        <Space>
-          <RobotOutlined style={{ fontSize: 18, color: 'var(--color-primary)' }} />
-          <Text strong style={{ fontSize: 16 }}>智能设计助手</Text>
-        </Space>
-      </div>
+    <Layout style={{ height: '100%', background: 'transparent' }}>
+      {/* 记忆侧栏 */}
+      {!sidebarCollapsed && (
+        <Sider width="28%" style={{ background: 'var(--color-surface, #fff)', borderRight: '1px solid var(--color-border)', overflow: 'auto', padding: 'var(--space-md, 16px)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <Text strong style={{ fontSize: 14 }}><HistoryOutlined /> 记忆管理</Text>
+            <Button size="small" type="text" icon={<PlusOutlined />} onClick={() => { setCurrentSessionId('session-' + Date.now()); setChatMessages([]); setAgentSteps([]); setAgentStatus(null); loadSessions() }} title="新建对话" />
+          </div>
 
-      <div className="smart-chat-list">
+          <Tabs
+            size="small"
+            activeKey={sidebarTab}
+            onChange={key => { setSidebarTab(key); if (key === 'prefs') loadPreferences(); if (key === 'corrections') loadCorrections() }}
+            items={[
+              {
+                key: 'history',
+                label: '对话',
+                children: sessions.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: 20 }}>
+                    <Text type="secondary">暂无对话记录</Text>
+                  </div>
+                ) : (
+                  <List size="small" dataSource={sessions}
+                    renderItem={s => (
+                      <List.Item style={{ cursor: 'pointer', background: s.sessionId === currentSessionId ? 'var(--color-border)' : 'transparent', padding: '4px 8px', borderRadius: 4 }}
+                        onClick={() => loadSessionMessages(s.sessionId)}
+                        actions={[
+                          <Popconfirm key="del" title="删除此对话？" onConfirm={async (e) => { e?.stopPropagation?.()
+                            await window.electronAPI.invoke('agent:deleteSession', { sessionId: s.sessionId })
+                            if (currentSessionId === s.sessionId) { setChatMessages([]); setCurrentSessionId('session-' + Date.now()) }
+                            loadSessions()
+                          }}>
+                            <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={e => e.stopPropagation()} />
+                          </Popconfirm>
+                        ]}
+                      >
+                        <Space>
+                          <RobotOutlined style={{ fontSize: 12, color: 'var(--color-text-secondary)' }} />
+                          <Text style={{ fontSize: 12 }}>{new Date(s.lastActivity).toLocaleDateString()}</Text>
+                        </Space>
+                      </List.Item>
+                    )}
+                  />
+                )
+              },
+              {
+                key: 'prefs',
+                label: '偏好',
+                children: Object.keys(preferences).length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: 20 }}>
+                    <Text type="secondary">暂无偏好记录</Text>
+                    <br /><Text type="secondary" style={{ fontSize: 11 }}>AI 会根据你的使用习惯自动学习</Text>
+                  </div>
+                ) : (
+                  <Descriptions size="small" column={1}>
+                    {Object.entries(preferences).map(([k, v]) => (
+                      <Descriptions.Item key={k} label={k}>{typeof v === 'object' ? JSON.stringify(v) : String(v)}</Descriptions.Item>
+                    ))}
+                  </Descriptions>
+                )
+              },
+              {
+                key: 'corrections',
+                label: '修正',
+                children: corrections.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: 20 }}>
+                    <Text type="secondary">暂无修正记录</Text>
+                    <br /><Text type="secondary" style={{ fontSize: 11 }}>你修改 AI 建议后会自动记录</Text>
+                  </div>
+                ) : (
+                  <List size="small" dataSource={corrections}
+                    renderItem={c => (
+                      <List.Item
+                        actions={[
+                          <Popconfirm key="del" title="删除此修正？" onConfirm={async () => {
+                            await window.electronAPI.invoke('agent:deleteCorrection', { id: c.id })
+                            loadCorrections()
+                          }}>
+                            <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                          </Popconfirm>
+                        ]}
+                      >
+                        <div style={{ fontSize: 11 }}>
+                          <Text type="secondary">原: {JSON.stringify(c.originalSuggestion).slice(0, 60)}</Text><br />
+                          <Text style={{ color: 'var(--color-primary)' }}>改: {JSON.stringify(c.userCorrection).slice(0, 60)}</Text>
+                        </div>
+                      </List.Item>
+                    )}
+                  />
+                )
+              }
+            ]}
+          />
+
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, marginTop: 8 }}>
+            <Button size="small" danger block icon={<DeleteOutlined />} onClick={async () => {
+              if (confirm('确定清空全部记忆？（对话历史 + 偏好 + 修正记录）')) {
+                await window.electronAPI.invoke('agent:clearAllMemory')
+                setSessions([]); setPreferences({}); setCorrections([])
+                setChatMessages([]); setCurrentSessionId('session-' + Date.now())
+              }
+            }}>清空全部记忆</Button>
+          </div>
+        </Sider>
+      )}
+
+      <Content style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '0 var(--space-md)' }}>
+        <div className="smart-design-chat">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <Space>
+              <Button
+                size="small"
+                type="text"
+                icon={<HistoryOutlined />}
+                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                title={sidebarCollapsed ? '打开对话历史' : '关闭对话历史'}
+              />
+              <RobotOutlined style={{ fontSize: 18, color: 'var(--color-primary)' }} />
+              <Text strong style={{ fontSize: 16 }}>智能设计助手</Text>
+            </Space>
+            {agentEnabled && (
+              <Space size={8}>
+                <Segmented
+                  size="small"
+                  value={agentMode}
+                  onChange={val => setAgentMode(val)}
+                  options={[
+                    { label: '聊天', value: 'chat', icon: <BulbOutlined /> },
+                    { label: 'Agent', value: 'agent', icon: <ThunderboltOutlined /> }
+                  ]}
+                />
+                {agentMode === 'agent' && (
+                  <Segmented
+                    size="small"
+                    value={agentRunMode}
+                    onChange={val => setAgentRunMode(val)}
+                    options={[
+                      { label: '协作', value: 'collaborative', icon: <TeamOutlined /> },
+                      { label: '全自动', value: 'auto', icon: <ThunderboltOutlined /> }
+                    ]}
+                  />
+                )}
+              </Space>
+            )}
+          </div>
+
+          <div className="smart-chat-list">
         {chatMessages.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px' }}>
             <BulbOutlined style={{ fontSize: 48, color: '#faad14', marginBottom: 16 }} />
@@ -821,7 +1121,35 @@ const SmartDesignChat = () => {
         ) : (
           <List
             dataSource={chatMessages}
-            renderItem={(item) => (
+            renderItem={(item) => {
+              // Agent 进度消息——内嵌在消息流中，位于用户消息之后、AI回复之前
+              if (item._agentProgress) {
+                return (
+                  <List.Item style={{ border: 'none', padding: '4px 0 4px 48px' }}>
+                    <div style={{ width: '100%' }}>
+                      <AgentProgressCard
+                        steps={item.steps || []}
+                        status={item.status}
+                        isPaused={item.isPaused}
+                        showControls={item.status === 'running'}
+                        latestReasoning={item.latestReasoning}
+                        onPause={() => { setAgentPaused(true); window.electronAPI.invoke('agent:pause', { requestId: agentRequestIdRef.current }) }}
+                        onResume={() => { setAgentPaused(false); window.electronAPI.invoke('agent:resume', { requestId: agentRequestIdRef.current }) }}
+                        onAbort={() => { window.electronAPI.invoke('agent:abort', { requestId: agentRequestIdRef.current }); setChatLoading(false); setAgentStatus(null) }}
+                      />
+                      {pendingConfirmation && (
+                        <DecisionGate
+                          toolName={pendingConfirmation.toolName}
+                          args={pendingConfirmation.args}
+                          onConfirm={(args) => { window.electronAPI.invoke('agent:confirm', { confirmed: true, args }); setPendingConfirmation(null) }}
+                          onReject={() => { window.electronAPI.invoke('agent:confirm', { confirmed: false }); setPendingConfirmation(null) }}
+                        />
+                      )}
+                    </div>
+                  </List.Item>
+                )
+              }
+              return (
               <List.Item className={item.role === 'user' ? 'smart-chat-item-user' : 'smart-chat-item-assistant'}>
                 <Space align="start" style={{ width: item.role === 'user' ? 'auto' : '100%' }}>
                   {item.role === 'assistant' && <Avatar icon={<RobotOutlined />} className="chat-avatar" />}
@@ -948,7 +1276,8 @@ const SmartDesignChat = () => {
                   {item.role === 'user' && <Avatar icon={<UserOutlined />} className="chat-avatar-user" />}
                 </Space>
               </List.Item>
-            )}
+            )
+          }}
           />
         )}
         {pendingMaterialPicker && (() => {
@@ -1057,6 +1386,8 @@ const SmartDesignChat = () => {
         onSaved={() => setBasicMixModalData(null)}
       />
     </div>
+    </Content>
+    </Layout>
   )
 }
 
