@@ -489,15 +489,49 @@ const executeToolCall = async (toolName, args) => {
       if (!rule) {
         return { success: false, error: `没有找到${args.concreteType}的销售报价规则` }
       }
-      const basicMix = await BasicMixDesignService.findDefaultMix(args.strengthGrade, args.concreteType)
+      let basicMix = await BasicMixDesignService.findDefaultMix(args.strengthGrade, args.concreteType)
       if (!basicMix) {
-        return {
-          success: false,
-          type: 'sales_quote_action_required',
-          requiresUserConfirmation: true,
-          action: 'select_or_create_basic_mix',
-          error: `没有找到${args.strengthGrade}${args.concreteType}基础配合比。`,
-          hint: '请先让用户选择已有基础配合比，或明确授权生成新配合比并确认材料后，再进入配合比设计流程。不能自动调用配合比设计工具。'
+        // Fallback：从最近设计结果缓存中取
+        const cached = lastResultCache.get('lastMixDesign')
+        if (cached?.data) {
+          const d = cached.data
+          const bestSol = d.bestSolution || {}
+          const source = bestSol.materials ? bestSol : d
+          const mats = source.materials || d.materials || {}
+          const selected = source.selectedMaterials || d.selectedMaterials || {}
+
+          // 将 materials 对象转换为数组格式
+          const materialsArr = []
+          const findId = (key) => selected[key]?.id || null
+          const findName = (key, fallback) => selected[key]?.name || selected[key] || fallback || key
+
+          if (mats.cement != null) materialsArr.push({ materialId: findId('cement'), materialType: '水泥', materialName: findName('cement', '水泥'), usage: mats.cement })
+          if (mats.flyAsh > 0) materialsArr.push({ materialId: findId('flyAsh'), materialType: '粉煤灰', materialName: findName('flyAsh', '粉煤灰'), usage: mats.flyAsh })
+          if (mats.slag > 0) materialsArr.push({ materialId: findId('slag'), materialType: '矿渣粉', materialName: findName('slag', '矿渣粉'), usage: mats.slag })
+          if (mats.lithiumSlag > 0) materialsArr.push({ materialId: findId('lithiumSlag'), materialType: '锂渣', materialName: findName('lithiumSlag', '锂渣'), usage: mats.lithiumSlag })
+          if (mats.compositePowder > 0) materialsArr.push({ materialId: findId('compositePowder'), materialType: '复合粉', materialName: findName('compositePowder', '复合粉'), usage: mats.compositePowder })
+          if (mats.superplasticizer > 0) materialsArr.push({ materialId: findId('superplasticizer'), materialType: '减水剂', materialName: findName('superplasticizer', '减水剂'), usage: mats.superplasticizer })
+          if (mats.sand > 0) materialsArr.push({ materialId: findId('sand'), materialType: '细骨料', materialName: findName('sand', '细骨料'), usage: mats.sand })
+          if (mats.stone > 0) materialsArr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone })
+          if (mats.water > 0) materialsArr.push({ materialId: null, materialType: '水', materialName: '水', usage: mats.water })
+
+          basicMix = {
+            strengthGrade: args.strengthGrade,
+            concreteType: args.concreteType,
+            slump: d.slump || source.slump || args.slump || 180,
+            materials: materialsArr
+          }
+        }
+
+        if (!basicMix) {
+          return {
+            success: false,
+            type: 'sales_quote_action_required',
+            requiresUserConfirmation: true,
+            action: 'select_or_create_basic_mix',
+            error: `没有找到${args.strengthGrade}${args.concreteType}基础配合比。`,
+            hint: '请先让用户选择已有基础配合比，或明确授权生成新配合比并确认材料后，再进入配合比设计流程。不能自动调用配合比设计工具。'
+          }
         }
       }
       return {
