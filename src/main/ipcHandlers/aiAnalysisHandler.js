@@ -519,7 +519,8 @@ const executeToolCall = async (toolName, args) => {
             strengthGrade: args.strengthGrade,
             concreteType: args.concreteType,
             slump: d.slump || source.slump || args.slump || 180,
-            materials: materialsArr
+            materials: materialsArr,
+            toJSON() { return this }
           }
         }
 
