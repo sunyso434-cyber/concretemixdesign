@@ -16,6 +16,7 @@ const BasicMixDesignService = require('../services/BasicMixDesignService')
 const SalesQuoteRuleService = require('../services/SalesQuoteRuleService')
 const SalesQuoteCalculationService = require('../services/SalesQuoteCalculationService')
 const SalesQuoteToolGuard = require('../services/SalesQuoteToolGuard')
+const { Material } = require('../db/database')
 
 // 从系统参数获取API密钥
 const getDeepSeekApiKey = async () => {
@@ -485,9 +486,13 @@ const executeToolCall = async (toolName, args) => {
     }
 
     case 'prepare_sales_quote_draft': {
-      const rule = await SalesQuoteRuleService.findRuleByType(args.concreteType)
+      let rule = await SalesQuoteRuleService.findRuleByType(args.concreteType)
       if (!rule) {
-        return { success: false, error: `没有找到${args.concreteType}的销售报价规则` }
+        // 精确匹配失败，尝试关键词模糊匹配
+        rule = await SalesQuoteRuleService.matchRuleByText(args.concreteType)
+      }
+      if (!rule) {
+        return { success: false, error: `没有找到"${args.concreteType}"的销售报价规则，当前可用类型：普通、抗渗、早强` }
       }
       const basicMix = await BasicMixDesignService.findDefaultMix(args.strengthGrade, args.concreteType)
       if (!basicMix) {
@@ -586,7 +591,7 @@ const executeToolCall = async (toolName, args) => {
       const source = d.bestSolution ? bestSol : d
       const materials = source.materials || d.materials || bestSol.materials
       // 将 materials 对象转换为 BasicMixDesign 所需的数组格式
-      const buildMaterialsArray = (mats, selected, fineBreakdown, coarseBreakdown) => {
+      const buildMaterialsArray = async (mats, selected, fineBreakdown, coarseBreakdown) => {
         const arr = []
         const findName = (key, fallback) => {
           if (selected && selected[key] && typeof selected[key] === 'object') return selected[key].name || selected[key]
@@ -615,7 +620,11 @@ const executeToolCall = async (toolName, args) => {
         } else if (mats.stone != null && mats.stone > 0) {
           arr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone })
         }
-        if (mats.water != null && mats.water > 0) arr.push({ materialId: null, materialType: '水', materialName: '水', usage: mats.water })
+        if (mats.water != null && mats.water > 0) {
+          // 从材料库中查找默认水材料
+          const waterMat = await Material.findOne({ where: { type: '其他', name: '水' } })
+          arr.push({ materialId: waterMat?.id || null, materialType: '水', materialName: '水', usage: mats.water })
+        }
         return arr
       }
       const strength = d.strength || source.strength || 'C30'
@@ -626,7 +635,7 @@ const executeToolCall = async (toolName, args) => {
           strengthGrade: args.strengthGrade || strength,
           concreteType: args.concreteType || '普通',
           slump: args.slump != null ? args.slump : slump,
-          materials: buildMaterialsArray(materials, source.selectedMaterials || d.selectedMaterials, source.fineAggregateBreakdown || d.fineAggregateBreakdown, source.coarseAggregateBreakdown || d.coarseAggregateBreakdown),
+          materials: await buildMaterialsArray(materials, source.selectedMaterials || d.selectedMaterials, source.fineAggregateBreakdown || d.fineAggregateBreakdown, source.coarseAggregateBreakdown || d.coarseAggregateBreakdown),
           isDefault: args.isDefault || false,
           remarks: args.remarks || '',
           source: '智能设计保存'
@@ -784,5 +793,6 @@ module.exports = {
   checkApiStatus,
   chatWithAI,
   chatWithAIStream,
-  clearChatHistory
+  clearChatHistory,
+  executeToolCall
 }
