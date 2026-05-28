@@ -1,5 +1,23 @@
 # 版本更新记录
 
+## 打包记录 (2026-05-28 AI Agent 架构 4.0.0)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.0.0**
+- **输出目录**: `dist-3.8.0/`
+- **安装包**: `混凝土配合比设计软件 Setup 4.0.0.exe` / `混凝土配合比设计软件-4.0.0-x64.exe`（便携版）
+- **说明**:
+  1. **AI Agent 智能体架构** — 新增 Agent 运行时引擎，AI 可自主规划并执行多步骤任务（配比设计→优化→审查→报价全流程）
+  2. **ReAct 循环模式** — Agent 每步执行后根据结果重新规划下一步，支持全自动/协作双模式切换
+  3. **对话记忆系统** — AI 记住用户偏好、历史对话和修正记录，越用越准。支持窗口截断（最近20轮）控制 token 消耗
+  4. **ToolRegistry 工具注册中心** — 8个工具声明式注册，共享 Schema 消除90行重复定义，支持工具链编排
+  5. **AgentProgressCard 多步进度** — 5态进度展示（Idle/Running/Paused/Done/Error），支持暂停/继续/取消
+  6. **DecisionGate 确认卡片** — 4态交互（Pending/Accepted/Rejected/Expired），协作模式下敏感操作需用户确认
+  7. **三栏布局升级** — 新增记忆侧栏（对话历史列表+切换），聊天主区适配Agent进度+确认卡片
+  8. **Agent 设置面板** — 系统设置新增 agentEnabled 开关和 agentDefaultMode 默认模式选择
+  9. **Agent 架构优化** — DeepSeekService 暴露公开 chatWithTools API、webContents 运行时传入防过期、确认流程 60 秒超时保护、进度推理文字实时推送、SmartDesignChat 组件拆分（useChatState + AgentMode + MemorySidebar）
+
 ## 打包记录 (2026-05-26 销售报价工具体验提升 3.9.0)
 
 - **命令**: `npm run electron:build`
