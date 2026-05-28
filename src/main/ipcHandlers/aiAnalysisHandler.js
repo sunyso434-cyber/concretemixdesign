@@ -559,13 +559,19 @@ const executeToolCall = async (toolName, args) => {
       if (!basicMixRow) return { success: false, error: '基础配合比不存在' }
       const allMaterials = await MaterialService.getAllMaterials()
       const pricesById = new Map(allMaterials.map(material => [material.id, material.price]))
+      // 水的 materialId 可能为 null，从材料库中查找默认水材料的价格
+      const waterMaterial = allMaterials.find(m => m.type === '其他' && m.name === '水')
+      const waterPrice = waterMaterial?.price ?? 0
       const basicMix = basicMixRow.toJSON()
       const quote = SalesQuoteCalculationService.calculate({
         basicMix: {
           strengthGrade: basicMix.strengthGrade,
           concreteType: basicMix.concreteType,
           slump: basicMix.slump,
-          materials: basicMix.materials.map(item => ({ ...item, price: pricesById.get(item.materialId) }))
+          materials: basicMix.materials.map(item => ({
+            ...item,
+            price: item.materialId != null ? pricesById.get(item.materialId) : (item.materialType === '水' ? waterPrice : pricesById.get(item.materialId))
+          }))
         },
         pricing: args.pricing
       })
