@@ -5,17 +5,18 @@ const MAX_STEPS = 10
 const MAX_CONSECUTIVE_FAILURES = 2
 
 class AgentOrchestrator {
-  constructor({ deepseekService, toolRegistry, webContents }) {
+  constructor({ deepseekService, toolRegistry }) {
     this.ds = deepseekService
     this.registry = toolRegistry
-    this.wc = webContents
+    this.wc = null
     this._paused = false
     this._aborted = false
     this._resumeResolver = null
     this._confirmationResolver = null
   }
 
-  async run({ sessionId, message, mode = 'collaborative' }) {
+  async run({ sessionId, message, mode = 'collaborative', webContents = null }) {
+    this.wc = webContents
     this._paused = false
     this._aborted = false
     this._resumeResolver = null
