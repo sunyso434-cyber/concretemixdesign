@@ -28,14 +28,11 @@ class AgentOrchestrator {
     await agentMemoryService.saveMessage({ sessionId, role: 'user', content: message })
 
     const memoryContext = await agentMemoryService.buildMemoryContext(sessionId)
-    // 如果有历史记忆，记录在 steps 中让用户看到
-    if (memoryContext && memoryContext.length > 10) {
-      const ctxStep = { step: 0, status: 'done', toolName: null, reasoning: '已加载历史对话记忆', result: null, error: null }
-      steps.push(ctxStep)
-    }
+    const historyMessages = await agentMemoryService.buildHistoryMessages(sessionId)
     const systemPrompt = this._buildSystemPrompt(memoryContext, mode)
     const messages = [
       { role: 'system', content: systemPrompt },
+      ...historyMessages,
       { role: 'user', content: message }
     ]
 
