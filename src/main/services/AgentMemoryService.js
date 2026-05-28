@@ -165,19 +165,14 @@ class AgentMemoryService {
       if (msg.role === 'user') {
         messages.push({ role: 'user', content: msg.content })
       } else if (msg.role === 'assistant') {
-        if (msg.toolCalls && msg.toolCalls.length > 0) {
-          // 保留 tool_calls（OpenAI 格式要求 assistant 带 tool_calls 的消息必须原样传回）
-          messages.push({
-            role: 'assistant',
-            content: msg.content || null,
-            toolCalls: msg.toolCalls
-          })
-        } else {
-          // 纯文本回复，只保留 content
+        // 只保留纯文本回复，跳过带 tool_calls 的消息
+        // 原因：tool_calls 后面必须跟 tool 响应，但 DB 中没有保存 tool 响应
+        //       传不完整的 tool_calls 会导致 API 报格式错误
+        if (msg.content && !msg.toolCalls) {
           messages.push({ role: 'assistant', content: msg.content })
         }
       }
-      // 跳过 role='tool' 的消息（tool 响应不能直接放在历史中，会格式错误）
+      // 跳过 role='tool' 和带 toolCalls 的 assistant 消息
     }
 
     // 确保最后一条是 assistant 消息（如果最后一条是 user，说明上次 run 中断了，移除它避免 LLM 回答过时问题）
