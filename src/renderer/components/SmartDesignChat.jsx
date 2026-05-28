@@ -739,12 +739,17 @@ const SmartDesignChat = () => {
       agent.setAgentStatus('running')
       agent.agentRequestIdRef.current = 'agent-' + Date.now()
       try {
-        await window.electronAPI.invoke('agent:run', {
+        const res = await window.electronAPI.invoke('agent:run', {
           requestId: agent.agentRequestIdRef.current,
           sessionId: agent.currentSessionId,
           message: userMessage,
           mode: agent.agentRunMode
         })
+        if (res && res.success === false) {
+          chatState.setChatLoading(false)
+          agent.setAgentStatus('error')
+          chatState.setChatMessages(prev => [...prev, { role: 'assistant', content: 'Agent执行出错: ' + (res.error || '未知错误'), isError: true }])
+        }
       } catch (e) {
         chatState.setChatLoading(false)
         agent.setAgentStatus('error')

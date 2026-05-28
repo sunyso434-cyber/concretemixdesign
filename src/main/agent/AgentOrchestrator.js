@@ -25,16 +25,22 @@ class AgentOrchestrator {
     const startTime = Date.now()
     let consecutiveFailures = 0
 
-    await agentMemoryService.saveMessage({ sessionId, role: 'user', content: message })
+    console.log('[Agent] run() 开始, sessionId:', sessionId, 'mode:', mode, 'wc:', !!webContents)
+
+    try {
+      await agentMemoryService.saveMessage({ sessionId, role: 'user', content: message })
 
     const memoryContext = await agentMemoryService.buildMemoryContext(sessionId)
+    console.log('[Agent] memoryContext 长度:', memoryContext?.length || 0)
     const historyMessages = await agentMemoryService.buildHistoryMessages(sessionId)
+    console.log('[Agent] historyMessages 数量:', historyMessages.length)
     const systemPrompt = this._buildSystemPrompt(memoryContext, mode)
     const messages = [
       { role: 'system', content: systemPrompt },
       ...historyMessages,
       { role: 'user', content: message }
     ]
+    console.log('[Agent] messages 数组长度:', messages.length)
 
     let stepCount = 0
     let finalResult = null
@@ -51,7 +57,9 @@ class AgentOrchestrator {
       this._notifyProgress({ steps, mode, status: 'running' })
 
       try {
+        console.log('[Agent] 调用 chatWithTools, step:', stepCount)
         const response = await this.ds.chatWithTools(messages, this.registry.getToolSchemas())
+        console.log('[Agent] API 响应:', response ? `content=${!!response.content}, tool_calls=${response.tool_calls?.length || 0}` : 'null')
         if (!response) {
           step.status = 'error'
           step.error = 'DeepSeek API 返回空响应'
@@ -191,6 +199,13 @@ class AgentOrchestrator {
 
     this._notifyProgress({ steps, mode, status: 'done', result: finalResult })
     return finalResult
+
+    } catch (outerError) {
+      console.error('[Agent] run() 顶层异常:', outerError.message)
+      const errorResult = { reply: `Agent 执行异常: ${outerError.message}`, steps, mode, error: true, duration: Date.now() - startTime }
+      this._notifyProgress({ steps, mode, status: 'error', result: errorResult, error: outerError.message })
+      return errorResult
+    }
   }
 
   // ===== 控制 =====
