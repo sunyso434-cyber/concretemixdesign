@@ -17,6 +17,7 @@
   7. **三栏布局升级** — 新增记忆侧栏（对话历史列表+切换），聊天主区适配Agent进度+确认卡片
   8. **Agent 设置面板** — 系统设置新增 agentEnabled 开关和 agentDefaultMode 默认模式选择
   9. **Agent 架构优化** — DeepSeekService 暴露公开 chatWithTools API、webContents 运行时传入防过期、确认流程 60 秒超时保护、进度推理文字实时推送、SmartDesignChat 组件拆分（useChatState + AgentMode + MemorySidebar）
+  10. **标准多轮对话** — 对话历史从 system prompt 文本改为标准消息格式，修复 LLM 重复回答旧问题的 bug
 
 ## 打包记录 (2026-05-26 销售报价工具体验提升 3.9.0)
 
