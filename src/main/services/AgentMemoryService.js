@@ -157,7 +157,7 @@ class AgentMemoryService {
   }
 
   async buildHistoryMessages(sessionId, { limit = DEFAULT_WINDOW_SIZE } = {}) {
-    const history = await this.getRecentHistory(sessionId, { limit })
+    const history = await this.getRecentHistory(sessionId, limit)
     if (history.length === 0) return []
 
     const messages = []
