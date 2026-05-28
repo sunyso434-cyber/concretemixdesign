@@ -211,8 +211,7 @@ class AgentOrchestrator {
 
   resolveConfirmation(confirmed, args) {
     if (this._confirmationResolver) {
-      const r = this._confirmationResolver; this._confirmationResolver = null
-      r(confirmed ? (args || true) : false)
+      this._confirmationResolver(confirmed, args)
     }
   }
 
@@ -271,11 +270,31 @@ ${memoryContext || ''}
 
   async _requestConfirmation(toolName, args) {
     if (!this.wc || this.wc.isDestroyed()) return true
+
     return new Promise(resolve => {
-      this._confirmationResolver = resolve
+      let settled = false
+
+      const settle = (val) => {
+        if (settled) return
+        settled = true
+        this._confirmationResolver = null
+        resolve(val)
+      }
+
+      // 60 秒超时自动拒绝
+      const timer = setTimeout(() => settle(false), 60000)
+
+      this._confirmationResolver = (confirmed, extraArgs) => {
+        clearTimeout(timer)
+        settle(confirmed ? (extraArgs || true) : false)
+      }
+
       try {
         this.wc.send('agent:confirmation-request', { toolName, args })
-      } catch (_) { this._confirmationResolver = null; resolve(true) }
+      } catch (_) {
+        clearTimeout(timer)
+        settle(true)
+      }
     })
   }
 }
