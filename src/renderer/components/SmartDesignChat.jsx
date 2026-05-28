@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { Button, Input, Space, Avatar, List, Alert, message, Typography, Upload, Tag, Checkbox, Segmented, Layout, Menu, Tabs, Descriptions, Popconfirm } from 'antd'
-import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, SettingOutlined, EditOutlined } from '@ant-design/icons'
+import React, { useState, useEffect } from 'react'
+import { Button, Input, Space, Avatar, List, Alert, message, Typography, Upload, Tag, Checkbox, Segmented, Layout } from 'antd'
+import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
@@ -14,13 +14,16 @@ import SalesQuoteResultCard from './SalesQuoteResultCard'
 import SaveBasicMixModal from './SaveBasicMixModal'
 import AgentProgressCard from './AgentProgressCard'
 import DecisionGate from './DecisionGate'
+import MemorySidebar from './MemorySidebar'
+import useChatState from '../hooks/useChatState'
+import useAgentMode from './AgentMode'
 import { getAttachmentType, detectAnalysisModeIntent, processExcelAttachment, processMarkdownAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
 import { AnalysisReport } from '../pages/AIAnalysisPage_Results'
 import { getAllMaterials } from '../services/MaterialService'
 import { buildAnalysisData, MATERIAL_TYPE_MAP } from '../pages/AIAnalysisPage_Upload'
 
 const { Text } = Typography
-const { Sider, Content } = Layout
+const { Content } = Layout
 
 const ANALYSIS_RESULT_KEYS = [
   'materialInfluenceAnalysis',
@@ -151,192 +154,30 @@ function buildPerMixMaterialQueue(mixDesigns, materialMapping) {
 }
 
 const SmartDesignChat = () => {
-  const [chatMessages, setChatMessages] = useState([])
-  const [chatInput, setChatInput] = useState('')
-  const [chatLoading, setChatLoading] = useState(false)
-  const [completedMaterialPickerIds, setCompletedMaterialPickerIds] = useState(() => new Set())
-  const [attachment, setAttachment] = useState(null)
-  const [analysisMode, setAnalysisMode] = useState(false)
-  const [analysisData, setAnalysisData] = useState(null)
-  const [pendingMaterialPicker, setPendingMaterialPicker] = useState(null)
-  const [analysisResult, setAnalysisResult] = useState(null)
-  const [contrastPickerSelected, setContrastPickerSelected] = useState([])
-  const [basicMixModalData, setBasicMixModalData] = useState(null)
-  const [pumpingFeeItems, setPumpingFeeItems] = useState([])
+  // ===== Hooks =====
+  const chatState = useChatState()
+  const agent = useAgentMode(chatState)
 
-  // ===== Agent 状态 =====
-  const [agentEnabled, setAgentEnabled] = useState(false)
-  const [agentMode, setAgentMode] = useState('chat')          // 标签页：chat | agent
-  const [agentRunMode, setAgentRunMode] = useState('collaborative') // 运行模式：collaborative | auto
-  const [agentSteps, setAgentSteps] = useState([])
-  const [agentStatus, setAgentStatus] = useState(null)
-  const [agentPaused, setAgentPaused] = useState(false)
-  const [pendingConfirmation, setPendingConfirmation] = useState(null)
-  const [sessions, setSessions] = useState([])
-  const [currentSessionId, setCurrentSessionId] = useState(() => 'session-' + Date.now())
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
-  const [sidebarTab, setSidebarTab] = useState('history')
-  const [preferences, setPreferences] = useState({})
-  const [corrections, setCorrections] = useState([])
+  const streamSeqRef = useState(() => ({ current: 0 }))[0]
 
-  const chatEndRef = useRef(null)
-  const materialPickerSeqRef = useRef(0)
-  const streamSeqRef = useRef(0)
-  const agentRequestIdRef = useRef(null)
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages, pendingMaterialPicker?.pickerKey])
-
-  useEffect(() => {
-    window.electronAPI.invoke('salesQuote:listEnabledPumpingFeeItems')
-      .then(r => { if (r.success) setPumpingFeeItems(r.data) })
-      .catch(() => {})
-    // 读取 Agent 设置
-    Promise.all([
-      window.electronAPI.invoke('get-param-by-name', 'agentEnabled').catch(() => null),
-      window.electronAPI.invoke('get-param-by-name', 'agentDefaultMode').catch(() => null),
-    ]).then(([enabled, defaultMode]) => {
-      const isEnabled = enabled?.data?.value === 'true'
-      const runMode = defaultMode?.data?.value
-      setAgentEnabled(isEnabled)
-      if (isEnabled) {
-        if (runMode === 'auto' || runMode === 'collaborative') {
-          setAgentRunMode(runMode)
-          setAgentMode('agent')
-        }
-      }
-    }).catch(() => {})
-  }, [])
-
-  // Agent进度监听
-  useEffect(() => {
-    const onProgress = (data) => {
-      setAgentSteps(data.steps || [])
-      setAgentStatus(data.status)
-      // 更新/插入进度消息到消息列表（位于用户消息之后、AI回复之前）
-      setChatMessages(prev => {
-        const progressIdx = prev.findIndex(m => m._agentProgress && m._agentRequestId === agentRequestIdRef.current)
-        const progressMsg = {
-          _agentProgress: true,
-          _agentRequestId: agentRequestIdRef.current,
-          steps: data.steps,
-          status: data.status,
-          isPaused: agentPaused,
-          latestReasoning: data.latestReasoning
-        }
-        if (progressIdx >= 0) {
-          const next = [...prev]
-          next[progressIdx] = progressMsg
-          return next
-        } else {
-          // 找到最后一条用户消息，插入其后
-          let insertAt = prev.length
-          for (let i = prev.length - 1; i >= 0; i--) {
-            if (prev[i].role === 'user') { insertAt = i + 1; break }
-          }
-          const next = [...prev]
-          next.splice(insertAt, 0, progressMsg)
-          return next
-        }
-      })
-      if (data.status === 'done') {
-        setChatLoading(false)
-        if (data.result?.reply) {
-          setChatMessages(prev => [...prev, { role: 'assistant', content: data.result.reply }])
-        }
-      }
-      if (data.status === 'error') {
-        setChatLoading(false)
-        if (data.error) {
-          setChatMessages(prev => [...prev, { role: 'assistant', content: data.error, isError: true }])
-        }
-      }
-    }
-
-    const onConfirmationRequest = (data) => {
-      setPendingConfirmation(data)
-    }
-
-    try {
-      window.electronAPI?.on?.('agent:progress', onProgress)
-      window.electronAPI?.on?.('agent:confirmation-request', onConfirmationRequest)
-    } catch (_) {}
-
-    return () => {
-      try {
-        window.electronAPI?.removeListener?.('agent:progress', onProgress)
-        window.electronAPI?.removeListener?.('agent:confirmation-request', onConfirmationRequest)
-      } catch (_) {}
-    }
-  }, [])
-
-  // 加载历史会话列表
-  const loadSessions = () => {
-    window.electronAPI.invoke('agent:listSessions')
-      .then(r => {
-        if (r?.sessions?.length > 0) {
-          setSessions(r.sessions)
-          if (sidebarCollapsed) setSidebarCollapsed(false)
-        }
-      })
-      .catch(e => console.error('加载会话列表失败:', e))
+  // Agent 状态重置辅助
+  const resetAgentState = () => {
+    agent.setAgentSteps([])
+    agent.setAgentStatus(null)
+    agent.setPendingConfirmation(null)
   }
 
-  useEffect(() => { loadSessions() }, [chatMessages])
+  // 每次消息变化刷新会话列表（维持原始行为，AgentMode hook 仅挂载时加载一次）
+  useEffect(() => { agent.loadSessions() }, [chatState.chatMessages])
 
-  // 加载指定会话的消息
-  const loadSessionMessages = async (sessionId) => {
-    try {
-      const r = await window.electronAPI.invoke('agent:getSessionMessages', { sessionId })
-      if (r?.messages) {
-        setChatMessages(r.messages.map(m => ({
-          role: m.role,
-          content: m.content,
-          agentSteps: m.metadata?.steps
-        })))
-        setCurrentSessionId(sessionId)
-      }
-    } catch (e) {
-      console.error('加载会话消息失败:', e)
-    }
-  }
-
-  const loadPreferences = () => {
-    window.electronAPI.invoke('agent:getPreferences')
-      .then(r => { if (r?.preferences) setPreferences(r.preferences) })
-      .catch(() => {})
-  }
-
-  const loadCorrections = () => {
-    window.electronAPI.invoke('agent:getCorrections')
-      .then(r => { if (r?.corrections) setCorrections(r.corrections) })
-      .catch(() => {})
-  }
-
-  const createMaterialPickerId = () => {
-    materialPickerSeqRef.current += 1
-    return `material-picker-${Date.now()}-${materialPickerSeqRef.current}`
-  }
-
-  const markMaterialPickerDone = (pickerId) => {
-    if (!pickerId) return
-    setCompletedMaterialPickerIds(prev => {
-      const next = new Set(prev)
-      next.add(pickerId)
-      return next
-    })
-  }
-
-  const isMaterialPickerDone = (pickerId) => pickerId && completedMaterialPickerIds.has(pickerId)
-
+  // ===== 流式聊天辅助函数 =====
   const createStreamRequestId = () => {
     streamSeqRef.current += 1
     return `smart-chat-stream-${Date.now()}-${streamSeqRef.current}`
   }
 
   const updateStreamMessage = (streamId, updater) => {
-    setChatMessages(prev => prev.map(item => (
+    chatState.setChatMessages(prev => prev.map(item => (
       item.streamId === streamId ? updater(item) : item
     )))
   }
@@ -362,7 +203,7 @@ const SmartDesignChat = () => {
       const allMaterials = [...allMaterialsMap.values()]
       if (allMaterials.length > 0) {
         chatMsg.materialPicker = { materials: allMaterials }
-        chatMsg.materialPicker.pickerId = createMaterialPickerId()
+        chatMsg.materialPicker.pickerId = chatState.createMaterialPickerId()
       }
       if (toolMsgs.length > 0) {
         const lastToolResult = toolMsgs[toolMsgs.length - 1]
@@ -466,7 +307,7 @@ const SmartDesignChat = () => {
     const streamId = requestId
     let listenerId = null
 
-    setChatMessages(prev => [...prev, {
+    chatState.setChatMessages(prev => [...prev, {
       role: 'assistant',
       content: '',
       streamId,
@@ -540,7 +381,7 @@ const SmartDesignChat = () => {
 
   const handleMaterialConfirm = async (selectedMaterials, pickerId = null) => {
     // 设计模式：pendingMaterialPicker 为空，材料来自聊天消息中的 materialPicker
-    if (!pendingMaterialPicker) {
+    if (!chatState.pendingMaterialPicker) {
       const grouped = {}
       for (const mat of selectedMaterials) {
         if (!grouped[mat.type]) grouped[mat.type] = []
@@ -548,16 +389,16 @@ const SmartDesignChat = () => {
       }
       const parts = Object.entries(grouped).map(([type, names]) => `${type}：${names.join('、')}`)
       const summary = `我选择以下材料：${parts.join('；')}。请根据这些材料设计配合比。`
-      markMaterialPickerDone(pickerId)
-      setChatMessages(prev => [...prev, { role: 'user', content: summary }])
-      setChatLoading(true)
+      chatState.markMaterialPickerDone(pickerId)
+      chatState.setChatMessages(prev => [...prev, { role: 'user', content: summary }])
+      chatState.setChatLoading(true)
       await handleDesignMode(summary, { selectedMaterials })
       return
     }
 
     const queue = buildPerMixMaterialQueue(
-      pendingMaterialPicker.mixDesigns,
-      pendingMaterialPicker.materialMapping
+      chatState.pendingMaterialPicker.mixDesigns,
+      chatState.pendingMaterialPicker.materialMapping
     )
     const current = queue[0]
     if (!current) {
@@ -566,8 +407,8 @@ const SmartDesignChat = () => {
     }
 
     const newMapping = {}
-    for (const mixId of Object.keys(pendingMaterialPicker.materialMapping)) {
-      newMapping[mixId] = { ...pendingMaterialPicker.materialMapping[mixId] }
+    for (const mixId of Object.keys(chatState.pendingMaterialPicker.materialMapping)) {
+      newMapping[mixId] = { ...chatState.pendingMaterialPicker.materialMapping[mixId] }
     }
 
     const slots = current.slots
@@ -600,37 +441,37 @@ const SmartDesignChat = () => {
     const parts = Object.entries(grouped).map(([type, names]) => `${type}：${names.join('、')}`)
     const msg = `编号 ${current.mixId}：${parts.join('；')}`
 
-    const summary = [...(pendingMaterialPicker.materialPickSummary || []), msg]
-    const nextQueue = buildPerMixMaterialQueue(pendingMaterialPicker.mixDesigns, newMapping)
+    const summary = [...(chatState.pendingMaterialPicker.materialPickSummary || []), msg]
+    const nextQueue = buildPerMixMaterialQueue(chatState.pendingMaterialPicker.mixDesigns, newMapping)
 
     if (nextQueue.length === 0) {
-      const customPrompt = [pendingMaterialPicker.initialUserPrompt, ...summary].filter(Boolean).join('\n')
-      setChatInput(summary.join('；'))
-      executeAnalysis(pendingMaterialPicker.mixDesigns, newMapping, { customPrompt })
-      setPendingMaterialPicker(null)
-      setChatLoading(true)
+      const customPrompt = [chatState.pendingMaterialPicker.initialUserPrompt, ...summary].filter(Boolean).join('\n')
+      chatState.setChatInput(summary.join('；'))
+      executeAnalysis(chatState.pendingMaterialPicker.mixDesigns, newMapping, { customPrompt })
+      chatState.setPendingMaterialPicker(null)
+      chatState.setChatLoading(true)
       return
     }
 
     const next = nextQueue[0]
-    setChatMessages(prev => [...prev, {
+    chatState.setChatMessages(prev => [...prev, {
       role: 'assistant',
       content: `编号 **${current.mixId}** 已补充完成。请继续为 **编号 ${next.mixId}**（${next.strengthGrade || '—'}）选择材料：`
     }])
-    setPendingMaterialPicker({
-      ...pendingMaterialPicker,
+    chatState.setPendingMaterialPicker({
+      ...chatState.pendingMaterialPicker,
       materialMapping: newMapping,
       materialPickSummary: summary,
       pickerKey: `${Date.now()}-${next.mixId}-${next.slots.length}`
     })
-    setChatInput(msg)
+    chatState.setChatInput(msg)
     message.success(`编号 ${current.mixId} 材料已保存`)
   }
 
   // 进入分析模式
   const handleEnterAnalysisMode = async (attachment, userMessage) => {
-    setAnalysisMode(true)
-    setChatLoading(true)
+    chatState.setAnalysisMode(true)
+    chatState.setChatLoading(true)
 
     try {
       let mixDesigns = []
@@ -650,18 +491,18 @@ const SmartDesignChat = () => {
             if (perMixQueue.length === 0) {
               message.warning('存在未匹配材料但无法逐条定位，将按当前映射尝试分析')
               await executeAnalysis(mixDesigns, materialMapping, { customPrompt: userMessage })
-              setChatLoading(false)
+              chatState.setChatLoading(false)
               return
             }
             const first = perMixQueue[0]
             const mixCount = perMixQueue.length
-            setChatMessages(prev => [...prev, {
+            chatState.setChatMessages(prev => [...prev, {
               role: 'assistant',
               content: mixCount > 1
                 ? `有 **${mixCount}** 条配合比存在材料未自动匹配（共 ${result.unmatchedMaterials.size} 类名称未对上库），将**按表格顺序逐条**补充。\n\n请先为 **编号 ${first.mixId}**（${first.strengthGrade || '—'}）选择材料：`
                 : `检测到 **${result.unmatchedMaterials.size}** 类材料未能自动匹配。\n\n请为 **编号 ${first.mixId}**（${first.strengthGrade || '—'}）选择材料：`
             }])
-            setPendingMaterialPicker({
+            chatState.setPendingMaterialPicker({
               mixDesigns,
               materialMapping,
               allMaterials: allMaterials || [],
@@ -670,20 +511,20 @@ const SmartDesignChat = () => {
               materialPickSummary: [],
               pickerKey: `${Date.now()}-${first.mixId}-${first.slots.length}`
             })
-            setChatLoading(false)
+            chatState.setChatLoading(false)
             return
           }
         } else if (attachment.type === 'md') {
           const content = await processMarkdownAttachment(attachment.file)
-          setChatMessages(prev => [...prev, {
+          chatState.setChatMessages(prev => [...prev, {
             role: 'assistant',
             content: `已上传Markdown文件，内容长度${content.length}字符。需要进一步解析处理。`
           }])
-          setChatLoading(false)
+          chatState.setChatLoading(false)
           return
         }
       } else if (userMessage) {
-        setChatMessages(prev => [...prev, {
+        chatState.setChatMessages(prev => [...prev, {
           role: 'assistant',
           content: '正在分析文本中的配合比数据...'
         }])
@@ -693,8 +534,8 @@ const SmartDesignChat = () => {
       await executeAnalysis(mixDesigns, materialMapping, { customPrompt: userMessage })
     } catch (error) {
       message.error('进入分析模式失败: ' + error.message)
-      setAnalysisMode(false)
-      setChatLoading(false)
+      chatState.setAnalysisMode(false)
+      chatState.setChatLoading(false)
     }
   }
 
@@ -702,7 +543,7 @@ const SmartDesignChat = () => {
   const executeAnalysisWithModes = async (mixDesigns, materialMapping, effectivePrompt, { modes, preprocessedData }) => {
     try {
       const analysisDataBuilt = buildAnalysisData(mixDesigns, materialMapping)
-      setAnalysisData(analysisDataBuilt)
+      chatState.setAnalysisData(analysisDataBuilt)
 
       const result = await window.electronAPI.invoke('aiAnalysis:analyze', {
         data: analysisDataBuilt,
@@ -728,24 +569,24 @@ const SmartDesignChat = () => {
         content = intro
       }
 
-      setChatMessages(prev => [...prev, { role: 'assistant', content, analysisReport: report }])
-      setAnalysisResult(report)
+      chatState.setChatMessages(prev => [...prev, { role: 'assistant', content, analysisReport: report }])
+      chatState.setAnalysisResult(report)
     } catch (error) {
       message.error('分析执行失败: ' + error.message)
-      setAnalysisMode(false)
+      chatState.setAnalysisMode(false)
     } finally {
-      setChatLoading(false)
+      chatState.setChatLoading(false)
     }
   }
 
   // 执行AI分析
   const executeAnalysis = async (mixDesigns, materialMapping, opts = {}) => {
     try {
-      const effectivePrompt = opts.customPrompt !== undefined && opts.customPrompt !== null ? opts.customPrompt : chatInput
+      const effectivePrompt = opts.customPrompt !== undefined && opts.customPrompt !== null ? opts.customPrompt : chatState.chatInput
 
       // 先构建完整的分析数据（包含 analysisRequirements）
       const analysisDataBuilt = buildAnalysisData(mixDesigns, materialMapping)
-      setAnalysisData(analysisDataBuilt)
+      chatState.setAnalysisData(analysisDataBuilt)
 
       // ========== NEW: 调用 analysis:prepare 进行模式识别和数值预处理 ==========
       let analysisModes = []
@@ -783,7 +624,7 @@ const SmartDesignChat = () => {
             })),
             multipleSelect: true,
             onSelect: (selected) => {
-              setChatLoading(true)
+              chatState.setChatLoading(true)
               if (selected.length === 0) {
                 // 不进行材料对比，仅做参数趋势
                 executeAnalysisWithModes(mixDesigns, materialMapping, effectivePrompt, {
@@ -801,9 +642,9 @@ const SmartDesignChat = () => {
           }
         }
 
-        setChatMessages(prev => [...prev, chatMsg])
-        setContrastPickerSelected([])
-        setChatLoading(false)
+        chatState.setChatMessages(prev => [...prev, chatMsg])
+        chatState.setContrastPickerSelected([])
+        chatState.setChatLoading(false)
         return
       }
       // ========== END Task 7 ==========
@@ -839,26 +680,26 @@ const SmartDesignChat = () => {
         analysisReport: report
       }
 
-      setChatMessages(prev => [...prev, chatMsg])
-      setAnalysisResult(report)
+      chatState.setChatMessages(prev => [...prev, chatMsg])
+      chatState.setAnalysisResult(report)
     } catch (error) {
       message.error('分析执行失败: ' + error.message)
-      setAnalysisMode(false)
+      chatState.setAnalysisMode(false)
     } finally {
-      setChatLoading(false)
+      chatState.setChatLoading(false)
     }
   }
 
   // 分析模式后续追问
   const handleAnalysisFollowUp = async (userMessage) => {
-    setChatLoading(true)
+    chatState.setChatLoading(true)
 
     try {
       // 将用户消息和分析数据一起发送给AI
       const context = {
-        analysisData,
-        analysisResult,
-        mixDesigns: analysisData?.mixDesigns || [],
+        analysisData: chatState.analysisData,
+        analysisResult: chatState.analysisResult,
+        mixDesigns: chatState.analysisData?.mixDesigns || [],
         materialMapping: {},  // 从 analysisData 中提取
         mode: 'follow_up'
       }
@@ -867,7 +708,7 @@ const SmartDesignChat = () => {
     } catch (error) {
       message.error('追问失败: ' + error.message)
     } finally {
-      setChatLoading(false)
+      chatState.setChatLoading(false)
     }
   }
 
@@ -877,51 +718,51 @@ const SmartDesignChat = () => {
       await runStreamingChat(userMessage, { ...extraContext })
     } catch (error) {
       message.error('发送消息失败: ' + error.message)
-      setChatLoading(false)
+      chatState.setChatLoading(false)
     } finally {
-      setChatLoading(false)
+      chatState.setChatLoading(false)
     }
   }
 
   // 发送聊天消息（分发到不同模式）
   const handleSendChat = async () => {
-    if (!chatInput.trim() || chatLoading) return
+    if (!chatState.chatInput.trim() || chatState.chatLoading) return
 
-    const userMessage = chatInput.trim()
-    setChatInput('')
-    setChatMessages(prev => [...prev, { role: 'user', content: userMessage, attachment: attachment ? { name: attachment.name, type: attachment.type } : null }])
+    const userMessage = chatState.chatInput.trim()
+    chatState.setChatInput('')
+    chatState.setChatMessages(prev => [...prev, { role: 'user', content: userMessage, attachment: chatState.attachment ? { name: chatState.attachment.name, type: chatState.attachment.type } : null }])
 
     // 情况0：Agent 模式
-    if (agentMode === 'agent') {
-      setChatLoading(true)
-      setAgentSteps([])
-      setAgentStatus('running')
-      agentRequestIdRef.current = 'agent-' + Date.now()
+    if (agent.agentMode === 'agent') {
+      chatState.setChatLoading(true)
+      agent.setAgentSteps([])
+      agent.setAgentStatus('running')
+      agent.agentRequestIdRef.current = 'agent-' + Date.now()
       try {
         await window.electronAPI.invoke('agent:run', {
-          requestId: agentRequestIdRef.current,
-          sessionId: currentSessionId,
+          requestId: agent.agentRequestIdRef.current,
+          sessionId: agent.currentSessionId,
           message: userMessage,
-          mode: agentRunMode
+          mode: agent.agentRunMode
         })
       } catch (e) {
-        setChatLoading(false)
-        setAgentStatus('error')
-        setChatMessages(prev => [...prev, { role: 'assistant', content: 'Agent执行出错: ' + (e.message || '未知错误'), isError: true }])
+        chatState.setChatLoading(false)
+        agent.setAgentStatus('error')
+        chatState.setChatMessages(prev => [...prev, { role: 'assistant', content: 'Agent执行出错: ' + (e.message || '未知错误'), isError: true }])
       }
-      setAttachment(null)
+      chatState.setAttachment(null)
       return
     }
 
     // 情况1：有附件，直接进入分析模式
-    if (attachment) {
-      await handleEnterAnalysisMode(attachment, userMessage)
-      setAttachment(null)
+    if (chatState.attachment) {
+      await handleEnterAnalysisMode(chatState.attachment, userMessage)
+      chatState.setAttachment(null)
       return
     }
 
     // 情况2：已经在分析模式，继续追问
-    if (analysisMode) {
+    if (chatState.analysisMode) {
       await handleAnalysisFollowUp(userMessage)
       return
     }
@@ -933,136 +774,43 @@ const SmartDesignChat = () => {
     }
 
     // 情况4：普通设计模式
-    setChatLoading(true)
+    chatState.setChatLoading(true)
     await handleDesignMode(userMessage)
   }
 
+  // 清空对话（包装 hook 版本，同时重置 Agent 状态）
   const handleClearChat = async () => {
-    try {
-      await window.electronAPI.invoke('aiAnalysis:clearHistory')
-      setChatMessages([])
-      setCompletedMaterialPickerIds(new Set())
-      setAttachment(null)
-      setAnalysisMode(false)
-      setAnalysisData(null)
-      setAnalysisResult(null)
-      setPendingMaterialPicker(null)
-      message.success('对话已清空')
-    } catch (error) {
-      console.error('清空对话失败:', error)
-    }
+    await chatState.handleClearChat()
+    resetAgentState()
   }
 
   const handleQuickPrompt = (msg) => {
-    setChatInput(msg)
+    chatState.setChatInput(msg)
   }
 
   return (
     <Layout style={{ height: '100%', background: 'transparent' }}>
       {/* 记忆侧栏 */}
-      {!sidebarCollapsed && (
-        <Sider width="28%" style={{ background: 'var(--color-surface, #fff)', borderRight: '1px solid var(--color-border)', overflow: 'auto', padding: 'var(--space-md, 16px)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <Text strong style={{ fontSize: 14 }}><HistoryOutlined /> 记忆管理</Text>
-            <Button size="small" type="text" icon={<PlusOutlined />} onClick={() => { setCurrentSessionId('session-' + Date.now()); setChatMessages([]); setAgentSteps([]); setAgentStatus(null); loadSessions() }} title="新建对话" />
-          </div>
-
-          <Tabs
-            size="small"
-            activeKey={sidebarTab}
-            onChange={key => { setSidebarTab(key); if (key === 'prefs') loadPreferences(); if (key === 'corrections') loadCorrections() }}
-            items={[
-              {
-                key: 'history',
-                label: '对话',
-                children: sessions.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: 20 }}>
-                    <Text type="secondary">暂无对话记录</Text>
-                  </div>
-                ) : (
-                  <List size="small" dataSource={sessions}
-                    renderItem={s => (
-                      <List.Item style={{ cursor: 'pointer', background: s.sessionId === currentSessionId ? 'var(--color-border)' : 'transparent', padding: '4px 8px', borderRadius: 4 }}
-                        onClick={() => loadSessionMessages(s.sessionId)}
-                        actions={[
-                          <Popconfirm key="del" title="删除此对话？" onConfirm={async (e) => { e?.stopPropagation?.()
-                            await window.electronAPI.invoke('agent:deleteSession', { sessionId: s.sessionId })
-                            if (currentSessionId === s.sessionId) { setChatMessages([]); setCurrentSessionId('session-' + Date.now()) }
-                            loadSessions()
-                          }}>
-                            <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={e => e.stopPropagation()} />
-                          </Popconfirm>
-                        ]}
-                      >
-                        <Space>
-                          <RobotOutlined style={{ fontSize: 12, color: 'var(--color-text-secondary)' }} />
-                          <Text style={{ fontSize: 12 }}>{new Date(s.lastActivity).toLocaleDateString()}</Text>
-                        </Space>
-                      </List.Item>
-                    )}
-                  />
-                )
-              },
-              {
-                key: 'prefs',
-                label: '偏好',
-                children: Object.keys(preferences).length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: 20 }}>
-                    <Text type="secondary">暂无偏好记录</Text>
-                    <br /><Text type="secondary" style={{ fontSize: 11 }}>AI 会根据你的使用习惯自动学习</Text>
-                  </div>
-                ) : (
-                  <Descriptions size="small" column={1}>
-                    {Object.entries(preferences).map(([k, v]) => (
-                      <Descriptions.Item key={k} label={k}>{typeof v === 'object' ? JSON.stringify(v) : String(v)}</Descriptions.Item>
-                    ))}
-                  </Descriptions>
-                )
-              },
-              {
-                key: 'corrections',
-                label: '修正',
-                children: corrections.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: 20 }}>
-                    <Text type="secondary">暂无修正记录</Text>
-                    <br /><Text type="secondary" style={{ fontSize: 11 }}>你修改 AI 建议后会自动记录</Text>
-                  </div>
-                ) : (
-                  <List size="small" dataSource={corrections}
-                    renderItem={c => (
-                      <List.Item
-                        actions={[
-                          <Popconfirm key="del" title="删除此修正？" onConfirm={async () => {
-                            await window.electronAPI.invoke('agent:deleteCorrection', { id: c.id })
-                            loadCorrections()
-                          }}>
-                            <Button size="small" type="text" danger icon={<DeleteOutlined />} />
-                          </Popconfirm>
-                        ]}
-                      >
-                        <div style={{ fontSize: 11 }}>
-                          <Text type="secondary">原: {JSON.stringify(c.originalSuggestion).slice(0, 60)}</Text><br />
-                          <Text style={{ color: 'var(--color-primary)' }}>改: {JSON.stringify(c.userCorrection).slice(0, 60)}</Text>
-                        </div>
-                      </List.Item>
-                    )}
-                  />
-                )
-              }
-            ]}
-          />
-
-          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, marginTop: 8 }}>
-            <Button size="small" danger block icon={<DeleteOutlined />} onClick={async () => {
-              if (confirm('确定清空全部记忆？（对话历史 + 偏好 + 修正记录）')) {
-                await window.electronAPI.invoke('agent:clearAllMemory')
-                setSessions([]); setPreferences({}); setCorrections([])
-                setChatMessages([]); setCurrentSessionId('session-' + Date.now())
-              }
-            }}>清空全部记忆</Button>
-          </div>
-        </Sider>
-      )}
+      <MemorySidebar
+        collapsed={agent.sidebarCollapsed}
+        sessions={agent.sessions}
+        currentSessionId={agent.currentSessionId}
+        onLoadSession={agent.loadSessionMessages}
+        onDeleteSession={async (sessionId) => {
+          await window.electronAPI.invoke('agent:deleteSession', { sessionId })
+          if (agent.currentSessionId === sessionId) {
+            chatState.setChatMessages([])
+            agent.setCurrentSessionId('session-' + Date.now())
+          }
+          agent.loadSessions()
+        }}
+        onNewSession={() => {
+          agent.setCurrentSessionId('session-' + Date.now())
+          chatState.setChatMessages([])
+          resetAgentState()
+          agent.loadSessions()
+        }}
+      />
 
       <Content style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '0 var(--space-md)' }}>
         <div className="smart-design-chat">
@@ -1072,28 +820,28 @@ const SmartDesignChat = () => {
                 size="small"
                 type="text"
                 icon={<HistoryOutlined />}
-                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                title={sidebarCollapsed ? '打开对话历史' : '关闭对话历史'}
+                onClick={() => agent.setSidebarCollapsed(!agent.sidebarCollapsed)}
+                title={agent.sidebarCollapsed ? '打开对话历史' : '关闭对话历史'}
               />
               <RobotOutlined style={{ fontSize: 18, color: 'var(--color-primary)' }} />
               <Text strong style={{ fontSize: 16 }}>智能设计助手</Text>
             </Space>
-            {agentEnabled && (
+            {agent.agentEnabled && (
               <Space size={8}>
                 <Segmented
                   size="small"
-                  value={agentMode}
-                  onChange={val => setAgentMode(val)}
+                  value={agent.agentMode}
+                  onChange={val => agent.setAgentMode(val)}
                   options={[
                     { label: '聊天', value: 'chat', icon: <BulbOutlined /> },
                     { label: 'Agent', value: 'agent', icon: <ThunderboltOutlined /> }
                   ]}
                 />
-                {agentMode === 'agent' && (
+                {agent.agentMode === 'agent' && (
                   <Segmented
                     size="small"
-                    value={agentRunMode}
-                    onChange={val => setAgentRunMode(val)}
+                    value={agent.agentRunMode}
+                    onChange={val => agent.setAgentRunMode(val)}
                     options={[
                       { label: '协作', value: 'collaborative', icon: <TeamOutlined /> },
                       { label: '全自动', value: 'auto', icon: <ThunderboltOutlined /> }
@@ -1105,7 +853,7 @@ const SmartDesignChat = () => {
           </div>
 
           <div className="smart-chat-list">
-        {chatMessages.length === 0 ? (
+        {chatState.chatMessages.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px' }}>
             <BulbOutlined style={{ fontSize: 48, color: '#faad14', marginBottom: 16 }} />
             <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: 'var(--color-text)' }}>智能设计助手</div>
@@ -1120,7 +868,7 @@ const SmartDesignChat = () => {
           </div>
         ) : (
           <List
-            dataSource={chatMessages}
+            dataSource={chatState.chatMessages}
             renderItem={(item) => {
               // Agent 进度消息——内嵌在消息流中，位于用户消息之后、AI回复之前
               if (item._agentProgress) {
@@ -1133,16 +881,16 @@ const SmartDesignChat = () => {
                         isPaused={item.isPaused}
                         showControls={item.status === 'running'}
                         latestReasoning={item.latestReasoning}
-                        onPause={() => { setAgentPaused(true); window.electronAPI.invoke('agent:pause', { requestId: agentRequestIdRef.current }) }}
-                        onResume={() => { setAgentPaused(false); window.electronAPI.invoke('agent:resume', { requestId: agentRequestIdRef.current }) }}
-                        onAbort={() => { window.electronAPI.invoke('agent:abort', { requestId: agentRequestIdRef.current }); setChatLoading(false); setAgentStatus(null) }}
+                        onPause={() => { agent.setAgentPaused(true); window.electronAPI.invoke('agent:pause', { requestId: agent.agentRequestIdRef.current }) }}
+                        onResume={() => { agent.setAgentPaused(false); window.electronAPI.invoke('agent:resume', { requestId: agent.agentRequestIdRef.current }) }}
+                        onAbort={() => { window.electronAPI.invoke('agent:abort', { requestId: agent.agentRequestIdRef.current }); chatState.setChatLoading(false); agent.setAgentStatus(null) }}
                       />
-                      {pendingConfirmation && (
+                      {agent.pendingConfirmation && (
                         <DecisionGate
-                          toolName={pendingConfirmation.toolName}
-                          args={pendingConfirmation.args}
-                          onConfirm={(args) => { window.electronAPI.invoke('agent:confirm', { confirmed: true, args }); setPendingConfirmation(null) }}
-                          onReject={() => { window.electronAPI.invoke('agent:confirm', { confirmed: false }); setPendingConfirmation(null) }}
+                          toolName={agent.pendingConfirmation.toolName}
+                          args={agent.pendingConfirmation.args}
+                          onConfirm={(args) => { window.electronAPI.invoke('agent:confirm', { confirmed: true, args }); agent.setPendingConfirmation(null) }}
+                          onReject={() => { window.electronAPI.invoke('agent:confirm', { confirmed: false }); agent.setPendingConfirmation(null) }}
                         />
                       )}
                     </div>
@@ -1158,13 +906,13 @@ const SmartDesignChat = () => {
                       {item.toolCall && item.toolCall.status === 'done' && (
                         <>
                           {item.toolCall.type === 'mix_design' && (
-                            <MixDesignResultCard data={item.toolCall.data} onSave={handleSaveFromCard} onSaveBasicMix={setBasicMixModalData} />
+                            <MixDesignResultCard data={item.toolCall.data} onSave={handleSaveFromCard} onSaveBasicMix={chatState.setBasicMixModalData} />
                           )}
                           {item.toolCall.type === 'optimization' && (
                             <OptimizationResultCard data={item.toolCall.data} onSave={handleSaveFromCard} />
                           )}
                           {item.toolCall.type === 'sales_quote' && (
-                            <SalesQuoteResultCard data={item.toolCall.data} pumpingFeeItems={pumpingFeeItems} />
+                            <SalesQuoteResultCard data={item.toolCall.data} pumpingFeeItems={chatState.pumpingFeeItems} />
                           )}
                           {item.toolCall.type === 'material_compare' && (
                             <MaterialCompareCard data={item.toolCall.data} />
@@ -1187,12 +935,12 @@ const SmartDesignChat = () => {
                             {item.materialPicker.options.map(opt => (
                               <Checkbox
                                 key={opt.value}
-                                checked={contrastPickerSelected.includes(opt.value)}
+                                checked={chatState.contrastPickerSelected.includes(opt.value)}
                                 onChange={(e) => {
                                   if (e.target.checked) {
-                                    setContrastPickerSelected(prev => [...prev, opt.value])
+                                    chatState.setContrastPickerSelected(prev => [...prev, opt.value])
                                   } else {
-                                    setContrastPickerSelected(prev => prev.filter(v => v !== opt.value))
+                                    chatState.setContrastPickerSelected(prev => prev.filter(v => v !== opt.value))
                                   }
                                 }}
                               >
@@ -1204,8 +952,8 @@ const SmartDesignChat = () => {
                             type="primary"
                             size="small"
                             onClick={() => {
-                              item.materialPicker.onSelect([...contrastPickerSelected])
-                              setContrastPickerSelected([])
+                              item.materialPicker.onSelect([...chatState.contrastPickerSelected])
+                              chatState.setContrastPickerSelected([])
                             }}
                           >
                             确认对比
@@ -1241,11 +989,11 @@ const SmartDesignChat = () => {
                         <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
                           {item.options.map((opt, idx) => (
                             <Button key={idx} size="small" type="primary" onClick={() => {
-                              if (opt === '手动选择材料' && pendingMaterialPicker) {
-                                setPendingMaterialPicker(null)
-                              } else if (opt === '继续分析' && pendingMaterialPicker) {
-                                executeAnalysis(pendingMaterialPicker.mixDesigns, pendingMaterialPicker.materialMapping, { customPrompt: chatInput })
-                                setPendingMaterialPicker(null)
+                              if (opt === '手动选择材料' && chatState.pendingMaterialPicker) {
+                                chatState.setPendingMaterialPicker(null)
+                              } else if (opt === '继续分析' && chatState.pendingMaterialPicker) {
+                                executeAnalysis(chatState.pendingMaterialPicker.mixDesigns, chatState.pendingMaterialPicker.materialMapping, { customPrompt: chatState.chatInput })
+                                chatState.setPendingMaterialPicker(null)
                               }
                             }}>
                               {opt}
@@ -1256,9 +1004,9 @@ const SmartDesignChat = () => {
                       <div className="chat-markdown-body">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content || (item.streaming ? 'AI 正在生成...' : '')}</ReactMarkdown>
                       </div>
-                      {item.materialPicker && !isMaterialPickerDone(item.materialPicker.pickerId) && item.materialPicker.type !== 'contrast_selection' && (
+                      {item.materialPicker && !chatState.isMaterialPickerDone(item.materialPicker.pickerId) && item.materialPicker.type !== 'contrast_selection' && (
                         <MaterialPicker
-                          materials={item.materialPicker.materials || pendingMaterialPicker?.allMaterials}
+                          materials={item.materialPicker.materials || chatState.pendingMaterialPicker?.allMaterials}
                           onConfirm={(selectedMaterials) => handleMaterialConfirm(selectedMaterials, item.materialPicker.pickerId)}
                         />
                       )}
@@ -1280,15 +1028,15 @@ const SmartDesignChat = () => {
           }}
           />
         )}
-        {pendingMaterialPicker && (() => {
+        {chatState.pendingMaterialPicker && (() => {
           const q = buildPerMixMaterialQueue(
-            pendingMaterialPicker.mixDesigns,
-            pendingMaterialPicker.materialMapping
+            chatState.pendingMaterialPicker.mixDesigns,
+            chatState.pendingMaterialPicker.materialMapping
           )
           const active = q[0]
           const activeTokens = active
             ? new Set(active.slots.map(s => s.token))
-            : new Set(pendingMaterialPicker.unmatchedMaterials || [])
+            : new Set(chatState.pendingMaterialPicker.unmatchedMaterials || [])
           return (
             <div style={{ paddingLeft: 40, paddingRight: 16, paddingBottom: 12 }}>
               {active && (
@@ -1301,9 +1049,9 @@ const SmartDesignChat = () => {
                 />
               )}
               <MaterialPicker
-                key={pendingMaterialPicker.pickerKey || 'analysis-material-picker'}
+                key={chatState.pendingMaterialPicker.pickerKey || 'analysis-material-picker'}
                 materials={filterMaterialsForUnmatched(
-                  pendingMaterialPicker.allMaterials || [],
+                  chatState.pendingMaterialPicker.allMaterials || [],
                   activeTokens
                 )}
                 onConfirm={(selectedMaterials) => handleMaterialConfirm(selectedMaterials)}
@@ -1311,39 +1059,39 @@ const SmartDesignChat = () => {
             </div>
           )
         })()}
-        <div ref={chatEndRef} />
+        <div ref={chatState.chatEndRef} />
       </div>
 
       <div className="smart-chat-tags-row">
-        {attachment && (
+        {chatState.attachment && (
           <Tag
-            icon={attachment.type === 'xlsx' ? <FileExcelOutlined /> : <FileTextOutlined />}
+            icon={chatState.attachment.type === 'xlsx' ? <FileExcelOutlined /> : <FileTextOutlined />}
             closable
-            onClose={() => setAttachment(null)}
+            onClose={() => chatState.setAttachment(null)}
             className="attachment-tag"
           >
-            {attachment.name}
+            {chatState.attachment.name}
           </Tag>
         )}
-        {analysisMode && (
+        {chatState.analysisMode && (
           <Tag icon={<BarChartOutlined />} color="blue" className="analysis-mode-tag">
             分析模式
             <DeleteOutlined style={{ marginLeft: 4, cursor: 'pointer' }} onClick={() => {
-              setAnalysisMode(false)
-              setAnalysisData(null)
-              setAnalysisResult(null)
-              setPendingMaterialPicker(null)
+              chatState.setAnalysisMode(false)
+              chatState.setAnalysisData(null)
+              chatState.setAnalysisResult(null)
+              chatState.setPendingMaterialPicker(null)
             }} />
           </Tag>
         )}
       </div>
       <div className="smart-chat-input-area">
         <Input
-          placeholder={analysisMode ? '输入你的追问，或继续对话...' : '输入你的需求，如：帮我设计C50泵送混凝土...'}
-          value={chatInput}
-          onChange={(e) => setChatInput(e.target.value)}
+          placeholder={chatState.analysisMode ? '输入你的追问，或继续对话...' : '输入你的需求，如：帮我设计C50泵送混凝土...'}
+          value={chatState.chatInput}
+          onChange={(e) => chatState.setChatInput(e.target.value)}
           onPressEnter={handleSendChat}
-          disabled={chatLoading}
+          disabled={chatState.chatLoading}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
           <Space size={0}>
@@ -1355,7 +1103,7 @@ const SmartDesignChat = () => {
                   message.error('仅支持Excel和Markdown文件')
                   return false
                 }
-                setAttachment({ file, type, name: file.name })
+                chatState.setAttachment({ file, type, name: file.name })
                 return false
               }}
             >
@@ -1366,7 +1114,7 @@ const SmartDesignChat = () => {
               size="small"
               icon={<ClearOutlined />}
               onClick={handleClearChat}
-              disabled={chatMessages.length === 0}
+              disabled={chatState.chatMessages.length === 0}
               title="清空对话"
             />
           </Space>
@@ -1374,16 +1122,16 @@ const SmartDesignChat = () => {
             type="primary"
             icon={<SendOutlined />}
             onClick={handleSendChat}
-            loading={chatLoading}
-            disabled={!chatInput.trim()}
+            loading={chatState.chatLoading}
+            disabled={!chatState.chatInput.trim()}
           />
         </div>
       </div>
       <SaveBasicMixModal
-        open={!!basicMixModalData}
-        data={basicMixModalData}
-        onCancel={() => setBasicMixModalData(null)}
-        onSaved={() => setBasicMixModalData(null)}
+        open={!!chatState.basicMixModalData}
+        data={chatState.basicMixModalData}
+        onCancel={() => chatState.setBasicMixModalData(null)}
+        onSaved={() => chatState.setBasicMixModalData(null)}
       />
     </div>
     </Content>
