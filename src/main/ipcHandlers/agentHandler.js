@@ -192,6 +192,31 @@ function registerTools(registry) {
     handler: async (args) => callLegacyTool('save_to_basic_mix_library', args),
     requiresConfirmation: true
   })
+
+  registry.register({
+    name: 'save_sales_quote',
+    description: '保存销售报价方案到历史记录',
+    parameters: {
+      strengthGrade: { type: 'string', description: '强度等级，如 C30' },
+      concreteType: { type: 'string', description: '混凝土类型，如 普通' },
+      slump: { type: 'number', description: '坍落度(mm)' },
+      basicMixId: { type: 'integer', description: '基准配合比ID（可选）' },
+      basicMixName: { type: 'string', description: '基准配合比名称（可选）' },
+      pricingParams: { type: 'object', description: '定价参数（可选）' },
+      resultSnapshot: { type: 'object', description: '报价结果快照（可选）' },
+      remarks: { type: 'string', description: '备注（可选）' }
+    },
+    handler: async (args) => {
+      try {
+        const SalesQuoteHistoryService = require('../services/SalesQuoteHistoryService')
+        const saved = await SalesQuoteHistoryService.saveQuote(args)
+        return { success: true, type: 'save_result', message: `报价方案已保存，ID: ${saved.id}`, data: saved }
+      } catch (error) {
+        return { success: false, error: error.message }
+      }
+    },
+    requiresConfirmation: true
+  })
 }
 
 // 注册 IPC 处理器
