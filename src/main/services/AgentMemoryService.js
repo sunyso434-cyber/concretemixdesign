@@ -183,6 +183,70 @@ class AgentMemoryService {
     return messages
   }
 
+  /**
+   * 获取资源摘要，用于增强 System Prompt
+   * @returns {Promise<Object>} 资源统计信息
+   */
+  async getResourceSummary() {
+    const { MixDesign, OptimizationHistory } = require('../db/database')
+
+    // 统计历史设计记录数
+    let designHistoryCount = 0
+    try {
+      designHistoryCount = await MixDesign.count()
+    } catch (_) {}
+
+    // 统计优化历史记录数
+    let optimizationCount = 0
+    try {
+      optimizationCount = await OptimizationHistory.count()
+    } catch (_) {}
+
+    // 获取规范知识包数量
+    let standardsCount = 0
+    try {
+      const knowledgeService = require('./StandardKnowledgeService')
+      const standards = await knowledgeService.listStandards()
+      standardsCount = standards.length
+    } catch (_) {}
+
+    // 统计用户常用强度等级（从历史记录取 top 3）
+    let commonStrengthGrades = []
+    try {
+      const { fn, col } = require('sequelize')
+      const rows = await MixDesign.findAll({
+        attributes: ['strength', [fn('COUNT', col('strength')), 'cnt']],
+        group: ['strength'],
+        order: [[fn('COUNT', col('strength')), 'DESC']],
+        limit: 3,
+        raw: true
+      })
+      commonStrengthGrades = rows.map(r => r.strength).filter(Boolean)
+    } catch (_) {}
+
+    // 从 UserPreference 表读取用户偏好
+    let userPreferences = {}
+    try {
+      const prefs = await this.getAllPreferences()
+      for (const [key, value] of Object.entries(prefs)) {
+        if (key.toLowerCase().includes('cement') || key.toLowerCase().includes('flyash') ||
+            key.toLowerCase().includes('slag') || key.toLowerCase().includes('strength')) {
+          userPreferences[key] = value
+        }
+      }
+    } catch (_) {}
+
+    return {
+      standardsCount,
+      designHistoryCount,
+      optimizationCount,
+      userPreferences: {
+        commonStrengthGrades,
+        ...userPreferences
+      }
+    }
+  }
+
   // ===== TF-IDF 相似度 =====
 
   _tfidfSimilarity(ctx1, ctx2) {
