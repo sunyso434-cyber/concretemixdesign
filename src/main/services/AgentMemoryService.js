@@ -189,52 +189,74 @@ class AgentMemoryService {
    */
   async getResourceSummary() {
     const { MixDesign, OptimizationHistory } = require('../db/database')
+    const knowledgeService = require('./StandardKnowledgeService')
+    const { fn, col } = require('sequelize')
 
-    // 统计历史设计记录数
-    let designHistoryCount = 0
-    try {
-      designHistoryCount = await MixDesign.count()
-    } catch (_) {}
-
-    // 统计优化历史记录数
-    let optimizationCount = 0
-    try {
-      optimizationCount = await OptimizationHistory.count()
-    } catch (_) {}
-
-    // 获取规范知识包数量
-    let standardsCount = 0
-    try {
-      const knowledgeService = require('./StandardKnowledgeService')
-      const standards = await knowledgeService.listStandards()
-      standardsCount = standards.length
-    } catch (_) {}
-
-    // 统计用户常用强度等级（从历史记录取 top 3）
-    let commonStrengthGrades = []
-    try {
-      const { fn, col } = require('sequelize')
-      const rows = await MixDesign.findAll({
+    const [
+      designHistoryResult,
+      optimizationResult,
+      standardsResult,
+      strengthResult,
+      preferencesResult
+    ] = await Promise.allSettled([
+      // 统计历史设计记录数
+      MixDesign.count(),
+      // 统计优化历史记录数
+      OptimizationHistory.count(),
+      // 获取规范知识包数量
+      knowledgeService.listStandards(),
+      // 统计用户常用强度等级（从历史记录取 top 3）
+      MixDesign.findAll({
         attributes: ['strength', [fn('COUNT', col('strength')), 'cnt']],
         group: ['strength'],
         order: [[fn('COUNT', col('strength')), 'DESC']],
         limit: 3,
         raw: true
-      })
-      commonStrengthGrades = rows.map(r => r.strength).filter(Boolean)
-    } catch (_) {}
+      }),
+      // 从 UserPreference 表读取用户偏好
+      this.getAllPreferences()
+    ])
 
-    // 从 UserPreference 表读取用户偏好
+    let designHistoryCount = 0
+    if (designHistoryResult.status === 'fulfilled') {
+      designHistoryCount = designHistoryResult.value
+    } else {
+      console.warn('[AgentMemoryService] getResourceSummary: failed to count MixDesign:', designHistoryResult.reason?.message)
+    }
+
+    let optimizationCount = 0
+    if (optimizationResult.status === 'fulfilled') {
+      optimizationCount = optimizationResult.value
+    } else {
+      console.warn('[AgentMemoryService] getResourceSummary: failed to count OptimizationHistory:', optimizationResult.reason?.message)
+    }
+
+    let standardsCount = 0
+    if (standardsResult.status === 'fulfilled') {
+      standardsCount = standardsResult.value.length
+    } else {
+      console.warn('[AgentMemoryService] getResourceSummary: failed to listStandards:', standardsResult.reason?.message)
+    }
+
+    let commonStrengthGrades = []
+    if (strengthResult.status === 'fulfilled') {
+      commonStrengthGrades = strengthResult.value.map(r => r.strength).filter(Boolean)
+    } else {
+      console.warn('[AgentMemoryService] getResourceSummary: failed to query commonStrengthGrades:', strengthResult.reason?.message)
+    }
+
     let userPreferences = {}
-    try {
-      const prefs = await this.getAllPreferences()
+    if (preferencesResult.status === 'fulfilled') {
+      const prefs = preferencesResult.value
       for (const [key, value] of Object.entries(prefs)) {
         if (key.toLowerCase().includes('cement') || key.toLowerCase().includes('flyash') ||
             key.toLowerCase().includes('slag') || key.toLowerCase().includes('strength')) {
           userPreferences[key] = value
         }
       }
-    } catch (_) {}
+    } else {
+      console.warn('[AgentMemoryService] getResourceSummary: failed to getAllPreferences:', preferencesResult.reason?.message)
+    }
 
     return {
       standardsCount,
