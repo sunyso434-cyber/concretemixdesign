@@ -268,49 +268,86 @@ function registerTools(registry) {
     handler: async (args) => {
       try {
         const { Op } = require('sequelize')
-        const { MixDesign } = require('../db/database')
+        const { MixDesign, BasicMixDesign } = require('../db/database')
 
-        const where = {}
+        const limit = Math.min(Math.max(parseInt(args.limit) || 5, 1), 50)
+
+        // Build query conditions for each table
+        const mixDesignWhere = {}
+        const basicMixWhere = {}
+
         if (args.strength) {
-          where.strength = { [Op.like]: `%${args.strength}%` }
+          mixDesignWhere.strength = { [Op.like]: `%${args.strength}%` }
+          basicMixWhere.strengthGrade = { [Op.like]: `%${args.strength}%` }
         }
         if (args.keyword) {
-          where[Op.or] = [
+          mixDesignWhere[Op.or] = [
             { name: { [Op.like]: `%${args.keyword}%` } },
             { projectName: { [Op.like]: `%${args.keyword}%` } },
             { description: { [Op.like]: `%${args.keyword}%` } }
           ]
+          basicMixWhere[Op.or] = [
+            { name: { [Op.like]: `%${args.keyword}%` } },
+            { remarks: { [Op.like]: `%${args.keyword}%` } }
+          ]
         }
 
-        const records = await MixDesign.findAll({
-          where,
-          order: [['createdAt', 'DESC']],
-          limit: Math.min(Math.max(parseInt(args.limit) || 5, 1), 50),
-          attributes: ['id', 'name', 'projectName', 'strength', 'slump', 'waterRatio', 'sandRatio', 'density', 'materials', 'totalCost', 'createdAt']
-        })
+        // Query both tables in parallel
+        const [mixDesigns, basicMixDesigns] = await Promise.all([
+          MixDesign.findAll({
+            where: mixDesignWhere,
+            order: [['createdAt', 'DESC']],
+            limit,
+            attributes: ['id', 'name', 'projectName', 'strength', 'slump', 'waterRatio', 'sandRatio', 'density', 'materials', 'totalCost', 'createdAt']
+          }).catch(() => []),
+          BasicMixDesign.findAll({
+            where: basicMixWhere,
+            order: [['createdAt', 'DESC']],
+            limit,
+            attributes: ['id', 'name', 'strengthGrade', 'concreteType', 'slump', 'materials', 'isDefault', 'source', 'remarks', 'createdAt']
+          }).catch(() => [])
+        ])
 
-        if (!records || records.length === 0) {
+        // Normalize results to common format
+        const records = [
+          ...mixDesigns.map(r => ({
+            source: '方案库',
+            id: r.id,
+            name: r.name,
+            projectName: r.projectName,
+            strength: r.strength,
+            slump: r.slump,
+            waterRatio: r.waterRatio,
+            sandRatio: r.sandRatio,
+            density: r.density,
+            materials: r.materials,
+            totalCost: r.totalCost,
+            createdAt: r.createdAt
+          })),
+          ...basicMixDesigns.map(r => ({
+            source: '基准配合比库',
+            id: r.id,
+            name: r.name,
+            strength: r.strengthGrade,
+            concreteType: r.concreteType,
+            slump: r.slump,
+            materials: r.materials,
+            isDefault: r.isDefault,
+            source2: r.source,
+            remarks: r.remarks,
+            createdAt: r.createdAt
+          }))
+        ]
+
+        // Sort merged results by createdAt DESC, then limit
+        records.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        const limitedRecords = records.slice(0, limit)
+
+        if (limitedRecords.length === 0) {
           return { success: true, data: { records: [], message: '未找到匹配的历史设计记录' } }
         }
 
-        return {
-          success: true,
-          data: {
-            records: records.map(r => ({
-              id: r.id,
-              name: r.name,
-              projectName: r.projectName,
-              strength: r.strength,
-              slump: r.slump,
-              waterRatio: r.waterRatio,
-              sandRatio: r.sandRatio,
-              density: r.density,
-              materials: r.materials,
-              totalCost: r.totalCost,
-              createdAt: r.createdAt
-            }))
-          }
-        }
+        return { success: true, data: { records: limitedRecords } }
       } catch (error) {
         return { success: false, error: `历史查询失败: ${error.message}` }
       }

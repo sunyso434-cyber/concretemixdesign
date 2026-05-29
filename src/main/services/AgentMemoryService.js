@@ -188,7 +188,7 @@ class AgentMemoryService {
    * @returns {Promise<Object>} 资源统计信息
    */
   async getResourceSummary() {
-    const { MixDesign, OptimizationHistory } = require('../db/database')
+    const { MixDesign, BasicMixDesign, OptimizationHistory } = require('../db/database')
     const knowledgeService = require('./StandardKnowledgeService')
     const { fn, col } = require('sequelize')
 
@@ -199,8 +199,8 @@ class AgentMemoryService {
       strengthResult,
       preferencesResult
     ] = await Promise.allSettled([
-      // 统计历史设计记录数
-      MixDesign.count(),
+      // 统计历史设计记录数（方案库 + 基准配合比库）
+      Promise.all([MixDesign.count(), BasicMixDesign.count()]).then(([a, b]) => a + b),
       // 统计优化历史记录数
       OptimizationHistory.count(),
       // 获取规范知识包数量
