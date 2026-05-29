@@ -3,7 +3,19 @@ const path = require('path')
 const MaterialService = require('./MaterialService')
 const MixFormatConverter = require('./MixFormatConverter')
 
-const MODELS_DIR = path.join(__dirname, '..', '..', '..', 'resources', 'models')
+// 模型目录 - 兼容开发模式和打包模式
+function getModelsDir() {
+  const isPackaged = __dirname.includes('app.asar')
+
+  if (isPackaged) {
+    const asarPath = __dirname.split('app.asar')[0]
+    return path.join(asarPath, 'app.asar.unpacked', 'resources', 'models')
+  }
+
+  return path.join(__dirname, '..', '..', '..', 'resources', 'models')
+}
+
+const MODELS_DIR = getModelsDir()
 
 const MODEL_FILES = {
   strength28d: 'strength28d.json',

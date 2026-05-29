@@ -2,9 +2,25 @@ const fs = require('fs')
 const path = require('path')
 const ort = require('onnxruntime-node')
 
-// 模型目录
-// __dirname = src/main/services/ → 上溯3层到项目根目录 → resources/models/bge-small-zh-v1.5
-const MODEL_DIR = path.join(__dirname, '..', '..', '..', 'resources', 'models', 'bge-small-zh-v1.5')
+// 模型目录 - 兼容开发模式和打包模式
+function getModelDir() {
+  // 打包后的 Electron 应用中，解压的文件在 app.asar.unpacked 目录
+  // 开发模式下直接使用相对路径
+  const isPackaged = __dirname.includes('app.asar')
+
+  if (isPackaged) {
+    // 打包模式：从 app.asar 路径推算 app.asar.unpacked 路径
+    // __dirname = .../resources/app.asar/src/main/services
+    // 需要解析到 .../resources/app.asar.unpacked/resources/models/...
+    const asarPath = __dirname.split('app.asar')[0]
+    return path.join(asarPath, 'app.asar.unpacked', 'resources', 'models', 'bge-small-zh-v1.5')
+  }
+
+  // 开发模式：使用相对路径
+  return path.join(__dirname, '..', '..', '..', 'resources', 'models', 'bge-small-zh-v1.5')
+}
+
+const MODEL_DIR = getModelDir()
 
 // 模型参数
 const MAX_SEQ_LENGTH = 512

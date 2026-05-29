@@ -488,6 +488,9 @@ class DeepSeekService {
         const delta = parsed.choices?.[0]?.delta || {}
         if (delta.reasoning_content) {
           finalMessage.reasoning_content = (finalMessage.reasoning_content || '') + delta.reasoning_content
+          if (onEvent) {
+            onEvent({ type: 'reasoning_delta', content: delta.reasoning_content })
+          }
         }
         if (delta.content) {
           finalMessage.content += delta.content

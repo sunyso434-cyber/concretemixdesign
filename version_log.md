@@ -1,5 +1,53 @@
 # 版本更新记录
 
+## 打包记录 (2026-05-29 思考过程显示与工具中文名 3.8.2)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **3.8.2**
+- **输出目录**: `dist-3.8.0/`
+- **说明**:
+  1. **显示 AI 思考过程** — 新增 `reasoning_delta` 流式事件，实时展示 DeepSeek 的思考过程，使用纯文本格式（非 markdown）
+  2. **工具中文名称** — 为所有 13 个 AI 工具添加中文名称（查询材料库、计算配合比、规范审查等）
+- **修改文件**:
+  - `src/main/services/DeepSeekService.js`
+  - `src/renderer/components/SmartDesignChat.jsx`
+  - `src/renderer/components/ToolCallBubble.jsx`
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 3.8.2.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-3.8.2-x64.exe`
+
+## 打包记录 (2026-05-29 ONNX模型加载修复 4.0.2)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.0.2**
+- **输出目录**: `dist-3.8.0/`
+- **说明**:
+  1. **修复 ONNX 模型加载失败** — 打包后规范检索功能报错"ONNX 模型加载失败"，原因是模型文件被打包进 asar 压缩包，onnxruntime-node 无法读取
+  2. **添加 asarUnpack 配置** — 在 `package.json` 中添加 `resources/models/**` 到 `asarUnpack`，让模型文件解压到磁盘
+  3. **修复路径解析逻辑** — `EmbeddingService.js` 和 `XGBoostPredictionService.js` 添加打包模式检测，自动解析到 `app.asar.unpacked` 目录
+- **修改文件**:
+  - `package.json`
+  - `src/main/services/EmbeddingService.js`
+  - `src/main/services/XGBoostPredictionService.js`
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 4.0.2.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-4.0.2-x64.exe`
+
+## 打包记录 (2026-05-29 Agent 决策能力增强 4.0.1)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.0.1**
+- **输出目录**: `dist-3.8.0/`
+- **说明**:
+  1. **新增规范检索工具 (query_standards)** — Agent 可按关键词检索规范条款，回答专业问题时不再凭记忆，而是从规范知识库中实时查询
+  2. **新增历史查询工具 (query_design_history)** — Agent 可查询方案库和基准配合比库的历史记录，给出有经验支撑的建议
+  3. **新增合规校验工具 (query_compliance_check)** — Agent 可对配合比方案做规范合规校验，设计完成后主动询问是否需要检查
+  4. **系统提示词增强** — 注入资源摘要（规范数量、历史记录数）和用户偏好（常用强度等级、常用材料），Agent 更了解用户
+  5. **新行为规则** — 要求 Agent 专业问题先查规范、参考历史先查记录、设计完主动问合规检查
+
 ## 打包记录 (2026-05-26 销售报价工具体验提升 3.9.0)
 
 - **命令**: `npm run electron:build`
