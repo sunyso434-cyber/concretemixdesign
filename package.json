@@ -69,7 +69,8 @@
       "node_modules/**"
     ],
     "asarUnpack": [
-      "node_modules/sqlite3/**"
+      "node_modules/sqlite3/**",
+      "resources/models/**"
     ],
     "extraMetadata": {
       "main": "main.js"

@@ -251,6 +251,14 @@ const SmartDesignChat = () => {
       return
     }
 
+    if (payload.type === 'reasoning_delta') {
+      updateStreamMessage(streamId, item => ({
+        ...item,
+        reasoning: `${item.reasoning || ''}${payload.content || ''}`
+      }))
+      return
+    }
+
     if (payload.type === 'tool_start') {
       updateStreamMessage(streamId, item => ({
         ...item,
@@ -1004,6 +1012,12 @@ const SmartDesignChat = () => {
                               {opt}
                             </Button>
                           ))}
+                        </div>
+                      )}
+                      {item.reasoning && (
+                        <div style={{ marginBottom: 8, padding: '8px 12px', background: '#f6f8fa', borderRadius: 6, fontSize: 13, color: '#666', lineHeight: 1.6, maxHeight: 200, overflowY: 'auto' }}>
+                          <div style={{ fontWeight: 500, marginBottom: 4, color: '#333' }}>思考过程</div>
+                          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit' }}>{item.reasoning}</pre>
                         </div>
                       )}
                       <div className="chat-markdown-body">

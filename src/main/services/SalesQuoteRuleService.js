@@ -60,7 +60,7 @@ async function findRuleByType(concreteType) {
 }
 
 async function matchRuleByText(text) {
-  const rules = await listRules()
+  const rules = await SalesQuoteRule.findAll({ where: { enabled: true } })
   return rules.find(rule => (rule.keywords || []).some(keyword => String(text || '').includes(keyword))) || null
 }
 
