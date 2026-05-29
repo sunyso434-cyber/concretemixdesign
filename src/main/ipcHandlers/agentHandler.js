@@ -139,7 +139,12 @@ function registerTools(registry) {
     parameters: {
       mixDesign: { type: 'object' }
     },
-    handler: async (args) => callLegacyTool('check_compliance', args)
+    handler: async (args) => {
+      if (!args.mixDesign || typeof args.mixDesign !== 'object') {
+        return { success: false, error: '请提供配合比方案对象' }
+      }
+      return callLegacyTool('check_compliance', args)
+    }
   })
 
   registry.register({
@@ -224,8 +229,7 @@ function registerTools(registry) {
     name: 'query_standards',
     description: '按关键词检索规范条款。当用户询问规范限值、标准要求、技术参数时，必须先调用此工具查询，不要凭记忆回答。',
     parameters: {
-      query: { type: 'string', description: '检索关键词，如"C30 水胶比"、"粉煤灰最大掺量"、"砂率范围"' },
-      category: { type: 'string', description: '规范类别筛选（可选），如"国标"、"行标"' }
+      query: { type: 'string', description: '检索关键词，如"C30 水胶比"、"粉煤灰最大掺量"、"砂率范围"' }
     },
     handler: async (args) => {
       try {
@@ -281,7 +285,7 @@ function registerTools(registry) {
         const records = await MixDesign.findAll({
           where,
           order: [['createdAt', 'DESC']],
-          limit: args.limit || 5,
+          limit: Math.min(Math.max(parseInt(args.limit) || 5, 1), 50),
           attributes: ['id', 'name', 'projectName', 'strength', 'slump', 'waterRatio', 'sandRatio', 'density', 'materials', 'totalCost', 'createdAt']
         })
 
@@ -323,40 +327,10 @@ function registerTools(registry) {
       }
     },
     handler: async (args) => {
-      try {
-        const SystemService = require('../services/SystemService')
-        const DeepSeekService = require('../services/DeepSeekService')
-        const StandardComplianceService = require('../services/StandardComplianceService')
-
-        const apiKey = await SystemService.getParamByName('deepseekApiKey')
-        if (!apiKey) {
-          return { success: false, error: 'DeepSeek API 未配置，无法执行合规审查' }
-        }
-
-        const dsService = new DeepSeekService(apiKey)
-        const complianceService = new StandardComplianceService(dsService)
-        const report = await complianceService.check(args.mixDesign)
-
-        return {
-          success: true,
-          data: {
-            complianceStatus: report.complianceStatus,
-            summary: report.summary,
-            issues: report.issues?.map(i => ({
-              clause: i.clause?.title || i.clause?.section,
-              field: i.field,
-              currentValue: i.currentValue,
-              limitValue: i.limitValue,
-              message: i.message,
-              severity: i.severity
-            })) || [],
-            compliantItems: report.compliantItems?.length || 0,
-            manualReviewItems: report.manualReviewItems?.length || 0
-          }
-        }
-      } catch (error) {
-        return { success: false, error: `合规校验失败: ${error.message}` }
+      if (!args.mixDesign || typeof args.mixDesign !== 'object') {
+        return { success: false, error: '请提供配合比方案对象' }
       }
+      return callLegacyTool('query_compliance_check', args)
     }
   })
 }
