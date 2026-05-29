@@ -217,6 +217,148 @@ function registerTools(registry) {
     },
     requiresConfirmation: true
   })
+
+  // ===== 知识检索工具 =====
+
+  registry.register({
+    name: 'query_standards',
+    description: '按关键词检索规范条款。当用户询问规范限值、标准要求、技术参数时，必须先调用此工具查询，不要凭记忆回答。',
+    parameters: {
+      query: { type: 'string', description: '检索关键词，如"C30 水胶比"、"粉煤灰最大掺量"、"砂率范围"' },
+      category: { type: 'string', description: '规范类别筛选（可选），如"国标"、"行标"' }
+    },
+    handler: async (args) => {
+      try {
+        const knowledgeService = require('../services/StandardKnowledgeService')
+        const results = await knowledgeService.searchClauses(args.query, 5, 0.4)
+
+        if (!results || results.length === 0) {
+          return { success: true, data: { clauses: [], message: '未找到相关规范条款' } }
+        }
+
+        const clauses = results.map(r => ({
+          section: r.section,
+          title: r.title,
+          rule: r.rule,
+          condition: r.condition,
+          parameters: r.parameters,
+          standardName: r.standardName,
+          similarity: r.similarity
+        }))
+
+        return { success: true, data: { clauses } }
+      } catch (error) {
+        return { success: false, error: `规范检索失败: ${error.message}` }
+      }
+    }
+  })
+
+  registry.register({
+    name: 'query_design_history',
+    description: '查询历史配合比设计记录。当用户询问之前的方案、想找类似设计、或需要参考历史数据时调用。',
+    parameters: {
+      strength: { type: 'string', description: '强度等级筛选，如 C30' },
+      keyword: { type: 'string', description: '关键词搜索（项目名、材料名等）' },
+      limit: { type: 'integer', description: '返回条数，默认 5' }
+    },
+    handler: async (args) => {
+      try {
+        const { Op } = require('sequelize')
+        const { MixDesign } = require('../db/database')
+
+        const where = {}
+        if (args.strength) {
+          where.strength = { [Op.like]: `%${args.strength}%` }
+        }
+        if (args.keyword) {
+          where[Op.or] = [
+            { name: { [Op.like]: `%${args.keyword}%` } },
+            { projectName: { [Op.like]: `%${args.keyword}%` } },
+            { description: { [Op.like]: `%${args.keyword}%` } }
+          ]
+        }
+
+        const records = await MixDesign.findAll({
+          where,
+          order: [['createdAt', 'DESC']],
+          limit: args.limit || 5,
+          attributes: ['id', 'name', 'projectName', 'strength', 'slump', 'waterRatio', 'sandRatio', 'density', 'materials', 'totalCost', 'createdAt']
+        })
+
+        if (!records || records.length === 0) {
+          return { success: true, data: { records: [], message: '未找到匹配的历史设计记录' } }
+        }
+
+        return {
+          success: true,
+          data: {
+            records: records.map(r => ({
+              id: r.id,
+              name: r.name,
+              projectName: r.projectName,
+              strength: r.strength,
+              slump: r.slump,
+              waterRatio: r.waterRatio,
+              sandRatio: r.sandRatio,
+              density: r.density,
+              materials: r.materials,
+              totalCost: r.totalCost,
+              createdAt: r.createdAt
+            }))
+          }
+        }
+      } catch (error) {
+        return { success: false, error: `历史查询失败: ${error.message}` }
+      }
+    }
+  })
+
+  registry.register({
+    name: 'query_compliance_check',
+    description: '对配合比方案做规范合规校验。当用户想检查方案是否符合规范、或设计完成后主动建议校验时调用。',
+    parameters: {
+      mixDesign: {
+        type: 'object',
+        description: '配合比方案对象，包含 waterBinderRatio（水胶比）、cementContent（水泥用量）、sandRatio（砂率）等字段'
+      }
+    },
+    handler: async (args) => {
+      try {
+        const SystemService = require('../services/SystemService')
+        const DeepSeekService = require('../services/DeepSeekService')
+        const StandardComplianceService = require('../services/StandardComplianceService')
+
+        const apiKey = await SystemService.getParamByName('deepseekApiKey')
+        if (!apiKey) {
+          return { success: false, error: 'DeepSeek API 未配置，无法执行合规审查' }
+        }
+
+        const dsService = new DeepSeekService(apiKey)
+        const complianceService = new StandardComplianceService(dsService)
+        const report = await complianceService.check(args.mixDesign)
+
+        return {
+          success: true,
+          data: {
+            complianceStatus: report.complianceStatus,
+            summary: report.summary,
+            issues: report.issues?.map(i => ({
+              clause: i.clause?.title || i.clause?.section,
+              field: i.field,
+              currentValue: i.currentValue,
+              limitValue: i.limitValue,
+              message: i.message,
+              severity: i.severity
+            })) || [],
+            compliantItems: report.compliantItems?.length || 0,
+            manualReviewItems: report.manualReviewItems?.length || 0
+          }
+        }
+      } catch (error) {
+        return { success: false, error: `合规校验失败: ${error.message}` }
+      }
+    }
+  })
 }
 
 // 注册 IPC 处理器
