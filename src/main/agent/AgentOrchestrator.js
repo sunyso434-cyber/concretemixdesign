@@ -34,7 +34,8 @@ class AgentOrchestrator {
     console.log('[Agent] memoryContext 长度:', memoryContext?.length || 0)
     const historyMessages = await agentMemoryService.buildHistoryMessages(sessionId)
     console.log('[Agent] historyMessages 数量:', historyMessages.length)
-    const systemPrompt = this._buildSystemPrompt(memoryContext, mode)
+    const resourceSummary = await agentMemoryService.getResourceSummary().catch(() => null)
+    const systemPrompt = this._buildSystemPrompt(memoryContext, mode, resourceSummary)
     const messages = [
       { role: 'system', content: systemPrompt },
       ...historyMessages,
@@ -230,7 +231,48 @@ class AgentOrchestrator {
 
   // ===== 内部 =====
 
-  _buildSystemPrompt(memoryContext, mode) {
+  _buildSystemPrompt(memoryContext, mode, resourceSummary) {
+    // 构建资源感知摘要
+    const buildResourceText = (summary) => {
+      if (!summary) return ''
+      const parts = ['\n你拥有以下知识资源（需要时请主动调用对应工具查询，不要凭记忆回答专业问题）：']
+
+      if (summary.standardsCount > 0) {
+        parts.push(`- 规范知识库：已加载 ${summary.standardsCount} 个规范，可用 query_standards 检索条款`)
+      } else {
+        parts.push('- 规范知识库：暂无已加载规范')
+      }
+
+      if (summary.designHistoryCount > 0) {
+        parts.push(`- 历史设计：共 ${summary.designHistoryCount} 条配合比记录，可用 query_design_history 查找类似方案`)
+      } else {
+        parts.push('- 历史设计：暂无历史设计记录')
+      }
+
+      parts.push('- 合规审查：可用 query_compliance_check 校验方案是否符合规范')
+
+      // 用户偏好摘要
+      const prefs = summary.userPreferences || {}
+      const prefLines = []
+      if (prefs.commonStrengthGrades?.length > 0) {
+        prefLines.push(`- 常用强度等级：${prefs.commonStrengthGrades.join('、')}`)
+      }
+      if (prefs.cement) {
+        prefLines.push(`- 常用水泥：${prefs.cement}`)
+      }
+      if (prefs.flyAsh) {
+        prefLines.push(`- 常用粉煤灰：${prefs.flyAsh}`)
+      }
+      if (prefLines.length > 0) {
+        parts.push('\n用户常用信息（来自历史操作记录）：')
+        parts.push(...prefLines)
+      }
+
+      return parts.join('\n')
+    }
+
+    const resourceText = buildResourceText(resourceSummary)
+
     const toolList = this.registry.toolNames.join('、')
     const modeInstruction = mode === 'auto'
       ? '全自动模式：自主完成所有步骤。每个步骤调用工具前，先用简短文字说明你这一步要做什么、为什么。'
@@ -239,6 +281,8 @@ class AgentOrchestrator {
     return `你是混凝土配合比设计的AI专家助手。可用工具：${toolList}。
 
 ${modeInstruction}
+
+${resourceText}
 
 ${memoryContext || ''}
 
@@ -250,7 +294,10 @@ ${memoryContext || ''}
 4. 每次只调用一个工具，调用前用简短文字说明理由
 5. 工具执行失败时，尝试换一种方式，但不要连续失败超过2次
 6. 任务完成后，给出简洁的总结，包含关键参数和结论。可以问用户是否需要进一步优化，但不要自动执行
-7. 工具参数必须是合法的 JSON 格式`
+7. 工具参数必须是合法的 JSON 格式
+8. 专业问题（规范限值、标准要求）必须先查 query_standards，不要凭记忆回答
+9. 参考历史方案时，先查 query_design_history 获取真实记录
+10. 设计完成后，主动询问用户是否需要规范合规检查（query_compliance_check）`
   }
 
   _waitForResume() {
