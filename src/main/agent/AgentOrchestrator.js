@@ -249,6 +249,10 @@ class AgentOrchestrator {
         parts.push('- 历史设计：暂无历史设计记录')
       }
 
+      if (summary.optimizationCount > 0) {
+        parts.push(`- 成本优化：已执行 ${summary.optimizationCount} 次优化，可用 optimize_mix_cost 进行成本优化`)
+      }
+
       parts.push('- 合规审查：可用 query_compliance_check 校验方案是否符合规范')
 
       // 用户偏好摘要
