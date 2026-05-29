@@ -16,6 +16,7 @@ const BasicMixDesignService = require('../services/BasicMixDesignService')
 const SalesQuoteRuleService = require('../services/SalesQuoteRuleService')
 const SalesQuoteCalculationService = require('../services/SalesQuoteCalculationService')
 const SalesQuoteToolGuard = require('../services/SalesQuoteToolGuard')
+const { Material } = require('../db/database')
 
 // 从系统参数获取API密钥
 const getDeepSeekApiKey = async () => {
@@ -485,11 +486,16 @@ const executeToolCall = async (toolName, args) => {
     }
 
     case 'prepare_sales_quote_draft': {
-      const rule = await SalesQuoteRuleService.findRuleByType(args.concreteType)
+      let rule = await SalesQuoteRuleService.findRuleByType(args.concreteType)
       if (!rule) {
-        return { success: false, error: `没有找到${args.concreteType}的销售报价规则` }
+        // 精确匹配失败，尝试关键词模糊匹配
+        rule = await SalesQuoteRuleService.matchRuleByText(args.concreteType)
       }
-      let basicMix = await BasicMixDesignService.findDefaultMix(args.strengthGrade, args.concreteType)
+      if (!rule) {
+        return { success: false, error: `没有找到"${args.concreteType}"的销售报价规则，当前可用类型：普通、抗渗、早强` }
+      }
+      // 用 rule 中的 concreteType 去查找基准配合比（避免 Agent 传入 '普通混凝土' 等非标准值导致匹配失败）
+      let basicMix = await BasicMixDesignService.findDefaultMix(args.strengthGrade, rule.concreteType)
       if (!basicMix) {
         // Fallback：从最近设计结果缓存中取
         const cached = lastResultCache.get('lastMixDesign')
@@ -499,12 +505,9 @@ const executeToolCall = async (toolName, args) => {
           const source = bestSol.materials ? bestSol : d
           const mats = source.materials || d.materials || {}
           const selected = source.selectedMaterials || d.selectedMaterials || {}
-
-          // 将 materials 对象转换为数组格式
           const materialsArr = []
           const findId = (key) => selected[key]?.id || null
-          const findName = (key, fallback) => selected[key]?.name || selected[key] || fallback || key
-
+          const findName = (key, fb) => selected[key]?.name || selected[key] || fb || key
           if (mats.cement != null) materialsArr.push({ materialId: findId('cement'), materialType: '水泥', materialName: findName('cement', '水泥'), usage: mats.cement })
           if (mats.flyAsh > 0) materialsArr.push({ materialId: findId('flyAsh'), materialType: '粉煤灰', materialName: findName('flyAsh', '粉煤灰'), usage: mats.flyAsh })
           if (mats.slag > 0) materialsArr.push({ materialId: findId('slag'), materialType: '矿渣粉', materialName: findName('slag', '矿渣粉'), usage: mats.slag })
@@ -514,25 +517,17 @@ const executeToolCall = async (toolName, args) => {
           if (mats.sand > 0) materialsArr.push({ materialId: findId('sand'), materialType: '细骨料', materialName: findName('sand', '细骨料'), usage: mats.sand })
           if (mats.stone > 0) materialsArr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone })
           if (mats.water > 0) materialsArr.push({ materialId: null, materialType: '水', materialName: '水', usage: mats.water })
-
-          basicMix = {
-            strengthGrade: args.strengthGrade,
-            concreteType: args.concreteType,
-            slump: d.slump || source.slump || args.slump || 180,
-            materials: materialsArr,
-            toJSON() { return this }
-          }
+          basicMix = { strengthGrade: args.strengthGrade, concreteType: rule.concreteType, slump: d.slump || source.slump || args.slump || 180, materials: materialsArr, toJSON() { return this } }
         }
-
-        if (!basicMix) {
-          return {
-            success: false,
-            type: 'sales_quote_action_required',
-            requiresUserConfirmation: true,
-            action: 'select_or_create_basic_mix',
-            error: `没有找到${args.strengthGrade}${args.concreteType}基础配合比。`,
-            hint: '请先让用户选择已有基础配合比，或明确授权生成新配合比并确认材料后，再进入配合比设计流程。不能自动调用配合比设计工具。'
-          }
+      }
+      if (!basicMix) {
+        return {
+          success: false,
+          type: 'sales_quote_action_required',
+          requiresUserConfirmation: true,
+          action: 'select_or_create_basic_mix',
+          error: `没有找到${args.strengthGrade}${rule.concreteType}基础配合比。`,
+          hint: '请先让用户选择已有基础配合比，或明确授权生成新配合比并确认材料后，再进入配合比设计流程。不能自动调用配合比设计工具。'
         }
       }
       return {
@@ -564,13 +559,19 @@ const executeToolCall = async (toolName, args) => {
       if (!basicMixRow) return { success: false, error: '基础配合比不存在' }
       const allMaterials = await MaterialService.getAllMaterials()
       const pricesById = new Map(allMaterials.map(material => [material.id, material.price]))
+      // 水的 materialId 可能为 null，从材料库中查找默认水材料的价格
+      const waterMaterial = allMaterials.find(m => m.type === '其他' && m.name === '水')
+      const waterPrice = waterMaterial?.price ?? 0
       const basicMix = basicMixRow.toJSON()
       const quote = SalesQuoteCalculationService.calculate({
         basicMix: {
           strengthGrade: basicMix.strengthGrade,
           concreteType: basicMix.concreteType,
           slump: basicMix.slump,
-          materials: basicMix.materials.map(item => ({ ...item, price: pricesById.get(item.materialId) }))
+          materials: basicMix.materials.map(item => ({
+            ...item,
+            price: item.materialId != null ? pricesById.get(item.materialId) : (item.materialType === '水' ? waterPrice : pricesById.get(item.materialId))
+          }))
         },
         pricing: args.pricing
       })
@@ -621,7 +622,7 @@ const executeToolCall = async (toolName, args) => {
       const source = d.bestSolution ? bestSol : d
       const materials = source.materials || d.materials || bestSol.materials
       // 将 materials 对象转换为 BasicMixDesign 所需的数组格式
-      const buildMaterialsArray = (mats, selected, fineBreakdown, coarseBreakdown) => {
+      const buildMaterialsArray = async (mats, selected, fineBreakdown, coarseBreakdown) => {
         const arr = []
         const findName = (key, fallback) => {
           if (selected && selected[key] && typeof selected[key] === 'object') return selected[key].name || selected[key]
@@ -650,7 +651,11 @@ const executeToolCall = async (toolName, args) => {
         } else if (mats.stone != null && mats.stone > 0) {
           arr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone })
         }
-        if (mats.water != null && mats.water > 0) arr.push({ materialId: null, materialType: '水', materialName: '水', usage: mats.water })
+        if (mats.water != null && mats.water > 0) {
+          // 从材料库中查找默认水材料
+          const waterMat = await Material.findOne({ where: { type: '其他', name: '水' } })
+          arr.push({ materialId: waterMat?.id || null, materialType: '水', materialName: '水', usage: mats.water })
+        }
         return arr
       }
       const strength = d.strength || source.strength || 'C30'
@@ -661,7 +666,7 @@ const executeToolCall = async (toolName, args) => {
           strengthGrade: args.strengthGrade || strength,
           concreteType: args.concreteType || '普通',
           slump: args.slump != null ? args.slump : slump,
-          materials: buildMaterialsArray(materials, source.selectedMaterials || d.selectedMaterials, source.fineAggregateBreakdown || d.fineAggregateBreakdown, source.coarseAggregateBreakdown || d.coarseAggregateBreakdown),
+          materials: await buildMaterialsArray(materials, source.selectedMaterials || d.selectedMaterials, source.fineAggregateBreakdown || d.fineAggregateBreakdown, source.coarseAggregateBreakdown || d.coarseAggregateBreakdown),
           isDefault: args.isDefault || false,
           remarks: args.remarks || '',
           source: '智能设计保存'
@@ -819,5 +824,6 @@ module.exports = {
   checkApiStatus,
   chatWithAI,
   chatWithAIStream,
-  clearChatHistory
+  clearChatHistory,
+  executeToolCall
 }

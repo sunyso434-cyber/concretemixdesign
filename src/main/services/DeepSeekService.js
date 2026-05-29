@@ -418,15 +418,57 @@ class DeepSeekService {
       requestBody.tools = TOOLS
     }
 
-    const response = await axios.post(DEEPSEEK_API_URL, requestBody, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`
-      },
-      timeout: 120000
-    })
+    try {
+      const response = await axios.post(DEEPSEEK_API_URL, requestBody, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`
+        },
+        timeout: 120000
+      })
+      return response.data.choices[0].message
+    } catch (error) {
+      if (error.response) {
+        const errMsg = `API ${error.response.status}: ${JSON.stringify(error.response.data).slice(0, 500)}`
+        console.error(errMsg)
+        throw new Error(errMsg)
+      }
+      throw error
+    }
+  }
 
-    return response.data.choices[0].message
+  /**
+   * 携带自定义工具定义调用 API（供 AgentOrchestrator 使用）
+   * @param {Array} messages - 消息列表
+   * @param {Array} tools - 自定义工具定义数组
+   * @returns {Promise<Object>} - API返回的message对象
+   */
+  async chatWithTools(messages, tools) {
+    const requestBody = {
+      model: 'deepseek-v4-flash',
+      messages,
+      max_tokens: 32768,
+      thinking: { type: 'enabled' },
+      tools
+    }
+
+    try {
+      const response = await axios.post(DEEPSEEK_API_URL, requestBody, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`
+        },
+        timeout: 120000
+      })
+      return response.data.choices[0].message
+    } catch (error) {
+      if (error.response) {
+        const errMsg = `API ${error.response.status}: ${JSON.stringify(error.response.data).slice(0, 500)}`
+        console.error(errMsg)
+        throw new Error(errMsg)
+      }
+      throw error
+    }
   }
 
   async _callAPIStream(messages, includeTools = false, onEvent = null) {

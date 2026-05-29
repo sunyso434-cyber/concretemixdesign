@@ -50,9 +50,10 @@ class SystemService {
   // 设置系统参数
   async setParam(name, value, type = 'system', description = '') {
     try {
+      const strValue = typeof value === 'boolean' ? String(value) : String(value ?? '')
       const param = await SystemParam.findOne({ where: { paramName: name } })
       if (param) {
-        await param.update({ paramValue: value, paramType: type, description })
+        await param.update({ paramValue: strValue, paramType: type, description })
         return {
           name: param.paramName,
           value: param.paramValue,
@@ -60,7 +61,7 @@ class SystemService {
           description: param.description
         }
       } else {
-        const newParam = await SystemParam.create({ paramName: name, paramValue: value, paramType: type, description })
+        const newParam = await SystemParam.create({ paramName: name, paramValue: strValue, paramType: type, description })
         return {
           name: newParam.paramName,
           value: newParam.paramValue,
@@ -198,6 +199,18 @@ class SystemService {
           paramValue: '',
           paramType: 'ai',
           description: 'DeepSeek API 密钥'
+        },
+        {
+          paramName: 'agentEnabled',
+          paramValue: 'false',
+          paramType: 'ai',
+          description: 'AI Agent 功能开关'
+        },
+        {
+          paramName: 'agentDefaultMode',
+          paramValue: 'collaborative',
+          paramType: 'ai',
+          description: 'Agent 默认模式：chat/collaborative/auto'
         }
       ]
 

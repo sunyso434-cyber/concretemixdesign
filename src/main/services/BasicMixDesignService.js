@@ -60,12 +60,20 @@ async function listBasicMixDesigns(filters = {}) {
 }
 
 async function findDefaultMix(strengthGrade, concreteType) {
-  return await BasicMixDesign.findOne({
+  console.log('[findDefaultMix] 查找:', { strengthGrade, concreteType })
+  const result = await BasicMixDesign.findOne({
     where: { strengthGrade, concreteType, enabled: true, isDefault: true }
   }) || await BasicMixDesign.findOne({
     where: { strengthGrade, concreteType, enabled: true },
     order: [['updatedAt', 'DESC']]
   })
+  console.log('[findDefaultMix] 结果:', result ? `找到 ID=${result.id}` : '未找到')
+  if (!result) {
+    // 列出所有匹配 strengthGrade 的记录，帮助调试
+    const all = await BasicMixDesign.findAll({ where: { strengthGrade }, attributes: ['id', 'strengthGrade', 'concreteType', 'enabled', 'isDefault'] })
+    console.log('[findDefaultMix] 数据库中所有', strengthGrade, '记录:', all.map(r => r.toJSON()))
+  }
+  return result
 }
 
 async function deleteBasicMixDesign(id) {

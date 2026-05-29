@@ -1,4 +1,5 @@
 const { Sequelize, DataTypes } = require('sequelize')
+const fs = require('fs')
 const path = require('path')
 
 // 在 Electron 环境中使用 app.getPath('userData')，否则回退到项目目录下的 data 子目录
@@ -20,7 +21,6 @@ if (!userDataPath) {
 const dbPath = path.join(userDataPath, 'concrete-mixdesign.db')
 
 // 确保目录存在
-const fs = require('fs')
 const dbDir = path.dirname(dbPath)
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true })
@@ -65,6 +65,24 @@ const SalesQuoteRule = require('./models/SalesQuoteRule')
 const PumpingFeeItem = require('./models/PumpingFeeItem')
 const SalesQuoteHistory = require('./models/SalesQuoteHistory')
 const AppSetting = require('./models/AppSetting')
+const ChatHistory = require('./models/ChatHistory')
+const UserPreference = require('./models/UserPreference')
+const CorrectionRule = require('./models/CorrectionRule')
+
+// 数据库迁移前备份
+function backupDatabase() {
+  const backupPath = dbPath + '.backup-' + Date.now()
+  try {
+    if (fs.existsSync(dbPath)) {
+      fs.copyFileSync(dbPath, backupPath)
+      console.log('数据库备份完成:', backupPath)
+    }
+    return backupPath
+  } catch (error) {
+    console.error('数据库备份失败:', error.message)
+    return null
+  }
+}
 
 // 默认保温材料数据
 const defaultInsulationMaterials = [
@@ -126,15 +144,46 @@ const defaultInsulationMaterials = [
 
 // 同步所有模型并初始化数据
 async function syncModels() {
-  // 逐个同步模型，单个失败不影响其他模型（避免 SQLite alter 异常导致整批失败）
-  for (const model of [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, SalesQuoteRule, PumpingFeeItem, SalesQuoteHistory, AppSetting]) {
+  // 迁移前备份
+  const backupFile = backupDatabase()
+
+  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, SalesQuoteRule, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, UserPreference, CorrectionRule]
+  let migrationFailed = false
+
+  for (const model of allModels) {
     try {
       await model.sync({ alter: true })
     } catch (error) {
       console.error(`模型 ${model.name} 同步失败:`, error.message)
+      if (['ChatHistory', 'UserPreference', 'CorrectionRule'].includes(model.name)) {
+        migrationFailed = true
+      }
     }
   }
+
+  if (migrationFailed && backupFile) {
+    console.error('Agent模型迁移失败，请检查备份文件:', backupFile)
+  }
+
   console.log('数据库模型同步完成')
+
+  // 初始化默认"水"材料
+  try {
+    const existingWater = await Material.findOne({ where: { type: '其他', name: '水' } })
+    if (!existingWater) {
+      await Material.create({
+        name: '水',
+        type: '其他',
+        density: 1000,
+        price: 0,
+        isSystem: true,
+        notes: '系统默认水材料，用于配合比保存'
+      })
+      console.log('默认水材料已初始化')
+    }
+  } catch (error) {
+    console.error('默认水材料初始化失败:', error.message)
+  }
 
   // 检查并初始化默认保温材料
   const count = await InsulationMaterial.count()
@@ -178,3 +227,6 @@ module.exports.SalesQuoteRule = SalesQuoteRule
 module.exports.PumpingFeeItem = PumpingFeeItem
 module.exports.SalesQuoteHistory = SalesQuoteHistory
 module.exports.AppSetting = AppSetting
+module.exports.ChatHistory = ChatHistory
+module.exports.UserPreference = UserPreference
+module.exports.CorrectionRule = CorrectionRule

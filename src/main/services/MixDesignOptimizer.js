@@ -92,10 +92,19 @@ class MixDesignOptimizer {
           }
         }
       }
+      // 约束不通过，记录首次失败
+      if (!this._firstConstraintFail) {
+        this._firstConstraintFail = { targetStrength: result.targetStrength, waterRatio: result.waterRatio, totalCementitious: (result.materials?.cement||0)+(result.materials?.flyAsh||0)+(result.materials?.slag||0)+(result.materials?.lithiumSlag||0)+(result.materials?.compositePowder||0), waterAmount: result.materials?.water, strength: constraints.strength }
+        console.error('[第一层粗筛] 首次约束不通过: 强度=', result.targetStrength, '水胶比=', result.waterRatio, '胶材=', (result.materials?.cement||0)+(result.materials?.flyAsh||0)+(result.materials?.slag||0), '用水量=', result.materials?.water)
+      }
+      return { _failReason: 'constraintFail' }
     } catch (error) {
-      // 忽略计算失败的组合
+      if (!this._firstCalcError) {
+        this._firstCalcError = { message: error.message, waterRatio, task: { flyAsh, slag, lithiumSlag, compositePowder } }
+        console.error('[第一层粗筛] 首次配比计算异常:', error.message, '水胶比:', waterRatio)
+      }
     }
-    return null
+    return { _failReason: 'calcError' }
   }
 
   /**
@@ -157,7 +166,14 @@ class MixDesignOptimizer {
     })
 
     if (top5Combinations.length === 0) {
-      throw new Error('第一层筛选未找到满足约束条件的配合比方案，请放宽约束或更换原材料')
+      let detail = ''
+      if (this._firstCalcError) {
+        detail = ` | 配比计算异常: ${this._firstCalcError.message} (水胶比=${this._firstCalcError.waterRatio})`
+      } else if (this._firstConstraintFail) {
+        const f = this._firstConstraintFail
+        detail = ` | 示例: 配制强度=${f.targetStrength}MPa 水胶比=${f.waterRatio} 胶材=${f.totalCementitious}kg 用水=${f.waterAmount}kg`
+      }
+      throw new Error(`第一层筛选未找到满足约束条件的配合比方案${detail}`)
     }
 
     // 6. 第二层细筛
@@ -365,21 +381,27 @@ class MixDesignOptimizer {
     console.log('[第一层粗筛] flyAshRange:', flyAshRange, ', slagRange:', slagRange, ', lithiumSlagRange:', lithiumSlagRange, ', compositePowderRange:', compositePowderRange)
     console.log('[第一层粗筛] fineAggregateRatios数量:', fineAggregateRatios.length)
 
+    // 如果所有掺合料列表都只有 null（未选材料），补一个"零掺量"任务保证至少能跑
+    const allEmpty = flyAshList.every(m => !m) && slagList.every(m => !m) && lithiumSlagList.every(m => !m) && compositePowderList.every(m => !m)
+    if (allEmpty) {
+      console.log('[第一层粗筛] 未选择掺合料，使用零掺量组合（纯水泥方案）')
+    }
+
     // 构建所有任务（砂率由公式计算，不搜索）
     // 总掺量上限50%，超过则跳过
     const tasks = []
-    for (const flyAshMat of flyAshList) {
-      if (!flyAshMat) continue
-      for (const slagMat of slagList) {
-        if (!slagMat) continue
-        for (const lithiumSlagMat of lithiumSlagList) {
-          if (!lithiumSlagMat) continue
-          for (const compositePowderMat of compositePowderList) {
-            if (!compositePowderMat) continue
-            for (const flyAsh of flyAshRange) {
-              for (const slag of slagRange) {
-                for (const lithiumSlag of lithiumSlagRange) {
-                  for (const compositePowder of compositePowderRange) {
+    const _fr = allEmpty ? [0] : flyAshRange
+    const _sr = allEmpty ? [0] : slagRange
+    const _lr = allEmpty ? [0] : lithiumSlagRange
+    const _cr = allEmpty ? [0] : compositePowderRange
+    for (const flyAshMat of (allEmpty ? [null] : flyAshList)) {
+      for (const slagMat of (allEmpty ? [null] : slagList)) {
+        for (const lithiumSlagMat of (allEmpty ? [null] : lithiumSlagList)) {
+          for (const compositePowderMat of (allEmpty ? [null] : compositePowderList)) {
+            for (const flyAsh of _fr) {
+              for (const slag of _sr) {
+                for (const lithiumSlag of _lr) {
+                  for (const compositePowder of _cr) {
                     if (flyAsh + slag + lithiumSlag + compositePowder > 50) continue
                     for (const fineAggregateRatio of fineAggregateRatios) {
                       tasks.push({ flyAshMat, slagMat, lithiumSlagMat, compositePowderMat, flyAsh, slag, lithiumSlag, compositePowder, fineAggregateRatio })
@@ -392,6 +414,7 @@ class MixDesignOptimizer {
         }
       }
     }
+    console.log('[第一层粗筛] 生成任务数:', tasks.length)
 
     console.log('[第一层粗筛] 总任务数:', tasks.length)
 
@@ -399,9 +422,9 @@ class MixDesignOptimizer {
     const BATCH_SIZE = 50
     let completed = 0
     let validCount = 0
+    const failReasons = { calcError: 0, constraintFail: 0 }
 
     for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
-      // 检查是否已取消
       if (params.cancellationToken?.cancelled) {
         throw new Error('cancelled')
       }
@@ -412,8 +435,9 @@ class MixDesignOptimizer {
 
       for (const result of batchResults) {
         if (result) {
-          results.push(result)
-          validCount++
+          if (result._failReason === 'calcError') failReasons.calcError++
+          else if (result._failReason === 'constraintFail') failReasons.constraintFail++
+          else { results.push(result); validCount++ }
         }
       }
 
@@ -421,7 +445,12 @@ class MixDesignOptimizer {
       this._reportProgress('第一层粗筛', completed, tasks.length, `已处理 ${completed}/${tasks.length}`)
     }
 
-    console.log('[第一层粗筛] 完成，总迭代次数:', tasks.length, ', 有效组合:', validCount)
+    console.log('[第一层粗筛] 完成，总迭代:', tasks.length, ', 有效:', validCount, ', 计算异常:', failReasons.calcError, ', 约束不通过:', failReasons.constraintFail)
+    if (validCount === 0 && tasks.length > 0) {
+      console.error('[第一层粗筛] 全部被拒！计算异常=', failReasons.calcError, ' 约束不通过=', failReasons.constraintFail)
+      if (failReasons.calcError > 0) console.error('[第一层粗筛] 配比计算异常——请检查水泥28d强度、砂细度模数、石粒径等材料参数是否完整')
+      if (failReasons.constraintFail > 0) console.error('[第一层粗筛] 约束不通过——水胶比/胶凝材料/用水量超出范围，请放宽掺量范围或更换材料')
+    }
 
     // 4. 按总成本排序，保留Top5
     results.sort((a, b) => a.totalCost - b.totalCost)
