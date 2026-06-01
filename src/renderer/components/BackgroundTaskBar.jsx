@@ -121,7 +121,7 @@ const BackgroundTaskBar = () => {
             </Text>
           )}
           {task.error && task.status === 'failed' && (
-            <Text type="danger" style={{ fontSize: 12 }}>{task.error}</Text>
+            <Text type="danger" style={{ fontSize: 12 }}>{typeof task.error === 'object' ? (task.error.message || task.error.error || JSON.stringify(task.error)) : String(task.error)}</Text>
           )}
         </div>
       ))}

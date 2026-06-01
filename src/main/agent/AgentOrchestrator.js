@@ -136,7 +136,11 @@ class AgentOrchestrator {
 
             if (execResult.success === false) {
               toolStep.status = 'error'
-              toolStep.error = execResult.error
+              // 确保 error 始终是字符串（技能可能返回对象格式）
+              const errorMsg = typeof execResult.error === 'object'
+                ? (execResult.error.message || execResult.error.error || JSON.stringify(execResult.error))
+                : String(execResult.error || '未知错误')
+              toolStep.error = errorMsg
               consecutiveFailures++
 
               if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
@@ -145,7 +149,7 @@ class AgentOrchestrator {
                   messages.push({ role: 'tool', content: JSON.stringify({ error: '任务已终止' }), tool_call_id: response.tool_calls[j].id })
                 }
                 finalResult = {
-                  reply: `执行"${tc.function.name}"时连续失败 ${consecutiveFailures} 次：${execResult.error}\n\n请检查输入参数是否正确，或手动处理此步骤后继续。`,
+                  reply: `执行"${tc.function.name}"时连续失败 ${consecutiveFailures} 次：${errorMsg}\n\n请检查输入参数是否正确，或手动处理此步骤后继续。`,
                   steps, mode, error: true, duration: Date.now() - startTime
                 }
                 break

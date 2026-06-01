@@ -123,7 +123,7 @@ const StepRow = ({ step }) => {
           fontSize: 12,
           color: 'var(--color-error)',
         }}>
-          {step.error}
+          {typeof step.error === 'object' ? (step.error.message || step.error.error || JSON.stringify(step.error)) : String(step.error)}
         </div>
       )}
     </div>
