@@ -114,20 +114,48 @@ module.exports = {
   },
 
   async execute(args, context) {
-    const { mixDesignOptimizer, logger } = context
+    const { mixDesignOptimizer, mixDesignService, logger } = context
 
     logger.info(`开始成本优化: ${args.strength}`)
 
     try {
       const result = await mixDesignOptimizer.optimize(args)
       logger.info(`成本优化完成: 最低成本=${result.bestCost}`)
-      return { success: true, type: 'optimization', data: result }
+
+      // 自动保存草稿
+      let draftId = null
+      try {
+        const best = result.bestSolution || result
+        const now = new Date()
+        const timestamp = now.toLocaleString('zh-CN', { hour12: false })
+        const draft = await mixDesignService.createMixDesign({
+          name: `${args.strength}成本优化方案 - ${timestamp}`,
+          projectName: 'AI智能设计',
+          strength: args.strength,
+          slump: args.slump,
+          waterRatio: best.waterRatio,
+          sandRatio: best.sandRatio,
+          density: best.density,
+          materials: best.materials,
+          materialCosts: best.materialCosts,
+          totalCost: best.totalCost,
+          materialDetails: best.selectedMaterials,
+          fineAggregateBreakdown: best.fineAggregateBreakdown,
+          coarseAggregateBreakdown: best.coarseAggregateBreakdown,
+          status: '草稿'
+        })
+        draftId = draft.id
+        logger.info(`草稿已保存, ID=${draftId}`)
+      } catch (saveErr) {
+        logger.warn('自动保存草稿失败（不影响优化结果）:', saveErr.message)
+      }
+
+      return { success: true, type: 'optimization', data: result, draftId }
     } catch (error) {
       logger.error('成本优化失败:', error)
       return {
         success: false,
-        error: this.errors.OPTIMIZATION_FAILED,
-        details: { originalError: error.message }
+        error: `成本优化计算失败: ${error.message}`
       }
     }
   }

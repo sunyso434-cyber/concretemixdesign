@@ -172,17 +172,17 @@ module.exports = {
 
     const cement = findById(cementId)
     if (!cement) {
-      return { success: false, error: this.errors.CEMENT_NOT_FOUND, details: { cementId } }
+      return { success: false, error: '水泥材料不存在，请检查水泥ID是否正确' }
     }
 
     const sands = sandIds.map(id => findById(id))
     if (sands.some(s => !s)) {
-      return { success: false, error: this.errors.SAND_NOT_FOUND, details: { sandIds } }
+      return { success: false, error: '细骨料材料不存在，请检查细骨料ID是否正确' }
     }
 
     const stones = stoneIds.map(id => findById(id))
     if (stones.some(s => !s)) {
-      return { success: false, error: this.errors.STONE_NOT_FOUND, details: { stoneIds } }
+      return { success: false, error: '粗骨料材料不存在，请检查粗骨料ID是否正确' }
     }
 
     // 构建材料对象
@@ -216,18 +216,44 @@ module.exports = {
 
       logger.info(`配合比计算完成: 水胶比=${result.waterRatio}, 砂率=${result.sandRatio}`)
 
+      // 自动保存草稿
+      let draftId = null
+      try {
+        const now = new Date()
+        const timestamp = now.toLocaleString('zh-CN', { hour12: false })
+        const draft = await mixDesignService.createMixDesign({
+          name: `${strength}智能设计方案 - ${timestamp}`,
+          projectName: 'AI智能设计',
+          strength,
+          slump,
+          waterRatio: result.waterRatio,
+          sandRatio: result.sandRatio,
+          density: result.density,
+          materials: result.materials,
+          materialCosts: result.materialCosts,
+          totalCost: result.totalCost,
+          fineAggregateBreakdown: result.fineAggregateBreakdown,
+          coarseAggregateBreakdown: result.coarseAggregateBreakdown,
+          status: '草稿'
+        })
+        draftId = draft.id
+        logger.info(`草稿已保存, ID=${draftId}`)
+      } catch (saveErr) {
+        logger.warn('自动保存草稿失败（不影响计算结果）:', saveErr.message)
+      }
+
       return {
         success: true,
         type: 'mix_design',
         data: result,
+        draftId,
         suggestions: ['是否需要成本优化？', '是否需要规范审查？']
       }
     } catch (error) {
       logger.error('配合比计算失败:', error)
       return {
         success: false,
-        error: this.errors.CALCULATION_FAILED,
-        details: { originalError: error.message }
+        error: `配合比计算失败: ${error.message}`
       }
     }
   }

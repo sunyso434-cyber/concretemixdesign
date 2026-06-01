@@ -38,13 +38,11 @@ module.exports = {
   createError(code, message, hint, details = null) {
     return {
       success: false,
-      error: {
-        code,
-        message,
-        hint,
-        recovery: this._getRecoveryStrategy(code),
-        details
-      }
+      error: message,
+      errorCode: code,
+      hint,
+      recovery: this._getRecoveryStrategy(code),
+      details
     }
   },
 

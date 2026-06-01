@@ -1,5 +1,63 @@
 # 版本更新记录
 
+## 打包记录 (2026-06-01 配合比保存重构 4.2.0)
+
+- **命令**: `npm run build` + `npx electron-builder --win`
+- **结果**: 成功
+- **版本号**: **4.2.0**
+- **输出目录**: `dist-3.8.0/`
+- **说明**: 重构配合比保存机制，解决"保存方案报错"的根本问题：
+  1. **计算自动存草稿** — `calculate_mix_design` 和 `optimize_mix_cost` 执行后自动写入数据库（status='草稿'），不再依赖内存缓存
+  2. **确认转正** — `save_mix_design` 从"创建新记录"改为"确认草稿"，通过方案ID更新状态
+  3. **删除缓存机制** — 移除 `lastResultCache` 全部引用，消除跨skill数据传递的架构缺陷
+  4. **方案库适配** — `getAllMixDesigns` 支持过滤参数，方案库页面默认隐藏草稿，可切换查看
+  5. **基准库推广** — `save_to_basic_mix_library` 改为从数据库读取方案，不再依赖缓存
+  6. **修复React #31错误** — `ErrorCodes.createError` 的 `error` 字段从对象改为字符串，所有skill错误返回统一为纯文本，避免React渲染对象报错
+
+## 打包记录 (2026-06-01 Agent 记忆学习系统 4.2.0)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.2.0**
+- **输出目录**: `dist-3.8.0/`
+- **说明**: 实现 Agent 记忆学习系统，自动学习用户偏好和修正记录：
+  1. **EventBus 事件总线** — 解耦模块间通信，工具执行后触发学习事件
+  2. **LearningService 学习服务** — 监听工具执行事件，自动保存用户偏好
+  3. **材料偏好学习** — 记录常用水泥、粉煤灰、矿渣粉、减水剂
+  4. **砂率偏好学习** — 记录最近砂率、历史记录、平均值计算
+  5. **坍落度偏好学习** — 记录最近使用的坍落度
+  6. **修正记录捕获** — 支持手动触发修正记录保存
+  7. **IPC 接口** — 新增 `agent:saveCorrection` 接口供前端调用
+  8. **数据库集成** — 使用现有 UserPreference 和 CorrectionRule 表存储
+- **新增文件**:
+  - `src/main/agent/EventBus.js`
+  - `src/main/services/LearningService.js`
+- **修改文件**:
+  - `src/main/agent/AgentOrchestrator.js` — 添加事件触发
+  - `main.js` — 初始化学习服务
+  - `src/main/ipcHandlers/agentHandler.js` — 添加修正接口
+
+## 打包记录 (2026-06-01 参数缺省值修复 4.1.0)
+
+- **版本号**: **4.1.0**
+- **提交**: `6a55a02`
+- **说明**: 修复 `manage_skills` 和 `create_skill` 因 LLM 未传必填参数导致执行失败的问题
+  - `manage_skills`: `action` 改为可选，不传默认 `list`
+  - `create_skill`: `functionality` 改为可选，不传降级用 `description`
+
+## 更新记录 (2026-06-01 Skill 架构清理 4.1.0)
+
+- **版本号**: **4.1.0**（同版本，架构清理）
+- **提交**: `8178600`
+- **改动范围**: 407 文件，+1125 / -148310 行
+- **说明**: Skill 系统架构清理，消除双重注册、划清两套 skill 边界：
+  1. **划清两套 skill 边界** — 新建 README.md，明确区分应用级技能（JS 代码）和 Agent 级指令（Markdown）
+  2. **清理双重注册** — 删除 agentHandler.js 中 ~330 行 registerTools() 重复代码，AgentOrchestrator 统一用 SkillRegistry
+  3. **用户自建技能模板化** — skill:create 支持 3 种模板：查询类、计算类、检查类
+  4. **Agent 级 skill 去重** — 删除 .agents/、.trae/、.gemini/ 等重复目录（~148000 行），保留 .claude/ 唯一副本
+  5. **skill 测试框架** — 新建 test-skill-examples.js，验证 18 个 skill 结构正确性（129 项检查全通过）
+  6. **设计文档更新** — 重写 skill-system-design.md 匹配实际实现
+
 ## 打包记录 (2026-05-29 Skill 系统重构 4.1.0)
 
 - **命令**: `npm run electron:build`

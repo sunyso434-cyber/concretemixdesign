@@ -7,10 +7,10 @@ class MixDesignHandler {
   }
 
   registerHandlers() {
-    // 获取所有配合比方案
-    ipcMain.handle('getAllMixDesigns', async () => {
+    // 获取所有配合比方案（支持过滤：excludeDrafts, onlyDrafts）
+    ipcMain.handle('getAllMixDesigns', async (_, options) => {
       try {
-        const mixDesigns = await MixDesignService.getAllMixDesigns()
+        const mixDesigns = await MixDesignService.getAllMixDesigns(options || {})
         // 将 Sequelize 模型实例转换为普通 JavaScript 对象
         const plainMixDesigns = mixDesigns.map(mixDesign => mixDesign.toJSON())
         return { success: true, data: plainMixDesigns }

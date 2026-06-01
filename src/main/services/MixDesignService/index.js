@@ -97,8 +97,8 @@ class MixDesignService {
   }
 
   // === Database 模块 ===
-  async getAllMixDesigns() {
-    return MixDesignService_Database.getAllMixDesigns()
+  async getAllMixDesigns(options) {
+    return MixDesignService_Database.getAllMixDesigns(options)
   }
 
   async getMixDesignById(id) {
@@ -115,6 +115,10 @@ class MixDesignService {
 
   async deleteMixDesign(id) {
     return MixDesignService_Database.deleteMixDesign(id)
+  }
+
+  async cleanupDrafts(maxAgeDays) {
+    return MixDesignService_Database.cleanupDrafts(maxAgeDays)
   }
 
   async calculateMixDesign(params) {

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react'
-import { Card, Button, Table, Space, message, Modal, Form, Input, Select, Tag } from 'antd'
+import React, { useState, useEffect, useCallback } from 'react'
+import { Card, Button, Table, Space, message, Modal, Form, Input, Select, Tag, Switch } from 'antd'
 
 
 const { Option } = Select
@@ -8,17 +8,18 @@ const SchemesPage = () => {
   const [schemes, setSchemes] = useState([])
   const [loading, setLoading] = useState(false)
   const [selectedSchemes, setSelectedSchemes] = useState([])
+  const [showDrafts, setShowDrafts] = useState(false)
   const [viewModalVisible, setViewModalVisible] = useState(false)
   const [currentScheme, setCurrentScheme] = useState(null)
   const [editModalVisible, setEditModalVisible] = useState(false)
   const [editForm] = Form.useForm()
 
   // 加载方案列表
-  const loadSchemes = async () => {
+  const loadSchemes = async (options = {}) => {
     setLoading(true)
     try {
-      console.log('开始加载方案列表...')
-      const result = await window.electron.ipcRenderer.invoke('getAllMixDesigns')
+      console.log('开始加载方案列表...', options)
+      const result = await window.electron.ipcRenderer.invoke('getAllMixDesigns', options)
       console.log('加载方案列表结果:', result)
       if (result.success) {
         console.log('获取到方案数量:', result.data.length)
@@ -35,13 +36,13 @@ const SchemesPage = () => {
     }
   }
 
-  // 初始化加载
+  // 初始化加载 & showDrafts 变化时重新加载
   useEffect(() => {
-    loadSchemes()
+    loadSchemes(showDrafts ? {} : { excludeDrafts: true })
     // 监听数据刷新事件（导入操作完成后）
     const handleDataRefresh = () => {
       try {
-        loadSchemes()
+        loadSchemes(showDrafts ? {} : { excludeDrafts: true })
       } catch (err) {
         console.error('SchemesPage data refresh failed:', err)
       }
@@ -50,7 +51,7 @@ const SchemesPage = () => {
     return () => {
       window.electron.ipcRenderer.removeListener(listenerId)
     }
-  }, [])
+  }, [showDrafts])
 
   // 查看方案详情
   const viewScheme = async (id) => {
@@ -93,7 +94,7 @@ const SchemesPage = () => {
       const result = await window.electron.ipcRenderer.invoke('deleteMixDesign', id)
       if (result.success) {
         message.success('删除成功')
-        loadSchemes()
+        loadSchemes(showDrafts ? {} : { excludeDrafts: true })
       } else {
         message.error(result.error)
       }
@@ -118,7 +119,7 @@ const SchemesPage = () => {
         const createResult = await window.electron.ipcRenderer.invoke('createMixDesign', copyData)
         if (createResult.success) {
           message.success('复制成功')
-          loadSchemes()
+          loadSchemes(showDrafts ? {} : { excludeDrafts: true })
         } else {
           message.error(createResult.error)
         }
@@ -127,6 +128,21 @@ const SchemesPage = () => {
       }
     } catch (error) {
       message.error('复制失败')
+    }
+  }
+
+  // 确认草稿方案
+  const confirmScheme = async (id) => {
+    try {
+      const result = await window.electron.ipcRenderer.invoke('updateMixDesign', { id, data: { status: '已确认' } })
+      if (result.success) {
+        message.success('方案已确认')
+        loadSchemes(showDrafts ? {} : { excludeDrafts: true })
+      } else {
+        message.error(result.error)
+      }
+    } catch (error) {
+      message.error('确认失败')
     }
   }
 
@@ -146,7 +162,7 @@ const SchemesPage = () => {
       if (result.success) {
         message.success('更新成功')
         setEditModalVisible(false)
-        loadSchemes()
+        loadSchemes(showDrafts ? {} : { excludeDrafts: true })
       } else {
         message.error(result.error)
       }
@@ -172,6 +188,10 @@ const SchemesPage = () => {
   // 渲染状态标签
   const renderStatusTag = (status) => {
     switch (status) {
+      case '草稿':
+        return <Tag color="default">草稿</Tag>
+      case '已确认':
+        return <Tag color="blue">已确认</Tag>
       case '已验证':
         return <Tag color="green">已验证</Tag>
       case '未验证':
@@ -248,6 +268,9 @@ const SchemesPage = () => {
       onHeaderCell: () => ({ scope: 'col' }),
       render: (_, record) => (
         <Space size="middle">
+          {record.status === '草稿' && (
+            <Button size="small" type="primary" onClick={() => confirmScheme(record.id)}>确认</Button>
+          )}
           <Button size="small" onClick={() => viewScheme(record.id)}>查看</Button>
           <Button size="small" onClick={() => editScheme(record.id)}>编辑</Button>
           <Button size="small" onClick={() => copyScheme(record.id)}>复制</Button>
@@ -274,6 +297,14 @@ const SchemesPage = () => {
         >
           新建方案
         </Button>
+        <Space style={{ marginLeft: 16 }}>
+          <Switch
+            checked={showDrafts}
+            onChange={(checked) => setShowDrafts(checked)}
+            checkedChildren="显示草稿"
+            unCheckedChildren="隐藏草稿"
+          />
+        </Space>
       </div>
 
       <div className="custom-card">

@@ -1,15 +1,38 @@
+const { Op } = require('sequelize')
 const MixDesign = require('../../db/models/MixDesign')
 const MixDesignService_Strength = require('./MixDesignService_Strength')
 const MixDesignService_WaterRatio = require('./MixDesignService_WaterRatio')
 const MixDesignService_Aggregate = require('./MixDesignService_Aggregate')
 
 class MixDesignService_Database {
-  // 获取所有配合比方案
-  async getAllMixDesigns() {
+  // 获取所有配合比方案（支持草稿过滤）
+  async getAllMixDesigns(options = {}) {
     try {
-      return await MixDesign.findAll()
+      const where = {}
+      if (options.excludeDrafts) {
+        where.status = { [Op.ne]: '草稿' }
+      }
+      if (options.onlyDrafts) {
+        where.status = '草稿'
+      }
+      return await MixDesign.findAll({ where, order: [['createdAt', 'DESC']] })
     } catch (error) {
       console.error('获取配合比方案列表失败:', error)
+      throw error
+    }
+  }
+
+  // 清理过期草稿
+  async cleanupDrafts(maxAgeDays = 7) {
+    try {
+      const cutoff = new Date(Date.now() - maxAgeDays * 86400000)
+      const deleted = await MixDesign.destroy({
+        where: { status: '草稿', createdAt: { [Op.lt]: cutoff } }
+      })
+      console.log(`[草稿清理] 已删除 ${deleted} 条超过 ${maxAgeDays} 天的草稿`)
+      return { deleted }
+    } catch (error) {
+      console.error('清理草稿失败:', error)
       throw error
     }
   }

@@ -36,9 +36,6 @@ let deepSeekService = null
 let cachedApiKey = null
 const CHAT_STREAM_EVENT = 'aiAnalysis:chatStream:event'
 
-// 缓存最近一次计算/优化结果，供 save_mix_design / save_to_basic_mix_library 使用
-const lastResultCache = new Map()
-
 // 获取或创建DeepSeek服务实例
 const getDeepSeekService = async () => {
   const apiKey = await getDeepSeekApiKey()
@@ -237,8 +234,6 @@ const executeToolCall = async (toolName, args) => {
           selectedMaterials: materials
         }
       }
-      // 缓存以供后续 save 工具使用
-      lastResultCache.set('lastMixDesign', mixDesignResult)
       return mixDesignResult
     }
 
@@ -319,7 +314,6 @@ const executeToolCall = async (toolName, args) => {
           historyId: result.historyId
         }
       }
-      lastResultCache.set('lastMixDesign', optimizeResult)
       return optimizeResult
     }
 
@@ -497,27 +491,29 @@ const executeToolCall = async (toolName, args) => {
       // 用 rule 中的 concreteType 去查找基准配合比（避免 Agent 传入 '普通混凝土' 等非标准值导致匹配失败）
       let basicMix = await BasicMixDesignService.findDefaultMix(args.strengthGrade, rule.concreteType)
       if (!basicMix) {
-        // Fallback：从最近设计结果缓存中取
-        const cached = lastResultCache.get('lastMixDesign')
-        if (cached?.data) {
-          const d = cached.data
-          const bestSol = d.bestSolution || {}
-          const source = bestSol.materials ? bestSol : d
-          const mats = source.materials || d.materials || {}
-          const selected = source.selectedMaterials || d.selectedMaterials || {}
-          const materialsArr = []
-          const findId = (key) => selected[key]?.id || null
-          const findName = (key, fb) => selected[key]?.name || selected[key] || fb || key
-          if (mats.cement != null) materialsArr.push({ materialId: findId('cement'), materialType: '水泥', materialName: findName('cement', '水泥'), usage: mats.cement })
-          if (mats.flyAsh > 0) materialsArr.push({ materialId: findId('flyAsh'), materialType: '粉煤灰', materialName: findName('flyAsh', '粉煤灰'), usage: mats.flyAsh })
-          if (mats.slag > 0) materialsArr.push({ materialId: findId('slag'), materialType: '矿渣粉', materialName: findName('slag', '矿渣粉'), usage: mats.slag })
-          if (mats.lithiumSlag > 0) materialsArr.push({ materialId: findId('lithiumSlag'), materialType: '锂渣', materialName: findName('lithiumSlag', '锂渣'), usage: mats.lithiumSlag })
-          if (mats.compositePowder > 0) materialsArr.push({ materialId: findId('compositePowder'), materialType: '复合粉', materialName: findName('compositePowder', '复合粉'), usage: mats.compositePowder })
-          if (mats.superplasticizer > 0) materialsArr.push({ materialId: findId('superplasticizer'), materialType: '减水剂', materialName: findName('superplasticizer', '减水剂'), usage: mats.superplasticizer })
-          if (mats.sand > 0) materialsArr.push({ materialId: findId('sand'), materialType: '细骨料', materialName: findName('sand', '细骨料'), usage: mats.sand })
-          if (mats.stone > 0) materialsArr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone })
-          if (mats.water > 0) materialsArr.push({ materialId: null, materialType: '水', materialName: '水', usage: mats.water })
-          basicMix = { strengthGrade: args.strengthGrade, concreteType: rule.concreteType, slump: d.slump || source.slump || args.slump || 180, materials: materialsArr, toJSON() { return this } }
+        // Fallback：从方案库中取最近一条已确认的方案
+        try {
+          const recentSchemes = await MixDesignService.getAllMixDesigns({ excludeDrafts: true })
+          if (recentSchemes && recentSchemes.length > 0) {
+            const d = recentSchemes[0].toJSON()
+            const mats = d.materials || {}
+            const selected = d.materialDetails || {}
+            const materialsArr = []
+            const findId = (key) => selected[key]?.id || null
+            const findName = (key, fb) => selected[key]?.name || selected[key] || fb || key
+            if (mats.cement != null) materialsArr.push({ materialId: findId('cement'), materialType: '水泥', materialName: findName('cement', '水泥'), usage: mats.cement })
+            if (mats.flyAsh > 0) materialsArr.push({ materialId: findId('flyAsh'), materialType: '粉煤灰', materialName: findName('flyAsh', '粉煤灰'), usage: mats.flyAsh })
+            if (mats.slag > 0) materialsArr.push({ materialId: findId('slag'), materialType: '矿渣粉', materialName: findName('slag', '矿渣粉'), usage: mats.slag })
+            if (mats.lithiumSlag > 0) materialsArr.push({ materialId: findId('lithiumSlag'), materialType: '锂渣', materialName: findName('lithiumSlag', '锂渣'), usage: mats.lithiumSlag })
+            if (mats.compositePowder > 0) materialsArr.push({ materialId: findId('compositePowder'), materialType: '复合粉', materialName: findName('compositePowder', '复合粉'), usage: mats.compositePowder })
+            if (mats.superplasticizer > 0) materialsArr.push({ materialId: findId('superplasticizer'), materialType: '减水剂', materialName: findName('superplasticizer', '减水剂'), usage: mats.superplasticizer })
+            if (mats.sand > 0) materialsArr.push({ materialId: findId('sand'), materialType: '细骨料', materialName: findName('sand', '细骨料'), usage: mats.sand })
+            if (mats.stone > 0) materialsArr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone })
+            if (mats.water > 0) materialsArr.push({ materialId: null, materialType: '水', materialName: '水', usage: mats.water })
+            basicMix = { strengthGrade: args.strengthGrade, concreteType: rule.concreteType, slump: d.slump || args.slump || 180, materials: materialsArr, toJSON() { return this } }
+          }
+        } catch (e) {
+          console.warn('[Fallback] 从方案库获取最近方案失败:', e.message)
         }
       }
       if (!basicMix) {
@@ -579,58 +575,67 @@ const executeToolCall = async (toolName, args) => {
     }
 
     case 'save_mix_design': {
-      const cached = lastResultCache.get('lastMixDesign')
-      if (!cached || !cached.data) {
-        return { success: false, error: '没有可保存的配合比方案。请先执行配合比计算或成本优化。' }
+      // 从方案ID确认方案（新逻辑：草稿确认模式）
+      if (args.schemeId) {
+        try {
+          const existing = await MixDesignService.getMixDesignById(args.schemeId)
+          if (!existing) {
+            return { success: false, error: `方案ID ${args.schemeId} 不存在` }
+          }
+          const updateData = { status: '已确认' }
+          if (args.name) updateData.name = args.name
+          if (args.projectName) updateData.projectName = args.projectName
+          await MixDesignService.updateMixDesign(args.schemeId, updateData)
+          return { success: true, type: 'save_result', message: `方案「${args.name || existing.name}」已确认保存`, id: args.schemeId }
+        } catch (err) {
+          return { success: false, error: `确认失败: ${err.message}` }
+        }
       }
-      const d = cached.data
-      const bestSol = d.bestSolution || {}
-      const source = d.bestSolution ? bestSol : d
-      const now = new Date()
-      const timestamp = now.toLocaleString('zh-CN', { hour12: false })
-      const saveData = {
-        name: args.name || `${d.strength || 'AI'}${d.bestSolution ? '成本优化方案' : '智能设计方案'} - ${timestamp}`,
-        projectName: args.projectName || 'AI智能设计',
-        strength: d.strength || source.strength,
-        slump: d.slump || source.slump,
-        waterRatio: source.waterRatio || d.waterRatio || bestSol.waterRatio,
-        sandRatio: source.sandRatio || d.sandRatio || bestSol.sandRatio,
-        density: source.density || d.density || bestSol.density,
-        materials: source.materials || d.materials || bestSol.materials,
-        materialCosts: source.materialCosts || d.materialCosts || bestSol.materialCosts,
-        totalCost: source.totalCost || d.totalCost || bestSol.totalCost,
-        materialDetails: source.selectedMaterials || d.selectedMaterials || bestSol.selectedMaterials,
-        fineAggregateBreakdown: source.fineAggregateBreakdown || d.fineAggregateBreakdown || bestSol.fineAggregateBreakdown,
-        coarseAggregateBreakdown: source.coarseAggregateBreakdown || d.coarseAggregateBreakdown || bestSol.coarseAggregateBreakdown,
-        status: 'AI生成'
-      }
+      // 兼容旧路径：如果没有schemeId，尝试从方案库取最近的草稿确认
       try {
-        const created = await MixDesignService.createMixDesign(saveData)
-        return { success: true, type: 'save_result', message: `方案「${saveData.name}」已保存`, id: created.id }
-      } catch (err) {
-        return { success: false, error: `保存失败: ${err.message}` }
+        const drafts = await MixDesignService.getAllMixDesigns({ onlyDrafts: true })
+        if (drafts && drafts.length > 0) {
+          const latest = drafts[0]
+          const updateData = { status: '已确认' }
+          if (args.name) updateData.name = args.name
+          if (args.projectName) updateData.projectName = args.projectName
+          await MixDesignService.updateMixDesign(latest.id, updateData)
+          return { success: true, type: 'save_result', message: `方案「${args.name || latest.name}」已确认保存`, id: latest.id }
+        }
+      } catch (e) {
+        console.warn('[save_mix_design] 兼容路径失败:', e.message)
       }
+      return { success: false, error: '没有可保存的配合比方案。请先执行配合比计算。' }
     }
 
     case 'save_to_basic_mix_library': {
-      const cached = lastResultCache.get('lastMixDesign')
-      if (!cached || !cached.data) {
-        return { success: false, error: '没有可保存的配合比方案。请先执行配合比计算或成本优化。' }
+      // 从方案ID读取方案数据（从数据库读取，不再依赖缓存）
+      let scheme = null
+      if (args.schemeId) {
+        scheme = await MixDesignService.getMixDesignById(args.schemeId)
+      } else {
+        // 兼容：取最近一条已确认的方案
+        const recent = await MixDesignService.getAllMixDesigns({ excludeDrafts: true })
+        if (recent && recent.length > 0) scheme = recent[0]
       }
-      const d = cached.data
-      const bestSol = d.bestSolution || {}
-      const source = d.bestSolution ? bestSol : d
-      const materials = source.materials || d.materials || bestSol.materials
+      if (!scheme) {
+        return { success: false, error: '没有可推广的配合比方案。请先执行配合比计算并确认。' }
+      }
+      const d = scheme.toJSON ? scheme.toJSON() : scheme
+      const materials = d.materials || {}
+      const selected = d.materialDetails || {}
+      const fineBreakdown = d.fineAggregateBreakdown || []
+      const coarseBreakdown = d.coarseAggregateBreakdown || []
       // 将 materials 对象转换为 BasicMixDesign 所需的数组格式
-      const buildMaterialsArray = async (mats, selected, fineBreakdown, coarseBreakdown) => {
+      const buildMaterialsArray = async (mats, sel, fineBd, coarseBd) => {
         const arr = []
         const findName = (key, fallback) => {
-          if (selected && selected[key] && typeof selected[key] === 'object') return selected[key].name || selected[key]
-          if (selected && selected[key] && typeof selected[key] === 'string') return selected[key]
+          if (sel && sel[key] && typeof sel[key] === 'object') return sel[key].name || sel[key]
+          if (sel && sel[key] && typeof sel[key] === 'string') return sel[key]
           return fallback || key
         }
         const findId = (key) => {
-          if (selected && selected[key] && typeof selected[key] === 'object') return selected[key].id
+          if (sel && sel[key] && typeof sel[key] === 'object') return sel[key].id
           return null
         }
         if (mats.cement != null) arr.push({ materialId: findId('cement'), materialType: '水泥', materialName: findName('cement', '水泥'), usage: mats.cement })
@@ -640,33 +645,32 @@ const executeToolCall = async (toolName, args) => {
         if (mats.compositePowder != null && mats.compositePowder > 0) arr.push({ materialId: findId('compositePowder'), materialType: '复合粉', materialName: findName('compositePowder', '复合粉'), usage: mats.compositePowder })
         if (mats.superplasticizer != null && mats.superplasticizer > 0) arr.push({ materialId: findId('superplasticizer'), materialType: '减水剂', materialName: findName('superplasticizer', '减水剂'), usage: mats.superplasticizer })
         // 细骨料
-        if (fineBreakdown && fineBreakdown.length > 0) {
-          fineBreakdown.forEach((f, i) => arr.push({ materialId: f.id || null, materialType: '细骨料', materialName: f.name || `细骨料${i + 1}`, usage: f.amount }))
+        if (fineBd && fineBd.length > 0) {
+          fineBd.forEach((f, i) => arr.push({ materialId: f.id || null, materialType: '细骨料', materialName: f.name || `细骨料${i + 1}`, usage: f.amount }))
         } else if (mats.sand != null && mats.sand > 0) {
           arr.push({ materialId: findId('sand'), materialType: '细骨料', materialName: findName('sand', '细骨料'), usage: mats.sand })
         }
         // 粗骨料
-        if (coarseBreakdown && coarseBreakdown.length > 0) {
-          coarseBreakdown.forEach((c, i) => arr.push({ materialId: c.id || null, materialType: '粗骨料', materialName: c.name || `粗骨料${i + 1}`, usage: c.amount }))
+        if (coarseBd && coarseBd.length > 0) {
+          coarseBd.forEach((c, i) => arr.push({ materialId: c.id || null, materialType: '粗骨料', materialName: c.name || `粗骨料${i + 1}`, usage: c.amount }))
         } else if (mats.stone != null && mats.stone > 0) {
           arr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone })
         }
         if (mats.water != null && mats.water > 0) {
-          // 从材料库中查找默认水材料
           const waterMat = await Material.findOne({ where: { type: '其他', name: '水' } })
           arr.push({ materialId: waterMat?.id || null, materialType: '水', materialName: '水', usage: mats.water })
         }
         return arr
       }
-      const strength = d.strength || source.strength || 'C30'
-      const slump = d.slump || source.slump || 180
+      const strength = d.strength || 'C30'
+      const slump = d.slump || 180
       try {
         const created = await BasicMixDesignService.createBasicMixDesign({
           name: args.name || `${strength}智能设计基准 - ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
           strengthGrade: args.strengthGrade || strength,
           concreteType: args.concreteType || '普通',
           slump: args.slump != null ? args.slump : slump,
-          materials: await buildMaterialsArray(materials, source.selectedMaterials || d.selectedMaterials, source.fineAggregateBreakdown || d.fineAggregateBreakdown, source.coarseAggregateBreakdown || d.coarseAggregateBreakdown),
+          materials: await buildMaterialsArray(materials, selected, fineBreakdown, coarseBreakdown),
           isDefault: args.isDefault || false,
           remarks: args.remarks || '',
           source: '智能设计保存'
