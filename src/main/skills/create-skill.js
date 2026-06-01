@@ -31,8 +31,13 @@ module.exports = {
     },
     parameters: {
       type: 'object',
-      description: '技能参数定义，格式为 { paramName: { type, description, required } }',
+      description: '技能参数定义，格式为 { paramName: { type, description, required, min?, max?, enum? } }',
       required: false
+    },
+    executeCode: {
+      type: 'string',
+      description: 'execute 函数的完整函数体代码（JavaScript）。必须包含完整的业务逻辑，不能留 TODO。可以使用 context 中的 materialService、mixDesignService、knowledgeService 等服务，以及 args 中的参数。示例："const { strength } = args; const materials = await context.materialService.getAllMaterials(); return { success: true, data: materials }"',
+      required: true
     },
     exampleUsage: {
       type: 'string',
@@ -57,7 +62,7 @@ module.exports = {
   },
 
   async execute(args, context) {
-    const { skillName, description, functionality, parameters, exampleUsage } = args
+    const { skillName, description, functionality, parameters, executeCode, exampleUsage } = args
     const { logger } = context
 
     // functionality 不填时降级用 description
@@ -81,12 +86,13 @@ module.exports = {
     // 生成参数定义
     const paramsCode = this._generateParameters(parameters || {})
 
-    // 生成技能代码
+    // 生成技能代码（executeCode 为必填，使用完整实现）
     const skillCode = this._generateSkillCode({
       skillName,
       description,
       functionality: effectiveFunctionality,
       paramsCode,
+      executeCode,
       exampleUsage
     })
 
@@ -163,7 +169,10 @@ module.exports = {
   /**
    * 生成技能代码
    */
-  _generateSkillCode({ skillName, description, functionality, paramsCode, exampleUsage }) {
+  _generateSkillCode({ skillName, description, functionality, paramsCode, executeCode, exampleUsage }) {
+    // 对 executeCode 中的单引号和反引号进行转义，防止注入
+    const safeCode = (executeCode || '').replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
+
     return `/**
  * ${description}
  *
@@ -184,35 +193,7 @@ module.exports = {
     logger.info('执行 ${skillName}:', args)
 
     try {
-      // ========================================
-      // 在这里实现你的业务逻辑
-      // ========================================
-
-      // 示例：获取参数
-      // const { param1, param2 } = args
-
-      // 示例：调用其他服务
-      // const { materialService, mixDesignService } = context
-
-      // 示例：查询材料库
-      // const materials = await materialService.getAllMaterials()
-
-      // 示例：计算配合比
-      // const result = await mixDesignService.calculateMixDesign({...})
-
-      // ========================================
-      // 返回结果
-      // ========================================
-      const result = {
-        message: '功能实现中，请在 execute 函数中添加业务逻辑',
-        receivedArgs: args
-      }
-
-      return {
-        success: true,
-        data: result
-      }
-
+      ${safeCode}
     } catch (error) {
       logger.error('${skillName} 执行失败:', error)
       return {

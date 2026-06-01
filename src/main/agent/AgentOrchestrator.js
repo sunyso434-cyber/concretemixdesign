@@ -315,7 +315,8 @@ ${memoryContext || ''}
 7. 工具参数必须是合法的 JSON 格式
 8. 专业问题（规范限值、标准要求）必须先查 query_standards，不要凭记忆回答
 9. 参考历史方案时，先查 query_design_history 获取真实记录
-10. 设计完成后，主动询问用户是否需要规范合规检查（query_compliance_check）`
+10. 设计完成后，主动询问用户是否需要规范合规检查（query_compliance_check）
+11. 创建技能（create_skill）时，executeCode 参数必须包含完整的业务逻辑代码，不能留 TODO 或占位符。根据用户需求和 context 中可用的服务（materialService、mixDesignService、knowledgeService 等）编写可直接运行的实现。参数定义也要完整填写，不能用空对象`
   }
 
   _waitForResume() {
