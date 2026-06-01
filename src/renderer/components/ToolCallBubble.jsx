@@ -50,7 +50,9 @@ const ToolCallBubble = ({ status, toolName, summary, error }) => {
         {status === 'loading' && <Progress percent={100} status="active" showInfo={false} size="small" />}
 
         {status === 'error' && error && (
-          <Text type="danger">{error}</Text>
+          <Text type="danger">
+            {typeof error === 'object' ? (error.message || JSON.stringify(error)) : String(error)}
+          </Text>
         )}
       </Space>
     </Card>

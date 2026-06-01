@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { Button, Input, Space, Avatar, List, Alert, message, Typography, Upload, Tag, Checkbox, Segmented, Layout } from 'antd'
-import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined } from '@ant-design/icons'
+import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
@@ -15,6 +15,7 @@ import SaveBasicMixModal from './SaveBasicMixModal'
 import AgentProgressCard from './AgentProgressCard'
 import DecisionGate from './DecisionGate'
 import MemorySidebar from './MemorySidebar'
+import SlashCommandMenu from './SlashCommandMenu'
 import useChatState from '../hooks/useChatState'
 import useAgentMode from './AgentMode'
 import { getAttachmentType, detectAnalysisModeIntent, processExcelAttachment, processMarkdownAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
@@ -59,6 +60,7 @@ const QUICK_PROMPTS = [
   { label: '帮我设计C30配合比', message: '帮我设计C30配合比，坍落度180mm' },
   { label: '优化成本', message: '帮我优化配合比成本，找到最便宜的材料组合' },
   { label: '对比材料', message: '帮我对比不同水泥对配合比的影响' },
+  { label: '/ 查看技能', message: '/', isSlash: true },
 ]
 
 const CONTRAST_MATERIAL_LABELS = {
@@ -80,6 +82,19 @@ function removeContrastData(preprocessedData) {
 }
 
 const CHAT_STREAM_EVENT = 'aiAnalysis:chatStream:event'
+
+// 从错误对象中提取消息字符串
+function extractErrorMessage(error) {
+  if (!error) return null
+  if (typeof error === 'string') return error
+  if (typeof error === 'object') {
+    // ErrorCodes 格式: { code, message, hint, recovery, details }
+    if (error.message) return error.message
+    // 其他对象格式
+    return JSON.stringify(error)
+  }
+  return String(error)
+}
 
 function createToolSummary(toolName, args = {}) {
   if (toolName === 'list_available_materials') {
@@ -169,6 +184,67 @@ const SmartDesignChat = () => {
 
   // 每次消息变化刷新会话列表（维持原始行为，AgentMode hook 仅挂载时加载一次）
   useEffect(() => { agent.loadSessions() }, [chatState.chatMessages])
+
+  // ===== 斜杠命令状态 =====
+  const [slashMenuVisible, setSlashMenuVisible] = useState(false)
+  const [availableSkills, setAvailableSkills] = useState([])
+
+  // 加载可用技能
+  const loadSkills = useCallback(async () => {
+    try {
+      console.log('[SlashCommand] 加载技能列表...')
+      const result = await window.electronAPI?.skill?.listAll()
+      console.log('[SlashCommand] 技能列表结果:', result)
+      if (result?.success) {
+        setAvailableSkills(result.skills || [])
+        console.log('[SlashCommand] 已加载', result.skills?.length || 0, '个技能')
+      }
+    } catch (error) {
+      console.warn('[SlashCommand] 加载技能列表失败:', error)
+    }
+  }, [])
+
+  // 初始加载
+  useEffect(() => {
+    loadSkills()
+  }, [loadSkills])
+
+  // 当菜单打开时重新加载（确保最新）
+  useEffect(() => {
+    if (slashMenuVisible && availableSkills.length === 0) {
+      loadSkills()
+    }
+  }, [slashMenuVisible, availableSkills.length, loadSkills])
+
+  // 监听输入变化，检测斜杠命令
+  const handleInputChange = useCallback((e) => {
+    const value = e.target.value
+    chatState.setChatInput(value)
+
+    // 检测是否输入了 "/" 开头
+    if (value.startsWith('/')) {
+      setSlashMenuVisible(true)
+      console.log('[SlashCommand] 显示菜单, 当前技能数:', availableSkills.length)
+    } else {
+      setSlashMenuVisible(false)
+    }
+  }, [chatState, availableSkills.length])
+
+  // 选择技能
+  const handleSkillSelect = useCallback((skill) => {
+    chatState.setChatInput(`/${skill.name} `)
+    setSlashMenuVisible(false)
+    // 聚焦到输入框
+    setTimeout(() => {
+      const input = document.querySelector('.smart-chat-input-area input')
+      if (input) input.focus()
+    }, 100)
+  }, [chatState])
+
+  // 关闭菜单
+  const handleSlashMenuClose = useCallback(() => {
+    setSlashMenuVisible(false)
+  }, [])
 
   // ===== 流式聊天辅助函数 =====
   const createStreamRequestId = () => {
@@ -290,7 +366,7 @@ const SmartDesignChat = () => {
             toolName: payload.toolName,
             status: payload.type === 'tool_error' ? 'error' : 'done',
             summary: createToolSummary(payload.toolName, payload.args),
-            error: payload.error || toolResult?.error
+            error: extractErrorMessage(payload.error) || extractErrorMessage(toolResult?.error)
           })
         }
         // tool_done 携带了可视化结果，直接构建 toolCall 以渲染结果卡片（含保存按钮）
@@ -309,10 +385,10 @@ const SmartDesignChat = () => {
     if (payload.type === 'error') {
       updateStreamMessage(streamId, item => ({
         ...item,
-        content: item.content || `AI 回复失败：${payload.error || '未知错误'}`,
+        content: item.content || `AI 回复失败：${extractErrorMessage(payload.error) || '未知错误'}`,
         streaming: false,
         toolEvents: (item.toolEvents || []).map(tool => (
-          tool.status === 'loading' ? { ...tool, status: 'error', error: payload.error } : tool
+          tool.status === 'loading' ? { ...tool, status: 'error', error: extractErrorMessage(payload.error) } : tool
         ))
       }))
     }
@@ -387,7 +463,7 @@ const SmartDesignChat = () => {
       }
       const result = await window.electronAPI.invoke('createMixDesign', saveData)
       if (!result?.success) {
-        throw new Error(result?.error || '保存失败')
+        throw new Error(extractErrorMessage(result?.error) || '保存失败')
       }
       message.success('方案已保存')
     } catch (error) {
@@ -764,12 +840,12 @@ const SmartDesignChat = () => {
         if (res && res.success === false) {
           chatState.setChatLoading(false)
           agent.setAgentStatus('error')
-          chatState.setChatMessages(prev => [...prev, { role: 'assistant', content: 'Agent执行出错: ' + (res.error || '未知错误'), isError: true }])
+          chatState.setChatMessages(prev => [...prev, { role: 'assistant', content: 'Agent执行出错: ' + (extractErrorMessage(res.error) || '未知错误'), isError: true }])
         }
       } catch (e) {
         chatState.setChatLoading(false)
         agent.setAgentStatus('error')
-        chatState.setChatMessages(prev => [...prev, { role: 'assistant', content: 'Agent执行出错: ' + (e.message || '未知错误'), isError: true }])
+        chatState.setChatMessages(prev => [...prev, { role: 'assistant', content: 'Agent执行出错: ' + (extractErrorMessage(e.message) || '未知错误'), isError: true }])
       }
       chatState.setAttachment(null)
       return
@@ -806,7 +882,13 @@ const SmartDesignChat = () => {
   }
 
   const handleQuickPrompt = (msg) => {
-    chatState.setChatInput(msg)
+    if (msg === '/') {
+      // 显示斜杠命令菜单
+      chatState.setChatInput('/')
+      setSlashMenuVisible(true)
+    } else {
+      chatState.setChatInput(msg)
+    }
   }
 
   return (
@@ -883,7 +965,14 @@ const SmartDesignChat = () => {
             </Text>
             <Space wrap>
               {QUICK_PROMPTS.map((item, i) => (
-                <Button key={i} onClick={() => handleQuickPrompt(item.message)}>{item.label}</Button>
+                <Button
+                  key={i}
+                  onClick={() => handleQuickPrompt(item.message)}
+                  className={item.isSlash ? 'slash-quick-btn' : ''}
+                  icon={item.isSlash ? <AppstoreOutlined /> : null}
+                >
+                  {item.label}
+                </Button>
               ))}
             </Space>
           </div>
@@ -1112,13 +1201,20 @@ const SmartDesignChat = () => {
           </Tag>
         )}
       </div>
-      <div className="smart-chat-input-area">
+      <div className="smart-chat-input-area" style={{ position: 'relative' }}>
+        <SlashCommandMenu
+          visible={slashMenuVisible}
+          skills={availableSkills}
+          onSelect={handleSkillSelect}
+          onClose={handleSlashMenuClose}
+        />
         <Input
-          placeholder={chatState.analysisMode ? '输入你的追问，或继续对话...' : '输入你的需求，如：帮我设计C50泵送混凝土...'}
+          placeholder={chatState.analysisMode ? '输入你的追问，或继续对话...' : '输入 "/" 查看可用技能，或直接输入需求...'}
           value={chatState.chatInput}
-          onChange={(e) => chatState.setChatInput(e.target.value)}
+          onChange={handleInputChange}
           onPressEnter={handleSendChat}
           disabled={chatState.chatLoading}
+          prefix={<AppstoreOutlined style={{ color: '#bfbfbf', marginRight: 4 }} />}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
           <Space size={0}>

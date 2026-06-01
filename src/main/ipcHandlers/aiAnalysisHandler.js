@@ -688,6 +688,47 @@ const executeToolCall = async (toolName, args) => {
 }
 
 /**
+ * 创建工具执行器（优先使用 SkillExecutor）
+ * @param {string} message - 用户消息
+ * @param {object} context - 上下文
+ * @returns {Function} 工具执行函数
+ */
+const createToolExecutor = (message, context) => {
+  const skillExecutor = DeepSeekService.getSkillExecutor()
+
+  // 如果有 SkillExecutor，使用它
+  if (skillExecutor) {
+    return async (toolName, args) => {
+      // 注入额外上下文
+      const enrichedArgs = { ...args }
+      enrichedArgs._salesQuoteGuard = {
+        isSalesQuoteIntent: SalesQuoteToolGuard.isSalesQuoteIntent(message),
+        userApprovedMixDesignForQuote: SalesQuoteToolGuard.hasExplicitMixDesignAuthorization(message)
+      }
+      if (context && context.mixDesigns) {
+        enrichedArgs._mixDesigns = context.mixDesigns
+      }
+
+      // 使用 SkillExecutor 执行
+      return skillExecutor.execute(toolName, enrichedArgs)
+    }
+  }
+
+  // 否则使用旧的 executeToolCall
+  return (toolName, args) => {
+    const enrichedArgs = { ...args }
+    enrichedArgs._salesQuoteGuard = {
+      isSalesQuoteIntent: SalesQuoteToolGuard.isSalesQuoteIntent(message),
+      userApprovedMixDesignForQuote: SalesQuoteToolGuard.hasExplicitMixDesignAuthorization(message)
+    }
+    if (context && context.mixDesigns) {
+      enrichedArgs._mixDesigns = context.mixDesigns
+    }
+    return executeToolCall(toolName, enrichedArgs)
+  }
+}
+
+/**
  * 与AI对话
  */
 const chatWithAI = async (event, { message, context }) => {
@@ -697,21 +738,9 @@ const chatWithAI = async (event, { message, context }) => {
   }
 
   try {
-    // 将配合比数据注入工具执行上下文（供 run_parameter_diagnosis 使用）
-    const toolExecutorWithContext = (toolName, args) => {
-      const enrichedArgs = { ...args }
-      enrichedArgs._salesQuoteGuard = {
-        isSalesQuoteIntent: SalesQuoteToolGuard.isSalesQuoteIntent(message),
-        userApprovedMixDesignForQuote: SalesQuoteToolGuard.hasExplicitMixDesignAuthorization(message)
-      }
-      if (context && context.mixDesigns) {
-        enrichedArgs._mixDesigns = context.mixDesigns
-      }
-      return executeToolCall(toolName, enrichedArgs)
-    }
-
+    const toolExecutor = createToolExecutor(message, context)
     const result = await service.chat(message, context, {
-      toolExecutor: toolExecutorWithContext
+      toolExecutor
     })
     return result
   } catch (error) {
@@ -734,20 +763,9 @@ const chatWithAIStream = async (event, { requestId, message, context }) => {
   }
 
   try {
-    const toolExecutorWithContext = (toolName, args) => {
-      const enrichedArgs = { ...args }
-      enrichedArgs._salesQuoteGuard = {
-        isSalesQuoteIntent: SalesQuoteToolGuard.isSalesQuoteIntent(message),
-        userApprovedMixDesignForQuote: SalesQuoteToolGuard.hasExplicitMixDesignAuthorization(message)
-      }
-      if (context && context.mixDesigns) {
-        enrichedArgs._mixDesigns = context.mixDesigns
-      }
-      return executeToolCall(toolName, enrichedArgs)
-    }
-
+    const toolExecutor = createToolExecutor(message, context)
     const result = await service.chatStream(message, context, {
-      toolExecutor: toolExecutorWithContext,
+      toolExecutor,
       onEvent: sendStreamEvent
     })
 

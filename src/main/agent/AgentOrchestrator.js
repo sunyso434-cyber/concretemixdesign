@@ -5,9 +5,10 @@ const MAX_STEPS = 10
 const MAX_CONSECUTIVE_FAILURES = 2
 
 class AgentOrchestrator {
-  constructor({ deepseekService, toolRegistry }) {
+  constructor({ deepseekService, toolRegistry, skillExecutor }) {
     this.ds = deepseekService
     this.registry = toolRegistry
+    this.skillExecutor = skillExecutor || null
     this.wc = null
     this._paused = false
     this._aborted = false
@@ -112,7 +113,9 @@ class AgentOrchestrator {
             }
 
             // 协作模式确认
-            const toolMeta = this.registry.getToolMeta(tc.function.name)
+            const toolMeta = this.skillExecutor
+              ? this.skillExecutor.registry.getSkillMeta(tc.function.name)
+              : this.registry.getToolMeta(tc.function.name)
             if (mode === 'collaborative' && toolMeta?.requiresConfirmation) {
               const confirmed = await this._requestConfirmation(tc.function.name, args)
               if (!confirmed) {
@@ -123,8 +126,10 @@ class AgentOrchestrator {
               }
             }
 
-            // 执行工具
-            const execResult = await this.registry.execute(tc.function.name, args)
+            // 执行工具 (优先使用 SkillExecutor)
+            const execResult = this.skillExecutor
+              ? await this.skillExecutor.execute(tc.function.name, args)
+              : await this.registry.execute(tc.function.name, args)
             step.result = execResult
 
             if (execResult.success === false) {

@@ -2,6 +2,9 @@ const { ipcMain } = require('electron')
 const DeepSeekService = require('../services/DeepSeekService')
 const AgentOrchestrator = require('../agent/AgentOrchestrator')
 const ToolRegistry = require('../agent/ToolRegistry')
+const SkillRegistry = require('../agent/SkillRegistry')
+const SkillExecutor = require('../agent/SkillExecutor')
+const ContextProvider = require('../agent/ContextProvider')
 const SharedSchemas = require('../agent/SharedSchemas')
 const agentMemoryService = require('../services/AgentMemoryService')
 const SystemService = require('../services/SystemService')
@@ -9,7 +12,31 @@ const SystemService = require('../services/SystemService')
 // 缓存实例
 let orchestrator = null
 let toolRegistry = null
+let skillRegistry = null
+let skillExecutor = null
 let cachedApiKey = null
+
+// 初始化 Skill 系统（应用启动时调用）
+async function initSkillSystem() {
+  if (skillRegistry) return skillRegistry
+
+  console.log('[AgentHandler] 初始化 Skill 系统...')
+  skillRegistry = new SkillRegistry()
+  await skillRegistry.discover()
+
+  // 设置 DeepSeekService 的 SkillRegistry
+  DeepSeekService.setSkillRegistry(skillRegistry)
+
+  // 创建 SkillExecutor
+  const contextProvider = new ContextProvider()
+  skillExecutor = new SkillExecutor({ skillRegistry, contextProvider })
+
+  // 设置 DeepSeekService 的 SkillExecutor
+  DeepSeekService.setSkillExecutor(skillExecutor)
+
+  console.log(`[AgentHandler] Skill 系统初始化完成, 已加载 ${skillRegistry.size} 个 skills`)
+  return skillRegistry
+}
 
 const getDeepSeekApiKey = async () => {
   try {
@@ -27,13 +54,17 @@ async function getOrchestrator() {
   if (!toolRegistry || !orchestrator || cachedApiKey !== apiKey) {
     const ds = new DeepSeekService(apiKey)
 
-    // 构建 ToolRegistry 并注册所有工具
+    // 确保 Skill 系统已初始化
+    await initSkillSystem()
+
+    // 构建 ToolRegistry 并注册所有工具 (向后兼容)
     toolRegistry = new ToolRegistry()
     registerTools(toolRegistry)
 
     orchestrator = new AgentOrchestrator({
       deepseekService: ds,
-      toolRegistry
+      toolRegistry,
+      skillExecutor
     })
     cachedApiKey = apiKey
   }
@@ -374,6 +405,11 @@ function registerTools(registry) {
 
 // 注册 IPC 处理器
 function registerAgentHandlers() {
+  // 启动时初始化 Skill 系统
+  initSkillSystem().catch(err => {
+    console.error('[AgentHandler] Skill 系统初始化失败:', err)
+  })
+
   ipcMain.handle('agent:run', async (event, { requestId, sessionId, message, mode }) => {
     const ag = await getOrchestrator()
     if (!ag) {
@@ -455,6 +491,64 @@ function registerAgentHandlers() {
     await CorrectionRule.destroy({ where: {}, truncate: true })
     return { success: true }
   })
+
+  // ===== Skill 管理 =====
+
+  ipcMain.handle('skill:listAll', async () => {
+    // 如果未初始化，尝试初始化
+    if (!skillRegistry) {
+      try {
+        await initSkillSystem()
+      } catch (err) {
+        return { success: false, error: 'Skill 系统初始化失败: ' + err.message }
+      }
+    }
+    const skills = skillExecutor ? skillExecutor.listSkills() : []
+    return { success: true, skills }
+  })
+
+  ipcMain.handle('skill:getUserDir', async () => {
+    if (!skillRegistry) {
+      return { success: false, error: 'Skill 系统未初始化' }
+    }
+    return { success: true, dir: skillRegistry.getUserDir() }
+  })
+
+  ipcMain.handle('skill:getUserSkills', async () => {
+    if (!skillRegistry) {
+      return { success: false, error: 'Skill 系统未初始化' }
+    }
+    const skills = skillRegistry.getUserSkills()
+    return { success: true, skills }
+  })
+
+  ipcMain.handle('skill:openUserDir', async () => {
+    if (!skillRegistry) {
+      return { success: false, error: 'Skill 系统未初始化' }
+    }
+    const { shell } = require('electron')
+    const dir = skillRegistry.getUserDir()
+    shell.openPath(dir)
+    return { success: true }
+  })
+
+  ipcMain.handle('skill:reload', async () => {
+    if (!skillRegistry) {
+      return { success: false, error: 'Skill 系统未初始化' }
+    }
+    try {
+      // 重新发现 skills
+      skillRegistry._skills.clear()
+      await skillRegistry.discover()
+      return { success: true, count: skillRegistry.size, names: skillRegistry.skillNames }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
 }
 
-module.exports = { registerAgentHandlers }
+module.exports = {
+  registerAgentHandlers,
+  getSkillRegistry: () => skillRegistry,
+  getSkillExecutor: () => skillExecutor
+}

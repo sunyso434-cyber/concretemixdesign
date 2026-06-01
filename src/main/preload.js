@@ -41,6 +41,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     } else {
       listenerCache.clear()
     }
+  },
+  // Skill 管理
+  skill: {
+    listAll: () => ipcRenderer.invoke('skill:listAll'),
+    getUserDir: () => ipcRenderer.invoke('skill:getUserDir'),
+    getUserSkills: () => ipcRenderer.invoke('skill:getUserSkills'),
+    openUserDir: () => ipcRenderer.invoke('skill:openUserDir'),
+    reload: () => ipcRenderer.invoke('skill:reload')
   }
 })
 
@@ -82,5 +90,19 @@ contextBridge.exposeInMainWorld('electron', {
   inverseCalculation: {
     importExcel: (filePath) => ipcRenderer.invoke('inverseCalculation.importExcel', { filePath }),
     calculate: (params) => ipcRenderer.invoke('inverseCalculation.calculate', params)
+  },
+  // 配合比→报价数据流（确保数据一致）
+  mixDesignToQuote: {
+    generate: (mixDesignResult, pricing) => ipcRenderer.invoke('mixDesignToQuote:generate', { mixDesignResult, pricing }),
+    validate: (basicMix, quoteResult) => ipcRenderer.invoke('mixDesignToQuote:validate', { basicMix, quoteResult }),
+    saveBasicMix: (mixDesignResult) => ipcRenderer.invoke('mixDesignToQuote:saveBasicMix', { mixDesignResult })
+  },
+  // Skill 管理
+  skill: {
+    listAll: () => ipcRenderer.invoke('skill:listAll'),
+    getUserDir: () => ipcRenderer.invoke('skill:getUserDir'),
+    getUserSkills: () => ipcRenderer.invoke('skill:getUserSkills'),
+    openUserDir: () => ipcRenderer.invoke('skill:openUserDir'),
+    reload: () => ipcRenderer.invoke('skill:reload')
   }
 })

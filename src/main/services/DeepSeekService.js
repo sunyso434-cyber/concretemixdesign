@@ -7,6 +7,10 @@ const axios = require('axios')
 
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions'
 
+// Skill 系统引用 (由 agentHandler 设置)
+let _skillRegistry = null
+let _skillExecutor = null
+
 const TOOLS = [
   {
     type: 'function',
@@ -394,6 +398,41 @@ class DeepSeekService {
     this.conversationHistory = []
   }
 
+  /**
+   * 设置 Skill 注册表 (静态方法)
+   * @param {object} registry - SkillRegistry 实例
+   */
+  static setSkillRegistry(registry) {
+    _skillRegistry = registry
+  }
+
+  /**
+   * 设置 Skill 执行器 (静态方法)
+   * @param {object} executor - SkillExecutor 实例
+   */
+  static setSkillExecutor(executor) {
+    _skillExecutor = executor
+  }
+
+  /**
+   * 获取工具定义 (优先从 SkillRegistry)
+   * @returns {object[]} 工具定义数组
+   */
+  static getToolDefinitions() {
+    if (_skillRegistry) {
+      return _skillRegistry.getToolSchemas()
+    }
+    return TOOLS
+  }
+
+  /**
+   * 获取 Skill 执行器
+   * @returns {object|null} SkillExecutor 实例
+   */
+  static getSkillExecutor() {
+    return _skillExecutor
+  }
+
   async chatStream(message, context = null, options = {}) {
     return this.chat(message, context, {
       ...options,
@@ -415,7 +454,8 @@ class DeepSeekService {
       thinking: { type: 'enabled' }
     }
     if (includeTools) {
-      requestBody.tools = TOOLS
+      // 优先从 SkillRegistry 获取工具定义
+      requestBody.tools = _skillRegistry ? _skillRegistry.getToolSchemas() : TOOLS
     }
 
     try {
@@ -694,6 +734,14 @@ class DeepSeekService {
 - 缺少必填参数时必须向用户追问，不可自行填充
 - 只有当用户明确说"用默认值"、"默认就行"时，才允许省略非必填参数
 
+### 砂率参数传递规则（重要）
+- **用户明确指定砂率时**：必须将用户说的砂率值传递给 sandRatio 参数（数字类型，单位%）
+  - 例：用户说"砂率47%" → sandRatio: 47
+  - 例：用户说"砂率设为45" → sandRatio: 45
+- **用户未指定砂率时**：不传 sandRatio 参数，系统会根据规范自动计算
+- **不要自行修改用户指定的砂率值**：用户说47%就传47，不要改成其他值
+- **每次调用都要检查**：如果对话中用户指定了砂率，每次调用 calculate_mix_design 时都要带上这个参数
+
 ### 细骨料组合规则（重要）
 - **不要建议具体比例**：用户选择多种细骨料时，配合比计算工具会根据目标组合细度模数自动计算最佳比例。你不需要也不应该建议"60%砂A + 40%砂B"这类具体比例。
 - **组合细度模数的默认值**：系统默认C30的目标组合细度模数为2.7，每提高一个强度等级（5MPa）细度模数增加0.1。
@@ -719,7 +767,20 @@ class DeepSeekService {
 - 用户说"保存方案"、"把这个存起来"、"保存这个配合比"等，调用 save_mix_design 保存到方案库。
 - 用户说"保存到基准配合比库"、"存入基础库"、"加到报价库"等，调用 save_to_basic_mix_library 保存到基础配合比库。
 - **必须先完成配合比计算或成本优化才能保存**。如果还没有计算结果，告诉用户先进行计算。
-- 保存成功后告诉用户已保存，让用户放心。`
+- 保存成功后告诉用户已保存，让用户放心。
+
+### 创建自定义技能
+- 用户说"我想加一个XX功能"、"帮我创建一个XX工具"、"能不能支持XX"时，调用 create_skill 创建新技能。
+- 创建技能时需要收集：技能名称（英文）、描述、功能说明、参数定义。
+- 技能创建后会自动加载，用户可以立即使用。
+- 示例：用户说"我想加一个自密实混凝土配合比设计的功能"，你需要：
+  1. 询问用户具体需求（参数、约束条件等）
+  2. 调用 create_skill 创建技能骨架
+  3. 告诉用户技能已创建，可以开始使用
+
+### 管理自定义技能
+- 用户说"我有哪些技能"、"查看自定义技能"、"删除XX技能"时，调用 manage_skills。
+- 操作类型：list=列表, delete=删除, info=查看信息, help=帮助。`
     }
 
     let userMessage = message

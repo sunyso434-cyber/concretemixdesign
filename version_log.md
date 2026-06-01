@@ -1,5 +1,99 @@
 # 版本更新记录
 
+## 打包记录 (2026-05-29 Skill 系统重构 4.1.0)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.1.0**
+- **输出目录**: `dist-3.8.0/`
+- **说明**: 全链路 Skill 系统重构，解决工具定义不同步、错误格式不统一、参数验证分散等问题：
+  1. **SkillRegistry** — 自动扫描 `skills/` 目录，统一注册所有 Skill，单一来源生成 JSON Schema
+  2. **SkillExecutor** — 统一执行引擎，参数自动验证 + 错误标准化 + 上下文注入
+  3. **SchemaValidator** — 参数自动验证 (required, type, min/max, enum, array items)
+  4. **ErrorCodes** — 统一错误码体系，每个错误包含 `code` + `hint` + `recovery` 策略
+  5. **ContextProvider** — 共享上下文提供，Skill 通过 `context` 访问材料库、计算服务等
+  6. **16个内置 Skill** — 从 `agentHandler.js` 迁移到独立的 `skills/*.js` 文件
+  7. **用户自定义 Skill** — 支持 `~/.concrete-mixdesign/skills/` 目录自动发现
+  8. **DeepSeekService 集成** — 工具定义从 SkillRegistry 获取，消除两套定义不同步问题
+  9. **AgentOrchestrator 集成** — 优先使用 SkillExecutor 执行工具
+  10. **聊天模式统一** — aiAnalysisHandler 也使用 SkillExecutor，聊天和 Agent 模式完全统一
+  11. **修复系统提示词反引号** — 移除导致语法错误的反引号
+  12. **创建技能 Skill** — 用户可通过对话创建自定义技能（create_skill）
+  13. **管理技能 Skill** — 用户可查看、删除自定义技能（manage_skills）
+  14. **自动创建用户目录** — 首次运行自动创建 ~/.concrete-mixdesign/skills/ 并生成示例
+  15. **用户自定义技能文档** — docs/custom-skill-guide.md 完整开发指南
+  16. **斜杠命令菜单** — 输入 "/" 显示可用技能列表，支持搜索、键盘导航、分类显示
+- **新增文件**:
+  - `src/main/agent/ErrorCodes.js`
+  - `src/main/agent/SchemaValidator.js`
+  - `src/main/agent/ContextProvider.js`
+  - `src/main/agent/SkillRegistry.js`
+  - `src/main/agent/SkillExecutor.js`
+  - `src/main/skills/*.js` (16个 Skill 文件)
+  - `tests/test-skill-system.js`
+- **修改文件**:
+  - `src/main/services/DeepSeekService.js` (添加 setSkillRegistry)
+  - `src/main/agent/AgentOrchestrator.js` (支持 SkillExecutor)
+  - `src/main/ipcHandlers/agentHandler.js` (初始化 Skill 系统)
+  - `package.json` (版本号更新)
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 4.1.0.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-4.1.0-x64.exe`
+
+## 打包记录 (2026-05-29 砂率参数传递修复 4.0.1)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.0.1**
+- **输出目录**: `dist-3.8.0/`
+- **说明**: 修复AI Agent调用配合比计算工具时砂率参数丢失的问题：
+  1. **系统提示词增强** — 新增"砂率参数传递规则"章节，明确要求AI在用户指定砂率时必须传递 `sandRatio` 参数
+  2. **参数传递规范** — 用户说"砂率47%"时，AI必须传递 `sandRatio: 47`（数字类型，单位%）
+  3. **禁止自行修改** — AI不得擅自修改用户指定的砂率值
+- **修改文件**:
+  - `src/main/services/DeepSeekService.js`（系统提示词添加砂率规则）
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 4.0.1.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-4.0.1-x64.exe`
+
+## 打包记录 (2026-05-29 配合比→报价数据一致性保障 4.0.1)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.0.1**
+- **输出目录**: `dist-3.8.0/`
+- **说明**: 新增配合比设计→销售报价数据流服务，从根源解决数据不一致问题：
+  1. **MixDesignToQuoteService** — 核心数据流服务，配合比设计完成后自动保存为基础配合比，报价强制使用同一份数据
+  2. **数据一致性验证** — 生成报价后自动检查材料种类和用量是否100%一致，不一致则报错拦截
+  3. **对比报告生成** — 支持生成详细的材料对比报告，清晰展示每个材料的匹配状态
+  4. **IPC接口暴露** — 新增 `mixDesignToQuote:generate/validate/saveBasicMix` 三个IPC通道
+  5. **测试验证** — 5项测试全部通过（格式化、一致性验证、用量检测、种类检测、报告生成）
+- **修改文件**:
+  - `src/main/services/MixDesignToQuoteService.js`（新增）
+  - `src/main/ipcHandlers/mixDesignToQuoteHandler.js`（新增）
+  - `main.js`（注册新处理器）
+  - `src/main/preload.js`（暴露API）
+  - `tests/test-mix-design-to-quote.js`（新增测试）
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 4.0.1.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-4.0.1-x64.exe`
+
+## 打包记录 (2026-05-29 合并后重新打包 4.0.1)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.0.1**
+- **输出目录**: `dist-3.8.0/`
+- **说明**: 合并 worktree-agent-architecture 分支后重新打包，包含所有功能：
+  1. **AI Agent 智能体架构** — Agent 运行时引擎、ReAct 循环、对话记忆系统
+  2. **ONNX 模型加载修复** — 打包后模型文件正确解压到磁盘
+  3. **思考过程显示** — 实时展示 AI 思考过程（纯文本）
+  4. **工具中文名称** — 13 个工具全部添加中文名称
+  5. **销售报价模糊匹配** — 规则匹配支持关键词模糊搜索
+- **输出文件**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 4.0.1.exe`
+  - `dist-3.8.0/混凝土配合比设计软件-4.0.1-x64.exe`
+
 ## 打包记录 (2026-05-29 思考过程显示与工具中文名 3.8.2)
 
 - **命令**: `npm run electron:build`

@@ -2183,6 +2183,47 @@ body {
   padding: 12px 0 0 0;
   border-top: 1px solid var(--color-border, #e8e8e8);
 }
+
+/* 斜杠命令菜单样式 */
+.slash-command-menu {
+  animation: slashMenuSlideUp 0.2s ease-out;
+}
+
+@keyframes slashMenuSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.slash-command-menu .ant-list-item {
+  transition: background 0.15s ease;
+}
+
+.slash-command-menu .ant-list-item:hover {
+  background: #f5f5f5;
+}
+
+.slash-command-menu .ant-input-affix-wrapper {
+  border-radius: 6px;
+}
+
+/* 斜杠命令快捷按钮 */
+.slash-quick-btn {
+  border-style: dashed;
+  color: #1890ff;
+  font-weight: 500;
+}
+
+.slash-quick-btn:hover {
+  border-color: #1890ff;
+  color: #40a9ff;
+  background: #f0f7ff;
+}
 .smart-design-chat .smart-chat-tags-row {
   display: flex;
   align-items: center;

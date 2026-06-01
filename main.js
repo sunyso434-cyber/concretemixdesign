@@ -46,6 +46,7 @@ require('./src/main/ipcHandlers/inverseCalculationHandler') // 原材料参数�
 const SystemHandler = require('./src/main/ipcHandlers/systemHandler')
 require('./src/main/ipcHandlers/aiAnalysisHandler')
 require('./src/main/ipcHandlers/salesQuoteHandler') // 销售报价 IPC 处理器
+require('./src/main/ipcHandlers/mixDesignToQuoteHandler') // 配合比→报价数据流 IPC 处理器
 require('./src/main/ipcHandlers/xgboostPredictionHandler') // XGBoost性能预测 IPC 处理器
 require('./src/main/ipcHandlers/complianceHandler').registerHandlers(ipcMain) // 规范审查 IPC 处理器
 require('./src/main/ipcHandlers/agentHandler').registerAgentHandlers() // AI Agent IPC 处理器

@@ -30,3 +30,5 @@ Thumbs.db
 
 # Optional local tooling (do not commit secrets)
 .claude/settings.local.json
+# Added by code-review-graph
+.code-review-graph/
