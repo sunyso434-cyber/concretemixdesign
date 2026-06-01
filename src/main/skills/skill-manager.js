@@ -16,8 +16,8 @@ module.exports = {
   parameters: {
     action: {
       type: 'string',
-      description: '操作类型：list=列表, delete=删除, info=查看信息, help=帮助',
-      required: true,
+      description: '操作类型：list=列表, delete=删除, info=查看信息, help=帮助。不填默认 list',
+      required: false,
       enum: ['list', 'delete', 'info', 'help']
     },
     skillName: {
@@ -43,7 +43,7 @@ module.exports = {
   },
 
   async execute(args, context) {
-    const { action, skillName } = args
+    const { action = 'list', skillName } = args
     const { logger } = context
 
     logger.info(`技能管理: action=${action}, skillName=${skillName}`)

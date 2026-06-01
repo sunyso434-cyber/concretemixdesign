@@ -26,8 +26,8 @@ module.exports = {
     },
     functionality: {
       type: 'string',
-      description: '功能详细描述，包括输入参数、处理逻辑、输出结果',
-      required: true
+      description: '功能详细描述，包括输入参数、处理逻辑、输出结果。不填则使用 description',
+      required: false
     },
     parameters: {
       type: 'object',
@@ -60,6 +60,9 @@ module.exports = {
     const { skillName, description, functionality, parameters, exampleUsage } = args
     const { logger } = context
 
+    // functionality 不填时降级用 description
+    const effectiveFunctionality = functionality || description || '自定义技能'
+
     logger.info(`创建技能: ${skillName}`)
 
     // 检查技能名是否已存在
@@ -82,7 +85,7 @@ module.exports = {
     const skillCode = this._generateSkillCode({
       skillName,
       description,
-      functionality,
+      functionality: effectiveFunctionality,
       paramsCode,
       exampleUsage
     })
