@@ -1,506 +1,167 @@
-# »ìÄıÍÁÅäºÏ±ÈÉè¼ÆÈí¼ş - Skill ÏµÍ³Éè¼ÆÎÄµµ
+# æŠ€èƒ½ç³»ç»Ÿè®¾è®¡æ–‡æ¡£
 
-## ¸ÅÊö
+> æœ€åæ›´æ–°ï¼š2026-06-01ï¼ŒåŒ¹é… v4.1.0 å®é™…å®ç°
 
-Îª»ìÄıÍÁÅäºÏ±ÈÉè¼ÆÈí¼şÌí¼Ó Skill À©Õ¹ÄÜÁ¦£¬ÔÊĞíÓÃ»§Í¨¹ı×ÔÈ»ÓïÑÔÃèÊö¼ÆËã¹æÔòºÍ¼ì²éÂß¼­£¬ÓÉ DeepSeek LLM ×Ô¶¯Éú³É¿É¸´ÓÃµÄ skill ÎÄ¼ş£¬²¢Í¨¹ıÈí¼şÄÚµÄ Skill ¹ÜÀíÆ÷½øĞĞ¹ÜÀí¡£
+## æ¦‚è¿°
 
-## Éè¼ÆÄ¿±ê
+æŠ€èƒ½ç³»ç»Ÿæ˜¯æ··å‡åœŸé…åˆæ¯”è®¾è®¡è½¯ä»¶çš„æ ¸å¿ƒæ‰©å±•æœºåˆ¶ã€‚æ¯ä¸ªæŠ€èƒ½æ˜¯ä¸€ä¸ªç‹¬ç«‹çš„ JS æ¨¡å—ï¼Œå®šä¹‰ä¸€ç»„å‚æ•°å’Œä¸€ä¸ªæ‰§è¡Œå‡½æ•°ã€‚LLM å†³å®šè°ƒç”¨å“ªä¸ªæŠ€èƒ½ï¼Œå®é™…è®¡ç®—ç”±ä»£ç å®Œæˆã€‚
 
-### ºËĞÄÄ¿±ê
-- **½µµÍÀ©Õ¹ÃÅ¼÷**£º»ìÄıÍÁ¼¼ÊõÈËÔ±ÎŞĞè±à³Ì±³¾°£¬Í¨¹ı×ÔÈ»ÓïÑÔÃèÊö¼´¿É´´½¨ĞÂ¹¦ÄÜ
-- **Ö§³ÖÁ½ÀàÀ©Õ¹**£ºÅäºÏ±È¼ÆËã¹æÔò + ¹æ·¶ºÏ¹æĞÔ¼ì²é
-- **¿É¸´ÓÃĞÔ**£ºÉú³ÉµÄ skill ¿É±£´æ¡¢·ÖÏí¡¢ÔÚ²»Í¬ÏîÄ¿ÖĞÖØ¸´Ê¹ÓÃ
-- **½çÃæ»¯¹ÜÀí**£ºÔÚÈí¼şÄÚÌá¹©ÍêÕûµÄ skill ¹ÜÀí½çÃæ£¬ÎŞĞè²Ù×÷ÎÄ¼şÏµÍ³
+## æ¶æ„
 
-### Ô¼ÊøÌõ¼ş
-- ĞÅÈÎÓÃ»§£¬skill Îª×ÔÓÉ JS ´úÂë£¬ÎŞÉ³ÏäÏŞÖÆ
-- ±£ÁôÔ­Ê¼ÎÄ¼ş±ãÓÚµ÷ÊÔºÍ°æ±¾¿ØÖÆ
-- ¸´ÓÃÒÑÓĞµÄ DeepSeek LLM ½Ó¿Ú
-
-## ¼¼Êõ¼Ü¹¹
-
-### ·½°¸Ñ¡Ôñ£º»ìºÏÄ£Ê½£¨ÎÄ¼ş + Êı¾İ¿âË÷Òı£©
-
-**Êı¾İ¿â²ã**£º
-- ´æ´¢ skill µÄÔªÊı¾İË÷Òı£¨Ãû³Æ¡¢ÃèÊö¡¢°æ±¾¡¢ÎÄ¼şÂ·¾¶µÈ£©
-- ¼ÇÂ¼°²×°Ê±¼ä¡¢ÆôÓÃ×´Ì¬
-- Ö§³Ö¿ìËÙ²éÑ¯ºÍ½çÃæÕ¹Ê¾
-
-**ÎÄ¼ş²ã**£º
-- ´æ´¢Êµ¼ÊµÄ skill ´úÂëºÍÅäÖÃÎÄ¼ş
-- Ò»¸ö skill ¶ÔÓ¦Ò»¸öÎÄ¼ş¼Ğ
-- ±ãÓÚµ÷ÊÔ¡¢°æ±¾¿ØÖÆºÍÎÄ¼ş·ÖÏí
-
-### Ä¿Â¼½á¹¹
+### æ ¸å¿ƒç»„ä»¶
 
 ```
-concrete-mixdesign/
-©À©¤©¤ skills/                          # Skill ¸ùÄ¿Â¼
-©¦   ©À©¤©¤ self-compacting-concrete/    # Ê¾Àı£º×ÔÃÜÊµ»ìÄıÍÁ skill
-©¦   ©¦   ©À©¤©¤ skill.json              # ÔªÊı¾İ£¨±ØĞè£©
-©¦   ©¦   ©À©¤©¤ README.md               # ËµÃ÷ÎÄµµ£¨±ØĞè£©
-©¦   ©¦   ©À©¤©¤ calculator.js           # ÅäºÏ±È¼ÆËãÂß¼­£¨¿ÉÑ¡£©
-©¦   ©¦   ©À©¤©¤ checker.js              # ¹æ·¶¼ì²éÂß¼­£¨¿ÉÑ¡£©
-©¦   ©¦   ©¸©¤©¤ report-template.md      # ±¨¸æÄ£°å£¨¿ÉÑ¡£©
-©¦   ©¦
-©¦   ©À©¤©¤ high-performance-concrete/   # Ê¾Àı£º¸ßĞÔÄÜ»ìÄıÍÁ skill
-©¦   ©¦   ©À©¤©¤ skill.json
-©¦   ©¦   ©À©¤©¤ README.md
-©¦   ©¦   ©À©¤©¤ calculator.js
-©¦   ©¦   ©¸©¤©¤ checker.js
-©¦   ©¦
-©¦   ©¸©¤©¤ lightweight-aggregate/       # Ê¾Àı£ºÇá¹ÇÁÏ»ìÄıÍÁ skill
-©¦       ©¸©¤©¤ ...
-©¦
-©À©¤©¤ src/
-©¦   ©À©¤©¤ main/
-©¦   ©¦   ©À©¤©¤ services/
-©¦   ©¦   ©¦   ©À©¤©¤ SkillManager.js     # Skill ¹ÜÀí·şÎñ
-©¦   ©¦   ©¦   ©À©¤©¤ SkillLoader.js      # Skill ¶¯Ì¬¼ÓÔØ
-©¦   ©¦   ©¦   ©À©¤©¤ SkillGenerator.js   # AI Éú³É skill
-©¦   ©¦   ©¦   ©¸©¤©¤ SkillExecutor.js    # Skill Ö´ĞĞÒıÇæ
-©¦   ©¦   ©¸©¤©¤ ...
-©¦   ©À©¤©¤ renderer/
-©¦   ©¦   ©À©¤©¤ components/
-©¦   ©¦   ©¦   ©¸©¤©¤ SkillManager/       # Skill ¹ÜÀí½çÃæ
-©¦   ©¦   ©¦       ©À©¤©¤ SkillList.jsx
-©¦   ©¦   ©¦       ©À©¤©¤ SkillEditor.jsx
-©¦   ©¦   ©¦       ©À©¤©¤ SkillGenerator.jsx
-©¦   ©¦   ©¦       ©¸©¤©¤ SkillInstaller.jsx
-©¦   ©¦   ©¸©¤©¤ ...
-©¦   ©¸©¤©¤ ...
-©¦
-©¸©¤©¤ data/
-    ©¸©¤©¤ skills.db                   # SQLite Êı¾İ¿â
+src/main/agent/
+â”œâ”€â”€ SkillRegistry.js      # æŠ€èƒ½æ³¨å†Œä¸å‘ç°
+â”œâ”€â”€ SkillExecutor.js       # æŠ€èƒ½æ‰§è¡Œå¼•æ“
+â”œâ”€â”€ SchemaValidator.js     # å‚æ•°è‡ªåŠ¨æ ¡éªŒ
+â”œâ”€â”€ ErrorCodes.js          # ç»Ÿä¸€é”™è¯¯ç 
+â”œâ”€â”€ ContextProvider.js     # ä¸Šä¸‹æ–‡æœåŠ¡æ³¨å…¥
+â””â”€â”€ AgentOrchestrator.js   # å¤šæ­¥ Agent ç¼–æ’
 ```
 
-## Êı¾İÄ£ĞÍ
+### æ‰§è¡Œæµç¨‹
 
-### Êı¾İ¿â±í½á¹¹
-
-```sql
-CREATE TABLE skills (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name VARCHAR(100) NOT NULL UNIQUE,      -- skill Ãû³Æ£¨Ó¢ÎÄ±êÊ¶£©
-    display_name VARCHAR(200) NOT NULL,     -- ÏÔÊ¾Ãû³Æ£¨ÖĞÎÄ£©
-    description TEXT,                        -- ÃèÊö
-    version VARCHAR(20) DEFAULT '1.0.0',    -- °æ±¾ºÅ
-    author VARCHAR(100),                     -- ×÷Õß
-    category VARCHAR(50),                    -- ·ÖÀà£¨¼ÆËã/¼ì²é/×ÛºÏ£©
-    file_path VARCHAR(500) NOT NULL,        -- ÎÄ¼ş¼ĞÂ·¾¶
-    entry_point VARCHAR(100) DEFAULT 'calculator.js', -- Èë¿ÚÎÄ¼ş
-    enabled BOOLEAN DEFAULT 1,              -- ÊÇ·ñÆôÓÃ
-    installed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    metadata JSON                            -- À©Õ¹ÅäÖÃ
-);
+```
+ç”¨æˆ·è¾“å…¥ â†’ LLM å†³å®šè°ƒç”¨å“ªä¸ª skill
+    â†’ SkillExecutor.execute(name, args)
+        â†’ SchemaValidator æ ¡éªŒå‚æ•°
+        â†’ ContextProvider æ³¨å…¥æœåŠ¡
+        â†’ skill.execute(args, context)
+        â†’ è¿”å›ç»“æœç»™ LLM
 ```
 
-### skill.json ¸ñÊ½
+## æŠ€èƒ½æ ¼å¼
 
-```json
-{
-    "name": "self-compacting-concrete",
-    "displayName": "×ÔÃÜÊµ»ìÄıÍÁÅäºÏ±ÈÉè¼Æ",
-    "description": "¸ù¾İ JGJ/T 283-2012 ½øĞĞ×ÔÃÜÊµ»ìÄıÍÁÅäºÏ±È¼ÆËã",
-    "version": "1.0.0",
-    "author": "ÕÅ¹¤",
-    "category": "comprehensive",
-    "calculator": "calculator.js",
-    "checker": "checker.js",
-    "parameters": [
-        {
-            "name": "targetStrength",
-            "type": "number",
-            "unit": "MPa",
-            "description": "Ä¿±êÇ¿¶ÈµÈ¼¶",
-            "required": true
-        },
-        {
-            "name": "slumpFlow",
-            "type": "number",
-            "unit": "mm",
-            "description": "Ì®ÂäÀ©Õ¹¶ÈÒªÇó",
-            "required": true
-        }
-    ],
-    "outputs": [
-        {
-            "name": "cementContent",
-            "type": "number",
-            "unit": "kg/m3",
-            "description": "½ºÄı²ÄÁÏÓÃÁ¿"
-        }
-    ]
-}
-```
-
-## ºËĞÄÄ£¿éÉè¼Æ
-
-### 1. SkillManager£¨Skill ¹ÜÀí·şÎñ£©
-
-**Ö°Ôğ**£º
-- ¹ÜÀí skill µÄÉúÃüÖÜÆÚ£¨´´½¨¡¢¶ÁÈ¡¡¢¸üĞÂ¡¢É¾³ı£©
-- Î¬»¤Êı¾İ¿âË÷ÒıÓëÎÄ¼şÏµÍ³µÄÍ¬²½
-- Ìá¹©²éÑ¯ºÍ¹ıÂË¹¦ÄÜ
-
-**Ö÷Òª·½·¨**£º
+æ¯ä¸ªæŠ€èƒ½æ˜¯ä¸€ä¸ª CommonJS æ¨¡å—ï¼Œå¯¼å‡ºä»¥ä¸‹å­—æ®µï¼š
 
 ```javascript
-class SkillManager {
-    // ´´½¨ĞÂ skill
-    async createSkill(skillData) {}
-    
-    // »ñÈ¡ËùÓĞÒÑ°²×°µÄ skill
-    async getInstalledSkills(filters) {}
-    
-    // »ñÈ¡µ¥¸ö skill ÏêÇé
-    async getSkillByName(name) {}
-    
-    // ¸üĞÂ skill
-    async updateSkill(name, updates) {}
-    
-    // É¾³ı skill
-    async deleteSkill(name) {}
-    
-    // ÆôÓÃ/½ûÓÃ skill
-    async toggleSkill(name, enabled) {}
-    
-    // µ¼Èë skill£¨´ÓÎÄ¼ş¼Ğ£©
-    async importSkill(folderPath) {}
-    
-    // µ¼³ö skill
-    async exportSkill(name, outputPath) {}
-    
-    // Í¬²½Êı¾İ¿âÓëÎÄ¼şÏµÍ³
-    async syncWithFileSystem() {}
+module.exports = {
+  // ===== å¿…å¡« =====
+  name: 'my_skill',              // è‹±æ–‡æ ‡è¯†ç¬¦ï¼Œå…¨å±€å”¯ä¸€
+  description: 'æŠ€èƒ½æè¿°',        // LLM æ ¹æ®æ­¤æè¿°å†³å®šä½•æ—¶è°ƒç”¨
+  parameters: { ... },            // å‚æ•°å®šä¹‰
+  async execute(args, context) { ... }  // æ‰§è¡Œå‡½æ•°
+
+  // ===== å¯é€‰ =====
+  version: '1.0.0',
+  category: 'core',              // core | query | save | analysis | system | custom
+  requiresConfirmation: false,   // åä½œæ¨¡å¼ä¸‹æ˜¯å¦éœ€è¦ç”¨æˆ·ç¡®è®¤
+  errors: { ... }                // è‡ªå®šä¹‰é”™è¯¯ç 
 }
 ```
 
-### 2. SkillLoader£¨Skill ¶¯Ì¬¼ÓÔØ£©
-
-**Ö°Ôğ**£º
-- É¨Ãè skills Ä¿Â¼£¬¼ÓÔØËùÓĞ skill
-- ¶¯Ì¬ require() skill ÎÄ¼ş
-- »º´æÒÑ¼ÓÔØµÄ skill ÊµÀı
-
-**Ö÷Òª·½·¨**£º
+### å‚æ•°å®šä¹‰
 
 ```javascript
-class SkillLoader {
-    // ¼ÓÔØµ¥¸ö skill
-    loadSkill(skillPath) {}
-    
-    // ¼ÓÔØËùÓĞ skill
-    loadAllSkills() {}
-    
-    // ÖØĞÂ¼ÓÔØÖ¸¶¨ skill£¨ÈÈ¸üĞÂ£©
-    reloadSkill(name) {}
-    
-    // »ñÈ¡ skill µÄ¼ÆËãÆ÷
-    getCalculator(name) {}
-    
-    // »ñÈ¡ skill µÄ¼ì²éÆ÷
-    getChecker(name) {}
+parameters: {
+  strength: {
+    type: 'string',           // string | number | integer | boolean | array | object
+    description: 'å¼ºåº¦ç­‰çº§',   // ç»™ LLM çœ‹çš„è¯´æ˜
+    required: true,            // æ˜¯å¦å¿…å¡«
+    examples: ['C20', 'C30'], // ç¤ºä¾‹å€¼ï¼ˆå¯é€‰ï¼‰
+    enum: ['C20', 'C30'],     // æšä¸¾çº¦æŸï¼ˆå¯é€‰ï¼‰
+    min: 0,                   // æœ€å°å€¼ï¼ˆæ•°å€¼ç±»å‹ï¼‰
+    max: 100,                 // æœ€å¤§å€¼ï¼ˆæ•°å€¼ç±»å‹ï¼‰
+    minItems: 1,              // æœ€å°‘å…ƒç´ æ•°ï¼ˆæ•°ç»„ç±»å‹ï¼‰
+    maxItems: 5,              // æœ€å¤šå…ƒç´ æ•°ï¼ˆæ•°ç»„ç±»å‹ï¼‰
+    items: { type: 'integer' } // æ•°ç»„å…ƒç´ ç±»å‹
+  }
 }
 ```
 
-### 3. SkillGenerator£¨AI Éú³É·şÎñ£©
-
-**Ö°Ôğ**£º
-- ½ÓÊÕÓÃ»§µÄ×ÔÈ»ÓïÑÔÃèÊö
-- µ÷ÓÃ DeepSeek LLM Éú³É skill ´úÂë
-- ¸ñÊ½»¯Êä³ö²¢±£´æµ½ÎÄ¼ş
-
-**AI ÌáÊ¾´ÊÄ£°å**£º
-
-```
-ÄãÊÇÒ»¸ö»ìÄıÍÁÅäºÏ±ÈÉè¼Æ×¨¼ÒºÍ JavaScript ¿ª·¢Õß¡£
-ÓÃ»§½«ÃèÊöÒ»ÖÖ»ìÄıÍÁÀàĞÍµÄÅäºÏ±È¼ÆËã¹æÔò»ò¹æ·¶¼ì²éÒªÇó¡£
-ÄãĞèÒªÉú³ÉÒ»¸öÍêÕûµÄ skill ÎÄ¼ş¼Ğ½á¹¹£¬°üÀ¨£º
-
-1. skill.json - ÔªÊı¾İÅäÖÃ
-2. README.md - Ê¹ÓÃËµÃ÷£¨ÖĞÎÄ£©
-3. calculator.js - ÅäºÏ±È¼ÆËãÂß¼­£¨Èç¹ûÓÃ»§ÃèÊöÁË¼ÆËã¹æÔò£©
-4. checker.js - ¹æ·¶¼ì²éÂß¼­£¨Èç¹ûÓÃ»§ÃèÊöÁË¼ì²éÒªÇó£©
-
-´úÂëÒªÇó£º
-- Ê¹ÓÃ CommonJS Ä£¿é¸ñÊ½£¨module.exports£©
-- Ã¿¸öº¯Êı¶¼ÒªÓĞ JSDoc ×¢ÊÍ
-- ÊäÈëÊä³öÒªÇåÎú¶¨Òå
-- °üº¬´íÎó´¦Àí
-- µ¥Î»Ê¹ÓÃ¹ú¼Ê±ê×¼µ¥Î»
-
-ÓÃ»§ÃèÊö£º
-{user_description}
-
-ÇëÉú³ÉÍêÕûµÄ skill ´úÂë£º
-```
-
-**Ö÷Òª·½·¨**£º
+### æ‰§è¡Œå‡½æ•°
 
 ```javascript
-class SkillGenerator {
-    // ´Ó×ÔÈ»ÓïÑÔÉú³É skill
-    async generateFromDescription(description) {}
-    
-    // Éú³É calculator.js
-    async generateCalculator(requirements) {}
-    
-    // Éú³É checker.js
-    async generateChecker(requirements) {}
-    
-    // Éú³É skill.json
-    async generateMetadata(description) {}
-    
-    // Éú³É README.md
-    async generateReadme(skillInfo) {}
-    
-    // ÓÅ»¯ÒÑÓĞµÄ skill ´úÂë
-    async optimizeSkill(name, feedback) {}
+async execute(args, context) {
+  const { logger, materialService, mixDesignService } = context
+
+  // context æä¾›çš„æœåŠ¡ï¼š
+  // - materialService        ææ–™åº“æŸ¥è¯¢
+  // - mixDesignService       é…åˆæ¯”è®¡ç®—
+  // - basicMixDesignService  åŸºå‡†é…åˆæ¯”
+  // - mixDesignOptimizer     æˆæœ¬ä¼˜åŒ–
+  // - complianceService      è§„èŒƒåˆè§„æ£€æŸ¥
+  // - knowledgeService       è§„èŒƒçŸ¥è¯†åº“æ£€ç´¢
+  // - salesQuoteCalculation  é”€å”®æŠ¥ä»·è®¡ç®—
+  // - salesQuoteHistory      æŠ¥ä»·å†å²
+  // - xgboostPrediction      å¼ºåº¦é¢„æµ‹
+  // - mixDesignToQuote       é…åˆæ¯”è½¬æŠ¥ä»·
+  // - logger                 å¸¦å‰ç¼€çš„æ—¥å¿—å™¨
+
+  return { success: true, data: { ... } }
+  // æˆ–
+  return { success: false, error: { code: 'ERROR_CODE', message: 'é”™è¯¯ä¿¡æ¯' } }
 }
 ```
 
-### 4. SkillExecutor£¨Skill Ö´ĞĞÒıÇæ£©
-
-**Ö°Ôğ**£º
-- Ö´ĞĞ skill µÄ¼ÆËãÂß¼­
-- Ö´ĞĞ skill µÄ¼ì²éÂß¼­
-- ÕûºÏµ½Ö÷¼ÆËãÁ÷³ÌÖĞ
-
-**Ö÷Òª·½·¨**£º
-
-```javascript
-class SkillExecutor {
-    // Ö´ĞĞÅäºÏ±È¼ÆËã
-    async executeCalculator(skillName, inputs) {}
-    
-    // Ö´ĞĞ¹æ·¶¼ì²é
-    async executeChecker(skillName, mixData) {}
-    
-    // ÑéÖ¤ skill ´úÂëµÄÓï·¨
-    validateSkillCode(code) {}
-    
-    // ²¶»ñÖ´ĞĞ´íÎó
-    wrapWithErrorHandling(func) {}
-}
-```
-
-## ÓÃ»§½çÃæÉè¼Æ
-
-### 1. Skill ÁĞ±íÒ³Ãæ
-
-**¹¦ÄÜ**£º
-- ÏÔÊ¾ËùÓĞÒÑ°²×°µÄ skill
-- Ö§³Ö°´·ÖÀà¡¢Ãû³ÆËÑË÷
-- ÏÔÊ¾ÆôÓÃ/½ûÓÃ×´Ì¬
-- ¿ì½İ²Ù×÷£¨±à¼­¡¢É¾³ı¡¢µ¼³ö£©
-
-**UI ÔªËØ**£º
-- ËÑË÷¿ò
-- ·ÖÀàÉ¸Ñ¡ÏÂÀ­¿ò
-- Skill ¿¨Æ¬ÁĞ±í£¨ÏÔÊ¾Ãû³Æ¡¢ÃèÊö¡¢°æ±¾¡¢×÷Õß£©
-- ĞÂ½¨ Skill °´Å¥
-
-### 2. Skill Éú³ÉÒ³Ãæ£¨AI ¸¨Öú£©
-
-**¹¦ÄÜ**£º
-- ×ÔÈ»ÓïÑÔÊäÈë¿ò
-- AI Éú³É½ø¶ÈÏÔÊ¾
-- Ô¤ÀÀÉú³ÉµÄ´úÂë
-- Ò»¼ü±£´æ°²×°
-
-**½»»¥Á÷³Ì**£º
-1. ÓÃ»§ÊäÈëÃèÊö£¨Èç"×ÔÃÜÊµ»ìÄıÍÁÅäºÏ±È¼ÆËã£¬¸ù¾İ JGJ/T 283-2012..."£©
-2. µã»÷"Éú³É Skill"
-3. ÏÔÊ¾¼ÓÔØ¶¯»­£¨AI ´¦ÀíÖĞ£©
-4. Ô¤ÀÀÉú³ÉµÄÎÄ¼şÁĞ±íºÍ´úÂë
-5. ÓÃ»§È·ÈÏºó±£´æµ½ skills Ä¿Â¼
-6. ×Ô¶¯×¢²áµ½Êı¾İ¿â
-
-### 3. Skill ±à¼­Ò³Ãæ
-
-**¹¦ÄÜ**£º
-- ±à¼­ skill.json ÔªÊı¾İ
-- ±à¼­ calculator.js ´úÂë£¨´øÓï·¨¸ßÁÁ£©
-- ±à¼­ checker.js ´úÂë
-- ±à¼­ README.md ÎÄµµ
-- ÊµÊ±ÑéÖ¤´úÂëÓï·¨
-
-### 4. Skill °²×°Ò³Ãæ
-
-**¹¦ÄÜ**£º
-- ´Ó±¾µØÎÄ¼ş¼Ğµ¼Èë
-- ´ÓÑ¹Ëõ°üµ¼Èë
-- ´ÓÆäËûÓÃ»§·ÖÏíµÄ skill °üµ¼Èë
-
-## ¹¤×÷Á÷³Ì
-
-### Á÷³Ì 1£ºÓÃ»§´´½¨ĞÂ Skill
+## ç›®å½•ç»“æ„
 
 ```
-ÓÃ»§ÊäÈë×ÔÈ»ÓïÑÔÃèÊö
-    ¡ı
-µ÷ÓÃ DeepSeek LLM Éú³É´úÂë
-    ¡ı
-Ô¤ÀÀÉú³ÉµÄÎÄ¼ş
-    ¡ı
-ÓÃ»§È·ÈÏ/ĞŞ¸Ä
-    ¡ı
-±£´æµ½ skills/ Ä¿Â¼
-    ¡ı
-×¢²áµ½Êı¾İ¿â
-    ¡ı
-¼ÓÔØµ½ÄÚ´æ
-    ¡ı
-¿ÉÔÚÅäºÏ±È¼ÆËãÖĞÊ¹ÓÃ
+src/main/skills/                    # å†…ç½®æŠ€èƒ½ï¼ˆéšåº”ç”¨åˆ†å‘ï¼‰
+â”œâ”€â”€ mix-design.js                   # é…åˆæ¯”è®¡ç®—
+â”œâ”€â”€ cost-optimization.js            # æˆæœ¬ä¼˜åŒ–
+â”œâ”€â”€ compliance-check.js             # è§„èŒƒå®¡æŸ¥
+â”œâ”€â”€ material-query.js               # ææ–™æŸ¥è¯¢
+â”œâ”€â”€ standards-query.js              # è§„èŒƒæ£€ç´¢
+â”œâ”€â”€ sales-quote.js                  # é”€å”®æŠ¥ä»·
+â”œâ”€â”€ ...                             # å…± 18 ä¸ª
+
+~/.concrete-mixdesign/skills/       # ç”¨æˆ·è‡ªå®šä¹‰æŠ€èƒ½
+â”œâ”€â”€ my-custom-skill.js              # ç”¨æˆ·åˆ›å»ºçš„æŠ€èƒ½
+â””â”€â”€ example-skill.js                # é¦–æ¬¡è¿è¡Œè‡ªåŠ¨åˆ›å»ºçš„ç¤ºä¾‹
 ```
 
-### Á÷³Ì 2£ºÓÃ»§Ê¹ÓÃ Skill
+## å†…ç½®æŠ€èƒ½åˆ—è¡¨
 
-```
-ÓÃ»§Ñ¡Ôñ»ìÄıÍÁÀàĞÍ£¨Èç"×ÔÃÜÊµ»ìÄıÍÁ"£©
-    ¡ı
-ÏµÍ³²éÕÒ¶ÔÓ¦µÄ skill
-    ¡ı
-¼ÓÔØ skill µÄ calculator.js
-    ¡ı
-Ö´ĞĞ¼ÆËã£¬ÊäÈë²ÎÊı
-    ¡ı
-Êä³öÅäºÏ±È½á¹û
-    ¡ı
-£¨¿ÉÑ¡£©¼ÓÔØ checker.js ½øĞĞºÏ¹æĞÔ¼ì²é
-    ¡ı
-ÏÔÊ¾¼ì²é½á¹û
-```
+| æ–‡ä»¶ | æŠ€èƒ½å | åˆ†ç±» | åŠŸèƒ½ |
+|------|--------|------|------|
+| mix-design.js | calculate_mix_design | core | é…åˆæ¯”è®¡ç®— |
+| cost-optimization.js | optimize_mix_cost | core | æˆæœ¬ä¼˜åŒ–ï¼ˆç½‘æ ¼æœç´¢ï¼‰ |
+| compliance-check.js | check_compliance | core | è§„èŒƒåˆè§„å®¡æŸ¥ |
+| compliance-query.js | query_compliance_check | core | è§„èŒƒåˆè§„æ ¡éªŒ |
+| sales-quote.js | calculate_sales_quote | core | é”€å”®æŠ¥ä»·ç”Ÿæˆ |
+| material-query.js | list_available_materials | query | ææ–™åº“æŸ¥è¯¢ |
+| standards-query.js | query_standards | query | è§„èŒƒæ¡æ¬¾æ£€ç´¢ |
+| standards-list.js | list_standards | query | å·²åŠ è½½è§„èŒƒåˆ—è¡¨ |
+| design-history.js | query_design_history | query | å†å²è®¾è®¡æŸ¥è¯¢ |
+| prepare-quote-draft.js | prepare_sales_quote_draft | query | æŠ¥ä»·è‰ç¨¿ç”Ÿæˆ |
+| compare-materials.js | compare_materials | analysis | ææ–™å¯¹æ¯”åˆ†æ |
+| performance-prediction.js | predict_performance | analysis | XGBoost å¼ºåº¦é¢„æµ‹ |
+| parameter-diagnosis.js | run_parameter_diagnosis | analysis | å‚æ•°è¯Šæ–­ |
+| save-mix-design.js | save_mix_design | save | ä¿å­˜é…åˆæ¯”æ–¹æ¡ˆ |
+| save-to-basic-mix.js | save_to_basic_mix_library | save | ä¿å­˜åˆ°åŸºå‡†åº“ |
+| save-sales-quote.js | save_sales_quote | save | ä¿å­˜æŠ¥ä»·è®°å½• |
+| create-skill.js | create_skill | system | åˆ›å»ºè‡ªå®šä¹‰æŠ€èƒ½ |
+| skill-manager.js | manage_skills | system | æŠ€èƒ½ç®¡ç† |
 
-### Á÷³Ì 3£ºÓÃ»§·ÖÏí Skill
+## ç”¨æˆ·è‡ªå»ºæŠ€èƒ½
 
-```
-ÓÃ»§Ñ¡ÔñÒªµ¼³öµÄ skill
-    ¡ı
-´ò°üÎª .zip ÎÄ¼ş£¨°üº¬ËùÓĞÎÄ¼ş£©
-    ¡ı
-ÆäËûÓÃ»§µ¼Èë .zip
-    ¡ı
-½âÑ¹µ½ skills/ Ä¿Â¼
-    ¡ı
-×¢²áµ½Êı¾İ¿â
-    ¡ı
-¿ÉÖ±½ÓÊ¹ÓÃ
-```
+### åˆ›å»ºæ–¹å¼
 
-## ¼¯³É·½°¸
+1. **UI åˆ›å»º**ï¼šè®¾ç½® â†’ æŠ€èƒ½ç®¡ç† â†’ åˆ›å»ºæ–°æŠ€èƒ½ï¼ˆæ”¯æŒé€‰æ‹©æ¨¡æ¿ï¼šæŸ¥è¯¢ç±»ã€è®¡ç®—ç±»ã€æ£€æŸ¥ç±»ï¼‰
+2. **æ‰‹åŠ¨åˆ›å»º**ï¼šåœ¨ `~/.concrete-mixdesign/skills/` ç›®å½•ä¸‹æ–°å»º `.js` æ–‡ä»¶
+3. **é‡è½½**ï¼šåˆ›å»ºåç‚¹å‡»"é‡æ–°åŠ è½½"æˆ–é‡å¯åº”ç”¨
 
-### ÓëÏÖÓĞÏµÍ³µÄ¼¯³Éµã
+### æ¨¡æ¿ç±»å‹
 
-1. **ÅäºÏ±È¼ÆËãÄ£¿é**
-   - ÔÚÏÖÓĞµÄ¼ÆËãÁ÷³ÌÖĞÌí¼Ó skill Ö´ĞĞµã
-   - ÓÃ»§¿ÉÒÔÑ¡ÔñÊ¹ÓÃÄÚÖÃËã·¨»ò skill Ëã·¨
+- **æŸ¥è¯¢ç±»**ï¼šä»æ•°æ®åº“æˆ–å¤–éƒ¨æºæŸ¥è¯¢æ•°æ®
+- **è®¡ç®—ç±»**ï¼šæ ¹æ®è¾“å…¥å‚æ•°æ‰§è¡Œå·¥ç¨‹è®¡ç®—
+- **æ£€æŸ¥ç±»**ï¼šæ ¡éªŒæ•°æ®æ˜¯å¦ç¬¦åˆè§„èŒƒæˆ–è§„åˆ™
 
-2. **¹æ·¶¼ì²éÄ£¿é**
-   - ÏÖÓĞµÄ ComplianceRuleEngine ¿ÉÒÔµ÷ÓÃ skill µÄ checker
-   - skill µÄ¼ì²é½á¹ûÓëÄÚÖÃ¼ì²é½á¹ûºÏ²¢ÏÔÊ¾
+## æµ‹è¯•
 
-3. **UI ²ã**
-   - ÔÚ²à±ßÀ¸Ìí¼Ó"Skill ¹ÜÀí"Èë¿Ú
-   - ÔÚÅäºÏ±È¼ÆËãÒ³ÃæÌí¼Ó"Ñ¡Ôñ¼ÆËã·½Ê½"ÏÂÀ­¿ò
+```bash
+# éªŒè¯æ‰€æœ‰ skill çš„ç»“æ„æ­£ç¡®æ€§
+node tests/test-skill-examples.js
 
-4. **±¨¸æÉú³É**
-   - skill ¿ÉÒÔ×Ô¶¨Òå±¨¸æÄ£°å
-   - ±¨¸æÉú³ÉÊ±¶ÁÈ¡ skill µÄÄ£°åÎÄ¼ş
-
-## ÊµÊ©¼Æ»®
-
-### ½×¶Î 1£º»ù´¡¿ò¼Ü£¨1-2 ÖÜ£©
-- [ ] ´´½¨ skills Ä¿Â¼½á¹¹
-- [ ] ÊµÏÖ SkillManager »ù´¡¹¦ÄÜ£¨CRUD£©
-- [ ] ÊµÏÖ SkillLoader ¶¯Ì¬¼ÓÔØ
-- [ ] ´´½¨Êı¾İ¿â±í½á¹¹
-
-### ½×¶Î 2£ºAI Éú³ÉÄÜÁ¦£¨1 ÖÜ£©
-- [ ] ÊµÏÖ SkillGenerator
-- [ ] Éè¼Æ AI ÌáÊ¾´ÊÄ£°å
-- [ ] ¼¯³É DeepSeek API
-- [ ] ÊµÏÖ´úÂëÔ¤ÀÀºÍÈ·ÈÏÁ÷³Ì
-
-### ½×¶Î 3£ºÖ´ĞĞÒıÇæ£¨1 ÖÜ£©
-- [ ] ÊµÏÖ SkillExecutor
-- [ ] ¼¯³Éµ½ÅäºÏ±È¼ÆËãÁ÷³Ì
-- [ ] ¼¯³Éµ½¹æ·¶¼ì²éÁ÷³Ì
-- [ ] ´íÎó´¦ÀíºÍÈÕÖ¾¼ÇÂ¼
-
-### ½×¶Î 4£ºÓÃ»§½çÃæ£¨2 ÖÜ£©
-- [ ] Skill ÁĞ±íÒ³Ãæ
-- [ ] Skill Éú³ÉÒ³Ãæ£¨AI ¸¨Öú£©
-- [ ] Skill ±à¼­Ò³Ãæ
-- [ ] Skill °²×°/µ¼³ö¹¦ÄÜ
-
-### ½×¶Î 5£º²âÊÔºÍÓÅ»¯£¨1 ÖÜ£©
-- [ ] µ¥Ôª²âÊÔ
-- [ ] ¼¯³É²âÊÔ
-- [ ] ÓÃ»§²âÊÔ
-- [ ] ĞÔÄÜÓÅ»¯
-
-## ¼¼ÊõÕ»
-
-- **ºó¶Ë**£ºNode.js + Electron
-- **Êı¾İ¿â**£ºSQLite£¨ÒÑÓĞ£©
-- **AI ·şÎñ**£ºDeepSeek API£¨ÒÑ¼¯³É£©
-- **Ç°¶Ë**£ºReact + Ant Design£¨¼ÙÉèÏÖÓĞ¼¼ÊõÕ»£©
-- **´úÂë±à¼­Æ÷**£ºMonaco Editor£¨ÓÃÓÚ skill ´úÂë±à¼­£©
-
-## ·çÏÕºÍ»º½â´ëÊ©
-
-| ·çÏÕ | Ó°Ïì | »º½â´ëÊ© |
-|------|------|----------|
-| AI Éú³ÉµÄ´úÂëÓĞ bug | ¼ÆËã½á¹û´íÎó | ÓÃ»§È·ÈÏÁ÷³Ì + ´úÂëÔ¤ÀÀ + ÈË¹¤ÉóºË |
-| ÓÃ»§ÃèÊö²»ÇåÎú | Éú³É²»·ûºÏÔ¤ÆÚ | ¶àÂÖ¶Ô»°ÓÅ»¯ + Ê¾Àı²Î¿¼ |
-| skill ´úÂë¶ñÒâĞĞÎª | °²È«·çÏÕ | ĞÅÈÎÓÃ»§ + ´úÂëÉó²é + ±¸·İ»úÖÆ |
-| ĞÔÄÜÎÊÌâ | ¼ÓÔØÂı | °´Ğè¼ÓÔØ + »º´æ»úÖÆ |
-| ¼æÈİĞÔÎÊÌâ | ÎŞ·¨ÔËĞĞ | °æ±¾¹ÜÀí + Ïòºó¼æÈİ |
-
-## ¸½Â¼
-
-### Ê¾Àı Skill£º×ÔÃÜÊµ»ìÄıÍÁ
-
-**ÓÃ»§ÃèÊö**£º
-"¸ù¾İ JGJ/T 283-2012¡¶×ÔÃÜÊµ»ìÄıÍÁÓ¦ÓÃ¼¼Êõ¹æ³Ì¡·½øĞĞÅäºÏ±ÈÉè¼Æ¡£
-Ö÷Òª²ÎÊı£º
-- ½ºÄı²ÄÁÏ×ÜÁ¿£º450-550 kg/m3
-- Ë®½º±È£º0.28-0.35
-- É°ÂÊ£º45%-55%
-- Ì®ÂäÀ©Õ¹¶ÈÒªÇó£º¡İ600mm£¨SF1£©»ò ¡İ700mm£¨SF2£©
-- V Â©¶·Ê±¼ä£º¡Ü20s
-- T500 Ê±¼ä£º5-15s
-
-¼ÆËã²½Öè£º
-1. ¸ù¾İÇ¿¶ÈµÈ¼¶È·¶¨Ë®½º±È
-2. ¸ù¾İÌ®ÂäÀ©Õ¹¶ÈÒªÇóÈ·¶¨ÓÃË®Á¿
-3. ¼ÆËã½ºÄı²ÄÁÏÓÃÁ¿
-4. È·¶¨É°ÂÊ
-5. ¼ÆËã¹ÇÁÏÓÃÁ¿
-6. ÑéÖ¤¹¤×÷ĞÔÖ¸±ê"
-
-**AI Éú³ÉµÄ skill.json**£º
-```json
-{
-    "name": "self-compacting-concrete",
-    "displayName": "×ÔÃÜÊµ»ìÄıÍÁÅäºÏ±ÈÉè¼Æ",
-    "description": "¸ù¾İ JGJ/T 283-2012 ½øĞĞ×ÔÃÜÊµ»ìÄıÍÁÅäºÏ±È¼ÆËã",
-    "version": "1.0.0",
-    "author": "AI Éú³É",
-    "category": "comprehensive",
-    "parameters": [
-        {"name": "targetStrength", "type": "number", "unit": "MPa", "required": true},
-        {"name": "slumpFlowClass", "type": "string", "enum": ["SF1", "SF2"], "required": true},
-        {"name": "maxAggregateSize", "type": "number", "unit": "mm", "required": true}
-    ]
-}
+# æµ‹è¯•æ¡†æ¶ç»„ä»¶ï¼ˆSchemaValidatorã€ErrorCodesã€SkillRegistryã€SkillExecutorï¼‰
+node tests/test-skill-system.js
 ```
 
----
+## è®¾è®¡å†³ç­–
 
-**ÎÄµµ°æ±¾**£º1.0  
-**×îºó¸üĞÂ**£º2026-05-31  
-**×÷Õß**£ºAI Office Hours Session
+1. **å•æ–‡ä»¶æ¨¡å—**ï¼šæ¯ä¸ª skill ä¸€ä¸ª `.js` æ–‡ä»¶ï¼Œç®€å•ç›´æ¥ï¼Œä¸éœ€è¦æ•°æ®åº“æˆ–æ–‡ä»¶å¤¹ç»“æ„
+2. **ä»£ç è®¡ç®—ä¼˜å…ˆ**ï¼š`execute()` è°ƒç”¨çœŸå®æœåŠ¡ï¼ŒLLM ä¸å‚ä¸è®¡ç®—
+3. **ç»Ÿä¸€å…¥å£**ï¼šSkillExecutor æ˜¯å”¯ä¸€æ‰§è¡Œå…¥å£ï¼Œè‡ªåŠ¨å®Œæˆå‚æ•°æ ¡éªŒ + ä¸Šä¸‹æ–‡æ³¨å…¥ + é”™è¯¯å¤„ç†
+4. **åŒå±‚å‘ç°**ï¼šå†…ç½® skill ä» `src/main/skills/` åŠ è½½ï¼Œç”¨æˆ· skill ä» `~/.concrete-mixdesign/skills/` åŠ è½½

@@ -1,13 +1,12 @@
-const ToolRegistry = require('./ToolRegistry')
 const agentMemoryService = require('../services/AgentMemoryService')
 
 const MAX_STEPS = 10
 const MAX_CONSECUTIVE_FAILURES = 2
 
 class AgentOrchestrator {
-  constructor({ deepseekService, toolRegistry, skillExecutor }) {
+  constructor({ deepseekService, skillRegistry, skillExecutor }) {
     this.ds = deepseekService
-    this.registry = toolRegistry
+    this.skillRegistry = skillRegistry
     this.skillExecutor = skillExecutor || null
     this.wc = null
     this._paused = false
@@ -60,7 +59,7 @@ class AgentOrchestrator {
 
       try {
         console.log('[Agent] 调用 chatWithTools, step:', stepCount)
-        const response = await this.ds.chatWithTools(messages, this.registry.getToolSchemas())
+        const response = await this.ds.chatWithTools(messages, this.skillRegistry.getToolSchemas())
         console.log('[Agent] API 响应:', response ? `content=${!!response.content}, tool_calls=${response.tool_calls?.length || 0}` : 'null')
         if (!response) {
           step.status = 'error'
@@ -113,9 +112,7 @@ class AgentOrchestrator {
             }
 
             // 协作模式确认
-            const toolMeta = this.skillExecutor
-              ? this.skillExecutor.registry.getSkillMeta(tc.function.name)
-              : this.registry.getToolMeta(tc.function.name)
+            const toolMeta = this.skillRegistry.getSkillMeta(tc.function.name)
             if (mode === 'collaborative' && toolMeta?.requiresConfirmation) {
               const confirmed = await this._requestConfirmation(tc.function.name, args)
               if (!confirmed) {
@@ -126,10 +123,8 @@ class AgentOrchestrator {
               }
             }
 
-            // 执行工具 (优先使用 SkillExecutor)
-            const execResult = this.skillExecutor
-              ? await this.skillExecutor.execute(tc.function.name, args)
-              : await this.registry.execute(tc.function.name, args)
+            // 执行工具
+            const execResult = await this.skillExecutor.execute(tc.function.name, args)
             step.result = execResult
 
             if (execResult.success === false) {
@@ -282,7 +277,7 @@ class AgentOrchestrator {
 
     const resourceText = buildResourceText(resourceSummary)
 
-    const toolList = this.registry.toolNames.join('、')
+    const toolList = this.skillRegistry.skillNames.join('、')
     const modeInstruction = mode === 'auto'
       ? '全自动模式：自主完成所有步骤。每个步骤调用工具前，先用简短文字说明你这一步要做什么、为什么。'
       : '协作模式：每个关键操作执行前需要用户确认。每个步骤调用工具前，先用简短文字说明你这一步要做什么、为什么。'

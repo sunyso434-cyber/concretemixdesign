@@ -8,11 +8,12 @@ import ExportWizard from '../components/ExportWizard'
 import ImportWizard from '../components/ImportWizard'
 import RestoreConfirmModal from '../components/RestoreConfirmModal'
 import SalesQuoteSettings from '../components/SalesQuoteSettings'
+import SkillManager from '../components/SkillManager'
 import { PARAM_CONFIG, PARAM_TABS } from '../config/paramConfig'
 
 const { Text, Paragraph } = Typography
 
-const PARAM_TAB_KEYS = ['使用帮助', 'JGJ55标准', '备份设置', 'AI设置']
+const PARAM_TAB_KEYS = ['使用帮助', 'JGJ55标准', '备份设置', 'AI设置', '技能管理']
 
 const SettingsPage = () => {
   const [params, setParams] = useState([])
@@ -187,7 +188,7 @@ const SettingsPage = () => {
           ...PARAM_TAB_KEYS.map(key => ({
             key,
             label: key,
-            children: key === '使用帮助' ? <HelpContent /> : (
+            children: key === '使用帮助' ? <HelpContent /> : key === '技能管理' ? <SkillManager /> : (
               <div>
                 {renderParamCards()}
                 {key === '备份设置' && (

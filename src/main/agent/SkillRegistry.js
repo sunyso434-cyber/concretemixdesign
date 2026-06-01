@@ -233,6 +233,7 @@ module.exports = {
       version: skill.version || '1.0.0',
       category: skill.category || 'general',
       builtin: skill._builtin,
+      requiresConfirmation: skill.requiresConfirmation || false,
       registeredAt: skill._registeredAt
     }
   }
