@@ -77,6 +77,11 @@ async function initializeDatabase() {
     isDatabaseReady = true
     console.log('数据库初始化完成')
 
+    // 初始化学习服务（在数据库就绪后）
+    const LearningService = require('./src/main/services/LearningService')
+    LearningService.init()
+    console.log('学习服务初始化完成')
+
     // 通知渲染进程数据库已就绪
     const windows = BrowserWindow.getAllWindows()
     if (windows.length > 0) {

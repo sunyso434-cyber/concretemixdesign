@@ -24,9 +24,10 @@ class AgentMemoryService {
     }
     const messages = await ChatHistory.findAll({
       where,
-      order: [['createdAt', 'ASC']],
+      order: [['createdAt', 'DESC']],
       limit
     })
+    messages.reverse() // DESC 取最新 N 条后反转回时间正序
     return messages.map(m => ({
       id: m.id,
       role: m.role,
@@ -272,26 +273,26 @@ class AgentMemoryService {
   // ===== TF-IDF 相似度 =====
 
   _tfidfSimilarity(ctx1, ctx2) {
-    const a = JSON.stringify(ctx1).toLowerCase()
-    const b = JSON.stringify(ctx2).toLowerCase()
-    if (!a || !b) return 0
-
-    const wordsA = new Set(this._tokenize(a))
-    const wordsB = new Set(this._tokenize(b))
-    if (wordsA.size === 0 || wordsB.size === 0) return 0
-
-    let intersection = 0
-    for (const w of wordsA) {
-      if (wordsB.has(w)) intersection++
+    if (!ctx1 || !ctx2) return 0
+    // 将输入统一转为对象
+    const obj1 = typeof ctx1 === 'string' ? (() => { try { return JSON.parse(ctx1) } catch { return {} } })() : ctx1
+    const obj2 = typeof ctx2 === 'string' ? (() => { try { return JSON.parse(ctx2) } catch { return {} } })() : ctx2
+    // 逐字段精确匹配，避免整体分词导致 "C30" 和 "C50" 虚高
+    const keys = new Set([...Object.keys(obj1), ...Object.keys(obj2)])
+    if (keys.size === 0) return 0
+    let matchScore = 0
+    for (const key of keys) {
+      const v1 = obj1[key]
+      const v2 = obj2[key]
+      if (v1 !== undefined && v2 !== undefined) {
+        if (String(v1) === String(v2)) {
+          matchScore += 1 // 精确匹配
+        } else if (String(v1).includes(String(v2)) || String(v2).includes(String(v1))) {
+          matchScore += 0.5 // 包含关系
+        }
+      }
     }
-    const union = wordsA.size + wordsB.size - intersection
-    return union > 0 ? intersection / union : 0
-  }
-
-  _tokenize(text) {
-    return text
-      .split(/[\s,，。！？、{}[\]":]+/)
-      .filter(w => w.length >= 2)
+    return matchScore / keys.size
   }
 }
 

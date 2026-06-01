@@ -1,4 +1,5 @@
 const agentMemoryService = require('../services/AgentMemoryService')
+const eventBus = require('./EventBus')
 
 const MAX_STEPS = 10
 const MAX_CONSECUTIVE_FAILURES = 2
@@ -45,6 +46,7 @@ class AgentOrchestrator {
 
     let stepCount = 0
     let finalResult = null
+    let rateLimitCount = 0
 
     while (stepCount < MAX_STEPS && !this._aborted) {
       if (this._paused) {
@@ -95,18 +97,23 @@ class AgentOrchestrator {
             toolCalls: response.tool_calls || null
           }).catch(() => {})
 
+          // 标记外层 step 为推理容器（渲染时被 filter 跳过，不显示）
+          step.type = 'reasoning'
+
           for (const tc of response.tool_calls) {
-            step.toolName = tc.function.name
+            // 每个 tool call 创建独立的 step，共享同一个逻辑步骤号
+            const toolStep = { step: stepCount, status: 'running', toolName: tc.function.name, reasoning: null, result: null, error: null }
+            steps.push(toolStep)
+            this._notifyProgress({ steps, mode, status: 'running' })
 
             // 解析工具参数
             let args
             try {
               args = JSON.parse(tc.function.arguments)
             } catch (_) {
-              // JSON 解析失败时，需要为这个 tool_call 提供 tool 响应
               messages.push({ role: 'tool', content: JSON.stringify({ error: '参数格式错误' }), tool_call_id: tc.id })
-              step.status = 'error'
-              step.error = 'LLM 工具参数格式错误'
+              toolStep.status = 'error'
+              toolStep.error = 'LLM 工具参数格式错误'
               consecutiveFailures++
               break
             }
@@ -116,8 +123,8 @@ class AgentOrchestrator {
             if (mode === 'collaborative' && toolMeta?.requiresConfirmation) {
               const confirmed = await this._requestConfirmation(tc.function.name, args)
               if (!confirmed) {
-                step.status = 'skipped'
-                step.result = '用户拒绝了此步骤的执行'
+                toolStep.status = 'skipped'
+                toolStep.result = '用户拒绝了此步骤的执行'
                 messages.push({ role: 'tool', content: JSON.stringify({ skipped: true }), tool_call_id: tc.id })
                 continue
               }
@@ -125,37 +132,36 @@ class AgentOrchestrator {
 
             // 执行工具
             const execResult = await this.skillExecutor.execute(tc.function.name, args)
-            step.result = execResult
+            toolStep.result = execResult
 
             if (execResult.success === false) {
-              step.status = 'error'
-              step.error = execResult.error
+              toolStep.status = 'error'
+              toolStep.error = execResult.error
               consecutiveFailures++
 
               if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                // 先推这个工具的错误响应，保证 tool_call_id 配对
                 messages.push({ role: 'tool', content: JSON.stringify(execResult), tool_call_id: tc.id })
-                // 如果还有未处理的 tool_call，给它们填充空响应
                 for (let j = response.tool_calls.indexOf(tc) + 1; j < response.tool_calls.length; j++) {
                   messages.push({ role: 'tool', content: JSON.stringify({ error: '任务已终止' }), tool_call_id: response.tool_calls[j].id })
                 }
                 finalResult = {
-                  reply: `执行"${step.toolName}"时连续失败 ${consecutiveFailures} 次：${execResult.error}\n\n请检查输入参数是否正确，或手动处理此步骤后继续。`,
+                  reply: `执行"${tc.function.name}"时连续失败 ${consecutiveFailures} 次：${execResult.error}\n\n请检查输入参数是否正确，或手动处理此步骤后继续。`,
                   steps, mode, error: true, duration: Date.now() - startTime
                 }
                 break
               }
 
-              // 单次失败
               messages.push({ role: 'tool', content: JSON.stringify({ ...execResult, hint: '此步骤执行失败，请尝试其他方法或跳过' }), tool_call_id: tc.id })
             } else {
-              step.status = 'done'
+              toolStep.status = 'done'
               consecutiveFailures = 0
               messages.push({ role: 'tool', content: JSON.stringify(execResult), tool_call_id: tc.id })
+              eventBus.emitToolExecuted(tc.function.name, args, execResult)
             }
           }
 
-          // 如果触发了连续失败退出，跳出外层循环
+          // 推理容器 step 状态跟随工具执行结果
+          step.status = finalResult?.error ? 'error' : 'done'
           if (finalResult) break
         }
 
@@ -173,7 +179,15 @@ class AgentOrchestrator {
         }
 
         if (error.response?.status === 429) {
-          await new Promise(r => setTimeout(r, 5000))
+          rateLimitCount++
+          if (rateLimitCount > 3) {
+            finalResult = { reply: 'API 请求频率超限，请稍后再试', steps, mode, error: true }
+            break
+          }
+          const waitTime = Math.min(5000 * Math.pow(2, rateLimitCount - 1), 30000)
+          step.reasoning = `API 限流中，等待 ${Math.round(waitTime / 1000)} 秒后重试 (${rateLimitCount}/3)...`
+          this._notifyProgress({ steps, mode, status: 'running' })
+          await new Promise(r => setTimeout(r, waitTime))
           continue
         }
 
@@ -333,7 +347,7 @@ ${memoryContext || ''}
   }
 
   async _requestConfirmation(toolName, args) {
-    if (!this.wc || this.wc.isDestroyed()) return true
+    if (!this.wc || this.wc.isDestroyed()) return false
 
     return new Promise(resolve => {
       let settled = false
@@ -345,8 +359,11 @@ ${memoryContext || ''}
         resolve(val)
       }
 
-      // 60 秒超时自动拒绝
-      const timer = setTimeout(() => settle(false), 60000)
+      // 120 秒超时自动拒绝，通知前端
+      const timer = setTimeout(() => {
+        try { this.wc?.send('agent:confirmation-timeout', { toolName }) } catch (_) {}
+        settle(false)
+      }, 120000)
 
       this._confirmationResolver = (confirmed, extraArgs) => {
         clearTimeout(timer)

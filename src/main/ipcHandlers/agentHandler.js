@@ -12,6 +12,7 @@ let orchestrator = null
 let skillRegistry = null
 let skillExecutor = null
 let cachedApiKey = null
+let agentRunning = false
 
 // 初始化 Skill 系统（应用启动时调用）
 async function initSkillSystem() {
@@ -30,6 +31,10 @@ async function initSkillSystem() {
 
   // 设置 DeepSeekService 的 SkillExecutor
   DeepSeekService.setSkillExecutor(skillExecutor)
+
+  // 初始化 LearningService（自动学习用户偏好）
+  const learningService = require('../services/LearningService')
+  learningService.init()
 
   console.log(`[AgentHandler] Skill 系统初始化完成, 已加载 ${skillRegistry.size} 个 skills`)
   return skillRegistry
@@ -73,17 +78,21 @@ function registerAgentHandlers() {
   })
 
   ipcMain.handle('agent:run', async (event, { requestId, sessionId, message, mode }) => {
-    const ag = await getOrchestrator()
-    if (!ag) {
-      return { success: false, error: 'DeepSeek API未配置，请在系统设置中配置API密钥' }
+    if (agentRunning) {
+      return { success: false, error: '上一个任务还在执行中，请稍等' }
     }
-
-    // Agent 通过 agent:progress 事件自行推送进度到 renderer
+    agentRunning = true
     try {
+      const ag = await getOrchestrator()
+      if (!ag) {
+        return { success: false, error: 'DeepSeek API未配置，请在系统设置中配置API密钥' }
+      }
       const result = await ag.run({ sessionId, message, mode: mode || 'auto', webContents: event.sender })
       return { success: true, result }
     } catch (error) {
       return { success: false, error: error.message }
+    } finally {
+      agentRunning = false
     }
   })
 
@@ -152,6 +161,16 @@ function registerAgentHandlers() {
     await UserPreference.destroy({ where: {}, truncate: true })
     await CorrectionRule.destroy({ where: {}, truncate: true })
     return { success: true }
+  })
+
+  ipcMain.handle('agent:saveCorrection', async (_event, correction) => {
+    try {
+      const LearningService = require('../services/LearningService')
+      await LearningService.saveCorrection(correction)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
   })
 
   // ===== Skill 管理 =====

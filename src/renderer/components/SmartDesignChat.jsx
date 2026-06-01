@@ -182,8 +182,15 @@ const SmartDesignChat = () => {
     agent.setPendingConfirmation(null)
   }
 
-  // 每次消息变化刷新会话列表（维持原始行为，AgentMode hook 仅挂载时加载一次）
-  useEffect(() => { agent.loadSessions() }, [chatState.chatMessages])
+  // 仅在消息条数变化时刷新会话列表（避免流式输出时频繁刷新）
+  const prevMsgCountRef = useRef(0)
+  useEffect(() => {
+    const count = chatState.chatMessages?.length || 0
+    if (count !== prevMsgCountRef.current && count > 0) {
+      prevMsgCountRef.current = count
+      agent.loadSessions()
+    }
+  }, [chatState.chatMessages?.length])
 
   // ===== 斜杠命令状态 =====
   const [slashMenuVisible, setSlashMenuVisible] = useState(false)
@@ -331,14 +338,6 @@ const SmartDesignChat = () => {
       updateStreamMessage(streamId, item => ({
         ...item,
         content: `${item.content || ''}${payload.content || ''}`
-      }))
-      return
-    }
-
-    if (payload.type === 'reasoning_delta') {
-      updateStreamMessage(streamId, item => ({
-        ...item,
-        reasoning: `${item.reasoning || ''}${payload.content || ''}`
       }))
       return
     }
@@ -608,11 +607,10 @@ const SmartDesignChat = () => {
           }
         } else if (attachment.type === 'md') {
           const content = await processMarkdownAttachment(attachment.file)
-          chatState.setChatMessages(prev => [...prev, {
-            role: 'assistant',
-            content: `已上传Markdown文件，内容长度${content.length}字符。需要进一步解析处理。`
-          }])
-          chatState.setChatLoading(false)
+          // 将 Markdown 内容发送给 AI 分析
+          const mdMessage = `请分析以下 Markdown 文档内容：\n\n${content}`
+          chatState.setChatMessages(prev => [...prev, { role: 'user', content: mdMessage }])
+          await runStreamingChat(mdMessage)
           return
         }
       } else if (userMessage) {
@@ -875,8 +873,11 @@ const SmartDesignChat = () => {
     await handleDesignMode(userMessage)
   }
 
-  // 清空对话（包装 hook 版本，同时重置 Agent 状态）
+  // 清空对话（先中止运行中的 Agent，再重置状态）
   const handleClearChat = async () => {
+    if (agent.agentRequestIdRef.current) {
+      window.electronAPI.invoke('agent:abort', { requestId: agent.agentRequestIdRef.current }).catch(() => {})
+    }
     await chatState.handleClearChat()
     resetAgentState()
   }

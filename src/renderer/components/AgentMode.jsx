@@ -14,7 +14,12 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
   const [agentRunMode, setAgentRunMode] = useState('collaborative') // 运行模式：collaborative | auto
   const [agentSteps, setAgentSteps] = useState([])
   const [agentStatus, setAgentStatus] = useState(null)
-  const [agentPaused, setAgentPaused] = useState(false)
+  const [agentPaused, setAgentPausedRaw] = useState(false)
+  const setAgentPaused = (val) => {
+    const resolved = typeof val === 'function' ? val(agentPausedRef.current) : val
+    agentPausedRef.current = resolved
+    setAgentPausedRaw(resolved)
+  }
   const [pendingConfirmation, setPendingConfirmation] = useState(null)
   const [sessions, setSessions] = useState([])
   const [currentSessionId, setCurrentSessionId] = useState(() => 'session-' + Date.now())
@@ -24,6 +29,7 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
   const [corrections, setCorrections] = useState([])
 
   const agentRequestIdRef = useRef(null)
+  const agentPausedRef = useRef(false)
 
   // 读取 Agent 设置（仅执行一次）
   useEffect(() => {
@@ -56,7 +62,7 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
           _agentRequestId: agentRequestIdRef.current,
           steps: data.steps,
           status: data.status,
-          isPaused: agentPaused,
+          isPaused: agentPausedRef.current,
           latestReasoning: data.latestReasoning
         }
         if (progressIdx >= 0) {

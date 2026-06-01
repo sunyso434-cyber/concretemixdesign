@@ -31,7 +31,7 @@ const StepIcon = ({ status }) => {
 const AgentProgressCard = ({ steps, status, onPause, onResume, onAbort, isPaused, showControls, latestReasoning }) => {
   if (!steps || steps.length === 0) return null
 
-  const filteredSteps = steps.filter(s => s.toolName || s.status === 'done')
+  const filteredSteps = steps.filter(s => (s.toolName || s.status === 'done') && s.type !== 'reasoning')
   if (filteredSteps.length === 0) return null
 
   return (

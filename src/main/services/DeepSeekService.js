@@ -11,6 +11,8 @@ const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions'
 let _skillRegistry = null
 let _skillExecutor = null
 
+// 注意：TOOLS 数组仅供 standalone chat 模式作为 fallback 使用
+// Agent 模式和流式聊天均通过 _skillRegistry 获取工具定义
 const TOOLS = [
   {
     type: 'function',
@@ -520,7 +522,8 @@ class DeepSeekService {
       thinking: { type: 'enabled' }
     }
     if (includeTools) {
-      requestBody.tools = TOOLS
+      // 优先从 SkillRegistry 获取工具定义（与 _callAPI 保持一致）
+      requestBody.tools = _skillRegistry ? _skillRegistry.getToolSchemas() : TOOLS
     }
 
     const response = await axios.post(DEEPSEEK_API_URL, requestBody, {
