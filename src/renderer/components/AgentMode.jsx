@@ -89,7 +89,10 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
       if (data.status === 'error') {
         setChatLoading(false)
         if (data.error) {
-          setChatMessages(prev => [...prev, { role: 'assistant', content: data.error, isError: true }])
+          const errorMsg = typeof data.error === 'string' ? data.error
+            : typeof data.error === 'object' ? (data.error.message || data.error.error || JSON.stringify(data.error))
+            : String(data.error)
+          setChatMessages(prev => [...prev, { role: 'assistant', content: errorMsg, isError: true }])
         }
       }
     }
