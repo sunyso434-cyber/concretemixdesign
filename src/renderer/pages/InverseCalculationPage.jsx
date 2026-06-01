@@ -3,6 +3,7 @@ import { Card, Table, Button, Space, Input, InputNumber, Upload, message, Divide
 import { UploadOutlined, DeleteOutlined, ExperimentOutlined, ExportOutlined, PlusOutlined, DownloadOutlined } from '@ant-design/icons'
 import * as XLSX from 'xlsx'
 import { downloadTemplate } from '../utils/templateDownloader'
+import extractErrorMessage from '../utils/extractErrorMessage'
 
 // 必要的列名
 const REQUIRED_COLUMNS = ['名称', '胶材总量kg', '粉煤灰%', '矿渣粉%', '砂率%', '用水量', '强度MPa']
@@ -186,7 +187,7 @@ const InverseCalculationPage = () => {
         setResult(response.result)
         message.success('计算完成')
       } else {
-        message.error(response.error || '计算失败')
+        message.error(extractErrorMessage(response.error, '计算失败'))
       }
     } catch (error) {
       console.error('计算失败:', error)

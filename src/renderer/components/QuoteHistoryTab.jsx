@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Button, Table, Select, DatePicker, Space, Modal, message } from 'antd'
 import { DeleteOutlined, EyeOutlined } from '@ant-design/icons'
+import extractErrorMessage from '../utils/extractErrorMessage'
 
 const { RangePicker } = DatePicker
 
@@ -30,7 +31,7 @@ const QuoteHistoryTab = () => {
       setData(result.data)
       setTotal(result.total)
     } else {
-      message.error(result.error || '加载失败')
+      message.error(extractErrorMessage(result.error, '加载失败'))
     }
   }
 
@@ -40,7 +41,7 @@ const QuoteHistoryTab = () => {
     if (!confirm('确认删除？')) return
     const result = await window.electronAPI.invoke('salesQuote:deleteQuote', id)
     if (result.success) { message.success('已删除'); load() }
-    else message.error(result.error)
+    else message.error(extractErrorMessage(result.error))
   }
 
   const showDetail = (item) => {

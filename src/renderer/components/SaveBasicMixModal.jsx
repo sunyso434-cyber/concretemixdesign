@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react'
 import { Form, Input, InputNumber, Modal, Select, Switch, message } from 'antd'
+import extractErrorMessage from '../utils/extractErrorMessage'
 
 const TYPES = ['普通', '泵送', '抗渗', '早强', '缓凝', '大体积', '高强']
 
@@ -64,7 +65,7 @@ const SaveBasicMixModal = ({ open, data, onCancel, onSaved }) => {
       message.success('已保存到基础配合比库')
       onSaved?.(result.data)
     } else {
-      message.error(result.error || '保存失败')
+      message.error(extractErrorMessage(result.error, '保存失败'))
     }
   }
 

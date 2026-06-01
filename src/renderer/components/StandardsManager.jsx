@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Button, Table, message, Typography, Space, Tag, Popconfirm, Empty, Spin, Modal, Input, Form, Progress, Steps, Select } from 'antd'
 import { UploadOutlined, DeleteOutlined, FileTextOutlined, ReloadOutlined, LoadingOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import extractErrorMessage from '../utils/extractErrorMessage'
 
 const { Title, Text, Paragraph } = Typography
 
@@ -153,7 +154,7 @@ const StandardsManager = () => {
 
       // 检查结果
       if (result && result.success === false) {
-        message.error('上传规范失败: ' + (result.error || '未知错误'))
+        message.error('上传规范失败: ' + extractErrorMessage(result.error, '未知错误'))
         setProgressVisible(false)
       } else {
         setProgressPercent(100)

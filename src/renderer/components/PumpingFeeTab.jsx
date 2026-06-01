@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Button, Table, Modal, Form, Input, InputNumber, Switch, Space, message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
+import extractErrorMessage from '../utils/extractErrorMessage'
 
 const PumpingFeeTab = () => {
   const [items, setItems] = useState([])
@@ -11,7 +12,7 @@ const PumpingFeeTab = () => {
   const load = async () => {
     const result = await window.electronAPI.invoke('salesQuote:listPumpingFeeItems')
     if (result.success) setItems(result.data)
-    else message.error(result.error || '加载泵送费清单失败')
+    else message.error(extractErrorMessage(result.error, '加载泵送费清单失败'))
   }
 
   useEffect(() => { load() }, [])
@@ -30,7 +31,7 @@ const PumpingFeeTab = () => {
       setModalVisible(false)
       load()
     } else {
-      message.error(result.error || '保存失败')
+      message.error(extractErrorMessage(result.error, '保存失败'))
     }
   }
 
@@ -38,7 +39,7 @@ const PumpingFeeTab = () => {
     if (!confirm('确认删除？')) return
     const result = await window.electronAPI.invoke('salesQuote:deletePumpingFeeItem', id)
     if (result.success) { message.success('已删除'); load() }
-    else message.error(result.error)
+    else message.error(extractErrorMessage(result.error))
   }
 
   const openEditor = (item) => {

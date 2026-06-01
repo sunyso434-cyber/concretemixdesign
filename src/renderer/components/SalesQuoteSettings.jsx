@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Button, Card, Divider, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tabs, message, Typography } from 'antd'
 import { WATER_MATERIAL_ID, buildManualMixMaterials, buildMaterialOptions } from '../utils/salesQuoteMaterials.mjs'
+import extractErrorMessage from '../utils/extractErrorMessage'
 import PumpingFeeTab from './PumpingFeeTab'
 import QuoteHistoryTab from './QuoteHistoryTab'
 const { Text } = Typography
@@ -60,12 +61,12 @@ const SalesQuoteSettings = () => {
     if (ruleResult.success) {
       setRules(ruleResult.data)
     } else {
-      message.error(ruleResult.error || '加载报价规则失败')
+      message.error(extractErrorMessage(ruleResult.error, '加载报价规则失败'))
     }
     if (mixResult.success) {
       setMixes(mixResult.data)
     } else {
-      message.error(mixResult.error || '加载基础配合比失败')
+      message.error(extractErrorMessage(mixResult.error, '加载基础配合比失败'))
     }
   }
 
@@ -146,7 +147,7 @@ const SalesQuoteSettings = () => {
       setEditingRule(null)
       loadData()
     } else {
-      message.error(result.error || '保存失败')
+      message.error(extractErrorMessage(result.error, '保存失败'))
     }
   }
 
@@ -168,7 +169,7 @@ const SalesQuoteSettings = () => {
       setRuleModalVisible(false)
       loadData()
     } else {
-      message.error(result.error || '保存失败')
+      message.error(extractErrorMessage(result.error, '保存失败'))
     }
   }
 
@@ -249,7 +250,7 @@ const SalesQuoteSettings = () => {
       setMixModalVisible(false)
       loadData()
     } else {
-      message.error(result.error || '保存失败')
+      message.error(extractErrorMessage(result.error, '保存失败'))
     }
   }
 
@@ -260,7 +261,7 @@ const SalesQuoteSettings = () => {
       message.success('已删除')
       loadData()
     } else {
-      message.error(result.error || '删除失败')
+      message.error(extractErrorMessage(result.error, '删除失败'))
     }
   }
 
@@ -270,7 +271,7 @@ const SalesQuoteSettings = () => {
       message.success('已设为默认')
       loadData()
     } else {
-      message.error(result.error || '设置失败')
+      message.error(extractErrorMessage(result.error, '设置失败'))
     }
   }
 

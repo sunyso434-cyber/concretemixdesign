@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Card, Button, Table, Space, message, Modal, Form, Input, Select, Tag, Switch } from 'antd'
+import extractErrorMessage from '../utils/extractErrorMessage'
 
 
 const { Option } = Select
@@ -26,7 +27,7 @@ const SchemesPage = () => {
         setSchemes(result.data)
       } else {
         console.error('加载方案失败:', result.error)
-        message.error(result.error)
+        message.error(extractErrorMessage(result.error))
       }
     } catch (error) {
       console.error('加载方案异常:', error)
@@ -65,7 +66,7 @@ const SchemesPage = () => {
         setCurrentScheme(result.data)
         setViewModalVisible(true)
       } else {
-        message.error(result.error)
+        message.error(extractErrorMessage(result.error))
       }
     } catch (error) {
       message.error('获取方案详情失败')
@@ -81,7 +82,7 @@ const SchemesPage = () => {
         editForm.setFieldsValue(result.data)
         setEditModalVisible(true)
       } else {
-        message.error(result.error)
+        message.error(extractErrorMessage(result.error))
       }
     } catch (error) {
       message.error('获取方案详情失败')
@@ -96,7 +97,7 @@ const SchemesPage = () => {
         message.success('删除成功')
         loadSchemes(showDrafts ? {} : { excludeDrafts: true })
       } else {
-        message.error(result.error)
+        message.error(extractErrorMessage(result.error))
       }
     } catch (error) {
       message.error('删除失败')
@@ -121,10 +122,10 @@ const SchemesPage = () => {
           message.success('复制成功')
           loadSchemes(showDrafts ? {} : { excludeDrafts: true })
         } else {
-          message.error(createResult.error)
+          message.error(extractErrorMessage(createResult.error))
         }
       } else {
-        message.error(result.error)
+        message.error(extractErrorMessage(result.error))
       }
     } catch (error) {
       message.error('复制失败')
@@ -139,7 +140,7 @@ const SchemesPage = () => {
         message.success('方案已确认')
         loadSchemes(showDrafts ? {} : { excludeDrafts: true })
       } else {
-        message.error(result.error)
+        message.error(extractErrorMessage(result.error))
       }
     } catch (error) {
       message.error('确认失败')
@@ -164,7 +165,7 @@ const SchemesPage = () => {
         setEditModalVisible(false)
         loadSchemes(showDrafts ? {} : { excludeDrafts: true })
       } else {
-        message.error(result.error)
+        message.error(extractErrorMessage(result.error))
       }
     } catch (error) {
       message.error('保存失败')

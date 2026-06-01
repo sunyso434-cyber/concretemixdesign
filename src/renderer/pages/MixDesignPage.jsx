@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Card, Form, Input, Select, Button, Table, Space, message, Modal, InputNumber, Divider, Collapse } from 'antd'
 import { useSelector, useDispatch } from 'react-redux'
 import { setCalculationCache, clearCalculationCache } from '../store/mixDesignSlice'
+import extractErrorMessage from '../utils/extractErrorMessage'
 
 const { Panel } = Collapse
 
@@ -210,7 +211,7 @@ const MixDesignPage = () => {
         console.log('原材料列表:', result.data)
         return result.data // 返回最新的材料数据
       } else {
-        message.error(result.error)
+        message.error(extractErrorMessage(result.error))
         return []
       }
     } catch (error) {
@@ -271,7 +272,7 @@ const MixDesignPage = () => {
         }))
         message.success('计算成功！')
       } else {
-        message.error(result.error)
+        message.error(extractErrorMessage(result.error))
       }
     } catch (error) {
       console.error('快速测试失败:', error)
@@ -359,7 +360,7 @@ const MixDesignPage = () => {
         })
         message.success('计算成功')
       } else {
-        message.error(result.error)
+        message.error(extractErrorMessage(result.error))
       }
     } catch (error) {
       console.error('计算失败:', error)
@@ -442,7 +443,7 @@ const MixDesignPage = () => {
         }))
         message.success('系列配合比计算成功')
       } else {
-        message.error(result.error)
+        message.error(extractErrorMessage(result.error))
       }
     } catch (error) {
       console.error('系列配合比计算失败:', error)
@@ -527,7 +528,7 @@ const MixDesignPage = () => {
           message.success(`批量保存成功，共保存 ${result.data.length} 个方案`)
           closeSaveModal()
         } else {
-          message.error(result.error)
+          message.error(extractErrorMessage(result.error))
         }
         return
       }
@@ -564,7 +565,7 @@ const MixDesignPage = () => {
         message.success('保存成功')
         closeSaveModal()
       } else {
-        message.error(result.error)
+        message.error(extractErrorMessage(result.error))
       }
     } catch (error) {
       console.error('保存方案失败:', error)

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Button, Card, Collapse, InputNumber, Space, Table, Typography, message, Modal, Checkbox, Spin, Input } from 'antd'
 import { DownloadOutlined, SaveOutlined, ReloadOutlined } from '@ant-design/icons'
+import extractErrorMessage from '../utils/extractErrorMessage'
 
 const { Text } = Typography
 const { Panel } = Collapse
@@ -58,7 +59,7 @@ const SalesQuoteResultCard = ({ data, ruleDefaults, pumpingFeeItems = [] }) => {
         }
       })
       if (calcResult.success) setResult(calcResult.data)
-      else message.error(calcResult.error)
+      else message.error(extractErrorMessage(calcResult.error))
     } catch (e) {
       message.error('报价重算失败')
     } finally {
@@ -102,7 +103,7 @@ const SalesQuoteResultCard = ({ data, ruleDefaults, pumpingFeeItems = [] }) => {
       message.success('报价已保存到历史记录')
       setSaveModalVisible(false)
     } else {
-      message.error(saveResult.error)
+      message.error(extractErrorMessage(saveResult.error))
     }
   }
 
@@ -122,7 +123,7 @@ const SalesQuoteResultCard = ({ data, ruleDefaults, pumpingFeeItems = [] }) => {
       customerNote: '本报价为单方报价，含运输费、泵送费和13%增值税。'
     })
     if (exportResult.success) message.success('报价单已导出')
-    else message.error(exportResult.error || '报价单导出失败')
+    else message.error(extractErrorMessage(exportResult.error, '报价单导出失败'))
   }
 
   const handleReset = () => {

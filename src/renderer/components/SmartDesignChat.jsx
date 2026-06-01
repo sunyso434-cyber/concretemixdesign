@@ -83,18 +83,8 @@ function removeContrastData(preprocessedData) {
 
 const CHAT_STREAM_EVENT = 'aiAnalysis:chatStream:event'
 
-// 从错误对象中提取消息字符串
-function extractErrorMessage(error) {
-  if (!error) return null
-  if (typeof error === 'string') return error
-  if (typeof error === 'object') {
-    // ErrorCodes 格式: { code, message, hint, recovery, details }
-    if (error.message) return error.message
-    // 其他对象格式
-    return JSON.stringify(error)
-  }
-  return String(error)
-}
+// 从错误对象中提取消息字符串（共享工具函数）
+import extractErrorMessage from '../utils/extractErrorMessage'
 
 function createToolSummary(toolName, args = {}) {
   if (toolName === 'list_available_materials') {

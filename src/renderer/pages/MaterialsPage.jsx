@@ -2,6 +2,7 @@ import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'rea
 import { Table, Button, Modal, Form, Input, InputNumber, Select, Space, message, Row, Col, Divider } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
 import { getFieldsForType, calculateFinenessModulus, autoMatchGrading } from '../utils/materialFieldsConfig'
+import extractErrorMessage from '../utils/extractErrorMessage'
 
 const MATERIAL_TYPES = ['水泥', '粉煤灰', '矿渣粉', '锂渣', '复合粉', '细骨料', '粗骨料', '减水剂', '其他']
 
@@ -23,7 +24,7 @@ const MaterialsPage = forwardRef((props, ref) => {
       if (result && result.success) {
         setMaterials(result.data || [])
       } else {
-        message.error(result?.error || '加载材料失败')
+        message.error(extractErrorMessage(result?.error, '加载材料失败'))
       }
     } catch (error) {
       message.error(`材料加载异常: ${error.message}`)
@@ -88,7 +89,7 @@ const MaterialsPage = forwardRef((props, ref) => {
             message.success('材料已删除')
             loadMaterials()
           } else {
-            message.error(result.error || '删除失败')
+            message.error(extractErrorMessage(result.error, '删除失败'))
           }
         } catch (error) {
           message.error(`删除异常: ${error.message}`)
@@ -144,7 +145,7 @@ const MaterialsPage = forwardRef((props, ref) => {
         setSelectedType(null)
         loadMaterials()
       } else {
-        message.error(result.error || '操作失败')
+        message.error(extractErrorMessage(result.error, '操作失败'))
       }
     } catch (error) {
       message.error(`操作异常: ${error.message}`)

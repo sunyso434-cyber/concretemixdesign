@@ -3,6 +3,7 @@ import { Card, Form, Input, Select, Button, Table, Space, message, Divider, Row,
 
 import { useSelector, useDispatch } from 'react-redux'
 import { setOptimizationTask, clearOptimizationTask } from '../store/mixDesignSlice'
+import extractErrorMessage from '../utils/extractErrorMessage'
 
 const { Option } = Select
 const { Group: InputNumberGroup } = InputNumber
@@ -85,7 +86,7 @@ const OptimizationPage = () => {
       setOptimizing(false)
       dispatch(clearOptimizationTask())
       if (data.error !== 'cancelled') {
-        message.error('优化失败：' + data.error)
+        message.error('优化失败：' + extractErrorMessage(data.error))
       }
       setCurrentTaskId(null)
     }
@@ -107,7 +108,7 @@ const OptimizationPage = () => {
       if (res.success) {
         setMaterials(res.data || [])
       } else {
-        message.error('加载材料失败：' + res.error)
+        message.error('加载材料失败：' + extractErrorMessage(res.error))
       }
     } catch (error) {
       message.error('加载材料失败：' + error.message)
@@ -231,7 +232,7 @@ const OptimizationPage = () => {
         dispatch(setOptimizationTask({ taskId: res.taskId, status: 'running' }))
         message.info('优化已开始，您可在优化页面查看进度，也可先操作其他功能')
       } else {
-        message.error('优化失败：' + res.error)
+        message.error('优化失败：' + extractErrorMessage(res.error))
         setOptimizing(false)
       }
     } catch (error) {
@@ -259,7 +260,7 @@ const OptimizationPage = () => {
         setCurrentTaskId(null)
         setProgress(null)
       } else {
-        message.error('取消失败：' + res.error)
+        message.error('取消失败：' + extractErrorMessage(res.error))
       }
     } catch (error) {
       message.error('取消失败：' + error.message)
@@ -305,7 +306,7 @@ const OptimizationPage = () => {
       if (res.success) {
         message.success('方案保存成功')
       } else {
-        message.error('保存失败：' + res.error)
+        message.error('保存失败：' + extractErrorMessage(res.error))
       }
     } catch (error) {
       message.error('保存失败：' + error.message)

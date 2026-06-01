@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Card, Button, Table, Space, Tag, Typography, Modal, Input, message, Popconfirm, Empty, Tooltip, Alert, Radio } from 'antd'
+import extractErrorMessage from '../utils/extractErrorMessage'
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -125,7 +126,7 @@ const SkillManager = () => {
         message.success(`技能 "${skillName}" 已删除`)
         await loadSkills()
       } else {
-        message.error(result?.error || '删除失败')
+        message.error(extractErrorMessage(result?.error, '删除失败'))
       }
     } catch (error) {
       message.error('删除失败: ' + error.message)
@@ -154,7 +155,7 @@ const SkillManager = () => {
         setNewSkillDesc('')
         await loadSkills()
       } else {
-        message.error(result?.error?.message || result?.error || '创建失败')
+        message.error(extractErrorMessage(result?.error, '创建失败'))
       }
     } catch (error) {
       message.error('创建失败: ' + error.message)
