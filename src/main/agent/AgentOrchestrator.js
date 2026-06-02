@@ -21,6 +21,7 @@ class AgentOrchestrator {
     this._paused = false
     this._aborted = false
     this._resumeResolver = null
+    this._mdSkillStack = []  // 重置MD技能栈，防止跨对话的误判
 
     const steps = []
     const startTime = Date.now()
@@ -130,37 +131,71 @@ class AgentOrchestrator {
               }
             }
 
-            // 执行工具
-            const execResult = await this.skillExecutor.execute(tc.function.name, args)
-            toolStep.result = execResult
+            // 检查是否是MD技能
+            const skill = this.skillRegistry.getSkill(tc.function.name)
+            if (skill && skill._isMDSkill) {
+              // 检查是否正在执行同一个MD技能（防递归）
+              if (this._mdSkillStack.includes(tc.function.name)) {
+                toolStep.status = 'error'
+                toolStep.error = `MD技能 ${tc.function.name} 正在执行中，防止无限递归`
+                messages.push({
+                  role: 'tool',
+                  tool_call_id: tc.id,
+                  content: JSON.stringify({
+                    success: false,
+                    error: `MD技能 ${tc.function.name} 正在执行中，防止无限递归`
+                  })
+                })
+                consecutiveFailures++
+              } else {
+                // MD技能走"注入指令"路径
+                this._mdSkillStack.push(tc.function.name)
+                const mdInstruction = this._buildMDInstruction(skill, args)
 
-            if (execResult.success === false) {
-              toolStep.status = 'error'
-              // 确保 error 始终是字符串（技能可能返回对象格式）
-              const errorMsg = typeof execResult.error === 'object'
-                ? (execResult.error.message || execResult.error.error || JSON.stringify(execResult.error))
-                : String(execResult.error || '未知错误')
-              toolStep.error = errorMsg
-              consecutiveFailures++
+                // 把指令作为tool result发回去，保持消息格式合法
+                messages.push({
+                  role: 'tool',
+                  tool_call_id: tc.id,
+                  content: mdInstruction
+                })
 
-              if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                messages.push({ role: 'tool', content: JSON.stringify(execResult), tool_call_id: tc.id })
-                for (let j = response.tool_calls.indexOf(tc) + 1; j < response.tool_calls.length; j++) {
-                  messages.push({ role: 'tool', content: JSON.stringify({ error: '任务已终止' }), tool_call_id: response.tool_calls[j].id })
-                }
-                finalResult = {
-                  reply: `执行"${tc.function.name}"时连续失败 ${consecutiveFailures} 次：${errorMsg}\n\n请检查输入参数是否正确，或手动处理此步骤后继续。`,
-                  steps, mode, error: true, duration: Date.now() - startTime
-                }
-                break
+                toolStep.status = 'done'
+                toolStep.result = { _mdInstruction: true }
+                consecutiveFailures = 0
               }
-
-              messages.push({ role: 'tool', content: JSON.stringify({ ...execResult, hint: '此步骤执行失败，请尝试其他方法或跳过' }), tool_call_id: tc.id })
             } else {
-              toolStep.status = 'done'
-              consecutiveFailures = 0
-              messages.push({ role: 'tool', content: JSON.stringify(execResult), tool_call_id: tc.id })
-              eventBus.emitToolExecuted(tc.function.name, args, execResult)
+              // JS技能走原有的execute路径
+              const execResult = await this.skillExecutor.execute(tc.function.name, args)
+              toolStep.result = execResult
+
+              if (execResult.success === false) {
+                toolStep.status = 'error'
+                // 确保 error 始终是字符串（技能可能返回对象格式）
+                const errorMsg = typeof execResult.error === 'object'
+                  ? (execResult.error.message || execResult.error.error || JSON.stringify(execResult.error))
+                  : String(execResult.error || '未知错误')
+                toolStep.error = errorMsg
+                consecutiveFailures++
+
+                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                  messages.push({ role: 'tool', content: JSON.stringify(execResult), tool_call_id: tc.id })
+                  for (let j = response.tool_calls.indexOf(tc) + 1; j < response.tool_calls.length; j++) {
+                    messages.push({ role: 'tool', content: JSON.stringify({ error: '任务已终止' }), tool_call_id: response.tool_calls[j].id })
+                  }
+                  finalResult = {
+                    reply: `执行"${tc.function.name}"时连续失败 ${consecutiveFailures} 次：${errorMsg}\n\n请检查输入参数是否正确，或手动处理此步骤后继续。`,
+                    steps, mode, error: true, duration: Date.now() - startTime
+                  }
+                  break
+                }
+
+                messages.push({ role: 'tool', content: JSON.stringify({ ...execResult, hint: '此步骤执行失败，请尝试其他方法或跳过' }), tool_call_id: tc.id })
+              } else {
+                toolStep.status = 'done'
+                consecutiveFailures = 0
+                messages.push({ role: 'tool', content: JSON.stringify(execResult), tool_call_id: tc.id })
+                eventBus.emitToolExecuted(tc.function.name, args, execResult)
+              }
             }
           }
 
@@ -296,6 +331,15 @@ class AgentOrchestrator {
     const resourceText = buildResourceText(resourceSummary)
 
     const toolList = this.skillRegistry.skillNames.join('、')
+
+    // 用户自定义技能单独列出，让LLM更显眼地看到
+    const userSkills = Array.from(this.skillRegistry._skills.values()).filter(s => !s._builtin)
+    let userSkillText = ''
+    if (userSkills.length > 0) {
+      const skillLines = userSkills.map(s => `  - ${s.name}：${s.description}`).join('\n')
+      userSkillText = `\n用户自定义技能（优先使用）：\n${skillLines}\n`
+    }
+
     const modeInstruction = mode === 'auto'
       ? '全自动模式：自主完成所有步骤。每个步骤调用工具前，先用简短文字说明你这一步要做什么、为什么。'
       : '协作模式：每个关键操作执行前需要用户确认。每个步骤调用工具前，先用简短文字说明你这一步要做什么、为什么。'
@@ -305,6 +349,7 @@ class AgentOrchestrator {
 ${modeInstruction}
 
 ${resourceText}
+${userSkillText}
 
 ${memoryContext || ''}
 
@@ -320,7 +365,9 @@ ${memoryContext || ''}
 8. 专业问题（规范限值、标准要求）必须先查 query_standards，不要凭记忆回答
 9. 参考历史方案时，先查 query_design_history 获取真实记录
 10. 设计完成后，主动询问用户是否需要规范合规检查（query_compliance_check）
-11. 创建技能（create_skill）时，executeCode 参数必须包含完整的业务逻辑代码，不能留 TODO 或占位符。根据用户需求和 context 中可用的服务（materialService、mixDesignService、knowledgeService 等）编写可直接运行的实现。参数定义也要完整填写，不能用空对象`
+11. 创建技能（create_skill）时，executeCode 参数必须包含完整的业务逻辑代码，不能留 TODO 或占位符。根据用户需求和 context 中可用的服务（materialService、mixDesignService、knowledgeService 等）编写可直接运行的实现。参数定义也要完整填写，不能用空对象
+12. 当用户需求匹配已有的自定义技能时，优先调用该技能，不要创建新技能。调用 create_skill 之前，先确认没有功能重复的已有技能
+13. 如果用户请求的是"XX配合比设计"且已有对应的自定义技能（如 self_compacting_concrete_design、scc_mix_design 等），直接调用该技能，不要先查材料再手动计算——自定义技能内部会自行获取所需材料数据`
   }
 
   _waitForResume() {
@@ -382,6 +429,29 @@ ${memoryContext || ''}
         settle(true)
       }
     })
+  }
+
+  /**
+   * 构建MD技能的执行指令
+   * @param {object} skill - MD技能定义
+   * @param {object} args - 用户参数
+   * @returns {string} 替换参数后的指令
+   */
+  _buildMDInstruction(skill, args) {
+    let body = skill._mdBody
+
+    // 参数替换：把{{param_name}}换成实际值
+    for (const [key, value] of Object.entries(args)) {
+      body = body.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), String(value))
+    }
+
+    return `你现在要执行以下子任务。这个任务由用户自定义技能"${skill.name}"定义。
+请严格按照下面的指令完成，完成后直接给出结果，不需要调用 create_skill 或其他管理工具。
+
+---
+${body}
+---
+`
   }
 }
 
