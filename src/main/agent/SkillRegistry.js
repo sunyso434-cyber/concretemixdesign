@@ -6,6 +6,7 @@
 const fs = require('fs')
 const path = require('path')
 const SchemaValidator = require('./SchemaValidator')
+const MDParser = require('./MDParser')
 
 class SkillRegistry {
   constructor() {
@@ -17,6 +18,7 @@ class SkillRegistry {
       '.concrete-mixdesign',
       'skills'
     )
+    this._mdParser = new MDParser()
   }
 
   /**
@@ -150,15 +152,49 @@ module.exports = {
 
     const files = fs.readdirSync(dir)
     for (const file of files) {
+      const filePath = path.join(dir, file)
+
       if (file.endsWith('.js')) {
-        const skillPath = path.join(dir, file)
+        // JS格式技能
         try {
-          const skill = require(skillPath)
-          this.register(skill, { builtin, filePath: skillPath })
+          const skill = require(filePath)
+          this.register(skill, { builtin, filePath })
         } catch (error) {
-          console.error(`[SkillRegistry] 加载 skill 失败: ${file}`, error.message)
+          console.error(`[SkillRegistry] 加载 JS skill 失败: ${file}`, error.message)
+        }
+      } else if (file.endsWith('.md')) {
+        // MD格式技能
+        try {
+          const skill = this._loadMDSkill(filePath)
+          this.register(skill, { builtin, filePath })
+        } catch (error) {
+          console.error(`[SkillRegistry] 加载 MD skill 失败: ${file}`, error.message)
         }
       }
+    }
+  }
+
+  /**
+   * 加载MD格式技能
+   * @param {string} filePath - MD文件路径
+   * @returns {object} 技能定义
+   */
+  _loadMDSkill(filePath) {
+    const parsed = this._mdParser.parse(filePath)
+
+    // MD技能不需要execute函数，但需要标记为MD技能
+    return {
+      name: parsed.name,
+      description: parsed.description,
+      parameters: parsed.parameters,
+      // 不需要execute函数
+      version: parsed.version,
+      category: parsed.category,
+      requiresConfirmation: parsed.requiresConfirmation,
+      _isMDSkill: true,
+      _mdBody: parsed.body,
+      _placeholders: parsed.placeholders,
+      _filePath: filePath
     }
   }
 
@@ -187,8 +223,11 @@ module.exports = {
   _validateSkill(skill) {
     if (!skill.name) throw new Error('Skill 必须有 name')
     if (!skill.description) throw new Error('Skill 必须有 description')
-    if (!skill.parameters) throw new Error('Skill 必须有 parameters')
-    if (typeof skill.execute !== 'function') throw new Error('Skill 必须有 execute 函数')
+
+    // MD技能不需要execute函数
+    if (!skill._isMDSkill) {
+      if (typeof skill.execute !== 'function') throw new Error('JS Skill 必须有 execute 函数')
+    }
   }
 
   /**
