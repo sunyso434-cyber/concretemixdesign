@@ -234,7 +234,16 @@ function registerAgentHandlers() {
     const fs = require('fs')
     const path = require('path')
     const userDir = skillRegistry.getUserDir()
-    const filePath = path.join(userDir, `${skillName}.js`)
+
+    // 检查.js文件
+    let filePath = path.join(userDir, `${skillName}.js`)
+    let isMD = false
+
+    if (!fs.existsSync(filePath)) {
+      // 检查.md文件
+      filePath = path.join(userDir, `${skillName}.md`)
+      isMD = true
+    }
 
     if (!fs.existsSync(filePath)) {
       return { success: false, error: '技能文件不存在' }
@@ -242,7 +251,7 @@ function registerAgentHandlers() {
 
     try {
       const content = fs.readFileSync(filePath, 'utf8')
-      return { success: true, data: { skillName, filePath, content } }
+      return { success: true, data: { skillName, filePath, content, isMD } }
     } catch (error) {
       return { success: false, error: error.message }
     }
@@ -255,7 +264,13 @@ function registerAgentHandlers() {
     const fs = require('fs')
     const path = require('path')
     const userDir = skillRegistry.getUserDir()
-    const filePath = path.join(userDir, `${skillName}.js`)
+
+    // 检查.js文件
+    let filePath = path.join(userDir, `${skillName}.js`)
+    if (!fs.existsSync(filePath)) {
+      // 检查.md文件
+      filePath = path.join(userDir, `${skillName}.md`)
+    }
 
     if (!fs.existsSync(filePath)) {
       return { success: false, error: '技能文件不存在' }
