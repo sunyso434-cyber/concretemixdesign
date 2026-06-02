@@ -9,8 +9,8 @@ import { useState, useEffect, useRef } from 'react'
  */
 export default function useAgentMode({ setChatMessages, setChatLoading }) {
   // ===== Agent 状态 =====
-  const [agentEnabled, setAgentEnabled] = useState(false)
-  const [agentMode, setAgentMode] = useState('chat')          // 标签页：chat | agent
+  const [agentEnabled, setAgentEnabled] = useState(true)  // 默认启用
+  const [agentMode, setAgentMode] = useState('agent')     // 统一为agent模式
   const [agentRunMode, setAgentRunMode] = useState('collaborative') // 运行模式：collaborative | auto
   const [agentSteps, setAgentSteps] = useState([])
   const [agentStatus, setAgentStatus] = useState(null)
@@ -33,20 +33,14 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
 
   // 读取 Agent 设置（仅执行一次）
   useEffect(() => {
-    Promise.all([
-      window.electronAPI.invoke('get-param-by-name', 'agentEnabled').catch(() => null),
-      window.electronAPI.invoke('get-param-by-name', 'agentDefaultMode').catch(() => null),
-    ]).then(([enabled, defaultMode]) => {
-      const isEnabled = enabled?.data?.value === 'true'
-      const runMode = defaultMode?.data?.value
-      setAgentEnabled(isEnabled)
-      if (isEnabled) {
+    window.electronAPI.invoke('get-param-by-name', 'agentDefaultMode')
+      .then(defaultMode => {
+        const runMode = defaultMode?.data?.value
         if (runMode === 'auto' || runMode === 'collaborative') {
           setAgentRunMode(runMode)
-          setAgentMode('agent')
         }
-      }
-    }).catch(() => {})
+      })
+      .catch(() => {})
   }, [])
 
   // Agent进度监听

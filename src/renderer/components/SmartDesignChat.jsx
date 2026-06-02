@@ -812,55 +812,29 @@ const SmartDesignChat = () => {
     chatState.setChatInput('')
     chatState.setChatMessages(prev => [...prev, { role: 'user', content: userMessage, attachment: chatState.attachment ? { name: chatState.attachment.name, type: chatState.attachment.type } : null }])
 
-    // 情况0：Agent 模式
-    if (agent.agentMode === 'agent') {
-      chatState.setChatLoading(true)
-      agent.setAgentSteps([])
-      agent.setAgentStatus('running')
-      agent.agentRequestIdRef.current = 'agent-' + Date.now()
-      try {
-        const res = await window.electronAPI.invoke('agent:run', {
-          requestId: agent.agentRequestIdRef.current,
-          sessionId: agent.currentSessionId,
-          message: userMessage,
-          mode: agent.agentRunMode
-        })
-        if (res && res.success === false) {
-          chatState.setChatLoading(false)
-          agent.setAgentStatus('error')
-          chatState.setChatMessages(prev => [...prev, { role: 'assistant', content: 'Agent执行出错: ' + (extractErrorMessage(res.error) || '未知错误'), isError: true }])
-        }
-      } catch (e) {
+    // 统一使用 Agent 模式
+    chatState.setChatLoading(true)
+    agent.setAgentSteps([])
+    agent.setAgentStatus('running')
+    agent.agentRequestIdRef.current = 'agent-' + Date.now()
+    try {
+      const res = await window.electronAPI.invoke('agent:run', {
+        requestId: agent.agentRequestIdRef.current,
+        sessionId: agent.currentSessionId,
+        message: userMessage,
+        mode: agent.agentRunMode
+      })
+      if (res && res.success === false) {
         chatState.setChatLoading(false)
         agent.setAgentStatus('error')
-        chatState.setChatMessages(prev => [...prev, { role: 'assistant', content: 'Agent执行出错: ' + (extractErrorMessage(e.message) || '未知错误'), isError: true }])
+        chatState.setChatMessages(prev => [...prev, { role: 'assistant', content: '执行出错: ' + (extractErrorMessage(res.error) || '未知错误'), isError: true }])
       }
-      chatState.setAttachment(null)
-      return
+    } catch (e) {
+      chatState.setChatLoading(false)
+      agent.setAgentStatus('error')
+      chatState.setChatMessages(prev => [...prev, { role: 'assistant', content: '执行出错: ' + (extractErrorMessage(e.message) || '未知错误'), isError: true }])
     }
-
-    // 情况1：有附件，直接进入分析模式
-    if (chatState.attachment) {
-      await handleEnterAnalysisMode(chatState.attachment, userMessage)
-      chatState.setAttachment(null)
-      return
-    }
-
-    // 情况2：已经在分析模式，继续追问
-    if (chatState.analysisMode) {
-      await handleAnalysisFollowUp(userMessage)
-      return
-    }
-
-    // 情况3：用户明确要求进入分析模式
-    if (detectAnalysisModeIntent(userMessage)) {
-      await handleEnterAnalysisMode(null, userMessage)
-      return
-    }
-
-    // 情况4：普通设计模式
-    chatState.setChatLoading(true)
-    await handleDesignMode(userMessage)
+    chatState.setAttachment(null)
   }
 
   // 清空对话（先中止运行中的 Agent，再重置状态）
@@ -920,30 +894,17 @@ const SmartDesignChat = () => {
               <RobotOutlined style={{ fontSize: 18, color: 'var(--color-primary)' }} />
               <Text strong style={{ fontSize: 16 }}>智能设计助手</Text>
             </Space>
-            {agent.agentEnabled && (
-              <Space size={8}>
-                <Segmented
-                  size="small"
-                  value={agent.agentMode}
-                  onChange={val => agent.setAgentMode(val)}
-                  options={[
-                    { label: '聊天', value: 'chat', icon: <BulbOutlined /> },
-                    { label: 'Agent', value: 'agent', icon: <ThunderboltOutlined /> }
-                  ]}
-                />
-                {agent.agentMode === 'agent' && (
-                  <Segmented
-                    size="small"
-                    value={agent.agentRunMode}
-                    onChange={val => agent.setAgentRunMode(val)}
-                    options={[
-                      { label: '协作', value: 'collaborative', icon: <TeamOutlined /> },
-                      { label: '全自动', value: 'auto', icon: <ThunderboltOutlined /> }
-                    ]}
-                  />
-                )}
-              </Space>
-            )}
+            <Space size={8}>
+              <Segmented
+                size="small"
+                value={agent.agentRunMode}
+                onChange={val => agent.setAgentRunMode(val)}
+                options={[
+                  { label: '协作', value: 'collaborative', icon: <TeamOutlined /> },
+                  { label: '全自动', value: 'auto', icon: <ThunderboltOutlined /> }
+                ]}
+              />
+            </Space>
           </div>
 
           <div className="smart-chat-list">
