@@ -6,6 +6,7 @@ const SkillRegistry = require('../agent/SkillRegistry')
 const SkillExecutor = require('../agent/SkillExecutor')
 const ContextProvider = require('../agent/ContextProvider')
 const DynamicContextProvider = require('../agent/DynamicContextProvider')
+const SkillDebugger = require('../agent/SkillDebugger')
 const agentMemoryService = require('../services/AgentMemoryService')
 const SystemService = require('../services/SystemService')
 
@@ -13,6 +14,7 @@ const SystemService = require('../services/SystemService')
 let orchestrator = null
 let skillRegistry = null
 let skillExecutor = null
+let skillDebugger = null
 let cachedApiKey = null
 let agentRunning = false
 
@@ -58,6 +60,13 @@ async function initSkillSystem() {
   // 初始化 LearningService（自动学习用户偏好）
   const learningService = require('../services/LearningService')
   learningService.init()
+
+  // 初始化 SkillDebugger（MD技能调试工具）
+  skillDebugger = new SkillDebugger({
+    skillRegistry,
+    skillExecutor,
+    deepseekService: null // 延迟初始化
+  })
 
   console.log(`[AgentHandler] Skill 系统初始化完成, 已加载 ${skillRegistry.size} 个 skills`)
   return skillRegistry
@@ -306,6 +315,41 @@ function registerAgentHandlers() {
       skillRegistry._skills.delete(skillName)
       await skillRegistry.discover()
       return { success: true }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  // ===== Skill 调试 =====
+
+  ipcMain.handle('skill:debug:preview', async (_event, { skillName, args }) => {
+    if (!skillDebugger) {
+      return { success: false, error: 'Skill 系统未初始化' }
+    }
+    try {
+      return skillDebugger.previewInstruction(skillName, args || {})
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('skill:debug:validate', async (_event, { skillName }) => {
+    if (!skillDebugger) {
+      return { success: false, error: 'Skill 系统未初始化' }
+    }
+    try {
+      return skillDebugger.validateSkill(skillName)
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  })
+
+  ipcMain.handle('skill:debug:listMD', async () => {
+    if (!skillDebugger) {
+      return { success: false, error: 'Skill 系统未初始化' }
+    }
+    try {
+      return skillDebugger.listMDSkills()
     } catch (error) {
       return { success: false, error: error.message }
     }
