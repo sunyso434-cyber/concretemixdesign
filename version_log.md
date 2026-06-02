@@ -1,5 +1,56 @@
 # 版本更新记录
 
+## 打包记录 (2026-06-02 Agent架构重新设计 - MD技能支持 4.3.0)
+
+- **命令**: `npm run electron:build`
+- **结果**: 待打包
+- **版本号**: **4.3.0**
+- **输出目录**: `dist-3.8.0/`
+- **说明**: 用户自定义技能从JS格式改为纯声明式MD格式，降低用户门槛：
+  1. **MDParser** — 支持从YAML front matter解析parameters，支持{{param_name}}占位符
+  2. **SkillRegistry** — 支持加载.md文件，MD技能不需要execute函数
+  3. **AgentOrchestrator** — 识别MD技能，注入指令+继续循环，防死循环机制
+  4. **create_skill** — 支持生成MD格式技能文件，parameters在YAML里，executeCode改为非必填
+  5. **agentHandler** — skill:delete和skill:getInfo支持.md扩展名
+  6. **DynamicContextProvider** — 按需注入服务，节省token，支持getForSkill接口
+  7. **UnifiedOrchestrator** — 统一Agent/Chat模式，LLM自主决策任务复杂度
+  8. **SkillDebugger** — 预览生成的指令，验证MD技能格式，列出所有MD技能
+  9. **SkillCache** — 缓存常用MD技能执行结果，提高响应速度
+- **新增文件**:
+  - `src/main/agent/MDParser.js`
+  - `src/main/agent/DynamicContextProvider.js`
+  - `src/main/agent/UnifiedOrchestrator.js`
+  - `src/main/agent/SkillDebugger.js`
+  - `src/main/agent/SkillCache.js`
+  - `tests/manual/test-md-parser.js`
+  - `tests/manual/test-skill-registry-md.js`
+  - `tests/manual/test-dynamic-context-provider.js`
+  - `tests/manual/test-material-query-md.js`
+- **修改文件**:
+  - `src/main/agent/SkillRegistry.js`
+  - `src/main/agent/AgentOrchestrator.js`
+  - `src/main/skills/create-skill.js`
+  - `src/main/ipcHandlers/agentHandler.js`
+  - `package.json` (gray-matter依赖)
+
+## 打包记录 (2026-06-02 Agent 技能调用优化 4.2.0)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.2.0**
+- **输出目录**: `dist-3.8.0/`
+- **说明**: 修复 Agent "愚蠢行为" — 不调用已有自定义技能、强制先查材料、诱导创建重复技能：
+  1. **系统提示词增加技能优先规则** — AgentOrchestrator 新增规则12/13，已有自定义技能时优先调用，不先查材料不创建新技能
+  2. **用户自定义技能显式展示** — 系统提示词中单独列出用户自定义技能并标记"优先使用"
+  3. **材料选择流程增加例外** — DeepSeekService 提示词中，有匹配自定义技能时跳过材料查询
+  4. **创建技能增加前置检查** — 调用 create_skill 前先用 manage_skills(list) 检查已有技能
+  5. **create_skill 描述去诱导** — 移除"自密实混凝土配合比设计"的具体示例，避免 LLM 误触发
+  6. **list_available_materials 描述加限制** — 明确标注"有自定义技能时不要调用"
+  7. **修复自定义技能 API 调用** — self_compacting_concrete_design.js 中 getMaterial→getMaterialById（6处）
+  8. **修复自定义技能正则双重转义** — `\\\\d+` → `\\d+`，修复 C30 等强度等级匹配失败
+  9. **修复自定义技能文件语法错误** — 两个技能文件缺逗号/转义破坏/嵌套结构错乱
+  10. **修复 create-skill.js 代码生成器** — 用 JSON.stringify 替代三重 replace，不再破坏正则和模板字符串
+
 ## 打包记录 (2026-06-01 Agent 功能全面修复 4.2.0)
 
 - **命令**: `npm run electron:build`
