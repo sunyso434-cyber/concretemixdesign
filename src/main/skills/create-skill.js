@@ -36,8 +36,8 @@ module.exports = {
     },
     executeCode: {
       type: 'string',
-      description: 'execute 函数的完整函数体代码（JavaScript）。必须包含完整的业务逻辑，不能留 TODO。可以使用 context 中的 materialService、mixDesignService、knowledgeService 等服务，以及 args 中的参数。示例："const { strength } = args; const materials = await context.materialService.getAllMaterials(); return { success: true, data: materials }"',
-      required: true
+      description: 'execute 函数的完整函数体代码（JavaScript）。JS格式时必填，MD格式时可留空。必须包含完整的业务逻辑，不能留 TODO。可以使用 context 中的 materialService、mixDesignService、knowledgeService 等服务，以及 args 中的参数。示例："const { strength } = args; const materials = await context.materialService.getAllMaterials(); return { success: true, data: materials }"',
+      required: false
     },
     exampleUsage: {
       type: 'string',

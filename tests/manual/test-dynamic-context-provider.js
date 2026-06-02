@@ -32,6 +32,65 @@ const mockServices = {
   mixDesignToQuote: { convert: () => Promise.resolve({}) }
 }
 
+console.log('\n=== 测试getForSkill方法 ===')
+{
+  const provider = new DynamicContextProvider(mockServices)
+
+  // 模拟registry
+  provider.setRegistry({
+    getSkill: (name) => {
+      if (name === 'test_skill') {
+        return { name: 'test_skill', services: ['materialService', 'mixDesignService'] }
+      }
+      return null
+    }
+  })
+
+  const context = provider.getForSkill('test_skill')
+
+  assert(context.materialService !== undefined, '应该注入materialService')
+  assert(context.mixDesignService !== undefined, '应该注入mixDesignService')
+  assert(context.complianceService === undefined, '不应该注入complianceService')
+  assert(context.knowledgeService === undefined, '不应该注入knowledgeService')
+}
+
+console.log('\n=== 测试getForSkill无services时注入全部服务 ===')
+{
+  const provider = new DynamicContextProvider(mockServices)
+
+  // 模拟registry（JS技能没有services字段）
+  provider.setRegistry({
+    getSkill: (name) => {
+      if (name === 'js_skill') {
+        return { name: 'js_skill' }  // 没有services字段
+      }
+      return null
+    }
+  })
+
+  const context = provider.getForSkill('js_skill')
+
+  assert(context.materialService !== undefined, 'JS技能应该注入materialService')
+  assert(context.mixDesignService !== undefined, 'JS技能应该注入mixDesignService')
+  assert(context.complianceService !== undefined, 'JS技能应该注入complianceService')
+  assert(context.knowledgeService !== undefined, 'JS技能应该注入knowledgeService')
+}
+
+console.log('\n=== 测试getForSkill技能不存在时注入全部服务 ===')
+{
+  const provider = new DynamicContextProvider(mockServices)
+
+  // 模拟registry
+  provider.setRegistry({
+    getSkill: () => null
+  })
+
+  const context = provider.getForSkill('unknown_skill')
+
+  assert(context.materialService !== undefined, '未知技能应该注入materialService')
+  assert(context.mixDesignService !== undefined, '未知技能应该注入mixDesignService')
+}
+
 console.log('\n=== 测试根据services字段注入服务 ===')
 {
   const provider = new DynamicContextProvider(mockServices)

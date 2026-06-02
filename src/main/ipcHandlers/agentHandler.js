@@ -45,7 +45,9 @@ async function initSkillSystem() {
 
   let contextProvider
   try {
-    contextProvider = new DynamicContextProvider(allServices)
+    const dynamicProvider = new DynamicContextProvider(allServices)
+    dynamicProvider.setRegistry(skillRegistry)
+    contextProvider = dynamicProvider
     console.log('[AgentHandler] 使用 DynamicContextProvider（按需注入服务）')
   } catch (error) {
     console.warn('[AgentHandler] DynamicContextProvider 初始化失败，使用 ContextProvider 作为 fallback:', error.message)

@@ -19,6 +19,31 @@ class DynamicContextProvider {
   }
 
   /**
+   * 获取技能执行上下文（SkillExecutor调用此方法）
+   * @param {string} skillName - 技能名称
+   * @returns {object} 执行上下文
+   */
+  getForSkill(skillName) {
+    // 从registry获取技能定义
+    const skill = this._registry ? this._registry.getSkill(skillName) : null
+
+    if (!skill) {
+      // 技能不存在时，返回全部服务（兼容性）
+      return this._createFullContext(skillName)
+    }
+
+    return this.getServices(skill)
+  }
+
+  /**
+   * 设置SkillRegistry引用
+   * @param {object} registry - SkillRegistry实例
+   */
+  setRegistry(registry) {
+    this._registry = registry
+  }
+
+  /**
    * 获取技能执行上下文
    * @param {object} skill - 技能定义
    * @returns {object} 执行上下文
@@ -26,6 +51,11 @@ class DynamicContextProvider {
   getServices(skill) {
     const requiredServices = skill.services || []
     const context = {}
+
+    // 如果没有声明services，注入全部服务（兼容JS技能）
+    if (requiredServices.length === 0) {
+      return this._createFullContext(skill.name)
+    }
 
     // 解析服务列表（支持类别和具体服务名）
     const resolvedServices = this._resolveServices(requiredServices)
@@ -42,6 +72,19 @@ class DynamicContextProvider {
     context.findMaterialById = this._createFindMaterialById()
     context.findMaterialsByIds = this._createFindMaterialsByIds()
 
+    return context
+  }
+
+  /**
+   * 创建完整上下文（注入全部服务）
+   * @param {string} skillName - 技能名称
+   * @returns {object} 执行上下文
+   */
+  _createFullContext(skillName) {
+    const context = { ...this.allServices }
+    context.logger = this._createLogger(skillName)
+    context.findMaterialById = this._createFindMaterialById()
+    context.findMaterialsByIds = this._createFindMaterialsByIds()
     return context
   }
 
