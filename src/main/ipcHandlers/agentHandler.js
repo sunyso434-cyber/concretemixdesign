@@ -4,6 +4,7 @@ const AgentOrchestrator = require('../agent/AgentOrchestrator')
 const SkillRegistry = require('../agent/SkillRegistry')
 const SkillExecutor = require('../agent/SkillExecutor')
 const ContextProvider = require('../agent/ContextProvider')
+const DynamicContextProvider = require('../agent/DynamicContextProvider')
 const agentMemoryService = require('../services/AgentMemoryService')
 const SystemService = require('../services/SystemService')
 
@@ -25,8 +26,29 @@ async function initSkillSystem() {
   // 设置 DeepSeekService 的 SkillRegistry
   DeepSeekService.setSkillRegistry(skillRegistry)
 
-  // 创建 SkillExecutor
-  const contextProvider = new ContextProvider()
+  // 创建 DynamicContextProvider（按需注入服务，节省token）
+  const allServices = {
+    materialService: require('../services/MaterialService'),
+    mixDesignService: require('../services/MixDesignService'),
+    basicMixDesignService: require('../services/BasicMixDesignService'),
+    mixDesignOptimizer: require('../services/MixDesignOptimizer'),
+    complianceService: require('../services/StandardComplianceService'),
+    knowledgeService: require('../services/StandardKnowledgeService'),
+    salesQuoteCalculation: require('../services/SalesQuoteCalculationService'),
+    salesQuoteHistory: require('../services/SalesQuoteHistoryService'),
+    xgboostPrediction: require('../services/XGBoostPredictionService'),
+    mixDesignToQuote: require('../services/MixDesignToQuoteService')
+  }
+
+  let contextProvider
+  try {
+    contextProvider = new DynamicContextProvider(allServices)
+    console.log('[AgentHandler] 使用 DynamicContextProvider（按需注入服务）')
+  } catch (error) {
+    console.warn('[AgentHandler] DynamicContextProvider 初始化失败，使用 ContextProvider 作为 fallback:', error.message)
+    contextProvider = new ContextProvider()
+  }
+
   skillExecutor = new SkillExecutor({ skillRegistry, contextProvider })
 
   // 设置 DeepSeekService 的 SkillExecutor
