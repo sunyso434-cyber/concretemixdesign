@@ -9,7 +9,7 @@ const os = require('os')
 
 module.exports = {
   name: 'create_skill',
-  description: '创建新的自定义技能。当用户想要增加新功能、创建自定义工具、或扩展AI能力时调用。例如"我想加一个自密实混凝土配合比设计的功能"、"帮我创建一个XX工具"。',
+  description: '创建新的自定义技能。仅当用户明确说"创建/添加/新建一个技能/工具"，且确认没有功能重复的已有技能时才调用。调用前先用 manage_skills(list) 检查已有技能列表。',
   version: '1.0.0',
   category: 'system',
 
@@ -43,6 +43,12 @@ module.exports = {
       type: 'string',
       description: '使用示例，如"用户说：设计一个C40自密实混凝土，坍落度650mm"',
       required: false
+    },
+    format: {
+      type: 'string',
+      description: '技能文件格式，js或md。md格式为纯声明式，用户只需写参数定义和执行步骤，不需要写代码。默认md',
+      required: false,
+      enum: ['js', 'md']
     }
   },
 
@@ -62,25 +68,102 @@ module.exports = {
   },
 
   async execute(args, context) {
-    const { skillName, description, functionality, parameters, executeCode, exampleUsage } = args
+    const { skillName, description, functionality, parameters, executeCode, exampleUsage, format = 'md' } = args
     const { logger } = context
 
     // functionality 不填时降级用 description
     const effectiveFunctionality = functionality || description || '自定义技能'
 
-    logger.info(`创建技能: ${skillName}`)
+    logger.info(`创建技能: ${skillName}, 格式: ${format}`)
 
     // 检查技能名是否已存在
     const userDir = path.join(os.homedir(), '.concrete-mixdesign', 'skills')
-    const filePath = path.join(userDir, `${skillName}.js`)
+
+    // 确保目录存在
+    if (!fs.existsSync(userDir)) {
+      fs.mkdirSync(userDir, { recursive: true })
+    }
+
+    if (format === 'md') {
+      return await this._createMDSkill(args, context, userDir, effectiveFunctionality)
+    } else {
+      return await this._createJSSkill(args, context, userDir, effectiveFunctionality)
+    }
+  },
+
+  /**
+   * 创建MD格式技能
+   */
+  async _createMDSkill(args, context, userDir, effectiveFunctionality) {
+    const { skillName, description, parameters, exampleUsage } = args
+    const { logger } = context
+
+    const filePath = path.join(userDir, `${skillName}.md`)
 
     if (fs.existsSync(filePath)) {
       return { success: false, error: this.errors.NAME_EXISTS, details: { skillName } }
     }
 
-    // 确保目录存在
-    if (!fs.existsSync(userDir)) {
-      fs.mkdirSync(userDir, { recursive: true })
+    // 生成MD内容
+    const mdContent = this._generateMDContent({
+      skillName,
+      description,
+      functionality: effectiveFunctionality,
+      parameters,
+      exampleUsage
+    })
+
+    try {
+      // 写入文件
+      fs.writeFileSync(filePath, mdContent, 'utf8')
+      logger.info(`MD技能文件已创建: ${filePath}`)
+
+      // 重新加载技能
+      const { getSkillRegistry } = require('../ipcHandlers/agentHandler')
+      const registry = getSkillRegistry()
+      if (registry) {
+        registry._skills.delete(skillName)
+        await registry.discover()
+        logger.info(`技能已重新加载，当前共 ${registry.size} 个技能`)
+      }
+
+      return {
+        success: true,
+        type: 'skill_created',
+        data: {
+          skillName,
+          filePath,
+          description,
+          format: 'md'
+        },
+        message: `MD技能 "${skillName}" 已创建成功！文件保存在:\n${filePath}\n\n技能已自动加载，可以直接使用。`,
+        suggestions: [
+          `试试调用 ${skillName} 测试一下`,
+          '需要修改这个技能吗？',
+          '还要创建其他技能吗？'
+        ]
+      }
+    } catch (error) {
+      logger.error('创建MD技能失败:', error)
+      return {
+        success: false,
+        error: this.errors.CREATE_FAILED,
+        details: { originalError: error.message }
+      }
+    }
+  },
+
+  /**
+   * 创建JS格式技能
+   */
+  async _createJSSkill(args, context, userDir, effectiveFunctionality) {
+    const { skillName, description, parameters, executeCode, exampleUsage } = args
+    const { logger } = context
+
+    const filePath = path.join(userDir, `${skillName}.js`)
+
+    if (fs.existsSync(filePath)) {
+      return { success: false, error: this.errors.NAME_EXISTS, details: { skillName } }
     }
 
     // 生成参数定义
@@ -99,13 +182,12 @@ module.exports = {
     try {
       // 写入文件
       fs.writeFileSync(filePath, skillCode, 'utf8')
-      logger.info(`技能文件已创建: ${filePath}`)
+      logger.info(`JS技能文件已创建: ${filePath}`)
 
       // 重新加载技能
       const { getSkillRegistry } = require('../ipcHandlers/agentHandler')
       const registry = getSkillRegistry()
       if (registry) {
-        // 清除旧的并重新加载
         registry._skills.delete(skillName)
         await registry.discover()
         logger.info(`技能已重新加载，当前共 ${registry.size} 个技能`)
@@ -117,9 +199,10 @@ module.exports = {
         data: {
           skillName,
           filePath,
-          description
+          description,
+          format: 'js'
         },
-        message: `技能 "${skillName}" 已创建成功！文件保存在:\n${filePath}\n\n技能已自动加载，可以直接使用。`,
+        message: `JS技能 "${skillName}" 已创建成功！文件保存在:\n${filePath}\n\n技能已自动加载，可以直接使用。`,
         suggestions: [
           `试试调用 ${skillName} 测试一下`,
           '需要修改这个技能吗？',
@@ -127,13 +210,62 @@ module.exports = {
         ]
       }
     } catch (error) {
-      logger.error('创建技能失败:', error)
+      logger.error('创建JS技能失败:', error)
       return {
         success: false,
         error: this.errors.CREATE_FAILED,
         details: { originalError: error.message }
       }
     }
+  },
+
+  /**
+   * 生成MD内容
+   */
+  _generateMDContent({ skillName, description, functionality, parameters, exampleUsage }) {
+    let md = `---
+name: ${skillName}
+description: ${description}
+category: custom
+version: 1.0.0
+parameters:
+`
+
+    if (parameters && Object.keys(parameters).length > 0) {
+      for (const [name, param] of Object.entries(parameters)) {
+        md += `  ${name}:
+    type: ${param.type || 'string'}
+    description: ${param.description || name}
+    required: ${param.required !== false ? 'true' : 'false'}
+`
+      }
+    } else {
+      md += '  # 无参数\n'
+    }
+
+    md += `---
+
+# ${description}
+
+## 功能描述
+
+${functionality || description}
+
+## 执行步骤
+
+1. 根据参数查询相关数据
+2. 整理并返回结果
+
+`
+
+    if (exampleUsage) {
+      md += `## 使用示例
+
+${exampleUsage}
+`
+    }
+
+    return md
   },
 
   /**
@@ -170,8 +302,9 @@ module.exports = {
    * 生成技能代码
    */
   _generateSkillCode({ skillName, description, functionality, paramsCode, executeCode, exampleUsage }) {
-    // 对 executeCode 中的单引号和反引号进行转义，防止注入
-    const safeCode = (executeCode || '').replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
+    // 使用 JSON.stringify 安全转义 executeCode，防止反引号/反斜杠/模板字符串被破坏
+    const rawCode = executeCode || ''
+    const safeCode = JSON.stringify(rawCode).slice(1, -1)
 
     return `/**
  * ${description}
