@@ -1,6 +1,7 @@
 const { ipcMain } = require('electron')
 const DeepSeekService = require('../services/DeepSeekService')
 const AgentOrchestrator = require('../agent/AgentOrchestrator')
+const UnifiedOrchestrator = require('../agent/UnifiedOrchestrator')
 const SkillRegistry = require('../agent/SkillRegistry')
 const SkillExecutor = require('../agent/SkillExecutor')
 const ContextProvider = require('../agent/ContextProvider')
@@ -81,7 +82,8 @@ async function getOrchestrator() {
     // 确保 Skill 系统已初始化
     await initSkillSystem()
 
-    orchestrator = new AgentOrchestrator({
+    // 使用 UnifiedOrchestrator 统一 Agent/Chat 模式
+    orchestrator = new UnifiedOrchestrator({
       deepseekService: ds,
       skillRegistry,
       skillExecutor
