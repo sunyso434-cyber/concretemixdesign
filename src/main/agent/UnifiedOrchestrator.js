@@ -5,12 +5,13 @@
 
 const agentMemoryService = require('../services/AgentMemoryService')
 const eventBus = require('./EventBus')
+const SkillCache = require('./SkillCache')
 
 const MAX_STEPS = 10
 const MAX_CONSECUTIVE_FAILURES = 2
 
 class UnifiedOrchestrator {
-  constructor({ deepseekService, skillRegistry, skillExecutor }) {
+  constructor({ deepseekService, skillRegistry, skillExecutor, cacheOptions }) {
     this.ds = deepseekService
     this.skillRegistry = skillRegistry
     this.skillExecutor = skillExecutor || null
@@ -20,6 +21,7 @@ class UnifiedOrchestrator {
     this._resumeResolver = null
     this._confirmationResolver = null
     this._mdSkillStack = []
+    this._cache = new SkillCache(cacheOptions)
   }
 
   /**
