@@ -132,10 +132,10 @@ class AgentMemoryService {
 
   // ===== 窗口截断提示词构建 =====
 
-  async buildMemoryContext(sessionId, { windowSize = DEFAULT_WINDOW_SIZE } = {}) {
+  async buildMemoryContext(sessionId, { windowSize = DEFAULT_WINDOW_SIZE, queryContext = {} } = {}) {
     const [preferences, corrections] = await Promise.all([
       this.getAllPreferences(),
-      this.findSimilarCorrections({}, null, 5)
+      this.findSimilarCorrections(queryContext, null, 5)
     ])
 
     const parts = []

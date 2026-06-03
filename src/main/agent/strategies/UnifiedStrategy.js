@@ -24,7 +24,9 @@ class UnifiedStrategy {
     const MAX_CONSECUTIVE_FAILURES = 2
 
     // 1. 构造 messages
-    const memoryContext = await this.agentMemoryService.buildMemoryContext(sessionId)
+    const memoryContext = await this.agentMemoryService.buildMemoryContext(sessionId, {
+      queryContext: { lastUserMessage: message }
+    })
     const historyMessages = await this.agentMemoryService.buildHistoryMessages(sessionId)
     const skillNames = this.skillRegistry.getToolSchemas().map(s => s.function.name)
 
