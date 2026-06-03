@@ -107,6 +107,56 @@ describe('AgentMemoryService 集成测试（真实 SQLite）', () => {
     expect(msgs[0].content).toBe('tool result')
   })
 
+  test('buildHistoryMessages 4 轮含 tool 调用能正确还原（H3 P1-4）', async () => {
+    const sessionId = 'it-s4-' + Date.now()
+
+    // 1) 用户问
+    await AgentMemoryService.saveMessage({
+      sessionId,
+      role: 'user',
+      content: 'u1'
+    })
+    // 2) assistant 调工具（空 content，带 toolCalls）
+    await AgentMemoryService.saveMessage({
+      sessionId,
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'c1', function: { name: 'q', arguments: '{}' } }]
+    })
+    // 3) tool 返回结果
+    await AgentMemoryService.saveMessage({
+      sessionId,
+      role: 'tool',
+      content: 'result',
+      toolCallId: 'c1'
+    })
+    // 4) assistant 最终回答
+    await AgentMemoryService.saveMessage({
+      sessionId,
+      role: 'assistant',
+      content: 'final'
+    })
+
+    const history = await AgentMemoryService.buildHistoryMessages(sessionId)
+
+    // 关键断言：tool 消息必须保留且 tool_call_id 正确（OpenAI 格式下划线）
+    expect(history).toContainEqual(
+      expect.objectContaining({ role: 'tool', tool_call_id: 'c1' })
+    )
+    // 关键断言：带 tool_calls 的 assistant 消息必须保留
+    expect(history).toContainEqual(
+      expect.objectContaining({ role: 'assistant', tool_calls: expect.any(Array) })
+    )
+    // 关键断言：纯文本 assistant 也要保留
+    expect(history).toContainEqual(
+      expect.objectContaining({ role: 'assistant', content: 'final' })
+    )
+    // 关键断言：user 也要保留
+    expect(history).toContainEqual(
+      expect.objectContaining({ role: 'user', content: 'u1' })
+    )
+  })
+
   test('TF-IDF 召回（C1 修复后）：buildMemoryContext 接 queryContext 命中规则', async () => {
     // 写一条修正规则：context 含 material=42.5水泥
     await AgentMemoryService.saveCorrection({

@@ -160,22 +160,21 @@ class AgentMemoryService {
   }
 
   async buildHistoryMessages(sessionId, { limit = DEFAULT_WINDOW_SIZE } = {}) {
-    const history = await this.getRecentHistory(sessionId, limit)
-    if (history.length === 0) return []
+    const rows = await this.getRecentHistory(sessionId, limit)
+    if (rows.length === 0) return []
 
     const messages = []
-    for (const msg of history) {
-      if (msg.role === 'user') {
-        messages.push({ role: 'user', content: msg.content })
-      } else if (msg.role === 'assistant') {
-        // 只保留纯文本回复，跳过带 tool_calls 的消息
-        // 原因：tool_calls 后面必须跟 tool 响应，但 DB 中没有保存 tool 响应
-        //       传不完整的 tool_calls 会导致 API 报格式错误
-        if (msg.content && !msg.toolCalls) {
-          messages.push({ role: 'assistant', content: msg.content })
-        }
+    for (const row of rows) {
+      const msg = { role: row.role, content: row.content || '' }
+      if (row.toolCallId) msg.tool_call_id = row.toolCallId
+      if (row.toolCalls) msg.tool_calls = row.toolCalls
+      if (row.metadata && row.metadata.reasoning_content) {
+        msg.reasoning_content = row.metadata.reasoning_content
       }
-      // 跳过 role='tool' 和带 toolCalls 的 assistant 消息
+      if (row.metadata && row.metadata.name) {
+        msg.name = row.metadata.name
+      }
+      messages.push(msg)
     }
 
     // 确保最后一条是 assistant 消息（如果最后一条是 user，说明上次 run 中断了，移除它避免 LLM 回答过时问题）
