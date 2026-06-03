@@ -1,5 +1,24 @@
 # 版本更新记录
 
+## 打包记录 (2026-06-03 Agent 模块全面重构 4.4.0)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.0**
+- **输出目录**: `dist-3.8.0/`
+- **构建产物**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 4.4.0.exe`（NSIS 安装包，242 MB）
+  - `dist-3.8.0/混凝土配合比设计软件-4.4.0-x64.exe`（便携版，242 MB）
+- **说明**: v4.4.0 主重构 + 6 P0 bug 修复 + G3 补完 + P1 状态机断连 + P2 三个清理（详见下面 v4.4.0 完整 release note 章节）
+- **新提交**:
+  - `46f2bd6` Merge feat/agent-module-v4.4.0 → master（55 个 v4.4.0 commits 合并到 master）
+  - 详见 v4.4.0 plan: `docs/superpowers/plans/2026-06-03-agent-module-v4.4.0.md`
+- **最终测试结果**:
+  - Jest: 20 套件 / **106 测试全绿**（含 4 个 P1 新增测试场景）
+  - Manual: 14 套件 / 13 PASS / 1 预存在失败（ComplianceRuleEngine 规范审查无关）
+- **预存在失败**（与本次改动无关）:
+  - `tests/manual/test-standard-scope-accuracy.js` 中 `ComplianceRuleEngine skips special concrete type clauses when concrete type is missing`
+
 ## v4.4.0 (2026-06-03) - G3 已解决（补全记录）
 
 ### G3 完成：删 ContextProvider.js
