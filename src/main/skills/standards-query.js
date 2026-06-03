@@ -62,5 +62,7 @@ module.exports = {
         details: { originalError: error.message }
       }
     }
-  }
+  },
+
+  services: ['knowledgeService']
 }

@@ -1,10 +1,8 @@
 const { ipcMain } = require('electron')
 const DeepSeekService = require('../services/DeepSeekService')
-const AgentOrchestrator = require('../agent/AgentOrchestrator')
-const UnifiedOrchestrator = require('../agent/UnifiedOrchestrator')
+const Orchestrator = require('../agent/Orchestrator')
 const SkillRegistry = require('../agent/SkillRegistry')
 const SkillExecutor = require('../agent/SkillExecutor')
-const ContextProvider = require('../agent/ContextProvider')
 const DynamicContextProvider = require('../agent/DynamicContextProvider')
 const SkillDebugger = require('../agent/SkillDebugger')
 const agentMemoryService = require('../services/AgentMemoryService')
@@ -43,16 +41,9 @@ async function initSkillSystem() {
     mixDesignToQuote: require('../services/MixDesignToQuoteService')
   }
 
-  let contextProvider
-  try {
-    const dynamicProvider = new DynamicContextProvider(allServices)
-    dynamicProvider.setRegistry(skillRegistry)
-    contextProvider = dynamicProvider
-    console.log('[AgentHandler] 使用 DynamicContextProvider（按需注入服务）')
-  } catch (error) {
-    console.warn('[AgentHandler] DynamicContextProvider 初始化失败，使用 ContextProvider 作为 fallback:', error.message)
-    contextProvider = new ContextProvider()
-  }
+  const contextProvider = new DynamicContextProvider(allServices)
+  contextProvider.setRegistry(skillRegistry)
+  console.log('[AgentHandler] 使用 DynamicContextProvider（按需注入服务）')
 
   skillExecutor = new SkillExecutor({ skillRegistry, contextProvider })
 
@@ -88,16 +79,18 @@ async function getOrchestrator() {
   if (!apiKey) return null
 
   if (!orchestrator || cachedApiKey !== apiKey) {
-    const ds = new DeepSeekService(apiKey)
+    const ds = new DeepSeekService(apiKey, SystemService)
 
     // 确保 Skill 系统已初始化
     await initSkillSystem()
 
-    // 使用 UnifiedOrchestrator 统一 Agent/Chat 模式
-    orchestrator = new UnifiedOrchestrator({
+    // 使用 Orchestrator.create 工厂方法（v4.4.0 B2.3）
+    orchestrator = Orchestrator.create('unified', {
       deepseekService: ds,
       skillRegistry,
-      skillExecutor
+      skillExecutor,
+      agentMemoryService,
+      systemService: SystemService
     })
     cachedApiKey = apiKey
   }

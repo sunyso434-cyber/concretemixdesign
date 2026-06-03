@@ -43,7 +43,7 @@ const getDeepSeekService = async () => {
     return null
   }
   if (!deepSeekService || cachedApiKey !== apiKey) {
-    deepSeekService = new DeepSeekService(apiKey)
+    deepSeekService = new DeepSeekService(apiKey, SystemService)
     cachedApiKey = apiKey
   }
   return deepSeekService
@@ -412,7 +412,7 @@ const executeToolCall = async (toolName, args) => {
     case 'check_compliance': {
       const StandardComplianceService = require('../services/StandardComplianceService')
       const apiKey = await getDeepSeekApiKey()
-      const dsService = apiKey ? new DeepSeekService(apiKey) : null
+      const dsService = apiKey ? new DeepSeekService(apiKey, SystemService) : null
       const complianceService = new StandardComplianceService(dsService)
 
       // 方案A：根据材料ID自动查询材料库获取性能参数

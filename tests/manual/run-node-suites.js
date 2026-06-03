@@ -21,7 +21,8 @@ const nodeOnlyScripts = [
   'test-schemes.js',
   'test-scheme-details.js',
   'test-standard-scope-accuracy.js',
-  'test-sales-quote.js'
+  'test-sales-quote.js',
+  '../../scripts/test-agent-mock-llm.js'
 ]
 
 let failed = 0

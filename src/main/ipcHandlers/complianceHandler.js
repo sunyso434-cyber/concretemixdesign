@@ -179,7 +179,7 @@ const checkCompliance = async (event, { mixDesign, standards, standardNames, sta
       enrichedMixDesign = { ...mixDesign, materialProperties }
     }
 
-    const dsService = new DeepSeekService(apiKey)
+    const dsService = new DeepSeekService(apiKey, SystemService)
     const complianceService = new StandardComplianceService(dsService)
     const report = await complianceService.check(enrichedMixDesign, {
       standards: standards || [],

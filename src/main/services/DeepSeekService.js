@@ -395,9 +395,39 @@ const TOOLS = [
 ]
 
 class DeepSeekService {
-  constructor(apiKey) {
+  constructor(apiKey, systemService = null) {
     this.apiKey = apiKey
+    this.systemService = systemService
     this.conversationHistory = []
+    this._config = null
+  }
+
+  /**
+   * 读取 Agent 配置（model / maxTokens / timeout / contextLimit / thinkingEnabled）
+   * 首次调用从 SystemService 拉取并缓存；未注入 systemService 时使用硬编码默认值。
+   * @returns {Promise<{model: string, maxTokens: number, timeout: number, contextLimit: number, thinkingEnabled: boolean}>}
+   */
+  async _getConfig() {
+    if (this._config) return this._config
+    if (!this.systemService) {
+      this._config = {
+        model: 'deepseek-v4-flash',
+        maxTokens: 32768,
+        timeout: 120000,
+        contextLimit: 800000,
+        thinkingEnabled: true
+      }
+    } else {
+      const all = await this.systemService.getAgentConfig()
+      this._config = {
+        model: all.deepseekModel,
+        maxTokens: all.deepseekMaxTokens,
+        timeout: all.deepseekTimeout,
+        contextLimit: all.deepseekContextLimit,
+        thinkingEnabled: all.deepseekThinkingEnabled
+      }
+    }
+    return this._config
   }
 
   /**
@@ -449,11 +479,12 @@ class DeepSeekService {
    * @returns {Promise<Object>} - API返回的message对象
    */
   async _callAPI(messages, includeTools = false) {
+    const cfg = await this._getConfig()
     const requestBody = {
-      model: 'deepseek-v4-flash',
+      model: cfg.model,
       messages,
-      max_tokens: 32768,
-      thinking: { type: 'enabled' }
+      max_tokens: cfg.maxTokens,
+      thinking: { type: cfg.thinkingEnabled ? 'enabled' : 'disabled' }
     }
     if (includeTools) {
       // 优先从 SkillRegistry 获取工具定义
@@ -466,7 +497,7 @@ class DeepSeekService {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.apiKey}`
         },
-        timeout: 120000
+        timeout: cfg.timeout
       })
       return response.data.choices[0].message
     } catch (error) {
@@ -486,11 +517,12 @@ class DeepSeekService {
    * @returns {Promise<Object>} - API返回的message对象
    */
   async chatWithTools(messages, tools) {
+    const cfg = await this._getConfig()
     const requestBody = {
-      model: 'deepseek-v4-flash',
+      model: cfg.model,
       messages,
-      max_tokens: 32768,
-      thinking: { type: 'enabled' },
+      max_tokens: cfg.maxTokens,
+      thinking: { type: cfg.thinkingEnabled ? 'enabled' : 'disabled' },
       tools
     }
 
@@ -500,7 +532,7 @@ class DeepSeekService {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.apiKey}`
         },
-        timeout: 120000
+        timeout: cfg.timeout
       })
       return response.data.choices[0].message
     } catch (error) {
@@ -514,12 +546,13 @@ class DeepSeekService {
   }
 
   async _callAPIStream(messages, includeTools = false, onEvent = null) {
+    const cfg = await this._getConfig()
     const requestBody = {
-      model: 'deepseek-v4-flash',
+      model: cfg.model,
       messages,
-      max_tokens: 32768,
+      max_tokens: cfg.maxTokens,
       stream: true,
-      thinking: { type: 'enabled' }
+      thinking: { type: cfg.thinkingEnabled ? 'enabled' : 'disabled' }
     }
     if (includeTools) {
       // 优先从 SkillRegistry 获取工具定义（与 _callAPI 保持一致）
@@ -532,7 +565,7 @@ class DeepSeekService {
         'Authorization': `Bearer ${this.apiKey}`
       },
       responseType: 'stream',
-      timeout: 120000
+      timeout: cfg.timeout
     })
 
     return new Promise((resolve, reject) => {
@@ -707,7 +740,8 @@ class DeepSeekService {
    - 缺少材料信息会导致原材料性能（水泥强度、骨料含泥量、压碎值、MB值等）相关的规范条款无法审查。
 
 ### 材料选择流程（重要）
-- 第一次收到配合比设计或优化请求时，先调用 list_available_materials 获取可用材料
+- 使用内置工具（如 calculate_mix_design）进行配合比设计时，第一次请求先调用 list_available_materials 获取可用材料
+- 如果已有匹配的用户自定义技能（如 self_compacting_concrete_design、scc_mix_design），直接调用该技能，不需要先查材料——自定义技能内部会自行获取材料数据
 - 向用户展示可选材料并做定性对比建议（基于材料属性：强度、价格、活性等）
 - 用户说"用默认值"或明确选定时，再调用计算工具
 - 永远不要跳过参数确认直接调用计算工具
@@ -773,13 +807,10 @@ class DeepSeekService {
 - 保存成功后告诉用户已保存，让用户放心。
 
 ### 创建自定义技能
-- 用户说"我想加一个XX功能"、"帮我创建一个XX工具"、"能不能支持XX"时，调用 create_skill 创建新技能。
-- 创建技能时需要收集：技能名称（英文）、描述、功能说明、参数定义。
-- 技能创建后会自动加载，用户可以立即使用。
-- 示例：用户说"我想加一个自密实混凝土配合比设计的功能"，你需要：
-  1. 询问用户具体需求（参数、约束条件等）
-  2. 调用 create_skill 创建技能骨架
-  3. 告诉用户技能已创建，可以开始使用
+- 用户说"我想加一个XX功能"、"帮我创建一个XX工具"、"能不能支持XX"时，先检查是否已有功能重复的已有技能（通过 manage_skills(list) 查看）。如果有，直接使用已有技能，不要重复创建
+- 只有确认没有匹配的已有技能时，才调用 create_skill 创建新技能
+- 创建技能时需要收集：技能名称（英文）、描述、功能说明、参数定义
+- 技能创建后会自动加载，用户可以立即使用
 
 ### 管理自定义技能
 - 用户说"我有哪些技能"、"查看自定义技能"、"删除XX技能"时，调用 manage_skills。
@@ -798,8 +829,9 @@ class DeepSeekService {
     const historyStr = JSON.stringify(this.conversationHistory)
     const totalInputChars = systemPrompt.length + historyStr.length + userMessage.length
     const estimatedTokens = Math.ceil(totalInputChars / 4)
-    if (estimatedTokens > 800000) {
-      throw new Error(`对话上下文过大（约 ${estimatedTokens} tokens），请清空对话历史后重试。`)
+    const cfg = await this._getConfig()
+    if (estimatedTokens > cfg.contextLimit) {
+      throw new Error(`对话上下文过大（约 ${estimatedTokens} tokens，超过 ${cfg.contextLimit} 上限），请清空对话历史后重试。`)
     }
 
     const messages = [
@@ -1265,29 +1297,30 @@ ${diagnosisText}
     const systemPrompt = this.buildSystemPrompt(data, customPrompt)
     const userPrompt = this.buildPrompt(data)
 
+    const cfg = await this._getConfig()
     const estimatedTokens = Math.ceil((systemPrompt.length + userPrompt.length) / 4)
-    if (estimatedTokens > 800000) {
-      throw new Error(`输入数据量过大（约 ${estimatedTokens} tokens），超出分析限制。请减少配合比数量后重试。`)
+    if (estimatedTokens > cfg.contextLimit) {
+      throw new Error(`输入数据量过大（约 ${estimatedTokens} tokens，超过 ${cfg.contextLimit} 上限），超出分析限制。请减少配合比数量后重试。`)
     }
 
     try {
       const response = await axios.post(
         DEEPSEEK_API_URL,
         {
-          model: 'deepseek-v4-flash',
+          model: cfg.model,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
           ],
-          max_tokens: 32768,
-          thinking: { type: 'enabled' }
+          max_tokens: cfg.maxTokens,
+          thinking: { type: cfg.thinkingEnabled ? 'enabled' : 'disabled' }
         },
         {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${this.apiKey}`
           },
-          timeout: 120000
+          timeout: cfg.timeout
         }
       )
 

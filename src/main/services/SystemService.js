@@ -28,6 +28,55 @@ class SystemService {
     }
   }
 
+  /**
+   * 获取 Agent 全部配置（13 个 key，带类型转换和默认值）
+   * - DeepSeek API (5): model / maxTokens / timeout / contextLimit / thinkingEnabled
+   * - Agent 编排 (5): maxSteps / maxConsecutiveFailures / rateLimitBaseMs / rateLimitMaxMs / confirmationTimeoutMs
+   * - SkillCache (3): maxAgeMs / maxSize / evictRatio
+   *
+   * 注意：使用 getParamByName 复用现有逻辑，任一 key 缺失时回退到默认值。
+   * @returns {Promise<object>}
+   */
+  async getAgentConfig() {
+    const strVal = async (key, def) => {
+      const p = await this.getParamByName(key)
+      return (p && p.value != null && p.value !== '') ? String(p.value) : def
+    }
+    const numVal = async (key, def) => {
+      const p = await this.getParamByName(key)
+      if (!p || p.value == null || p.value === '') return def
+      const n = Number(p.value)
+      return Number.isFinite(n) ? n : def
+    }
+    const boolVal = async (key, def) => {
+      const p = await this.getParamByName(key)
+      if (!p || p.value == null || p.value === '') return def
+      const v = String(p.value).toLowerCase()
+      return v === 'true' || v === '1' || v === 'yes'
+    }
+
+    return {
+      // DeepSeek API (5)
+      deepseekModel: await strVal('deepseekModel', 'deepseek-v4-flash'),
+      deepseekMaxTokens: await numVal('deepseekMaxTokens', 32768),
+      deepseekTimeout: await numVal('deepseekTimeout', 120000),
+      deepseekContextLimit: await numVal('deepseekContextLimit', 800000),
+      deepseekThinkingEnabled: await boolVal('deepseekThinkingEnabled', true),
+      // Agent 编排 (5)
+      agentMaxSteps: await numVal('agentMaxSteps', 10),
+      agentMaxConsecutiveFailures: await numVal('agentMaxConsecutiveFailures', 2),
+      agentRateLimitBaseMs: await numVal('agentRateLimitBaseMs', 5000),
+      agentRateLimitMaxMs: await numVal('agentRateLimitMaxMs', 30000),
+      agentConfirmationTimeoutMs: await numVal('agentConfirmationTimeoutMs', 120000),
+      // SkillCache (3)
+      skillCacheMaxAgeMs: await numVal('skillCacheMaxAgeMs', 7 * 24 * 60 * 60 * 1000),
+      skillCacheMaxSize: await numVal('skillCacheMaxSize', 1000),
+      skillCacheEvictRatio: await numVal('skillCacheEvictRatio', 0.1),
+      // messageTrimmer (1) - E2 新增
+      messageTrimmerTokenBudget: await numVal('messageTrimmerTokenBudget', 30000)
+    }
+  }
+
   // 根据名称获取系统参数
   async getParamByName(name) {
     try {

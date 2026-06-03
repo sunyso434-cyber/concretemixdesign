@@ -1,5 +1,100 @@
 # 版本更新记录
 
+## v4.4.0 (2026-06-03) - G3 已解决（补全记录）
+
+### G3 完成：删 ContextProvider.js
+
+**之前的推迟**（line 5-21 历史版本）：DynamicContextProvider 未修对、18 skill 没加 services 字段。已重新规划修复路径并执行完毕。
+
+**实际改动**（commit adb0efb + c464c0a + dc25840 + d769930 + ad50a90）：
+
+1. **改 DynamicContextProvider**（commit adb0efb）：未声明 services → throw `services_undeclared`；显式 `[]` 仍允许（兼容 create-skill / skill-manager 这类系统技能）
+2. **18 个 skill 全部加 `services` 字段**（3 批提交）：
+   - **第 1 批（c464c0a）** 6 个：material-query / mix-design / save-mix-design / save-sales-quote / sales-quote / performance-prediction
+   - **第 2 批（dc25840）** 6 个：compliance-check / compliance-query / standards-list / standards-query / cost-optimization / save-to-basic-mix
+   - **第 3 批（d769930）** 6 个：compare-materials / prepare-quote-draft / parameter-diagnosis / design-history / create-skill / skill-manager
+3. **删 ContextProvider.js + ContextProvider.test.js**（commit ad50a90，188 行减少）
+4. **清理 agentHandler.js fallback**（commit ad50a90）：去掉整个 try/catch，直接 `new DynamicContextProvider(allServices)`（构造函数不 throw，throw 在 getServices 调用时，原 fallback 是过度防御性代码）
+5. **SkillExecutor.js JSDoc 清理**（commit ad50a90）：`@param {import('./ContextProvider')}` → `@param {import('./DynamicContextProvider')}`
+
+**修复后测试**：
+- Jest：20 套件 / **102 测试全绿**（删 ContextProvider.test.js 4 个测试后）
+- Manual：14 套件，13 PASS / 1 预存在失败（ComplianceRuleEngine 规范审查无关）
+
+**修复后 commit 序列**：
+```
+adb0efb fix(agent): DynamicContextProvider 未声明 services 改为 throw（P0-4）
+c464c0a feat(skills): 第一批 6 个 skill 加 services 字段声明（直接使用 service 类）
+dc25840 feat(skills): 第二批 6 个 skill 加 services 字段声明（直接使用 service 类）
+d769930 feat(skills): 第三批 6 个 skill 加 services 字段声明（executeToolCall + 系统类）
+ad50a90 chore(agent): 删 ContextProvider.js + 清理 agentHandler fallback（方案 A，P0-4 解决）
+```
+
+**P0-4 状态**：✅ 已解决
+
+---
+
+## v4.4.0 (2026-06-03) - Agent 模块全面重构（完整 release note）
+
+### 主要改进
+- **Agent 模块重构**：单一 Orchestrator 外壳 + 策略模式 pipeline
+  - `Orchestrator` 外壳（77 行）— 状态机 + 委托
+  - `UnifiedStrategy` 主循环（生产路径）— 替代 UnifiedOrchestrator
+  - `MultiAgentStrategy` 委托版 — 当前等价于 UnifiedStrategy，未来扩展多 agent 调度
+- **消灭 ~500 行重复代码**：抽 `mdInstructionBuilder` / `systemPromptBuilder` / `controlMixin` 三个纯函数
+- **修复 6 个 P0 bug**：
+  - **P0-1** MD 技能占位符 bug：旧 `for...Object.entries` 替换会破坏 `user_id` 完整性
+  - **P0-2** TF-IDF 召回空：buildMemoryContext 硬编码传 `{}` 给 findSimilarCorrections
+  - **P0-3** SkillDebugger 硬依赖 AgentOrchestrator：抽 `mdInstructionBuilder` 纯函数修复
+  - **P0-4** ContextProvider 已删：DynamicContextProvider 改成 throw + 18 skill 全部加 services 字段 + 清理 agentHandler fallback（P0-4 解决）
+  - **B1.3 隐藏 bug** catch 块 require errorHandler 在 D1 前会 throw（嵌套 try/catch 修复）
+  - **C2** `_findMaterialById` 性能 bug：O(n) 全表扫描改 O(1) 主键查询
+- **测试安全网**：Jest 21 套件 / 105 测试 全绿；4 个关键模块（mdInstructionBuilder / systemPromptBuilder / messageTrimmer / errorHandler）≥ 90% 覆盖率门槛
+- **错误处理分级**：4 级（fatal / error / warn / silent）+ errorSource 字段（P1-1）
+- **消息截断**：JSON 安全截断 + reasoning_content 计入 + system + 最后 2 轮必保留（E 批次）
+- **DB schema 升级**：ChatHistory 表加 toolCallId 字段，saveMessage 透传，buildHistoryMessages 不再跳 tool 消息（H 批次）
+- **硬编码配置外置**：13+ key 抽到 SystemService.getAgentConfig()，统一异步配置
+
+### 兼容性
+- IPC `agent:run` 仍返回 `{success: false, error}` 格式（D5 验证）
+- 老 manual 脚本（`npm run test:manual`）仍可跑，13+1=14 个 manual 脚本
+- SkillDebugger 仍可工作（已切到 mdInstructionBuilder 纯函数）
+
+### 风险提示
+- **TF-IDF 修复后** correction 召回率提升，可能影响部分用户工作流——已加 `useCorrectionRecall` 灰度开关（默认 false）
+- **30 秒配置缓存已关**（实际不存在），改配置后立即生效
+- **MD 技能占位符修复**，老用户工作流可能需要更新 MD 模板
+- **G3 已解决**（详见上文"G3 已解决（补全记录）"章节）
+
+### 已知未完成项
+
+#### 预存在失败
+
+- `tests/manual/test-standard-scope-accuracy.js`：1 个测试用例 `ComplianceRuleEngine skips special concrete type clauses when concrete type is missing` 在 v4.4.0 之前就失败，与本次改动无关（属于 ComplianceRuleEngine 业务逻辑 bug）
+
+#### 审查反馈修复（P1 + P2 修复，已在 v4.4.0 完成）
+
+**P1 修复（功能性回归）**：Orchestrator 传 AbortSignal + getState 给 UnifiedStrategy
+
+- **背景**：UI 点"中止"按钮 → Orchestrator.aborted=true → 策略无感知 → 跑到 10 步结束才返回
+- **修复**：Orchestrator.run 创建 AbortController，传 `signal` + `getState` 给 strategy；主循环开头检查 `signal.aborted` + `while (getState() === 'paused')` 阻塞
+- **commit f5a9b20**（5 文件改动）：Orchestrator.js / controlMixin.js / UnifiedStrategy.js / UnifiedStrategy.test.js（+2 测试场景）/ Orchestrator.shell.test.js（+2 测试场景）
+- **验证**：Jest 20 套件 / **106 测试全绿**（原 102 + 4 个新测试场景）
+
+**P2 修复（3 个小清理）**
+
+- `tests/agent/agent.test.js`：整文件删除（131 行）—— jest testMatch 跑不到，line 98 require 已删的 AgentOrchestrator，与 `__tests__/` 已有测试重复
+- `src/main/agent/messageTrimmer.js`：删未用的 `const eventBus = require('./EventBus')`（1 行）
+- `src/main/agent/SkillCache.js`：加 `@deprecated` JSDoc 标记（新 Orchestrator 不再 `new SkillCache()`，作为兼容层保留）
+- **commit 3814ebf**（3 文件改动，10 insertions / 134 deletions）
+
+### 测试覆盖
+- **Jest**: 20 套件 / 106 测试全绿（P1 修复 +4 测试场景）
+- **Manual**: 14 套件，13 PASS / 1 预存在失败
+- **关键模块覆盖**: mdInstructionBuilder / systemPromptBuilder / messageTrimmer / errorHandler ≥ 90%
+
+---
+
 ## 打包记录 (2026-06-02 Agent架构重新设计 - MD技能支持 4.3.0)
 
 - **命令**: `npm run electron:build`

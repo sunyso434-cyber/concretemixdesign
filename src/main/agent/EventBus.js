@@ -40,6 +40,15 @@ class EventBus extends EventEmitter {
       timestamp: Date.now()
     })
   }
+
+  /**
+   * 清空所有监听者（用于测试间隔离）
+   * 解决 P3-3 风险 6：Jest 多文件并行时单例污染
+   * 实现：Node.js EventEmitter.removeAllListeners() 官方 API
+   */
+  clear() {
+    this.removeAllListeners()
+  }
 }
 
 // 导出单例

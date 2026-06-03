@@ -3,7 +3,7 @@
  * 预览生成的指令，单步执行，帮助用户调试MD技能
  */
 
-const AgentOrchestrator = require('./AgentOrchestrator')
+const { buildMDInstruction } = require('./mdInstructionBuilder')
 
 class SkillDebugger {
   constructor({ skillRegistry, skillExecutor, deepseekService }) {
@@ -35,14 +35,8 @@ class SkillDebugger {
       }
     }
 
-    // 构建指令
-    const mockOrchestrator = new AgentOrchestrator({
-      deepseekService: this.ds,
-      skillRegistry: this.registry,
-      skillExecutor: this.executor
-    })
-
-    const instruction = mockOrchestrator._buildMDInstruction(skill, args)
+    // 构建指令（改用纯函数，不再依赖 AgentOrchestrator）
+    const instruction = buildMDInstruction(skill, args)
 
     return {
       success: true,

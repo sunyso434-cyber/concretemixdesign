@@ -49,13 +49,14 @@ class DynamicContextProvider {
    * @returns {object} 执行上下文
    */
   getServices(skill) {
-    const requiredServices = skill.services || []
-    const context = {}
-
-    // 如果没有声明services，注入全部服务（兼容JS技能）
-    if (requiredServices.length === 0) {
-      return this._createFullContext(skill.name)
+    // G3.2：未声明 services 字段 → 显式抛错（避免静默全量注入）
+    // 显式空数组 [] 允许（系统 skill 无依赖服务时）
+    if (skill.services === undefined) {
+      throw new Error(`services_undeclared: skill "${skill.name}" 没声明 services 字段（应 services: [] 或 services: ['xxxService', ...]）`)
     }
+
+    const requiredServices = skill.services
+    const context = {}
 
     // 解析服务列表（支持类别和具体服务名）
     const resolvedServices = this._resolveServices(requiredServices)

@@ -1,6 +1,14 @@
 /**
- * 技能缓存
- * 缓存常用MD技能的执行结果，提高响应速度
+ * SkillCache — MD 技能执行结果缓存
+ *
+ * ⚠️ @deprecated 自 v4.4.0 起，Orchestrator 切换到 UnifiedStrategy 主循环，
+ *    新主循环不再 `new SkillCache()`。本类暂时保留作为兼容层，
+ *    计划 v4.4.1 或后续版本删除。
+ *
+ *    如果需要接回缓存能力，请重新评估：
+ *    - 缓存键如何与 LLM 调用的确定性绑定
+ *    - 缓存何时失效（用户改 MD 模板时）
+ *    - 跨 session 共享 vs 单 session 内复用
  */
 
 const fs = require('fs')
@@ -9,13 +17,43 @@ const os = require('os')
 
 class SkillCache {
   constructor(options = {}) {
+    this.options = options
     this.cacheDir = options.cacheDir || path.join(os.homedir(), '.concrete-mixdesign', 'skill-cache')
-    this.maxAge = options.maxAge || 7 * 24 * 60 * 60 * 1000 // 7天
-    this.maxSize = options.maxSize || 1000 // 最大缓存条目数
+    // 留空，由 init() 从 SystemService 异步填充（或用 options 传入的值）
+    this.maxAge = options.maxAge
+    this.maxSize = options.maxSize
+    this.evictRatio = options.evictRatio
+    this.systemService = options.systemService || null
     this.memoryCache = new Map()
+    this._initialized = false
+  }
+
+  /**
+   * 异步初始化：从 SystemService 读取 cfg 填充 maxAge / maxSize / evictRatio（缺失时用兜底默认值）
+   * 必须在缓存操作前调用一次。options 传入的值优先（向后兼容）。
+   */
+  async init() {
+    if (this._initialized) return
+
+    if (this.systemService) {
+      try {
+        const cfg = await this.systemService.getAgentConfig()
+        if (this.maxAge === undefined || this.maxAge === null) this.maxAge = cfg.skillCacheMaxAgeMs
+        if (this.maxSize === undefined || this.maxSize === null) this.maxSize = cfg.skillCacheMaxSize
+        if (this.evictRatio === undefined || this.evictRatio === null) this.evictRatio = cfg.skillCacheEvictRatio
+      } catch (err) {
+        console.warn('[SkillCache] 读取 SystemService 配置失败，使用默认值:', err.message)
+      }
+    }
+
+    // 兜底默认值
+    if (this.maxAge === undefined || this.maxAge === null) this.maxAge = 7 * 24 * 60 * 60 * 1000 // 7天
+    if (this.maxSize === undefined || this.maxSize === null) this.maxSize = 1000 // 最大缓存条目数
+    if (this.evictRatio === undefined || this.evictRatio === null) this.evictRatio = 0.1 // 淘汰 10%
 
     this._ensureCacheDir()
     this._loadFromDisk()
+    this._initialized = true
   }
 
   /**
@@ -191,8 +229,8 @@ class SkillCache {
     const entries = Array.from(this.memoryCache.entries())
     entries.sort((a, b) => a[1].lastAccess - b[1].lastAccess)
 
-    // 删除最旧的10%条目
-    const deleteCount = Math.ceil(this.maxSize * 0.1)
+    // 删除最旧的 evictRatio 比例条目（默认 10%）
+    const deleteCount = Math.ceil(this.maxSize * this.evictRatio)
     for (let i = 0; i < deleteCount && i < entries.length; i++) {
       const [key] = entries[i]
       this.delete(key)

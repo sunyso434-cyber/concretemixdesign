@@ -256,5 +256,7 @@ module.exports = {
         error: `配合比计算失败: ${error.message}`
       }
     }
-  }
+  },
+
+  services: ['materialService', 'mixDesignService']
 }

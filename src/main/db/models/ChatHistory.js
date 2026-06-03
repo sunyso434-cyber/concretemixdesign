@@ -6,6 +6,7 @@ const ChatHistory = sequelize.define('ChatHistory', {
   sessionId: { type: DataTypes.STRING, allowNull: false },
   role: { type: DataTypes.STRING, allowNull: false },
   content: { type: DataTypes.TEXT, allowNull: false },
+  toolCallId: { type: DataTypes.STRING, allowNull: true },
   toolCalls: { type: DataTypes.JSON },
   metadata: { type: DataTypes.JSON }
 }, {

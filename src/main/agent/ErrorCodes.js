@@ -26,6 +26,10 @@ module.exports = {
   SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
   TIMEOUT: 'TIMEOUT',
   UNKNOWN: 'UNKNOWN',
+  MEMORY_SAVE_FAILED: 'MEMORY_SAVE_FAILED',
+  WC_DESTROYED: 'WC_DESTROYED',
+  TIMEOUT_RETRY_EXHAUSTED: 'TIMEOUT_RETRY_EXHAUSTED',
+  RATE_LIMIT_EXHAUSTED: 'RATE_LIMIT_EXHAUSTED',
 
   /**
    * 创建标准错误响应
@@ -66,7 +70,11 @@ module.exports = {
       QUOTE_GENERATION_FAILED: 'check_pricing',
       SERVICE_UNAVAILABLE: 'retry',
       TIMEOUT: 'retry',
-      UNKNOWN: 'retry'
+      UNKNOWN: 'retry',
+      MEMORY_SAVE_FAILED: 'skip',
+      WC_DESTROYED: 'silent',
+      TIMEOUT_RETRY_EXHAUSTED: 'fail',
+      RATE_LIMIT_EXHAUSTED: 'fail'
     }
     return strategies[code] || 'retry'
   }
