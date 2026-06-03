@@ -1,0 +1,91 @@
+/**
+ * AgentMemoryService 集成测试（真实 SQLite）
+ *
+ * 验证两个关键流程：
+ * 1. saveMessage 后能用 getHistory(sessionId) 找回（基础对话历史）
+ * 2. TF-IDF 召回：C1 修复后 buildMemoryContext 把 queryContext 透传给
+ *    findSimilarCorrections，相关 CorrectionRule 能被召回
+ *
+ * 关键点（与 plan 不同的实际 API）：
+ * - AgentMemoryService 是单例导出（module.exports = new AgentMemoryService()），
+ *   不接 {dbPath} 参数；通过 process.env.USER_DATA_PATH 隔离数据库文件
+ * - 没有 getMessagesBySession 方法，实际是 getHistory(sessionId, options)
+ * - saveCorrection 字段是 originalSuggestion / userCorrection / toolName
+ *   （plan 写的 rightAnswer 是错的）
+ *
+ * 跑法：
+ *   npx jest src/main/agent/__tests__/AgentMemoryService.integration.test.js
+ */
+
+// 必须在 require database 之前 mock electron（database.js 顶层会调 app.getPath）
+const path = require('path')
+const fs = require('fs')
+const os = require('os')
+
+// 准备临时 userData 目录（database.js 用 USER_DATA_PATH 拼 db 路径）
+// 变量名以 mock 开头，jest.mock 工厂里才能引用
+const mockTmpUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-mem-it-'))
+process.env.USER_DATA_PATH = mockTmpUserData
+
+jest.mock('electron', () => ({
+  app: {
+    getPath: () => mockTmpUserData
+  }
+}))
+
+const { sequelize, syncModels } = require('../../db/database')
+const AgentMemoryService = require('../../services/AgentMemoryService')
+
+describe('AgentMemoryService 集成测试（真实 SQLite）', () => {
+  // 测试结束统一关连接、删临时目录
+  afterAll(async () => {
+    try {
+      await sequelize.close()
+    } catch (e) {
+      // 关闭失败不影响清理
+    }
+    try {
+      fs.rmSync(mockTmpUserData, { recursive: true, force: true })
+    } catch (e) {
+      // 删不掉也不影响
+    }
+  })
+
+  beforeAll(async () => {
+    // 建表（包含 ChatHistory / UserPreference / CorrectionRule）
+    await syncModels()
+  })
+
+  test('saveMessage 后能 getHistory 取回', async () => {
+    const sessionId = 'it-s1-' + Date.now()
+
+    await AgentMemoryService.saveMessage({
+      sessionId,
+      role: 'user',
+      content: 'hello'
+    })
+
+    const messages = await AgentMemoryService.getHistory(sessionId)
+    expect(messages).toHaveLength(1)
+    expect(messages[0].content).toBe('hello')
+    expect(messages[0].role).toBe('user')
+  })
+
+  test('TF-IDF 召回（C1 修复后）：buildMemoryContext 接 queryContext 命中规则', async () => {
+    // 写一条修正规则：context 含 material=42.5水泥
+    await AgentMemoryService.saveCorrection({
+      context: { material: '42.5水泥' },
+      originalSuggestion: { strength: 'C30' },
+      userCorrection: 'PO42.5',
+      toolName: null
+    })
+
+    // 用相同 queryContext 触发 buildMemoryContext
+    const ctx = await AgentMemoryService.buildMemoryContext('s1', {
+      queryContext: { material: '42.5水泥' }
+    })
+
+    // 关键断言：PO42.5 必须出现在返回的上下文里（C1 修好后 TF-IDF 召回非 0）
+    expect(ctx).toContain('PO42.5')
+  })
+})
