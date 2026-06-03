@@ -341,5 +341,7 @@ module.exports = {
   }
 }
 `
-  }
+  },
+
+  services: []
 }
