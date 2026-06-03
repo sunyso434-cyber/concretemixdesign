@@ -71,6 +71,42 @@ describe('AgentMemoryService 集成测试（真实 SQLite）', () => {
     expect(messages[0].role).toBe('user')
   })
 
+  test('saveMessage 应存 toolCalls（assistant 调工具）', async () => {
+    const sessionId = 'it-s2-' + Date.now()
+
+    await AgentMemoryService.saveMessage({
+      sessionId,
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'c1', function: { name: 'x', arguments: '{}' } }]
+    })
+
+    const msgs = await AgentMemoryService.getHistory(sessionId)
+    const m = msgs.find(x => x.role === 'assistant')
+    expect(m).toBeDefined()
+    expect(m.toolCalls).toBeDefined()
+    expect(Array.isArray(m.toolCalls)).toBe(true)
+    expect(m.toolCalls[0].id).toBe('c1')
+    expect(m.toolCalls[0].function.name).toBe('x')
+  })
+
+  test('saveMessage 应存 toolCallId（tool 角色返回结果）', async () => {
+    const sessionId = 'it-s3-' + Date.now()
+
+    await AgentMemoryService.saveMessage({
+      sessionId,
+      role: 'tool',
+      content: 'tool result',
+      toolCallId: 'call_abc'
+    })
+
+    const msgs = await AgentMemoryService.getHistory(sessionId)
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0].role).toBe('tool')
+    expect(msgs[0].toolCallId).toBe('call_abc')
+    expect(msgs[0].content).toBe('tool result')
+  })
+
   test('TF-IDF 召回（C1 修复后）：buildMemoryContext 接 queryContext 命中规则', async () => {
     // 写一条修正规则：context 含 material=42.5水泥
     await AgentMemoryService.saveCorrection({

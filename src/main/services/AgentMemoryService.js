@@ -7,11 +7,12 @@ const DEFAULT_WINDOW_SIZE = 20
 class AgentMemoryService {
   // ===== 对话历史 =====
 
-  async saveMessage({ sessionId, role, content, toolCalls, metadata }) {
+  async saveMessage({ sessionId, role, content, toolCallId, toolCalls, metadata }) {
     return ChatHistory.create({
       sessionId,
       role,
       content: typeof content === 'string' ? content : JSON.stringify(content),
+      toolCallId: toolCallId || null,
       toolCalls: toolCalls || null,
       metadata: metadata || null
     })
@@ -32,6 +33,7 @@ class AgentMemoryService {
       id: m.id,
       role: m.role,
       content: m.content,
+      toolCallId: m.toolCallId,
       toolCalls: m.toolCalls,
       metadata: m.metadata,
       createdAt: m.createdAt
