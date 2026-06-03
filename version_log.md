@@ -64,26 +64,32 @@ ad50a90 chore(agent): 删 ContextProvider.js + 清理 agentHandler fallback（�
 - **TF-IDF 修复后** correction 召回率提升，可能影响部分用户工作流——已加 `useCorrectionRecall` 灰度开关（默认 false）
 - **30 秒配置缓存已关**（实际不存在），改配置后立即生效
 - **MD 技能占位符修复**，老用户工作流可能需要更新 MD 模板
-- **G3 推迟**：ContextProvider.js 保留（详见"已知未完成项"）
+- **G3 已解决**（详见上文"G3 已解决（补全记录）"章节）
 
 ### 已知未完成项
-
-#### G3 推迟：删 ContextProvider.js
-
-**原因**：DynamicContextProvider 未修对（仍走兼容模式"未声明 services → 返回全量"），18 个 JS skill 都没加 `services` 字段声明。
-
-**修复路径（下个版本 v4.4.1）**：
-1. 改 DynamicContextProvider：未声明 services → throw `'services_undeclared'`
-2. 给 18 个 JS skill（src/main/skills/*.js）逐一加 `services: ['materialService', ...]` 字段
-3. 跑 jest 全量绿
-4. 然后再删 ContextProvider.js
 
 #### 预存在失败
 
 - `tests/manual/test-standard-scope-accuracy.js`：1 个测试用例 `ComplianceRuleEngine skips special concrete type clauses when concrete type is missing` 在 v4.4.0 之前就失败，与本次改动无关（属于 ComplianceRuleEngine 业务逻辑 bug）
 
+#### 审查反馈修复（P1 + P2 修复，已在 v4.4.0 完成）
+
+**P1 修复（功能性回归）**：Orchestrator 传 AbortSignal + getState 给 UnifiedStrategy
+
+- **背景**：UI 点"中止"按钮 → Orchestrator.aborted=true → 策略无感知 → 跑到 10 步结束才返回
+- **修复**：Orchestrator.run 创建 AbortController，传 `signal` + `getState` 给 strategy；主循环开头检查 `signal.aborted` + `while (getState() === 'paused')` 阻塞
+- **commit f5a9b20**（5 文件改动）：Orchestrator.js / controlMixin.js / UnifiedStrategy.js / UnifiedStrategy.test.js（+2 测试场景）/ Orchestrator.shell.test.js（+2 测试场景）
+- **验证**：Jest 20 套件 / **106 测试全绿**（原 102 + 4 个新测试场景）
+
+**P2 修复（3 个小清理）**
+
+- `tests/agent/agent.test.js`：整文件删除（131 行）—— jest testMatch 跑不到，line 98 require 已删的 AgentOrchestrator，与 `__tests__/` 已有测试重复
+- `src/main/agent/messageTrimmer.js`：删未用的 `const eventBus = require('./EventBus')`（1 行）
+- `src/main/agent/SkillCache.js`：加 `@deprecated` JSDoc 标记（新 Orchestrator 不再 `new SkillCache()`，作为兼容层保留）
+- **commit 3814ebf**（3 文件改动，10 insertions / 134 deletions）
+
 ### 测试覆盖
-- **Jest**: 21 套件 / 105 测试全绿
+- **Jest**: 20 套件 / 106 测试全绿（P1 修复 +4 测试场景）
 - **Manual**: 14 套件，13 PASS / 1 预存在失败
 - **关键模块覆盖**: mdInstructionBuilder / systemPromptBuilder / messageTrimmer / errorHandler ≥ 90%
 
