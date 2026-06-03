@@ -10,7 +10,7 @@ class SkillExecutor {
   /**
    * @param {object} options
    * @param {import('./SkillRegistry')} options.skillRegistry - Skill 注册表
-   * @param {import('./ContextProvider')} options.contextProvider - 上下文提供者
+   * @param {import('./DynamicContextProvider')} options.contextProvider - 上下文提供者
    */
   constructor({ skillRegistry, contextProvider }) {
     this.registry = skillRegistry

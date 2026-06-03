@@ -3,7 +3,6 @@ const DeepSeekService = require('../services/DeepSeekService')
 const Orchestrator = require('../agent/Orchestrator')
 const SkillRegistry = require('../agent/SkillRegistry')
 const SkillExecutor = require('../agent/SkillExecutor')
-const ContextProvider = require('../agent/ContextProvider')
 const DynamicContextProvider = require('../agent/DynamicContextProvider')
 const SkillDebugger = require('../agent/SkillDebugger')
 const agentMemoryService = require('../services/AgentMemoryService')
@@ -42,16 +41,9 @@ async function initSkillSystem() {
     mixDesignToQuote: require('../services/MixDesignToQuoteService')
   }
 
-  let contextProvider
-  try {
-    const dynamicProvider = new DynamicContextProvider(allServices)
-    dynamicProvider.setRegistry(skillRegistry)
-    contextProvider = dynamicProvider
-    console.log('[AgentHandler] 使用 DynamicContextProvider（按需注入服务）')
-  } catch (error) {
-    console.warn('[AgentHandler] DynamicContextProvider 初始化失败，使用 ContextProvider 作为 fallback:', error.message)
-    contextProvider = new ContextProvider()
-  }
+  const contextProvider = new DynamicContextProvider(allServices)
+  contextProvider.setRegistry(skillRegistry)
+  console.log('[AgentHandler] 使用 DynamicContextProvider（按需注入服务）')
 
   skillExecutor = new SkillExecutor({ skillRegistry, contextProvider })
 
