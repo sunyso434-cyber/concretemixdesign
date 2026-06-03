@@ -1,5 +1,27 @@
 # 版本更新记录
 
+## v4.4.0 (2026-06-03) - 已知未完成项
+
+### G3 推迟：删 ContextProvider.js
+
+**原因**：DynamicContextProvider 未修对（仍走兼容模式"未声明 services → 返回全量"），18 个 JS skill 都没加 `services` 字段声明。
+
+**plan 假设**：D 阶段会修 DynamicContextProvider 加 throw，并给 8 个 JS skill 加 services 字段。
+
+**实际情况**：D 阶段只跑了 D1/D2/D3/D4，DynamicContextProvider 修对 + skill.services 字段这两件事**没做**。
+
+**风险**：删 ContextProvider.js 后，未声明 services 的 skill 调 `getServices()` 会拿到**全量服务**（无 throw 保护），这违反了"显式声明"的安全设计。
+
+**修复路径（下个版本）**：
+1. 改 DynamicContextProvider：未声明 services → throw `'services_undeclared'`
+2. 给 18 个 JS skill（src/main/skills/*.js）逐一加 `services: ['materialService', ...]` 字段
+3. 跑 jest 全量绿
+4. 然后再删 ContextProvider.js
+
+**当前状态**：ContextProvider.js **保留**，继续作为 fallback 入口。
+
+---
+
 ## 打包记录 (2026-06-02 Agent架构重新设计 - MD技能支持 4.3.0)
 
 - **命令**: `npm run electron:build`
