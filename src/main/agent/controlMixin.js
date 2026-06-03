@@ -37,7 +37,10 @@ function _notifyProgress(event, payload) {
       this.webContents.send(event, payload)
     } catch (e) {
       // P1-1: 静默走 errorHandler.warn 而非 catch(()=>{})
-      require('./../utils/errorHandler').warn('ui_notify_failed', { event, error: e.message })
+      // 嵌套 try/catch：D1 之前 errorHandler 还不存在，require 失败时彻底静默
+      try {
+        require('./../utils/errorHandler').warn('ui_notify_failed', { event, error: e.message })
+      } catch (_) { /* errorHandler 尚未创建（D1 之前），彻底静默 */ }
     }
   }
 }
