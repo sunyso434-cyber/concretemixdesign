@@ -135,7 +135,9 @@ class AgentOrchestrator {
             role: 'assistant',
             content: response.content || `调用工具: ${toolNames}`,
             toolCalls: response.tool_calls || null
-          }).catch(() => {})
+          }).catch(err => {
+            errorHandler.warn('memory_save', { error: err.message })
+          })
 
           // 标记外层 step 为推理容器（渲染时被 filter 跳过，不显示）
           step.type = 'reasoning'

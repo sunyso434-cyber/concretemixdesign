@@ -12,6 +12,7 @@ console.warn('[DEPRECATED] UnifiedOrchestrator.js 已废弃，请使用 Orchestr
 
 const agentMemoryService = require('../services/AgentMemoryService')
 const eventBus = require('./EventBus')
+const errorHandler = require('../utils/errorHandler')
 const SkillCache = require('./SkillCache')
 
 // 默认配置（无 systemService 注入时使用）
@@ -152,7 +153,9 @@ class UnifiedOrchestrator {
               role: 'assistant',
               content: response.content || `调用工具: ${toolNames}`,
               toolCalls: response.tool_calls || null
-            }).catch(() => {})
+            }).catch(err => {
+              errorHandler.warn('memory_save', { error: err.message })
+            })
 
             step.type = 'reasoning'
 
