@@ -301,6 +301,29 @@ module.exports = {
   has(name) {
     return this._skills.has(name)
   }
+
+  /**
+   * 获取所有 skills 的快照 Map（防止外部直接修改内部状态）
+   * @returns {Map<string, object>}
+   */
+  getUserSkillsMap() {
+    return new Map(this._skills)
+  }
+
+  /**
+   * 注销一个 skill
+   * @param {string} name - skill 名称
+   */
+  unregister(name) {
+    this._skills.delete(name)
+  }
+
+  /**
+   * 清空所有 skills
+   */
+  reset() {
+    this._skills.clear()
+  }
 }
 
 module.exports = SkillRegistry
