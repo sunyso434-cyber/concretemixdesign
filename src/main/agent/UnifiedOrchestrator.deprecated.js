@@ -1,4 +1,11 @@
 /**
+ * ⚠️ DEPRECATED - 此文件已废弃，请使用 Orchestrator + UnifiedStrategy
+ * 保留此文件作为旧代码的兼容层，将在 G1 批次删除
+ * 触发 deprecation: 2026-06-03
+ */
+console.warn('[DEPRECATED] UnifiedOrchestrator.js 已废弃，请使用 Orchestrator + UnifiedStrategy')
+
+/**
  * 统一编排器
  * 合并Agent和Chat模式，LLM自主决策任务复杂度
  */
