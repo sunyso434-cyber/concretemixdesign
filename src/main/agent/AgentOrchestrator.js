@@ -433,25 +433,13 @@ ${memoryContext || ''}
 
   /**
    * 构建MD技能的执行指令
+   * 委托给 mdInstructionBuilder 纯函数（修复 P0-1 占位符 bug）
    * @param {object} skill - MD技能定义
    * @param {object} args - 用户参数
    * @returns {string} 替换参数后的指令
    */
   _buildMDInstruction(skill, args) {
-    let body = skill._mdBody
-
-    // 参数替换：把{{param_name}}换成实际值
-    for (const [key, value] of Object.entries(args)) {
-      body = body.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), String(value))
-    }
-
-    return `你现在要执行以下子任务。这个任务由用户自定义技能"${skill.name}"定义。
-请严格按照下面的指令完成，完成后直接给出结果，不需要调用 create_skill 或其他管理工具。
-
----
-${body}
----
-`
+    return require('./mdInstructionBuilder').buildMDInstruction(skill, args)
   }
 }
 
