@@ -276,7 +276,7 @@ const getDeepSeekService = async () => {
     if (!apiKeyResult || !apiKeyResult.value) {
       throw new Error('DeepSeek API密钥未配置，请在系统设置中配置')
     }
-    return new DeepSeekService(apiKeyResult.value)
+    return new DeepSeekService(apiKeyResult.value, SystemService)
   } catch (error) {
     console.error('获取DeepSeek服务失败:', error)
     throw error

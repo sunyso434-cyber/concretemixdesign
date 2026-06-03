@@ -88,7 +88,7 @@ async function getOrchestrator() {
   if (!apiKey) return null
 
   if (!orchestrator || cachedApiKey !== apiKey) {
-    const ds = new DeepSeekService(apiKey)
+    const ds = new DeepSeekService(apiKey, SystemService)
 
     // 确保 Skill 系统已初始化
     await initSkillSystem()

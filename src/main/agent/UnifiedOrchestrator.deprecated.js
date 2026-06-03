@@ -14,21 +14,62 @@ const agentMemoryService = require('../services/AgentMemoryService')
 const eventBus = require('./EventBus')
 const SkillCache = require('./SkillCache')
 
-const MAX_STEPS = 10
-const MAX_CONSECUTIVE_FAILURES = 2
+// 默认配置（无 systemService 注入时使用）
+const DEFAULT_CONFIG = {
+  maxSteps: 10,
+  maxConsecutiveFailures: 2,
+  rateLimitBaseMs: 5000,
+  rateLimitMaxMs: 30000,
+  confirmationTimeoutMs: 120000
+}
 
 class UnifiedOrchestrator {
-  constructor({ deepseekService, skillRegistry, skillExecutor, cacheOptions }) {
+  constructor({ deepseekService, skillRegistry, skillExecutor, cacheOptions, systemService = null }) {
     this.ds = deepseekService
     this.skillRegistry = skillRegistry
     this.skillExecutor = skillExecutor || null
+    this.systemService = systemService
+    this._agentCfg = null
     this.wc = null
     this._paused = false
     this._aborted = false
     this._resumeResolver = null
     this._confirmationResolver = null
     this._mdSkillStack = []
-    this._cache = new SkillCache(cacheOptions)
+    // SkillCache 支持 options.systemService 注入（向后兼容）
+    this._cache = new SkillCache({ ...(cacheOptions || {}), systemService: this.systemService })
+  }
+
+  /**
+   * 加载 Agent 配置（maxSteps / maxConsecutiveFailures / rateLimit* / confirmationTimeout）
+   * 初始化 _cache（需要 systemService 才能读取配置）。
+   */
+  async _loadAgentConfig() {
+    if (this._agentCfg) return this._agentCfg
+    if (!this.systemService) {
+      this._agentCfg = { ...DEFAULT_CONFIG }
+    } else {
+      try {
+        const all = await this.systemService.getAgentConfig()
+        this._agentCfg = {
+          maxSteps: all.agentMaxSteps,
+          maxConsecutiveFailures: all.agentMaxConsecutiveFailures,
+          rateLimitBaseMs: all.agentRateLimitBaseMs,
+          rateLimitMaxMs: all.agentRateLimitMaxMs,
+          confirmationTimeoutMs: all.agentConfirmationTimeoutMs
+        }
+      } catch (err) {
+        console.warn('[UnifiedOrchestrator] 加载 agent 配置失败，使用默认值:', err.message)
+        this._agentCfg = { ...DEFAULT_CONFIG }
+      }
+    }
+    // 初始化缓存（异步读取 cfg）
+    try {
+      await this._cache.init()
+    } catch (err) {
+      console.warn('[UnifiedOrchestrator] SkillCache init 失败:', err.message)
+    }
+    return this._agentCfg
   }
 
   /**
@@ -41,6 +82,9 @@ class UnifiedOrchestrator {
     this._aborted = false
     this._resumeResolver = null
     this._mdSkillStack = []
+
+    // 读取 agent 配置（maxSteps / maxConsecutiveFailures / rateLimit* / confirmationTimeout）
+    const cfg = await this._loadAgentConfig()
 
     const steps = []
     const startTime = Date.now()
@@ -65,7 +109,7 @@ class UnifiedOrchestrator {
       let finalResult = null
       let rateLimitCount = 0
 
-      while (stepCount < MAX_STEPS && !this._aborted) {
+      while (stepCount < cfg.maxSteps && !this._aborted) {
         if (this._paused) {
           await this._waitForResume()
           if (this._aborted) break
@@ -183,7 +227,7 @@ class UnifiedOrchestrator {
                   toolStep.error = errorMsg
                   consecutiveFailures++
 
-                  if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                  if (consecutiveFailures >= cfg.maxConsecutiveFailures) {
                     messages.push({ role: 'tool', content: JSON.stringify(execResult), tool_call_id: tc.id })
                     for (let j = response.tool_calls.indexOf(tc) + 1; j < response.tool_calls.length; j++) {
                       messages.push({ role: 'tool', content: JSON.stringify({ error: '任务已终止' }), tool_call_id: response.tool_calls[j].id })
@@ -215,7 +259,7 @@ class UnifiedOrchestrator {
 
           if (error.message?.includes('timeout') || error.code === 'ECONNABORTED') {
             consecutiveFailures++
-            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            if (consecutiveFailures >= cfg.maxConsecutiveFailures) {
               finalResult = { reply: 'AI服务连续超时，请检查网络后重试', steps, mode, error: true }
               break
             }
@@ -228,7 +272,7 @@ class UnifiedOrchestrator {
               finalResult = { reply: 'API 请求频率超限，请稍后再试', steps, mode, error: true }
               break
             }
-            const waitTime = Math.min(5000 * Math.pow(2, rateLimitCount - 1), 30000)
+            const waitTime = Math.min(cfg.rateLimitBaseMs * Math.pow(2, rateLimitCount - 1), cfg.rateLimitMaxMs)
             step.reasoning = `API 限流中，等待 ${Math.round(waitTime / 1000)} 秒后重试 (${rateLimitCount}/3)...`
             this._notifyProgress({ steps, mode, status: 'running' })
             await new Promise(r => setTimeout(r, waitTime))
@@ -240,7 +284,7 @@ class UnifiedOrchestrator {
         }
       }
 
-      if (stepCount >= MAX_STEPS && !finalResult) {
+      if (stepCount >= cfg.maxSteps && !finalResult) {
         finalResult = { reply: '任务步骤已达上限，你可以查看已完成步骤并继续。', steps, mode, truncated: true, duration: Date.now() - startTime }
       }
 
@@ -412,7 +456,7 @@ ${memoryContext || ''}
       const timer = setTimeout(() => {
         try { this.wc?.send('agent:confirmation-timeout', { toolName }) } catch (_) {}
         settle(false)
-      }, 120000)
+      }, this._agentCfg?.confirmationTimeoutMs || 120000)
 
       this._confirmationResolver = (confirmed, extraArgs) => {
         clearTimeout(timer)

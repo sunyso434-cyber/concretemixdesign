@@ -1,19 +1,53 @@
 const agentMemoryService = require('../services/AgentMemoryService')
 const eventBus = require('./EventBus')
 
-const MAX_STEPS = 10
-const MAX_CONSECUTIVE_FAILURES = 2
+// 默认配置（无 systemService 注入时使用）
+const DEFAULT_CONFIG = {
+  maxSteps: 10,
+  maxConsecutiveFailures: 2,
+  rateLimitBaseMs: 5000,
+  rateLimitMaxMs: 30000,
+  confirmationTimeoutMs: 120000
+}
 
 class AgentOrchestrator {
-  constructor({ deepseekService, skillRegistry, skillExecutor }) {
+  constructor({ deepseekService, skillRegistry, skillExecutor, systemService = null }) {
     this.ds = deepseekService
     this.skillRegistry = skillRegistry
     this.skillExecutor = skillExecutor || null
+    this.systemService = systemService
+    this._agentCfg = null
     this.wc = null
     this._paused = false
     this._aborted = false
     this._resumeResolver = null
     this._confirmationResolver = null
+  }
+
+  /**
+   * 加载 Agent 配置（maxSteps / maxConsecutiveFailures / rateLimit* / confirmationTimeout）
+   * 有 systemService 时从 SystemService 拉，缺失则用默认。
+   */
+  async _loadAgentConfig() {
+    if (this._agentCfg) return this._agentCfg
+    if (!this.systemService) {
+      this._agentCfg = { ...DEFAULT_CONFIG }
+    } else {
+      try {
+        const all = await this.systemService.getAgentConfig()
+        this._agentCfg = {
+          maxSteps: all.agentMaxSteps,
+          maxConsecutiveFailures: all.agentMaxConsecutiveFailures,
+          rateLimitBaseMs: all.agentRateLimitBaseMs,
+          rateLimitMaxMs: all.agentRateLimitMaxMs,
+          confirmationTimeoutMs: all.agentConfirmationTimeoutMs
+        }
+      } catch (err) {
+        console.warn('[AgentOrchestrator] 加载 agent 配置失败，使用默认值:', err.message)
+        this._agentCfg = { ...DEFAULT_CONFIG }
+      }
+    }
+    return this._agentCfg
   }
 
   async run({ sessionId, message, mode = 'collaborative', webContents = null }) {
@@ -22,6 +56,9 @@ class AgentOrchestrator {
     this._aborted = false
     this._resumeResolver = null
     this._mdSkillStack = []  // 重置MD技能栈，防止跨对话的误判
+
+    // 读取 agent 配置（maxSteps / maxConsecutiveFailures / rateLimit* / confirmationTimeout）
+    const cfg = await this._loadAgentConfig()
 
     const steps = []
     const startTime = Date.now()
@@ -49,7 +86,7 @@ class AgentOrchestrator {
     let finalResult = null
     let rateLimitCount = 0
 
-    while (stepCount < MAX_STEPS && !this._aborted) {
+    while (stepCount < cfg.maxSteps && !this._aborted) {
       if (this._paused) {
         await this._waitForResume()
         if (this._aborted) break
@@ -177,7 +214,7 @@ class AgentOrchestrator {
                 toolStep.error = errorMsg
                 consecutiveFailures++
 
-                if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                if (consecutiveFailures >= cfg.maxConsecutiveFailures) {
                   messages.push({ role: 'tool', content: JSON.stringify(execResult), tool_call_id: tc.id })
                   for (let j = response.tool_calls.indexOf(tc) + 1; j < response.tool_calls.length; j++) {
                     messages.push({ role: 'tool', content: JSON.stringify({ error: '任务已终止' }), tool_call_id: response.tool_calls[j].id })
@@ -210,7 +247,7 @@ class AgentOrchestrator {
 
         if (error.message?.includes('timeout') || error.code === 'ECONNABORTED') {
           consecutiveFailures++
-          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          if (consecutiveFailures >= cfg.maxConsecutiveFailures) {
             finalResult = { reply: 'AI服务连续超时，请检查网络后重试', steps, mode, error: true }
             break
           }
@@ -223,7 +260,7 @@ class AgentOrchestrator {
             finalResult = { reply: 'API 请求频率超限，请稍后再试', steps, mode, error: true }
             break
           }
-          const waitTime = Math.min(5000 * Math.pow(2, rateLimitCount - 1), 30000)
+          const waitTime = Math.min(cfg.rateLimitBaseMs * Math.pow(2, rateLimitCount - 1), cfg.rateLimitMaxMs)
           step.reasoning = `API 限流中，等待 ${Math.round(waitTime / 1000)} 秒后重试 (${rateLimitCount}/3)...`
           this._notifyProgress({ steps, mode, status: 'running' })
           await new Promise(r => setTimeout(r, waitTime))
@@ -235,7 +272,7 @@ class AgentOrchestrator {
       }
     }
 
-    if (stepCount >= MAX_STEPS && !finalResult) {
+    if (stepCount >= cfg.maxSteps && !finalResult) {
       finalResult = { reply: '任务步骤已达上限，你可以查看已完成步骤并继续。', steps, mode, truncated: true, duration: Date.now() - startTime }
     }
 
@@ -415,7 +452,7 @@ ${memoryContext || ''}
       const timer = setTimeout(() => {
         try { this.wc?.send('agent:confirmation-timeout', { toolName }) } catch (_) {}
         settle(false)
-      }, 120000)
+      }, this._agentCfg?.confirmationTimeoutMs || 120000)
 
       this._confirmationResolver = (confirmed, extraArgs) => {
         clearTimeout(timer)
