@@ -1,24 +1,36 @@
 # 版本更新记录
 
-## v4.4.0 (2026-06-03) - 已知未完成项
+## v4.4.0 (2026-06-03) - G3 已解决（补全记录）
 
-### G3 推迟：删 ContextProvider.js
+### G3 完成：删 ContextProvider.js
 
-**原因**：DynamicContextProvider 未修对（仍走兼容模式"未声明 services → 返回全量"），18 个 JS skill 都没加 `services` 字段声明。
+**之前的推迟**（line 5-21 历史版本）：DynamicContextProvider 未修对、18 skill 没加 services 字段。已重新规划修复路径并执行完毕。
 
-**plan 假设**：D 阶段会修 DynamicContextProvider 加 throw，并给 8 个 JS skill 加 services 字段。
+**实际改动**（commit adb0efb + c464c0a + dc25840 + d769930 + ad50a90）：
 
-**实际情况**：D 阶段只跑了 D1/D2/D3/D4，DynamicContextProvider 修对 + skill.services 字段这两件事**没做**。
+1. **改 DynamicContextProvider**（commit adb0efb）：未声明 services → throw `services_undeclared`；显式 `[]` 仍允许（兼容 create-skill / skill-manager 这类系统技能）
+2. **18 个 skill 全部加 `services` 字段**（3 批提交）：
+   - **第 1 批（c464c0a）** 6 个：material-query / mix-design / save-mix-design / save-sales-quote / sales-quote / performance-prediction
+   - **第 2 批（dc25840）** 6 个：compliance-check / compliance-query / standards-list / standards-query / cost-optimization / save-to-basic-mix
+   - **第 3 批（d769930）** 6 个：compare-materials / prepare-quote-draft / parameter-diagnosis / design-history / create-skill / skill-manager
+3. **删 ContextProvider.js + ContextProvider.test.js**（commit ad50a90，188 行减少）
+4. **清理 agentHandler.js fallback**（commit ad50a90）：去掉整个 try/catch，直接 `new DynamicContextProvider(allServices)`（构造函数不 throw，throw 在 getServices 调用时，原 fallback 是过度防御性代码）
+5. **SkillExecutor.js JSDoc 清理**（commit ad50a90）：`@param {import('./ContextProvider')}` → `@param {import('./DynamicContextProvider')}`
 
-**风险**：删 ContextProvider.js 后，未声明 services 的 skill 调 `getServices()` 会拿到**全量服务**（无 throw 保护），这违反了"显式声明"的安全设计。
+**修复后测试**：
+- Jest：20 套件 / **102 测试全绿**（删 ContextProvider.test.js 4 个测试后）
+- Manual：14 套件，13 PASS / 1 预存在失败（ComplianceRuleEngine 规范审查无关）
 
-**修复路径（下个版本）**：
-1. 改 DynamicContextProvider：未声明 services → throw `'services_undeclared'`
-2. 给 18 个 JS skill（src/main/skills/*.js）逐一加 `services: ['materialService', ...]` 字段
-3. 跑 jest 全量绿
-4. 然后再删 ContextProvider.js
+**修复后 commit 序列**：
+```
+adb0efb fix(agent): DynamicContextProvider 未声明 services 改为 throw（P0-4）
+c464c0a feat(skills): 第一批 6 个 skill 加 services 字段声明（直接使用 service 类）
+dc25840 feat(skills): 第二批 6 个 skill 加 services 字段声明（直接使用 service 类）
+d769930 feat(skills): 第三批 6 个 skill 加 services 字段声明（executeToolCall + 系统类）
+ad50a90 chore(agent): 删 ContextProvider.js + 清理 agentHandler fallback（方案 A，P0-4 解决）
+```
 
-**当前状态**：ContextProvider.js **保留**，继续作为 fallback 入口。
+**P0-4 状态**：✅ 已解决
 
 ---
 
@@ -34,7 +46,7 @@
   - **P0-1** MD 技能占位符 bug：旧 `for...Object.entries` 替换会破坏 `user_id` 完整性
   - **P0-2** TF-IDF 召回空：buildMemoryContext 硬编码传 `{}` 给 findSimilarCorrections
   - **P0-3** SkillDebugger 硬依赖 AgentOrchestrator：抽 `mdInstructionBuilder` 纯函数修复
-  - **P0-4** ContextProvider 待删（推迟到下版本，详见"已知未完成项"）
+  - **P0-4** ContextProvider 已删：DynamicContextProvider 改成 throw + 18 skill 全部加 services 字段 + 清理 agentHandler fallback（P0-4 解决）
   - **B1.3 隐藏 bug** catch 块 require errorHandler 在 D1 前会 throw（嵌套 try/catch 修复）
   - **C2** `_findMaterialById` 性能 bug：O(n) 全表扫描改 O(1) 主键查询
 - **测试安全网**：Jest 21 套件 / 105 测试 全绿；4 个关键模块（mdInstructionBuilder / systemPromptBuilder / messageTrimmer / errorHandler）≥ 90% 覆盖率门槛
