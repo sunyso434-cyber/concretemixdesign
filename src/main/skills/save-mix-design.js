@@ -89,5 +89,7 @@ module.exports = {
         error: `确认失败: ${error.message}`
       }
     }
-  }
+  },
+
+  services: ['mixDesignService']
 }

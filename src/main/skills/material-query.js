@@ -5,7 +5,7 @@
 
 module.exports = {
   name: 'list_available_materials',
-  description: '查询材料库中可用的原材料列表。用于了解有哪些材料可选，帮助用户做材料选择。同时基于材料属性做定性对比分析。',
+  description: '查询材料库中可用的原材料列表。仅在使用内置 calculate_mix_design 等工具时需要先调用。如果已有匹配的自定义技能（如 self_compacting_concrete_design），不要调用此工具——自定义技能内部会自行获取材料。',
   version: '1.0.0',
   category: 'query',
 
@@ -52,5 +52,7 @@ module.exports = {
         details: { originalError: error.message }
       }
     }
-  }
+  },
+
+  services: ['materialService']
 }

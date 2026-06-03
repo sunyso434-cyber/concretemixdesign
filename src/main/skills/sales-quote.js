@@ -85,5 +85,7 @@ module.exports = {
         details: { originalError: error.message }
       }
     }
-  }
+  },
+
+  services: ['basicMixDesignService', 'salesQuoteCalculation']
 }
