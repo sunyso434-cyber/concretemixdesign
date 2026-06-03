@@ -158,5 +158,7 @@ module.exports = {
         error: `成本优化计算失败: ${error.message}`
       }
     }
-  }
+  },
+
+  services: ['materialService', 'mixDesignService', 'mixDesignOptimizer']
 }
