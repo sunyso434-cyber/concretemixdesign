@@ -15,11 +15,12 @@
 const controlMixin = require('./controlMixin')
 
 class Orchestrator {
-  constructor({ deepseekService, skillRegistry, skillExecutor, agentMemoryService, strategyName = 'unified' }) {
+  constructor({ deepseekService, skillRegistry, skillExecutor, agentMemoryService, systemService, strategyName = 'unified' }) {
     this.deepseekService = deepseekService
     this.skillRegistry = skillRegistry
     this.skillExecutor = skillExecutor
     this.agentMemoryService = agentMemoryService
+    this.systemService = systemService || null
 
     // 状态
     this.state = 'idle'
@@ -33,7 +34,7 @@ class Orchestrator {
     // 选 strategy
     const Strategy = this._resolveStrategy(strategyName)
     this.strategy = new Strategy({
-      deepseekService, skillRegistry, skillExecutor, agentMemoryService
+      deepseekService, skillRegistry, skillExecutor, agentMemoryService, systemService
     })
   }
 

@@ -15,14 +15,20 @@
 
 const { buildSystemPrompt } = require('../systemPromptBuilder')
 const { buildMDInstruction } = require('../mdInstructionBuilder')
+const { trim } = require('../messageTrimmer')
 const errorHandler = require('../../utils/errorHandler')
 
+const DEFAULT_TOKEN_BUDGET = 30000
+
 class UnifiedStrategy {
-  constructor({ deepseekService, skillRegistry, skillExecutor, agentMemoryService }) {
+  constructor({ deepseekService, skillRegistry, skillExecutor, agentMemoryService, systemService }) {
     this.deepseekService = deepseekService
     this.skillRegistry = skillRegistry
     this.skillExecutor = skillExecutor
     this.agentMemoryService = agentMemoryService
+    // systemService 可选注入（E2）：用于读 messageTrimmerTokenBudget；
+    // 未注入时 trim 走 messageTrimmer 内置默认值。
+    this.systemService = systemService || null
   }
 
   async execute(input) {
@@ -45,11 +51,25 @@ class UnifiedStrategy {
 
     const systemPrompt = buildSystemPrompt({ memoryContext, skillNames, preferences: {} })
 
-    const messages = [
+    let messages = [
       { role: 'system', content: systemPrompt },
       ...historyMessages,
       { role: 'user', content: message }
     ]
+
+    // E2: 入口处按 tokenBudget 截断（system + 最新 2 轮必保留；中间 tool result 优先丢）
+    let tokenBudget = DEFAULT_TOKEN_BUDGET
+    if (this.systemService && typeof this.systemService.getAgentConfig === 'function') {
+      try {
+        const cfg = await this.systemService.getAgentConfig()
+        if (cfg && Number.isFinite(cfg.messageTrimmerTokenBudget)) {
+          tokenBudget = cfg.messageTrimmerTokenBudget
+        }
+      } catch (e) {
+        errorHandler.warn('truncate_cfg_read', { msg: e?.message })
+      }
+    }
+    messages = trim(messages, { tokenBudget })
 
     // 2. 主循环
     for (let step = 0; step < 10; step++) {

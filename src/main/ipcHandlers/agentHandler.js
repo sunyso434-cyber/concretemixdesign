@@ -98,7 +98,8 @@ async function getOrchestrator() {
       deepseekService: ds,
       skillRegistry,
       skillExecutor,
-      agentMemoryService
+      agentMemoryService,
+      systemService: SystemService
     })
     cachedApiKey = apiKey
   }

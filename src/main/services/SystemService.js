@@ -71,7 +71,9 @@ class SystemService {
       // SkillCache (3)
       skillCacheMaxAgeMs: await numVal('skillCacheMaxAgeMs', 7 * 24 * 60 * 60 * 1000),
       skillCacheMaxSize: await numVal('skillCacheMaxSize', 1000),
-      skillCacheEvictRatio: await numVal('skillCacheEvictRatio', 0.1)
+      skillCacheEvictRatio: await numVal('skillCacheEvictRatio', 0.1),
+      // messageTrimmer (1) - E2 新增
+      messageTrimmerTokenBudget: await numVal('messageTrimmerTokenBudget', 30000)
     }
   }
 
