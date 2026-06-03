@@ -7,7 +7,7 @@
  * - execute(input) 返回 Promise<Output>
  * - input: { sessionId, message, mode, webContents }
  * - output: { success: boolean, content?: string, toolCalls?: [], error?: string }
- * - 抛出错误：表示 FATA L 级别失败（连续失败超阈值）
+ * - 抛出错误：表示 FATAL 级别失败（连续失败超阈值）
  * - 正常返回 { success: false, error }：表示 ERROR 级别（单次失败可重试）
  *
  * 实现：
