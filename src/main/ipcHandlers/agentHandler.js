@@ -1,6 +1,5 @@
 const { ipcMain } = require('electron')
 const DeepSeekService = require('../services/DeepSeekService')
-const AgentOrchestrator = require('../agent/AgentOrchestrator') // legacy, kept for backward compat
 const Orchestrator = require('../agent/Orchestrator')
 const SkillRegistry = require('../agent/SkillRegistry')
 const SkillExecutor = require('../agent/SkillExecutor')
