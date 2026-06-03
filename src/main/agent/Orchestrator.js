@@ -64,13 +64,19 @@ class Orchestrator {
   async run(input) {
     this.state = 'running'
     this.webContents = input.webContents || null
+    this._abortController = new AbortController()
 
     try {
-      const result = await this.strategy.execute(input)
+      const result = await this.strategy.execute({
+        ...input,
+        signal: this._abortController.signal,
+        getState: () => this.state
+      })
       return result
     } finally {
       this.state = 'idle'
       this.aborted = false
+      this._abortController = null
     }
   }
 }

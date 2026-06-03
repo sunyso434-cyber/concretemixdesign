@@ -40,4 +40,47 @@ describe('Orchestrator 外壳', () => {
     expect(fakeStrategy.execute).toHaveBeenCalled()
     expect(result.success).toBe(true)
   })
+
+  test('abort() 应触发 signal 让 strategy 终止（P1 修复）', async () => {
+    const fakeStrategy = {
+      execute: jest.fn().mockImplementation(async ({ signal }) => {
+        // 模拟 strategy 等 signal
+        await new Promise(resolve => {
+          if (signal.aborted) resolve()
+          else signal.addEventListener('abort', resolve)
+        })
+        return { success: false, error: 'aborted' }
+      })
+    }
+    const orch = new Orchestrator({
+      deepseekService: {}, skillRegistry: {}, skillExecutor: {}, agentMemoryService: {}
+    })
+    orch.strategy = fakeStrategy
+
+    // 异步触发 abort
+    setTimeout(() => orch.abort(), 10)
+
+    const result = await orch.run({ sessionId: 's', message: 'hi' })
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('aborted')
+  })
+
+  test('run() 应把 signal 和 getState 传给 strategy', async () => {
+    const fakeStrategy = { execute: jest.fn().mockResolvedValue({ success: true, content: 'ok' }) }
+    const orch = new Orchestrator({
+      deepseekService: {},
+      skillRegistry: {},
+      skillExecutor: {},
+      agentMemoryService: {}
+    })
+    orch.strategy = fakeStrategy
+
+    await orch.run({ sessionId: 's1', message: 'hi' })
+
+    const passedInput = fakeStrategy.execute.mock.calls[0][0]
+    expect(passedInput.signal).toBeDefined()
+    expect(typeof passedInput.signal.aborted).toBe('boolean')
+    expect(typeof passedInput.getState).toBe('function')
+    expect(passedInput.getState()).toBe('idle')  // run() 已结束，进入 finally 后是 idle
+  })
 })

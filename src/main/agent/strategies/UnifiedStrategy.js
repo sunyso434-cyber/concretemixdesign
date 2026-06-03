@@ -32,7 +32,7 @@ class UnifiedStrategy {
   }
 
   async execute(input) {
-    const { sessionId, message, webContents } = input
+    const { sessionId, message, webContents, signal, getState } = input
 
     // 拆 3 个独立计数器（解决 P1-1 errorSource 区分）
     const failureCounters = {
@@ -75,6 +75,16 @@ class UnifiedStrategy {
     for (let step = 0; step < 10; step++) {
       if (webContents?.isDestroyed?.()) {
         return { success: false, error: 'wc_destroyed' }
+      }
+
+      // P1: abort 检查（Orchestrator 通过 AbortSignal 通知）
+      if (signal?.aborted) {
+        return { success: false, error: 'aborted' }
+      }
+      // pause 阻塞：state 由 Orchestrator 外壳维护，策略通过 getState 回调读
+      while (getState && getState() === 'paused') {
+        await new Promise(r => setTimeout(r, 100))
+        if (signal?.aborted) return { success: false, error: 'aborted' }
       }
 
       let response

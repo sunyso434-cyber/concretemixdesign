@@ -126,4 +126,43 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     // LLM 失败 2 次是同源，但第 3 次成功—— 不应触发 FATAL
     expect(result).toBeDefined()
   })
+
+  test('场景 7: signal.aborted 时主循环应立即终止', async () => {
+    const mocks = makeMocks()
+    const abortController = new AbortController()
+
+    // 在第一次 LLM 调用前 abort
+    abortController.abort()
+
+    mocks.deepseekService.chatWithTools.mockResolvedValue({ content: '不会到这里', tool_calls: null })
+
+    const strategy = new UnifiedStrategy(mocks)
+    const result = await strategy.execute({
+      sessionId: 's',
+      message: 'hi',
+      signal: abortController.signal
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.error).toBe('aborted')
+    expect(mocks.deepseekService.chatWithTools).not.toHaveBeenCalled()
+  })
+
+  test('场景 8: getState() === "paused" 时主循环应阻塞，恢复后继续', async () => {
+    const mocks = makeMocks()
+    let currentState = 'paused'
+    setTimeout(() => { currentState = 'running' }, 200)  // 200ms 后恢复
+
+    mocks.deepseekService.chatWithTools.mockResolvedValue({ content: 'ok', tool_calls: null })
+
+    const strategy = new UnifiedStrategy(mocks)
+    const result = await strategy.execute({
+      sessionId: 's',
+      message: 'hi',
+      getState: () => currentState
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.content).toBe('ok')
+  })
 })

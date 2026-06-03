@@ -65,10 +65,12 @@ function resume() {
 }
 
 /**
- * 中止执行：把 aborted 标志置为 true，调用方应在主循环中检查。
+ * 中止执行：把 aborted 标志置为 true，同时触发 AbortController（若有）。
+ * 调用方应在主循环中检查 signal.aborted 或 this.aborted。
  */
 function abort() {
   this.aborted = true
+  this._abortController?.abort()
 }
 
 /**
