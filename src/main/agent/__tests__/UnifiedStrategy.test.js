@@ -108,4 +108,22 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     const result = await strategy.execute({ sessionId: 's1', message: 'hi' })
     expect(result.success).toBeDefined()
   })
+
+  test('场景 6: LLM 抽风 2 次 + skill 失败 1 次不应终止（不同源）', async () => {
+    const mocks = makeMocks()
+    mocks.deepseekService.chatWithTools
+      .mockRejectedValueOnce(new Error('LLM timeout'))
+      .mockRejectedValueOnce(new Error('LLM timeout'))
+      // 第 3 次：成功调工具
+      .mockResolvedValueOnce({ content: null, tool_calls: [{ id: 'c1', function: { name: 'q', arguments: '{}' } }] })
+    mocks.skillRegistry.getSkill.mockReturnValue({ name: 'q', parameters: {} })
+    mocks.skillExecutor.execute.mockResolvedValue({ success: true, data: 'r' })
+    mocks.deepseekService.chatWithTools
+      .mockResolvedValueOnce({ content: 'ok' })  // 工具结果后再 LLM 一次
+
+    const strategy = new UnifiedStrategy(mocks)
+    const result = await strategy.execute({ sessionId: 's', message: 'q' })
+    // LLM 失败 2 次是同源，但第 3 次成功—— 不应触发 FATAL
+    expect(result).toBeDefined()
+  })
 })

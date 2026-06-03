@@ -5,10 +5,17 @@
  * 委托给：
  * - systemPromptBuilder.buildSystemPrompt()
  * - mdInstructionBuilder.buildMDInstruction()
+ *
+ * 错误处理（P1-1）：用 3 个独立计数器区分错误源
+ * - llmParse: LLM 返回解析失败（JSON 错误、tool_call 格式错等）
+ * - llmNetwork: LLM 网络错误（429、超时、连接失败）
+ * - skillExec: skill 执行失败
+ * 升级判断：任一计数器 >= threshold → fatal
  */
 
 const { buildSystemPrompt } = require('../systemPromptBuilder')
 const { buildMDInstruction } = require('../mdInstructionBuilder')
+const errorHandler = require('../../utils/errorHandler')
 
 class UnifiedStrategy {
   constructor({ deepseekService, skillRegistry, skillExecutor, agentMemoryService }) {
@@ -20,8 +27,14 @@ class UnifiedStrategy {
 
   async execute(input) {
     const { sessionId, message, webContents } = input
-    let consecutiveFailures = 0
-    const MAX_CONSECUTIVE_FAILURES = 2
+
+    // 拆 3 个独立计数器（解决 P1-1 errorSource 区分）
+    const failureCounters = {
+      llmParse: 0,
+      llmNetwork: 0,
+      skillExec: 0
+    }
+    const threshold = 2
 
     // 1. 构造 messages
     const memoryContext = await this.agentMemoryService.buildMemoryContext(sessionId, {
@@ -51,20 +64,30 @@ class UnifiedStrategy {
           tools: this.skillRegistry.getToolSchemas()
         })
       } catch (err) {
-        consecutiveFailures++
-        // 429 退避
-        if (err.status === 429 && consecutiveFailures < MAX_CONSECUTIVE_FAILURES) {
-          await new Promise(r => setTimeout(r, 5000 * Math.pow(2, consecutiveFailures - 1)))
+        // 区分错误源：429/超时/网络 → llmNetwork；其他 → llmParse
+        if (err.status === 429 || err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+          failureCounters.llmNetwork++
+        } else {
+          failureCounters.llmParse++
+        }
+
+        // 429 退避（网络类有自恢复机会）
+        if (err.status === 429 && failureCounters.llmNetwork < threshold) {
+          await new Promise(r => setTimeout(r, 5000 * Math.pow(2, failureCounters.llmNetwork - 1)))
           continue
         }
-        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+
+        // 升级判断：任一计数器 >= threshold → fatal
+        if (failureCounters.llmParse >= threshold || failureCounters.llmNetwork >= threshold) {
+          errorHandler.fatal('orchestrator', { counters: failureCounters })
           return { success: false, error: 'max_failures_exceeded' }
         }
         continue
       }
 
-      // 成功：重置计数
-      consecutiveFailures = 0
+      // 成功：仅重置 LLM 计数器（skillExec 计数器有自己的阈值）
+      failureCounters.llmParse = 0
+      failureCounters.llmNetwork = 0
 
       // 3. 处理 tool_calls
       if (response.tool_calls && response.tool_calls.length > 0) {
@@ -86,6 +109,15 @@ class UnifiedStrategy {
           } else if (skill) {
             // JS 技能：调执行器
             const execResult = await this.skillExecutor.execute(skill, args, sessionId)
+            if (execResult && execResult.success === false) {
+              failureCounters.skillExec++
+              if (failureCounters.skillExec >= threshold) {
+                errorHandler.fatal('orchestrator', { counters: failureCounters })
+                return { success: false, error: 'max_failures_exceeded' }
+              }
+            } else {
+              failureCounters.skillExec = 0
+            }
             messages.push({
               role: 'tool',
               tool_call_id: tc.id,

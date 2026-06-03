@@ -1,5 +1,6 @@
 const agentMemoryService = require('../services/AgentMemoryService')
 const eventBus = require('./EventBus')
+const errorHandler = require('../utils/errorHandler')
 
 // 默认配置（无 systemService 注入时使用）
 const DEFAULT_CONFIG = {
@@ -62,7 +63,8 @@ class AgentOrchestrator {
 
     const steps = []
     const startTime = Date.now()
-    let consecutiveFailures = 0
+    // 拆 3 个独立失败计数器（解决 P1-1 errorSource 区分）
+    const failureCounters = { llmParse: 0, llmNetwork: 0, skillExec: 0 }
 
     console.log('[Agent] run() 开始, sessionId:', sessionId, 'mode:', mode, 'wc:', !!webContents)
 
@@ -152,7 +154,7 @@ class AgentOrchestrator {
               messages.push({ role: 'tool', content: JSON.stringify({ error: '参数格式错误' }), tool_call_id: tc.id })
               toolStep.status = 'error'
               toolStep.error = 'LLM 工具参数格式错误'
-              consecutiveFailures++
+              failureCounters.llmParse++
               break
             }
 
@@ -183,7 +185,7 @@ class AgentOrchestrator {
                     error: `MD技能 ${tc.function.name} 正在执行中，防止无限递归`
                   })
                 })
-                consecutiveFailures++
+                failureCounters.llmParse++
               } else {
                 // MD技能走"注入指令"路径
                 this._mdSkillStack.push(tc.function.name)
@@ -198,7 +200,8 @@ class AgentOrchestrator {
 
                 toolStep.status = 'done'
                 toolStep.result = { _mdInstruction: true }
-                consecutiveFailures = 0
+                failureCounters.llmParse = 0
+                failureCounters.llmNetwork = 0
               }
             } else {
               // JS技能走原有的execute路径
@@ -212,15 +215,16 @@ class AgentOrchestrator {
                   ? (execResult.error.message || execResult.error.error || JSON.stringify(execResult.error))
                   : String(execResult.error || '未知错误')
                 toolStep.error = errorMsg
-                consecutiveFailures++
+                failureCounters.skillExec++
 
-                if (consecutiveFailures >= cfg.maxConsecutiveFailures) {
+                if (failureCounters.skillExec >= cfg.maxConsecutiveFailures) {
+                  errorHandler.fatal('orchestrator', { counters: failureCounters })
                   messages.push({ role: 'tool', content: JSON.stringify(execResult), tool_call_id: tc.id })
                   for (let j = response.tool_calls.indexOf(tc) + 1; j < response.tool_calls.length; j++) {
                     messages.push({ role: 'tool', content: JSON.stringify({ error: '任务已终止' }), tool_call_id: response.tool_calls[j].id })
                   }
                   finalResult = {
-                    reply: `执行"${tc.function.name}"时连续失败 ${consecutiveFailures} 次：${errorMsg}\n\n请检查输入参数是否正确，或手动处理此步骤后继续。`,
+                    reply: `执行"${tc.function.name}"时连续失败 ${failureCounters.skillExec} 次：${errorMsg}\n\n请检查输入参数是否正确，或手动处理此步骤后继续。`,
                     steps, mode, error: true, duration: Date.now() - startTime
                   }
                   break
@@ -229,7 +233,7 @@ class AgentOrchestrator {
                 messages.push({ role: 'tool', content: JSON.stringify({ ...execResult, hint: '此步骤执行失败，请尝试其他方法或跳过' }), tool_call_id: tc.id })
               } else {
                 toolStep.status = 'done'
-                consecutiveFailures = 0
+                failureCounters.skillExec = 0
                 messages.push({ role: 'tool', content: JSON.stringify(execResult), tool_call_id: tc.id })
                 eventBus.emitToolExecuted(tc.function.name, args, execResult)
               }
@@ -246,8 +250,9 @@ class AgentOrchestrator {
         step.error = error.message
 
         if (error.message?.includes('timeout') || error.code === 'ECONNABORTED') {
-          consecutiveFailures++
-          if (consecutiveFailures >= cfg.maxConsecutiveFailures) {
+          failureCounters.llmNetwork++
+          if (failureCounters.llmNetwork >= cfg.maxConsecutiveFailures) {
+            errorHandler.fatal('orchestrator', { counters: failureCounters })
             finalResult = { reply: 'AI服务连续超时，请检查网络后重试', steps, mode, error: true }
             break
           }
