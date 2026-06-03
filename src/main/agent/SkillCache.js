@@ -1,6 +1,14 @@
 /**
- * 技能缓存
- * 缓存常用MD技能的执行结果，提高响应速度
+ * SkillCache — MD 技能执行结果缓存
+ *
+ * ⚠️ @deprecated 自 v4.4.0 起，Orchestrator 切换到 UnifiedStrategy 主循环，
+ *    新主循环不再 `new SkillCache()`。本类暂时保留作为兼容层，
+ *    计划 v4.4.1 或后续版本删除。
+ *
+ *    如果需要接回缓存能力，请重新评估：
+ *    - 缓存键如何与 LLM 调用的确定性绑定
+ *    - 缓存何时失效（用户改 MD 模板时）
+ *    - 跨 session 共享 vs 单 session 内复用
  */
 
 const fs = require('fs')

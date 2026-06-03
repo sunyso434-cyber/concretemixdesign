@@ -6,7 +6,6 @@
  * 解决 P1-3：reasoning_content 计入 token
  */
 
-const eventBus = require('./EventBus')
 const errorHandler = require('../utils/errorHandler')
 
 const CHARS_PER_TOKEN_ZH = 1.5  // 中文 1.5 token/字
