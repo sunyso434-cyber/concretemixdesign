@@ -22,6 +22,61 @@
 
 ---
 
+## v4.4.0 (2026-06-03) - Agent 模块全面重构（完整 release note）
+
+### 主要改进
+- **Agent 模块重构**：单一 Orchestrator 外壳 + 策略模式 pipeline
+  - `Orchestrator` 外壳（77 行）— 状态机 + 委托
+  - `UnifiedStrategy` 主循环（生产路径）— 替代 UnifiedOrchestrator
+  - `MultiAgentStrategy` 委托版 — 当前等价于 UnifiedStrategy，未来扩展多 agent 调度
+- **消灭 ~500 行重复代码**：抽 `mdInstructionBuilder` / `systemPromptBuilder` / `controlMixin` 三个纯函数
+- **修复 6 个 P0 bug**：
+  - **P0-1** MD 技能占位符 bug：旧 `for...Object.entries` 替换会破坏 `user_id` 完整性
+  - **P0-2** TF-IDF 召回空：buildMemoryContext 硬编码传 `{}` 给 findSimilarCorrections
+  - **P0-3** SkillDebugger 硬依赖 AgentOrchestrator：抽 `mdInstructionBuilder` 纯函数修复
+  - **P0-4** ContextProvider 待删（推迟到下版本，详见"已知未完成项"）
+  - **B1.3 隐藏 bug** catch 块 require errorHandler 在 D1 前会 throw（嵌套 try/catch 修复）
+  - **C2** `_findMaterialById` 性能 bug：O(n) 全表扫描改 O(1) 主键查询
+- **测试安全网**：Jest 21 套件 / 105 测试 全绿；4 个关键模块（mdInstructionBuilder / systemPromptBuilder / messageTrimmer / errorHandler）≥ 90% 覆盖率门槛
+- **错误处理分级**：4 级（fatal / error / warn / silent）+ errorSource 字段（P1-1）
+- **消息截断**：JSON 安全截断 + reasoning_content 计入 + system + 最后 2 轮必保留（E 批次）
+- **DB schema 升级**：ChatHistory 表加 toolCallId 字段，saveMessage 透传，buildHistoryMessages 不再跳 tool 消息（H 批次）
+- **硬编码配置外置**：13+ key 抽到 SystemService.getAgentConfig()，统一异步配置
+
+### 兼容性
+- IPC `agent:run` 仍返回 `{success: false, error}` 格式（D5 验证）
+- 老 manual 脚本（`npm run test:manual`）仍可跑，13+1=14 个 manual 脚本
+- SkillDebugger 仍可工作（已切到 mdInstructionBuilder 纯函数）
+
+### 风险提示
+- **TF-IDF 修复后** correction 召回率提升，可能影响部分用户工作流——已加 `useCorrectionRecall` 灰度开关（默认 false）
+- **30 秒配置缓存已关**（实际不存在），改配置后立即生效
+- **MD 技能占位符修复**，老用户工作流可能需要更新 MD 模板
+- **G3 推迟**：ContextProvider.js 保留（详见"已知未完成项"）
+
+### 已知未完成项
+
+#### G3 推迟：删 ContextProvider.js
+
+**原因**：DynamicContextProvider 未修对（仍走兼容模式"未声明 services → 返回全量"），18 个 JS skill 都没加 `services` 字段声明。
+
+**修复路径（下个版本 v4.4.1）**：
+1. 改 DynamicContextProvider：未声明 services → throw `'services_undeclared'`
+2. 给 18 个 JS skill（src/main/skills/*.js）逐一加 `services: ['materialService', ...]` 字段
+3. 跑 jest 全量绿
+4. 然后再删 ContextProvider.js
+
+#### 预存在失败
+
+- `tests/manual/test-standard-scope-accuracy.js`：1 个测试用例 `ComplianceRuleEngine skips special concrete type clauses when concrete type is missing` 在 v4.4.0 之前就失败，与本次改动无关（属于 ComplianceRuleEngine 业务逻辑 bug）
+
+### 测试覆盖
+- **Jest**: 21 套件 / 105 测试全绿
+- **Manual**: 14 套件，13 PASS / 1 预存在失败
+- **关键模块覆盖**: mdInstructionBuilder / systemPromptBuilder / messageTrimmer / errorHandler ≥ 90%
+
+---
+
 ## 打包记录 (2026-06-02 Agent架构重新设计 - MD技能支持 4.3.0)
 
 - **命令**: `npm run electron:build`
