@@ -69,13 +69,13 @@ class ContextProvider {
 
   /**
    * 根据 ID 查找材料
+   * O(1) 直接查询，避免 O(n) 全表扫描
    * @param {number} id - 材料 ID
    * @returns {object|null} 材料对象
    */
   async _findMaterialById(id) {
     try {
-      const materials = await MaterialService.getAllMaterials()
-      return materials.find(m => m.id === id) || null
+      return await this._services.materialService.getMaterialById(id)
     } catch (error) {
       console.error('[ContextProvider] 查找材料失败:', error)
       return null
