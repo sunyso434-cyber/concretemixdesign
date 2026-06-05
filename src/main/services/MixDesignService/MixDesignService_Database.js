@@ -333,8 +333,10 @@ class MixDesignService_Database {
         finalSandRatio = sandRatio / 100
         sandRatioSource = `${sandRatio}%（用户输入）`
       } else {
-        finalSandRatio = MixDesignService_Aggregate.calculateSandRatio(waterRatio, slump)
-        sandRatioSource = `${(finalSandRatio * 100).toFixed(1)}%（计算值）`
+        // 从材料提取实际细度模数，不再用默认 2.8
+        const sandFM = this._extractSandFM(materials?.sand)
+        finalSandRatio = MixDesignService_Aggregate.calculateSandRatio(waterRatio, slump, sandFM)
+        sandRatioSource = `${(finalSandRatio * 100).toFixed(1)}%（计算值，FM=${sandFM.toFixed(2)}）`
       }
 
       // ========== 步骤8：胶凝材料与砂率 ==========
@@ -628,10 +630,9 @@ class MixDesignService_Database {
         })
       }
 
-      // 14. 计算容重
-      // 排除 sand 和 stone 聚合键，避免多种骨料时的重复计算
-      const densityKeys = Object.keys(materialAmounts).filter(key => key !== 'sand' && key !== 'stone')
-      const density = densityKeys.reduce((sum, key) => sum + materialAmounts[key], 0)
+      // 14. 计算容重（kg/m³）
+      // materialAmounts 中可能同时存在 sand/sand_<id>、stone/stone_<id>，需排除细分键避免重复
+      const density = MixDesignService_Aggregate.calculateDensity(materialAmounts)
       console.log('容重:', density)
 
     // 15. 计算配合比成本
@@ -683,7 +684,7 @@ class MixDesignService_Database {
           const sandPrice = MixDesignService_Aggregate.toNumber(sand?.price)
           if (sand && sandPrice > 0) {
             const key = `sand_${sand.id}`
-            if (materialAmounts[key]) {
+            if (Number.isFinite(materialAmounts[key]) && materialAmounts[key] > 0) {
               materialCosts[key] = (materialAmounts[key] * sandPrice) / 1000
               sandTotalCost += materialCosts[key]
               totalCost += materialCosts[key]
@@ -700,7 +701,7 @@ class MixDesignService_Database {
           materials.sand.originalAggregateIds.forEach((aggId, i) => {
             const ratio = materials.sand.originalRatios[i]
             const sandKey = `sand_${aggId}`
-            if (materialAmounts[sandKey]) {
+            if (Number.isFinite(materialAmounts[sandKey]) && materialAmounts[sandKey] > 0) {
               // 混合砂中各砂的成本按比例分配
               materialCosts[sandKey] = sandTotalCostMixed * ratio
             }
@@ -757,7 +758,11 @@ class MixDesignService_Database {
       for (const [k, v] of Object.entries(materialCosts)) {
         if (k === 'sand' && hasSandDetail) continue
         if (k === 'stone' && hasStoneDetail) continue
-        normalizedTotal += v || 0
+        if (!Number.isFinite(v)) {
+          console.error(`[成本归一化] 检测到非数字成本项: key=${k}, value=${v}，跳过该项（可能是上游计算异常）`)
+          continue
+        }
+        normalizedTotal += v
       }
       totalCost = normalizedTotal
     } catch (e) {
@@ -851,6 +856,41 @@ class MixDesignService_Database {
       console.error('计算系列配合比失败:', error)
       throw error
     }
+  }
+  /**
+   * 从材料 sand 对象中提取实际细度模数
+   * - 单一砂对象 → 取 finenessModulus
+   * - 砂数组 → 加权平均（有比例用比例，无比例等权）
+   * - 混合砂对象（有 originalRatios）→ 加权平均
+   * - 回退默认 2.8
+   * @param {Object|Array} sand - 细骨料材料
+   * @returns {number} 细度模数
+   */
+  _extractSandFM(sand) {
+    if (!sand) return 2.8
+
+    // 单一砂对象
+    if (!Array.isArray(sand) && !sand.originalRatios) {
+      return sand.finenessModulus || 2.8
+    }
+
+    // 混合砂（有 originalRatios）
+    if (sand.originalRatios && sand.originalAggregateIds) {
+      // 混合砂对象本身已有 finenessModulus
+      if (sand.finenessModulus != null) return sand.finenessModulus
+      return 2.8
+    }
+
+    // 砂数组：加权平均
+    if (Array.isArray(sand)) {
+      if (sand.length === 0) return 2.8
+      if (sand.length === 1) return sand[0]?.finenessModulus || 2.8
+      // 等权平均
+      const sum = sand.reduce((s, item) => s + (item?.finenessModulus || 2.8), 0)
+      return sum / sand.length
+    }
+
+    return 2.8
   }
 }
 

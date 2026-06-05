@@ -551,15 +551,15 @@ class MixDesignService_Aggregate {
    */
   calculateSandRatio(waterRatio, slump, finenessModulus = 2.8, aggregateType = 'gravel') {
     // JGJ 55-2011 碎石混凝土砂率表（简化公式）
-    // 基准砂率33%（水胶比0.40，坍落度30-50mm，砂细度模数2.8）
+    // 基准砂率37%（水胶比0.40，坍落度30-50mm，砂细度模数2.8）
     // 水胶比每增加0.05，砂率增加1%
     // 坍落度每增加20mm，砂率增加1%
-    // 砂细度模数每增加0.25，砂率减少0.5%
+    // 砂细度模数每增加0.1，砂率增加0.5%
 
-    const baseSandRatio = 0.33 // 基准砂率33%
-    const waterRatioEffect = (waterRatio - 0.40) * 2.0 // 水胶比影响，每增加0.05砂率增加1%
+    const baseSandRatio = 0.37 // 基准砂率37%
+    const waterRatioEffect = (waterRatio - 0.40) * 0.2 // 水胶比影响，每增加0.05砂率增加1%
     const slumpEffect = ((slump - 60) / 20) * 0.01 // 坍落度影响，每增加20mm砂率增加1%
-    const fmEffect = -(finenessModulus - 2.8) * 0.02 // 细度模数影响，每增加0.25砂率减少0.5%
+    const fmEffect = (finenessModulus - 2.8) * 0.05 // 细度模数每增加0.1砂率增加0.5%
 
     // 卵石混凝土砂率比碎石高约2-3%
     const aggregateBonus = aggregateType === 'cobble' ? 0.025 : 0
@@ -570,6 +570,24 @@ class MixDesignService_Aggregate {
     sandRatio = Math.max(0.28, Math.min(0.50, sandRatio))
 
     return sandRatio
+  }
+
+  /**
+   * 计算混凝土容重（kg/m³）
+   * materialAmounts 中可能同时存在：
+   *   - 'sand' / 'stone'：骨料总量
+   *   - 'sand_<id>' / 'stone_<id>'：多种骨料时的细分用量（避免重复计入）
+   * 算法：累加所有非细分键的值
+   *
+   * @param {Object} materialAmounts - 各材料用量（kg/m³）
+   * @returns {number} 容重（kg/m³）
+   */
+  calculateDensity(materialAmounts) {
+    if (!materialAmounts || typeof materialAmounts !== 'object') return 0
+    const densityKeys = Object.keys(materialAmounts).filter(
+      key => !key.startsWith('sand_') && !key.startsWith('stone_')
+    )
+    return densityKeys.reduce((sum, key) => sum + (Number(materialAmounts[key]) || 0), 0)
   }
 }
 
