@@ -1,5 +1,172 @@
 # 版本更新记录
 
+## 打包记录 (2026-06-05 砂率公式与容重 bug 修复 v4.4.2-5)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.2**（同版增量）
+- **输出目录**: `dist-3.8.0/`
+- **构建产物**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 4.4.2.exe`（NSIS 安装包）
+  - `dist-3.8.0/混凝土配合比设计软件-4.4.2-x64.exe`（便携版）
+- **说明**: 修复配合比计算技能中砂率公式与容重计算的三个 bug
+  - **Bug 1【砂率公式 10x 系数偏差，老板发现】**
+    - 位置：`MixDesignService_Aggregate.js:560`
+    - 现象：C30 + 180mm 场景两次计算砂率都封顶到 50%，无法体现 FM 影响
+    - 根因：注释写"每增加 0.05 砂率加 1%"，但代码 `(waterRatio - 0.40) * 2.0` 系数 10x 偏差
+    - 修复：系数改为 `* 0.2`
+  - **Bug 2【容重漏算骨料】**
+    - 位置：`MixDesignService_Database.js:635`
+    - 现象：C30 方案二显示容重 525.5 kg/m³，实际应为 ~2403 kg/m³
+    - 根因：`filter(key => key !== 'sand' && key !== 'stone')` 把骨料全部排除
+    - 修复：抽出 `calculateDensity` 辅助函数（保留总键 `sand/stone`，排除细分键 `sand_<id>/stone_<id>`）
+  - **Bug 3【基础砂率偏低】**
+    - 位置：`MixDesignService_Aggregate.js:559`
+    - 现象：基础砂率 33% 偏低
+    - 修复：33% → 37%
+- **修复效果（C30 + 坍落度 180mm）**：
+  | 砂类型 | 修复前 | 修复后 |
+  |--------|--------|--------|
+  | 机制砂 FM=2.97 | 50.0%（封顶） | **45.5%** |
+  | 港泰中砂 FM=2.5 | 50.0%（封顶） | **43.1%** |
+  | 容重 | 525.5 kg/m³ | **2403.05 kg/m³** |
+- **修改文件**:
+  - `src/main/services/MixDesignService/MixDesignService_Aggregate.js`（公式修复 + 新增 calculateDensity）
+  - `src/main/services/MixDesignService/MixDesignService_Database.js`（容重改用辅助函数）
+  - `src/main/services/MixDesignService/__tests__/calculateSandRatio.test.js`（新增 5 个测试）
+  - `src/main/services/MixDesignService/__tests__/calculateDensity.test.js`（新增 8 个测试）
+- **测试结果**: 22 套件 / 119 测试全部通过，无回归
+
+## 打包记录 (2026-06-04 页面滚动修复 v4.4.2-4)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.2**（同版增量）
+- **输出目录**: `dist-3.8.0/`
+- **构建产物**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 4.4.2.exe`（NSIS 安装包）
+  - `dist-3.8.0/混凝土配合比设计软件-4.4.2-x64.exe`（便携版）
+- **说明**: 修复配合比设计、成本优化页面无法滚动的问题
+  - **根因**: `.panel-middle > .panel-content` 设置了 `overflow: hidden`，阻止了内容超出时的滚动
+  - **修复**:
+    1. `.panel-middle > .panel-content` 的 `overflow: hidden` 改为 `overflow-y: auto`
+    2. `.page-container` 添加 `overflow-y: auto` 和 `min-height: 0`
+- **修改文件**:
+  - `src/renderer/index.css`（2处CSS修改）
+- **测试结果**: 打包成功，待用户验证滚动效果
+
+## 打包记录 (2026-06-04 材料类型校验 v4.4.2-3)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.2**（同版增量）
+- **输出目录**: `dist-3.8.0/`
+- **说明**: 新增材料类型校验，防止 AI 传错材料 ID（如把粉煤灰 ID 当砂用）
+  - **新增 `validateMaterialTypes`** — `aiAnalysisHandler.js`：根据材料 type 字段校验 ID 是否匹配预期类型
+  - **传错时行为**：返回 `{success:false, typeMismatches:[...], availableOptions:{...}}`，AI 看到后自动从可用选项中选正确 ID 重试
+  - **接入点**：`calculate_mix_design`、`optimize_mix_cost` 两个工具的材料 ID 解析之后
+- **修改文件**:
+  - `src/main/ipcHandlers/aiAnalysisHandler.js`（新增校验函数 + 两个接入点）
+- **测试结果**: 20 测试套件、106 测试全部通过
+
+## 打包记录 (2026-06-04 NaN 根因修复 v4.4.2-2)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.2**（同版增量修复）
+- **输出目录**: `dist-3.8.0/`
+- **构建产物**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 4.4.2.exe`（NSIS 安装包）
+  - `dist-3.8.0/混凝土配合比设计软件-4.4.2-x64.exe`（便携版）
+- **说明**: 修复 `optimize_mix_cost` 工具 4 个根因问题：
+  **P0 修复**：
+  1. **细骨料比例数组长度不匹配** — `MixDesignOptimizer.js`：`_generateFineAggregateRatios` 在 >2 种砂时生成 `[r1, r2, 0]`（3元素），但 `_blendFineAggregates` 遍历全部 4 种砂，导致 `ratios[3]=undefined` → 混合砂 price/finenessModulus 全部 NaN，骨料用量和成本连锁崩溃。现改为动态补齐到 `count` 个元素
+  2. **验证函数未检查骨料** — `MixDesignOptimizer.js`：`_validateConstraints` 只检查胶材和用水量，不检查骨料用量/砂率是否 NaN，导致无效方案通过验证成为"最优"。现增加砂量、石量（`Number.isFinite`）、砂率三个检查项
+  **P1 修复**：
+  3. **成本归一化静默吞 NaN** — `MixDesignService_Database.js`：`normalizedTotal += v || 0` 将 NaN（falsy）转 0，砂石成本被静默丢弃；骨料成本计算 `if (materialAmounts[key])` 同样将 NaN 当 falsy 跳过。全部改为 `Number.isFinite()` 显式检查
+- **修改文件**:
+  - `src/main/services/MixDesignOptimizer.js`（P0-1 ratio 补齐 + P0-2 验证防御）
+  - `src/main/services/MixDesignService/MixDesignService_Database.js`（P1-3 成本 NaN 检查）
+- **测试结果**: 20 测试套件、106 测试全部通过
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.2**
+- **输出目录**: `dist-3.8.0/`
+- **构建产物**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 4.4.2.exe`（NSIS 安装包）
+  - `dist-3.8.0/混凝土配合比设计软件-4.4.2-x64.exe`（便携版）
+- **说明**: 修复成本优化与配合比设计结果不一致的根因：
+  1. **FM 公式修正** — `MixDesignService_Aggregate.js`：符号从 `-(FM-2.8)×0.02` 改为 `+(FM-2.8)×0.05`（FM每+0.1，砂率+0.5%）
+  2. **砂率传实际 FM** — `MixDesignService_Database.js`：`calculateSandRatio` 不再用默认 2.8，改为从材料提取实际细度模数（新增 `_extractSandFM` 方法）
+  3. **优化器放权** — `MixDesignOptimizer.js`：`_processSingleTask` 和 `_secondLayerRefine` 不再预计算砂率/水胶比强行覆盖，让 `calculateMixDesign` 全权统一计算
+  4. **`_calculateWaterRatio`** 标注为仅供参考——实际水胶比由 `calculateMixDesign` 内部统一计算（含掺合料影响系数 γ_f）
+- **修改文件**:
+  - `src/main/services/MixDesignService/MixDesignService_Aggregate.js`（FM 公式修正）
+  - `src/main/services/MixDesignService/MixDesignService_Database.js`（传入实际 FM + `_extractSandFM`）
+  - `src/main/services/MixDesignOptimizer.js`（删除预计算 + 注释）
+- **测试结果**: 19 测试套件、101 测试全部通过
+
+## 打包记录 (2026-06-04 Skill 系统 Bug 修复 v4.4.1)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.1**
+- **输出目录**: `dist-3.8.0/`
+- **构建产物**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 4.4.1.exe`（NSIS 安装包）
+  - `dist-3.8.0/混凝土配合比设计软件-4.4.1-x64.exe`（便携版）
+- **说明**: 修复对话中暴露的 4 个 P0/P1 bug + 彻底清理 5 个 skill 的 `executeToolCall` 绕过模式：
+  **P0 修复（功能完全阻断）**：
+  1. **成本优化报错** — `cost-optimization.js` 调用 `.optimize()` 但服务方法名是 `optimizeMixDesign()`，且参数格式不匹配（ID vs 材料对象），现已修正方法名 + 材料ID→对象转换 + `{constraints, userLimits}` 参数适配
+  2. **性能预测报错** — `performance-prediction.js` 只定义了 3 个材料ID参数，但底层 `XGBoostPredictionService` 要求 `cementAmount`、`waterBinderRatio` 等配合比数据，现已补全 24 个参数
+  **P1 修复（大概率不可用）**：
+  3. **合规审查双 Bug** — `StandardComplianceService` 导出的是类未实例化 + `compliance-check.js` 方法名 `checkCompliance()` 实际是 `check()`
+  4. **成本优化服务未实例化** — `MixDesignOptimizer` 导出类而非实例，改用 `new MixDesignOptimizer()` 导出
+  **P2 修复**：
+  5. **系统提示词不准** — `systemPromptBuilder.js` 中预测性能的指引与实际 skill 参数不匹配，已修正
+  **P3 清理（5 个 skill 去 executeToolCall）**：
+  6. `prepare-quote-draft.js` — 改用 `salesQuoteRuleService` + `basicMixDesignService` + `mixDesignService`
+  7. `save-to-basic-mix.js` — 改用 `mixDesignService` + `basicMixDesignService` + `materialService`
+  8. `parameter-diagnosis.js` — 改用 `parameterDiagnosisService`，兼容 `mixDesigns`/`_mixDesigns` 双参数名
+  9. `compare-materials.js` — 改用 `materialService` + `mixDesignService`
+  10. `compliance-query.js` — 改用 `complianceService.check()`（**此前从未正常工作**，调用了不存在的工具名）
+  **配套修改**：
+  - `agentHandler.js` — 新增 `salesQuoteRuleService`、`parameterDiagnosisService` 服务注册
+  - `DynamicContextProvider.js` — 更新服务类别映射
+  - **删除**：`skills/` 目录下零 `executeToolCall` 残留
+- **修改文件**:
+  - `src/main/services/MixDesignOptimizer.js`（导出实例化）
+  - `src/main/skills/cost-optimization.js`（方法名 + 参数适配）
+  - `src/main/skills/performance-prediction.js`（参数补全）
+  - `src/main/ipcHandlers/agentHandler.js`（服务注册 + 实例化）
+  - `src/main/skills/compliance-check.js`（方法名修正）
+  - `src/main/skills/compliance-query.js`（去 executeToolCall + 方法名修正）
+  - `src/main/agent/systemPromptBuilder.js`（提示词修正）
+  - `src/main/skills/prepare-quote-draft.js`（去 executeToolCall）
+  - `src/main/skills/save-to-basic-mix.js`（去 executeToolCall）
+  - `src/main/skills/parameter-diagnosis.js`（去 executeToolCall）
+  - `src/main/skills/compare-materials.js`（去 executeToolCall）
+  - `src/main/agent/DynamicContextProvider.js`（服务类别更新）
+- **测试结果**: 19 测试套件、101 测试全部通过
+
+## 打包记录 (2026-06-03 Agent 空回复兜底修复 v2 4.4.0)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.0**
+- **输出目录**: `dist-3.8.0/`
+- **构建产物**:
+  - `dist-3.8.0/混凝土配合比设计软件 Setup 4.4.0.exe`（NSIS 安装包）
+  - `dist-3.8.0/混凝土配合比设计软件-4.4.0-x64.exe`（便携版）
+- **说明**: 修复智能设计助手返回空内容的 bug（v2 增强）：
+  1. **UnifiedStrategy.js** — 三级兜底：① LLM 有文字内容 → 直接返回 ② 内容为空+有工具结果 → 注入 re-prompt 让 LLM 根据工具结果生成文字 ③ re-prompt 仍无内容 → 从工具结果构造摘要
+  2. **UnifiedStrategy.js** — 新增调试日志：追踪每步 LLM 返回状态、工具执行情况、skill 注册匹配
+  3. **SmartDesignChat.jsx** — 兜底文案优化 + console.warn 日志
+- **修改文件**:
+  - `src/main/agent/strategies/UnifiedStrategy.js`（toolResults 收集 + re-prompt 机制 + _buildToolSummary + 调试日志）
+  - `src/renderer/components/SmartDesignChat.jsx`（兜底文案 + warn 日志）
+
 ## 打包记录 (2026-06-03 Agent 模块全面重构 4.4.0)
 
 - **命令**: `npm run electron:build`
@@ -1174,4 +1341,38 @@ ad50a90 chore(agent): 删 ContextProvider.js + 清理 agentHandler fallback（�
 - **安装包**: `混凝土配合比设计软件 Setup 3.8.0.exe` (246.9 MB)
 - **便携版**: `混凝土配合比设计软件-3.8.0-x64.exe` (246.3 MB)
 - **说明**: 按当前工作区代码重新打包。本次包包含全局表格样式紧凑化调整：去除 `custom-table` 外框，压缩表头和表格行间距，并统一表格内操作按钮尺寸。
-- **备注**: 打包过程有 Vite 常见提示：`The CJS build of Vite's Node API is deprecated` 和 `Some chunks are larger than 500 kB`，不影响安装包和便携版生成。
+- **备注**: 打包过程有 Vite 常见提示：`The CJS build of Vite's Node API is deprecated` 和 `Some chunks are larger than 500 kB`，不影响安装包和便携版生成。## ???? (2026-06-03 ???????????? 4.4.0)
+
+- **??**: `npm run electron:build`
+- **??**: ??
+- **???**: **4.4.0**
+- **????**: `dist-3.8.0/`
+- **????**:
+  - `dist-3.8.0/?????????? Setup 4.4.0.exe`?NSIS ????
+  - `dist-3.8.0/??????????-4.4.0-x64.exe`?????
+- **????**:
+  1. **???????"??"** ? ???DeepSeek ???????thinkingEnabled=true???`response.content` ??? null?????? `reasoning_content` ??`UnifiedStrategy.execute()` ?????????????????
+  2. **?????/?????????** ? `handleSendChat` ????????Agent ??? UI ???? loading?
+  3. **???????????** ? ????????????? `agent:confirm({ confirmed: true })`???? DecisionGate?
+- **????**:
+  - `src/main/agent/strategies/UnifiedStrategy.js`?? 162 ??`content: response.content || response.reasoning_content`?
+  - `src/renderer/components/SmartDesignChat.jsx`?? 831-836 ????????? + ?????
+  - `src/renderer/components/AgentMode.jsx`?? 34?37-40?85-90 ????????????
+
+## ???? (2026-06-03 ????????????? 4.4.0)
+
+- **??**: `npm run electron:build`
+- **??**: ??
+- **???**: **4.4.0**
+- **????**: `dist-3.8.0/`
+- **????**:
+  - `dist-3.8.0/?????????? Setup 4.4.0.exe`?NSIS ????
+  - `dist-3.8.0/??????????-4.4.0-x64.exe`?????
+- **????**:
+  1. **???????????????** ? `SmartDesignChat.jsx` ? `handleSendChat` ? Agent ?????????????? UI ???? loading ????? `else if (res && res.success)` ???? loading?? agentStatus ? done?? `res.result.content` ??????
+  2. **???????????** ? `AgentMode.jsx` ? `onConfirmationRequest` ????????? `agent:confirm({ confirmed: true })`????? DecisionGate
+- **????**:
+  - `src/renderer/components/SmartDesignChat.jsx`?? 831-838 ??
+  - `src/renderer/components/AgentMode.jsx`?? 34?37-40?85-90 ??
+
+
