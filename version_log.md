@@ -1,40 +1,32 @@
 # 版本更新记录
 
-## 打包记录 (2026-06-08 销售报价"水泥没有单价"修复 v4.4.2-6)
+## 打包记录 (2026-06-08 撤回 v4.4.2-6 重新打包 4.4.0)
 
 - **命令**: `npm run electron:build`
-- **结果**: 成功
-- **版本号**: **4.4.0**（package.json 实际值；同版增量修复，标题 v4.4.2-6 延续 v4.4.2-5 日志风格）
-- **输出目录**: `dist-3.8.0/`
+- **结果**: 成功（exit code 0）
+- **版本号**: **4.4.0**（`package.json` 实际值，未改动）
+- **输出目录**: `dist-4.4.0/`（新建，与旧 `dist-3.8.0/` 并列）
 - **构建产物**:
-  - `dist-3.8.0/混凝土配合比设计软件 Setup 4.4.0.exe`（NSIS 安装包，242 MB）
-  - `dist-3.8.0/混凝土配合比设计软件-4.4.0-x64.exe`（便携版，241 MB）
-- **说明**: 修复"配合比设计→存基准库→销售报价"链路报"水泥没有单价，无法准确报价"的根因（老板 2026-06-08 报告）：
-  - **Bug 根因**
-    - 位置：`src/main/skills/mix-design.js:224-238`（修复前）
-    - 现象：设计 C30 + 锂渣/复合粉 配合比 → 保存基准库 → 销售报价 → 抛错"水泥没有单价，无法准确报价"
-    - 根因：`mix-design.js` 保存草稿时只写 `materials`（用量），没写 `materialDetails`（每种材料对应的 id+name+price）。`save_to_basic_mix_library` 拿不到 id，把所有 `materialId` 存成 `null`。报价时按 `null` 查价格触发 [src/main/services/SalesQuoteCalculationService.js:14-16](src/main/services/SalesQuoteCalculationService.js#L14) `getMaterialPrice` 抛错
-  - **修复方案（双保险）**
-    1. **上游首选路径**：[src/main/skills/mix-design.js:221-256](src/main/skills/mix-design.js#L221) 保存草稿时按 args 的 `cementId/sandIds/stoneIds/...` 查 `allMaterials` 构造 `materialDetails` 字段（id+name+price）
-    2. **下游兜底路径**：抽出共享模块 [src/main/utils/buildBasicMixMaterials.js](src/main/utils/buildBasicMixMaterials.js)，在 `materialDetails` 缺失时按三级反查 `materialId`：
-       - ① `selected[key].id`（首选）
-       - ② 按 `(type + name)` 精确匹配 → 按 `name` 模糊匹配
-       - ③ 按 `type` 找唯一那条（解决"类型正确但名不一致"）
-       - ④ 返回 `null`（最末兜底）
-    3. **统一重复逻辑**：[src/main/ipcHandlers/aiAnalysisHandler.js:611-682](src/main/ipcHandlers/aiAnalysisHandler.js#L611) 的 `save_to_basic_mix_library` 改用 `buildBasicMixMaterials` 替换原内联 `buildMaterialsArray`（消掉第二份重复实现）
-  - **修复效果（老板 C30 案例：锂渣 12% + 复合粉 12%）**
-    - 修复前：报价抛错 "水泥没有单价，无法准确报价"
-    - 修复后：报价成功，含税价 **407.46 元/m³**，材料成本 **259.30 元/m³**（与手工核算一致）
-- **修改文件**:
-  - `src/main/utils/buildBasicMixMaterials.js`（新增，167 行：共享模块 + 三级兜底反查）
-  - `src/main/utils/__tests__/buildBasicMixMaterials.test.js`（新增 5 个单元测试）
-  - `src/main/skills/mix-design.js`（保存草稿时构造 materialDetails）
-  - `src/main/ipcHandlers/aiAnalysisHandler.js`（save_to_basic_mix_library 改用共享模块）
-  - `tests/manual/test-e2e-quote-after-mix.js`（新增端到端冒烟测试 3 个用例）
-- **测试结果**:
-  - Jest: 22 套件 / **119 测试全绿**（新增 5 个 buildBasicMixMaterials 测试）
-  - Manual: `test-sales-quote.js` 5/5 通过、`test-e2e-quote-after-mix.js` 3/3 通过
-- **提交**: `84f12a3` fix(sales-quote): 修复草稿漏 materialDetails 字段导致报价'水泥没有单价'
+  - `dist-4.4.0/混凝土配合比设计软件 Setup 4.4.0.exe`（NSIS 安装包，242 MB，253685087 字节）
+  - `dist-4.4.0/混凝土配合比设计软件-4.4.0-x64.exe`（便携版，241 MB，253064010 字节）
+  - `dist-4.4.0/win-unpacked/`（解包目录）
+- **背景**: 老板决定撤回 v4.4.2-6（销售报价"水泥没有单价"修复）的代码改动，回到 4.4.0 基线重新打包
+- **撤回的改动**（工作区未 commit，git status 显示 M/D 状态）:
+  - 删除 `src/main/utils/buildBasicMixMaterials.js`（共享模块）
+  - 删除 `src/main/utils/__tests__/buildBasicMixMaterials.test.js`（单元测试 5 项）
+  - 恢复 `src/main/skills/mix-design.js`（移除 materialDetails 构造逻辑）
+  - 恢复 `src/main/ipcHandlers/aiAnalysisHandler.js`（`save_to_basic_mix_library` 恢复内联 `buildMaterialsArray`）
+  - 恢复 `src/main/skills/save-to-basic-mix.js`
+  - 删除 `tests/manual/test-e2e-quote-after-mix.js`
+  - `version_log.md` 移除 v4.4.2-6 条目
+  - 修改 `.claude/settings.json`、`.db` 测试数据（保留）
+- **未提交修改**: 上述撤回在工作区保留，git 不 commit（按老板要求）
+- **package.json 改动**: 仅改 `build.directories.output: "dist-3.8.0" → "dist-4.4.0"`，其他保持不变
+- **备注**:
+  - 旧 `dist-3.8.0/` 4.4.0 构建（16:03 那次的，含 v4.4.2-6 修复代码）保留不动
+  - 新 `dist-4.4.0/` 4.4.0 构建（本次，含 v4.4.2-6 修复代码**已撤回**）
+  - 旧 dist-3.8.0/ 与新 dist-4.4.0/ 内容差异 = v4.4.2-6 修复的代码
+- **构建日志**: `dist-4.4.0/builder-debug.yml`
 
 ## 打包记录 (2026-06-05 砂率公式与容重 bug 修复 v4.4.2-5)
 

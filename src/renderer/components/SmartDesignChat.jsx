@@ -828,6 +828,19 @@ const SmartDesignChat = () => {
         chatState.setChatLoading(false)
         agent.setAgentStatus('error')
         chatState.setChatMessages(prev => [...prev, { role: 'assistant', content: '执行出错: ' + (extractErrorMessage(res.error) || '未知错误'), isError: true }])
+      } else if (res && res.success !== false) {
+        // 成功：如果 agent:progress 事件还没处理过，这里兜底处理
+        chatState.setChatLoading(false)
+        agent.setAgentStatus('done')
+        const replyContent = res.result?.content
+        if (replyContent) {
+          chatState.setChatMessages(prev => {
+            // 防止 agent:progress 事件已经添加了消息导致重复
+            const last = prev[prev.length - 1]
+            if (last?.role === 'assistant' && last?.content === replyContent) return prev
+            return [...prev, { role: 'assistant', content: replyContent }]
+          })
+        }
       }
     } catch (e) {
       chatState.setChatLoading(false)

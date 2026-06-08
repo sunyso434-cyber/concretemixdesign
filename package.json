@@ -62,7 +62,7 @@
     "productName": "混凝土配合比设计软件",
     "copyright": "Copyright © 2026",
     "directories": {
-      "output": "dist-3.8.0",
+      "output": "dist-4.4.0",
       "buildResources": "public"
     },
     "files": [

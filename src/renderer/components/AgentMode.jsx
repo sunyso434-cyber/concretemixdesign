@@ -77,7 +77,12 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
       if (data.status === 'done') {
         setChatLoading(false)
         if (data.result?.reply) {
-          setChatMessages(prev => [...prev, { role: 'assistant', content: data.result.reply }])
+          setChatMessages(prev => {
+            // 防止与 handleSendChat 成功处理重复添加
+            const last = prev[prev.length - 1]
+            if (last?.role === 'assistant' && last?.content === data.result.reply) return prev
+            return [...prev, { role: 'assistant', content: data.result.reply }]
+          })
         }
       }
       if (data.status === 'error') {

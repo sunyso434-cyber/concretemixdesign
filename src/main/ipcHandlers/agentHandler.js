@@ -116,8 +116,31 @@ function registerAgentHandlers() {
         return { success: false, error: 'DeepSeek API未配置，请在系统设置中配置API密钥' }
       }
       const result = await ag.run({ sessionId, message, mode: mode || 'auto', webContents: event.sender })
+
+      // 通知前端 Agent 执行完成（UnifiedStrategy 不会自己发 progress 事件）
+      try {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('agent:progress', {
+            status: 'done',
+            steps: [],
+            result: { reply: result?.content || '' }
+          })
+        }
+      } catch (_) {}
+
       return { success: true, result }
     } catch (error) {
+      // 通知前端 Agent 执行出错
+      try {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('agent:progress', {
+            status: 'error',
+            steps: [],
+            error: error.message
+          })
+        }
+      } catch (_) {}
+
       return { success: false, error: error.message }
     } finally {
       agentRunning = false
