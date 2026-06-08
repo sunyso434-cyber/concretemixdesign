@@ -1,19 +1,18 @@
 # 版本更新记录
 
-## 打包记录 (2026-06-08 tool_calls 消息序列修复 4.4.0)
+## 打包记录 (2026-06-08 步骤跟踪 + 进度推送 + 呼吸灯 4.4.0)
 
 - **命令**: `npm run electron:build`
 - **结果**: 成功
 - **版本号**: **4.4.0**
 - **输出目录**: `dist-4.4.0/`
 - **构建产物**:
-  - `dist-4.4.0/混凝土配合比设计软件 Setup 4.4.0.exe`（NSIS 安装包，242 MB）
-  - `dist-4.4.0/混凝土配合比设计软件-4.4.0-x64.exe`（便携版，242 MB）
-- **说明**: 修复 tool_calls 消息序列导致 API 400 的真正根因（P0）
-  - **日志证据**: `API 400: "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'"`
-  - **根因**: LLM 返回 tool_calls 时，代码只把 tool 结果加入 messages，但没有先把 assistant 消息（含 tool_calls）加入。DeepSeek API 要求 tool 消息必须紧跟对应的 assistant tool_calls 消息
-  - **修复**: 在处理 tool_calls 前，先把 assistant 消息 push 到 messages
-  - **提交**: `369136c` fix(agent): 修复 tool_calls 后缺少 assistant 消息导致 API 400 (P0)
+  - `dist-4.4.0/混凝土配合比设计软件 Setup 4.4.0.exe`（NSIS 安装包）
+  - `dist-4.4.0/混凝土配合比设计软件-4.4.0-x64.exe`（便携版）
+- **说明**: 从旧 AgentOrchestrator 恢复步骤跟踪和进度推送，添加呼吸灯效果
+  - **UnifiedStrategy**: 每次 LLM 调用创建 step，每个工具调用创建独立 toolStep，通过 `agent:progress` 事件实时推送
+  - **AgentProgressCard**: running 状态工具行添加呼吸灯动画，reasoning 步骤直接展示思考内容
+  - **提交**: `b6d1ba6` feat(agent): 恢复步骤跟踪 + 进度推送 + 呼吸灯效果
 - **版本号**: **4.4.0**
 - **输出目录**: `dist-4.4.0/`
 - **说明**: 修复工具调用全部失败的真正根因（P0）
