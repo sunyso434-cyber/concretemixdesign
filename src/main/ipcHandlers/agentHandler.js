@@ -1,4 +1,13 @@
 const { ipcMain } = require('electron')
+const fs = require('fs')
+const path = require('path')
+const os = require('os')
+const _logFile = path.join(os.homedir(), '.concrete-mixdesign', 'agent-debug.log')
+function _log(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`
+  try { fs.appendFileSync(_logFile, line) } catch (_) {}
+  console.log(msg)
+}
 const DeepSeekService = require('../services/DeepSeekService')
 const Orchestrator = require('../agent/Orchestrator')
 const SkillRegistry = require('../agent/SkillRegistry')
@@ -122,8 +131,9 @@ function registerAgentHandlers() {
       if (!ag) {
         return { success: false, error: 'DeepSeek API未配置，请在系统设置中配置API密钥' }
       }
+      _log(`[AgentHandler] agent:run starting, message="${message.slice(0, 50)}", mode=${mode}`)
       const result = await ag.run({ sessionId, message, mode: mode || 'auto', webContents: event.sender })
-      console.log(`[AgentHandler] agent:run result:`, JSON.stringify({ success: result?.success, hasContent: !!result?.content, contentLen: result?.content?.length || 0 }))
+      _log(`[AgentHandler] agent:run result: ${JSON.stringify({ success: result?.success, hasContent: !!result?.content, contentLen: result?.content?.length || 0, error: result?.error })}`)
 
       // 通知前端 Agent 执行完成（UnifiedStrategy 不会自己发 progress 事件）
       try {

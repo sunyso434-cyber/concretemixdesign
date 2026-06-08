@@ -13,6 +13,16 @@
  * 升级判断：任一计数器 >= threshold → fatal
  */
 
+// 调试日志写入文件（打包后 console.log 不可见）
+const _fs = require('fs')
+const _path = require('path')
+const _logFile = _path.join(require('os').homedir(), '.concrete-mixdesign', 'agent-debug.log')
+function _log(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`
+  try { _fs.appendFileSync(_logFile, line) } catch (_) {}
+  console.log(msg)
+}
+
 const { buildSystemPrompt } = require('../systemPromptBuilder')
 const { buildMDInstruction } = require('../mdInstructionBuilder')
 const { trim } = require('../messageTrimmer')
@@ -26,15 +36,12 @@ class UnifiedStrategy {
     this.skillRegistry = skillRegistry
     this.skillExecutor = skillExecutor
     this.agentMemoryService = agentMemoryService
-    // systemService 可选注入（E2）：用于读 messageTrimmerTokenBudget；
-    // 未注入时 trim 走 messageTrimmer 内置默认值。
     this.systemService = systemService || null
   }
 
   async execute(input) {
     const { sessionId, message, webContents, signal, getState } = input
 
-    // 拆 3 个独立计数器（解决 P1-1 errorSource 区分）
     const failureCounters = {
       llmParse: 0,
       llmNetwork: 0,
@@ -57,7 +64,6 @@ class UnifiedStrategy {
       { role: 'user', content: message }
     ]
 
-    // E2: 入口处按 tokenBudget 截断（system + 最新 2 轮必保留；中间 tool result 优先丢）
     let tokenBudget = DEFAULT_TOKEN_BUDGET
     if (this.systemService && typeof this.systemService.getAgentConfig === 'function') {
       try {
@@ -71,18 +77,18 @@ class UnifiedStrategy {
     }
     messages = trim(messages, { tokenBudget })
 
+    _log(`[UnifiedStrategy] execute start, message="${message.slice(0, 50)}", messages=${messages.length}, skills=${skillNames.length}`)
+
     // 2. 主循环
     for (let step = 0; step < 10; step++) {
-      console.log(`[UnifiedStrategy] step=${step}, state=${getState?.()}`)
+      _log(`[UnifiedStrategy] step=${step}, state=${getState?.()}`)
       if (webContents?.isDestroyed?.()) {
         return { success: false, error: 'wc_destroyed' }
       }
 
-      // P1: abort 检查（Orchestrator 通过 AbortSignal 通知）
       if (signal?.aborted) {
         return { success: false, error: 'aborted' }
       }
-      // pause 阻塞：state 由 Orchestrator 外壳维护，策略通过 getState 回调读
       while (getState && getState() === 'paused') {
         await new Promise(r => setTimeout(r, 100))
         if (signal?.aborted) return { success: false, error: 'aborted' }
@@ -90,28 +96,25 @@ class UnifiedStrategy {
 
       let response
       try {
-        console.log(`[UnifiedStrategy] calling chatWithTools, messages=${messages.length}, tools=${this.skillRegistry.getToolSchemas().length}`)
+        _log(`[UnifiedStrategy] calling chatWithTools, messages=${messages.length}, tools=${this.skillRegistry.getToolSchemas().length}`)
         response = await this.deepseekService.chatWithTools(
           messages,
           this.skillRegistry.getToolSchemas()
         )
-        console.log(`[UnifiedStrategy] API response: content=${typeof response?.content}, tool_calls=${response?.tool_calls?.length || 0}`)
+        _log(`[UnifiedStrategy] API response: content=${typeof response?.content}(${response?.content?.length || 0}chars), tool_calls=${response?.tool_calls?.length || 0}`)
       } catch (err) {
-        console.error(`[UnifiedStrategy] API error:`, err.message)
-        // 区分错误源：429/超时/网络 → llmNetwork；其他 → llmParse
+        _log(`[UnifiedStrategy] API error: ${err.message}`)
         if (err.status === 429 || err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
           failureCounters.llmNetwork++
         } else {
           failureCounters.llmParse++
         }
 
-        // 429 退避（网络类有自恢复机会）
         if (err.status === 429 && failureCounters.llmNetwork < threshold) {
           await new Promise(r => setTimeout(r, 5000 * Math.pow(2, failureCounters.llmNetwork - 1)))
           continue
         }
 
-        // 升级判断：任一计数器 >= threshold → fatal
         if (failureCounters.llmParse >= threshold || failureCounters.llmNetwork >= threshold) {
           errorHandler.fatal('orchestrator', { counters: failureCounters })
           return { success: false, error: 'max_failures_exceeded' }
@@ -119,23 +122,21 @@ class UnifiedStrategy {
         continue
       }
 
-      // 成功：仅重置 LLM 计数器（skillExec 计数器有自己的阈值）
       failureCounters.llmParse = 0
       failureCounters.llmNetwork = 0
 
       // 3. 处理 tool_calls
       if (response.tool_calls && response.tool_calls.length > 0) {
-        console.log(`[UnifiedStrategy] LLM returned ${response.tool_calls.length} tool_calls`)
+        _log(`[UnifiedStrategy] LLM returned ${response.tool_calls.length} tool_calls`)
         for (const tc of response.tool_calls) {
           const { name, arguments: argsStr } = tc.function
           let args = {}
           try { args = JSON.parse(argsStr) } catch (e) { args = {} }
-          console.log(`[UnifiedStrategy] executing tool: ${name}, args: ${JSON.stringify(args).slice(0, 200)}`)
+          _log(`[UnifiedStrategy] executing tool: ${name}, args: ${JSON.stringify(args).slice(0, 200)}`)
 
           const skill = this.skillRegistry.getSkill(name)
 
           if (skill && skill._isMDSkill) {
-            // MD 技能：注入指令
             const mdInstruction = buildMDInstruction(skill, args)
             messages.push({
               role: 'tool',
@@ -143,18 +144,17 @@ class UnifiedStrategy {
               content: mdInstruction
             })
           } else if (skill) {
-            // JS 技能：调执行器
             let execResult
             try {
               execResult = await this.skillExecutor.execute(name, args, sessionId)
-              console.log(`[UnifiedStrategy] tool ${name} result: success=${execResult?.success}, hasData=${!!execResult?.data}`)
+              _log(`[UnifiedStrategy] tool ${name} result: success=${execResult?.success}, hasData=${!!execResult?.data}`)
             } catch (execErr) {
-              console.error(`[UnifiedStrategy] tool ${name} threw:`, execErr.message)
+              _log(`[UnifiedStrategy] tool ${name} threw: ${execErr.message}`)
               execResult = { success: false, error: execErr.message }
             }
             if (execResult && execResult.success === false) {
               failureCounters.skillExec++
-              console.warn(`[UnifiedStrategy] tool ${name} failed (${failureCounters.skillExec}/${threshold}): ${execResult.error}`)
+              _log(`[UnifiedStrategy] tool ${name} FAILED (${failureCounters.skillExec}/${threshold}): ${execResult.error}`)
               if (failureCounters.skillExec >= threshold) {
                 errorHandler.fatal('orchestrator', { counters: failureCounters })
                 return { success: false, error: 'max_failures_exceeded' }
@@ -168,7 +168,7 @@ class UnifiedStrategy {
               content: JSON.stringify(execResult)
             })
           } else {
-            console.warn(`[UnifiedStrategy] tool ${name} not found in registry`)
+            _log(`[UnifiedStrategy] tool ${name} NOT FOUND in registry`)
             messages.push({
               role: 'tool',
               tool_call_id: tc.id,
@@ -176,16 +176,16 @@ class UnifiedStrategy {
             })
           }
         }
-        console.log(`[UnifiedStrategy] all tools processed, continuing to next step, messages=${messages.length}`)
+        _log(`[UnifiedStrategy] all tools done, messages=${messages.length}, continuing...`)
         continue
       }
 
       // 4. 直接结束
-      console.log(`[UnifiedStrategy] returning content, length=${response.content?.length || 0}`)
+      _log(`[UnifiedStrategy] returning content, length=${response.content?.length || 0}`)
       return { success: true, content: response.content }
     }
 
-    console.log(`[UnifiedStrategy] max steps exceeded`)
+    _log(`[UnifiedStrategy] max steps exceeded`)
     return { success: false, error: 'max_steps_exceeded' }
   }
 }
