@@ -93,6 +93,9 @@ class UnifiedStrategy {
     }
     const trimmedMessages = trim(messages, { tokenBudget })
 
+    // 保存用户消息到对话历史
+    try { await this.agentMemoryService.saveMessage({ sessionId, role: 'user', content: message }) } catch (_) {}
+
     let finalResult = null
 
     // 2. 主循环（流式）
@@ -181,6 +184,13 @@ class UnifiedStrategy {
 
       // 3. LLM 返回纯文本（无工具调用）→ 任务完成
       if (response.content && (!response.tool_calls || response.tool_calls.length === 0)) {
+        // 保存最终 assistant 回复到对话历史
+        try {
+          await this.agentMemoryService.saveMessage({
+            sessionId, role: 'assistant', content: response.content,
+            metadata: response.reasoning_content ? { reasoning_content: response.reasoning_content } : null
+          })
+        } catch (_) {}
         finalResult = { reply: response.content, mode }
         this._notifyProgress(webContents, { type: 'done', result: finalResult, mode })
         return { success: true, content: response.content }
@@ -189,7 +199,17 @@ class UnifiedStrategy {
       // 4. LLM 要调用工具
       if (response.tool_calls && response.tool_calls.length > 0) {
         // assistant 消息只推一次（包含所有 tool_calls）
-        trimmedMessages.push(this._cleanMessage(response))
+        const assistantMsg = this._cleanMessage(response)
+        trimmedMessages.push(assistantMsg)
+
+        // 保存 assistant 消息到对话历史
+        try {
+          await this.agentMemoryService.saveMessage({
+            sessionId, role: 'assistant', content: response.content || null,
+            toolCalls: response.tool_calls,
+            metadata: response.reasoning_content ? { reasoning_content: response.reasoning_content } : null
+          })
+        } catch (_) {}
 
         for (const tc of response.tool_calls) {
           const { name, arguments: argsStr } = tc.function
@@ -211,7 +231,9 @@ class UnifiedStrategy {
 
           if (skill && skill._isMDSkill) {
             const mdInstruction = buildMDInstruction(skill, args)
-            trimmedMessages.push({ role: 'tool', tool_call_id: tc.id, content: mdInstruction })
+            const toolContent1 = mdInstruction
+            trimmedMessages.push({ role: 'tool', tool_call_id: tc.id, content: toolContent1 })
+            try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: toolContent1, toolCallId: tc.id }) } catch (_) {}
             this._notifyProgress(webContents, {
               type: 'tool_done',
               toolCallId: tc.id,
@@ -249,13 +271,16 @@ class UnifiedStrategy {
 
               if (failureCounters.skillExec >= threshold) {
                 errorHandler.fatal('orchestrator', { counters: failureCounters })
-                trimmedMessages.push({ role: 'tool', content: JSON.stringify(execResult), tool_call_id: tc.id })
+                const toolErrContent1 = JSON.stringify(execResult)
+                trimmedMessages.push({ role: 'tool', content: toolErrContent1, tool_call_id: tc.id })
+                try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: toolErrContent1, toolCallId: tc.id }) } catch (_) {}
                 finalResult = { reply: `执行"${name}"时连续失败：${errorMsg}`, mode, error: true }
                 this._notifyProgress(webContents, { type: 'error', error: 'max_failures_exceeded', result: finalResult, mode })
                 return { success: false, error: 'max_failures_exceeded' }
               }
 
               trimmedMessages.push({ role: 'tool', content: JSON.stringify({ ...execResult, hint: '此步骤执行失败，请尝试其他方法或跳过' }), tool_call_id: tc.id })
+              try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: JSON.stringify(execResult), toolCallId: tc.id }) } catch (_) {}
             } else {
               failureCounters.skillExec = 0
               this._notifyProgress(webContents, {
@@ -268,7 +293,9 @@ class UnifiedStrategy {
                 mode,
                 status: 'running'
               })
-              trimmedMessages.push({ role: 'tool', content: JSON.stringify(execResult), tool_call_id: tc.id })
+              const toolContentOk = JSON.stringify(execResult)
+              trimmedMessages.push({ role: 'tool', content: toolContentOk, tool_call_id: tc.id })
+              try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: toolContentOk, toolCallId: tc.id }) } catch (_) {}
             }
           } else {
             this._notifyProgress(webContents, {
@@ -281,7 +308,9 @@ class UnifiedStrategy {
               mode,
               status: 'running'
             })
-            trimmedMessages.push({ role: 'tool', content: JSON.stringify({ success: false, error: `工具 ${name} 不存在` }), tool_call_id: tc.id })
+            const toolContentMissing = JSON.stringify({ success: false, error: `工具 ${name} 不存在` })
+            trimmedMessages.push({ role: 'tool', content: toolContentMissing, tool_call_id: tc.id })
+            try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: toolContentMissing, toolCallId: tc.id }) } catch (_) {}
           }
         }
 
