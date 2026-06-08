@@ -1,6 +1,20 @@
 import React, { useState } from 'react'
 import { Space, Typography, Button } from 'antd'
-import { LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, PauseCircleOutlined, PlayCircleOutlined, StopOutlined, CaretRightOutlined, CaretDownOutlined } from '@ant-design/icons'
+import { LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined, PauseCircleOutlined, PlayCircleOutlined, StopOutlined, CaretRightOutlined, CaretDownOutlined, BulbOutlined } from '@ant-design/icons'
+
+// 呼吸灯动画样式
+const breathingKeyframes = `
+@keyframes agent-breathing {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+`
+if (typeof document !== 'undefined' && !document.getElementById('agent-breathing-style')) {
+  const style = document.createElement('style')
+  style.id = 'agent-breathing-style'
+  style.textContent = breathingKeyframes
+  document.head.appendChild(style)
+}
 
 const { Text } = Typography
 
@@ -31,7 +45,7 @@ const StepIcon = ({ status }) => {
 const AgentProgressCard = ({ steps, status, onPause, onResume, onAbort, isPaused, showControls, latestReasoning }) => {
   if (!steps || steps.length === 0) return null
 
-  const filteredSteps = steps.filter(s => (s.toolName || s.status === 'done') && s.type !== 'reasoning')
+  const filteredSteps = steps.filter(s => s.toolName || s.type === 'reasoning' || s.status === 'done')
   if (filteredSteps.length === 0) return null
 
   return (
@@ -80,9 +94,18 @@ const StepRow = ({ step }) => {
   const [expanded, setExpanded] = useState(false)
   const label = TOOL_LABELS[step.toolName] || step.toolName
   const hasReasoning = !!step.reasoning
+  const isRunning = step.status === 'running'
 
   return (
-    <div style={{ padding: '2px 0' }}>
+    <div style={{
+      padding: '2px 0',
+      ...(isRunning ? {
+        animation: 'agent-breathing 1.5s ease-in-out infinite',
+        background: 'rgba(0, 113, 227, 0.04)',
+        borderRadius: 4,
+        paddingLeft: 4,
+      } : {})
+    }}>
       <Space size={4} style={{ cursor: hasReasoning ? 'pointer' : 'default' }}
         onClick={() => hasReasoning && setExpanded(!expanded)}
       >
@@ -103,7 +126,25 @@ const StepRow = ({ step }) => {
         )}
       </Space>
 
-      {hasReasoning && expanded && (
+      {/* 思考过程：reasoning 类型的步骤直接展示内容 */}
+      {step.type === 'reasoning' && step.reasoning && (
+        <div style={{
+          marginLeft: 20, marginTop: 2, marginBottom: 2,
+          padding: '4px 8px',
+          borderLeft: '2px solid var(--color-primary, #0071e3)',
+          fontSize: 12,
+          color: 'var(--color-text-secondary)',
+          lineHeight: 1.5,
+          background: 'var(--color-bg, #f5f5f7)',
+          borderRadius: '0 4px 4px 0',
+          whiteSpace: 'pre-wrap'
+        }}>
+          {step.reasoning}
+        </div>
+      )}
+
+      {/* 工具步骤的可展开 reasoning */}
+      {hasReasoning && step.type !== 'reasoning' && expanded && (
         <div style={{
           marginLeft: 20, marginTop: 2, marginBottom: 2,
           padding: '4px 8px',

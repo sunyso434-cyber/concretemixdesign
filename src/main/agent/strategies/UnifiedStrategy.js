@@ -13,16 +13,6 @@
  * 升级判断：任一计数器 >= threshold → fatal
  */
 
-// 调试日志写入文件（打包后 console.log 不可见）
-const _fs = require('fs')
-const _path = require('path')
-const _logFile = _path.join(require('os').homedir(), '.concrete-mixdesign', 'agent-debug.log')
-function _log(msg) {
-  const line = `[${new Date().toISOString()}] ${msg}\n`
-  try { _fs.appendFileSync(_logFile, line) } catch (_) {}
-  console.log(msg)
-}
-
 const { buildSystemPrompt } = require('../systemPromptBuilder')
 const { buildMDInstruction } = require('../mdInstructionBuilder')
 const { trim } = require('../messageTrimmer')
@@ -39,8 +29,34 @@ class UnifiedStrategy {
     this.systemService = systemService || null
   }
 
+  /**
+   * 向渲染进程推送进度事件
+   */
+  _notifyProgress(webContents, data) {
+    if (webContents && !webContents.isDestroyed?.()) {
+      try {
+        webContents.send('agent:progress', data)
+      } catch (_) {}
+    }
+  }
+
+  /**
+   * 清理消息对象，保留 reasoning_content（DeepSeek thinking 模式需要）
+   */
+  _cleanMessage(msg) {
+    const cleaned = {
+      role: msg.role,
+      content: msg.content || null
+    }
+    if (msg.reasoning_content) cleaned.reasoning_content = msg.reasoning_content
+    if (msg.tool_call_id) cleaned.tool_call_id = msg.tool_call_id
+    if (msg.name) cleaned.name = msg.name
+    if (msg.tool_calls) cleaned.tool_calls = msg.tool_calls
+    return cleaned
+  }
+
   async execute(input) {
-    const { sessionId, message, webContents, signal, getState } = input
+    const { sessionId, message, webContents, signal, getState, mode } = input
 
     const failureCounters = {
       llmParse: 0,
@@ -58,7 +74,7 @@ class UnifiedStrategy {
 
     const systemPrompt = buildSystemPrompt({ memoryContext, skillNames, preferences: {} })
 
-    let messages = [
+    const messages = [
       { role: 'system', content: systemPrompt },
       ...historyMessages,
       { role: 'user', content: message }
@@ -75,17 +91,19 @@ class UnifiedStrategy {
         errorHandler.warn('truncate_cfg_read', { msg: e?.message })
       }
     }
-    messages = trim(messages, { tokenBudget })
+    const trimmedMessages = trim(messages, { tokenBudget })
 
-    _log(`[UnifiedStrategy] execute start, message="${message.slice(0, 50)}", messages=${messages.length}, skills=${skillNames.length}`)
+    // 步骤跟踪
+    const steps = []
+    let stepCount = 0
+    let latestReasoning = ''
+    let finalResult = null
 
     // 2. 主循环
     for (let step = 0; step < 10; step++) {
-      _log(`[UnifiedStrategy] step=${step}, state=${getState?.()}`)
       if (webContents?.isDestroyed?.()) {
         return { success: false, error: 'wc_destroyed' }
       }
-
       if (signal?.aborted) {
         return { success: false, error: 'aborted' }
       }
@@ -94,16 +112,19 @@ class UnifiedStrategy {
         if (signal?.aborted) return { success: false, error: 'aborted' }
       }
 
+      stepCount++
+      const stepData = { step: stepCount, status: 'running', toolName: null, reasoning: null, result: null, error: null }
+      steps.push(stepData)
+      this._notifyProgress(webContents, { steps: [...steps], mode, status: 'running', latestReasoning })
+
       let response
       try {
-        _log(`[UnifiedStrategy] calling chatWithTools, messages=${messages.length}, tools=${this.skillRegistry.getToolSchemas().length}`)
-        response = await this.deepseekService.chatWithTools(
-          messages,
-          this.skillRegistry.getToolSchemas()
-        )
-        _log(`[UnifiedStrategy] API response: content=${typeof response?.content}(${response?.content?.length || 0}chars), tool_calls=${response?.tool_calls?.length || 0}`)
+        response = await this.deepseekService.chatWithTools(trimmedMessages, this.skillRegistry.getToolSchemas())
       } catch (err) {
-        _log(`[UnifiedStrategy] API error: ${err.message}`)
+        stepData.status = 'error'
+        stepData.error = err.message
+        this._notifyProgress(webContents, { steps: [...steps], mode, status: 'running', latestReasoning })
+
         if (err.status === 429 || err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
           failureCounters.llmNetwork++
         } else {
@@ -125,80 +146,99 @@ class UnifiedStrategy {
       failureCounters.llmParse = 0
       failureCounters.llmNetwork = 0
 
-      // 3. 处理 tool_calls
-      if (response.tool_calls && response.tool_calls.length > 0) {
-        _log(`[UnifiedStrategy] LLM returned ${response.tool_calls.length} tool_calls`)
+      // 3. LLM 返回纯文本（无工具调用）→ 任务完成
+      if (response.content && (!response.tool_calls || response.tool_calls.length === 0)) {
+        stepData.status = 'done'
+        stepData.reasoning = response.content
+        latestReasoning = response.content
+        finalResult = { reply: response.content, steps, mode }
+        this._notifyProgress(webContents, { steps: [...steps], mode, status: 'done', latestReasoning, result: finalResult })
+        return { success: true, content: response.content }
+      }
 
-        // 关键：先把 assistant 消息（含 tool_calls）加入 messages，
-        // 否则后续 tool 消息没有对应的 preceding message，API 会报 400
-        messages.push({
-          role: 'assistant',
-          content: response.content || null,
-          tool_calls: response.tool_calls.map(tc => ({
-            id: tc.id,
-            type: 'function',
-            function: { name: tc.function.name, arguments: tc.function.arguments }
-          }))
-        })
+      // 4. LLM 要调用工具
+      if (response.tool_calls && response.tool_calls.length > 0) {
+        // 捕获 LLM 的推理文字
+        if (response.content) {
+          stepData.reasoning = response.content
+          latestReasoning = response.content
+          this._notifyProgress(webContents, { steps: [...steps], mode, status: 'running', latestReasoning })
+        }
+
+        // 标记外层 step 为推理容器（渲染时被 filter 跳过）
+        stepData.type = 'reasoning'
+        stepData.status = 'done'
+
+        // assistant 消息只推一次（包含所有 tool_calls）
+        trimmedMessages.push(this._cleanMessage(response))
 
         for (const tc of response.tool_calls) {
           const { name, arguments: argsStr } = tc.function
           let args = {}
           try { args = JSON.parse(argsStr) } catch (e) { args = {} }
-          _log(`[UnifiedStrategy] executing tool: ${name}, args: ${JSON.stringify(args).slice(0, 200)}`)
+
+          // 每个 tool call 创建独立的 step
+          const toolStep = { step: stepCount, status: 'running', toolName: name, reasoning: null, result: null, error: null }
+          steps.push(toolStep)
+          this._notifyProgress(webContents, { steps: [...steps], mode, status: 'running', latestReasoning })
 
           const skill = this.skillRegistry.getSkill(name)
 
           if (skill && skill._isMDSkill) {
             const mdInstruction = buildMDInstruction(skill, args)
-            messages.push({
-              role: 'tool',
-              tool_call_id: tc.id,
-              content: mdInstruction
-            })
+            trimmedMessages.push({ role: 'tool', tool_call_id: tc.id, content: mdInstruction })
+            toolStep.status = 'done'
+            toolStep.result = { _mdInstruction: true }
           } else if (skill) {
             let execResult
             try {
               execResult = await this.skillExecutor.execute(name, args, sessionId)
-              _log(`[UnifiedStrategy] tool ${name} result: success=${execResult?.success}, hasData=${!!execResult?.data}`)
             } catch (execErr) {
-              _log(`[UnifiedStrategy] tool ${name} threw: ${execErr.message}`)
               execResult = { success: false, error: execErr.message }
             }
+
             if (execResult && execResult.success === false) {
+              toolStep.status = 'error'
+              const errorMsg = typeof execResult.error === 'object'
+                ? (execResult.error.message || execResult.error.error || JSON.stringify(execResult.error))
+                : String(execResult.error || '未知错误')
+              toolStep.error = errorMsg
               failureCounters.skillExec++
-              _log(`[UnifiedStrategy] tool ${name} FAILED (${failureCounters.skillExec}/${threshold}): ${execResult.error}`)
+
               if (failureCounters.skillExec >= threshold) {
                 errorHandler.fatal('orchestrator', { counters: failureCounters })
+                trimmedMessages.push({ role: 'tool', content: JSON.stringify(execResult), tool_call_id: tc.id })
+                finalResult = { reply: `执行"${name}"时连续失败：${errorMsg}`, steps, mode, error: true }
+                this._notifyProgress(webContents, { steps: [...steps], mode, status: 'error', latestReasoning, result: finalResult })
                 return { success: false, error: 'max_failures_exceeded' }
               }
+
+              trimmedMessages.push({ role: 'tool', content: JSON.stringify({ ...execResult, hint: '此步骤执行失败，请尝试其他方法或跳过' }), tool_call_id: tc.id })
             } else {
+              toolStep.status = 'done'
+              toolStep.result = execResult
               failureCounters.skillExec = 0
+              trimmedMessages.push({ role: 'tool', content: JSON.stringify(execResult), tool_call_id: tc.id })
             }
-            messages.push({
-              role: 'tool',
-              tool_call_id: tc.id,
-              content: JSON.stringify(execResult)
-            })
           } else {
-            _log(`[UnifiedStrategy] tool ${name} NOT FOUND in registry`)
-            messages.push({
-              role: 'tool',
-              tool_call_id: tc.id,
-              content: JSON.stringify({ success: false, error: `工具 ${name} 不存在` })
-            })
+            toolStep.status = 'error'
+            toolStep.error = `工具 ${name} 不存在`
+            trimmedMessages.push({ role: 'tool', content: JSON.stringify({ success: false, error: `工具 ${name} 不存在` }), tool_call_id: tc.id })
           }
+
+          // 推送工具执行后的进度
+          this._notifyProgress(webContents, { steps: [...steps], mode, status: 'running', latestReasoning })
         }
-        _log(`[UnifiedStrategy] all tools done, messages=${messages.length}, continuing...`)
+
+        // 所有工具执行完毕，继续下一轮 LLM 调用
         continue
       }
 
-      // 4. 直接结束
-      _log(`[UnifiedStrategy] returning content, length=${response.content?.length || 0}`)
-      return { success: true, content: response.content }
+      // 5. LLM 既没有内容也没有工具调用
+      stepData.status = 'done'
+      return { success: true, content: response.content || '' }
     }
 
-    _log(`[UnifiedStrategy] max steps exceeded`)
     return { success: false, error: 'max_steps_exceeded' }
   }
 }
