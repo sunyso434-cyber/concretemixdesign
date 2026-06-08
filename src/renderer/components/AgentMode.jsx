@@ -100,15 +100,17 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
       setPendingConfirmation(data)
     }
 
+    let progressId = null
+    let confirmId = null
     try {
-      window.electronAPI?.on?.('agent:progress', onProgress)
-      window.electronAPI?.on?.('agent:confirmation-request', onConfirmationRequest)
+      progressId = window.electronAPI?.on?.('agent:progress', onProgress)
+      confirmId = window.electronAPI?.on?.('agent:confirmation-request', onConfirmationRequest)
     } catch (_) {}
 
     return () => {
       try {
-        window.electronAPI?.removeListener?.('agent:progress', onProgress)
-        window.electronAPI?.removeListener?.('agent:confirmation-request', onConfirmationRequest)
+        if (progressId) window.electronAPI?.removeListener?.(progressId)
+        if (confirmId) window.electronAPI?.removeListener?.(confirmId)
       } catch (_) {}
     }
   }, [])

@@ -15,6 +15,8 @@ let skillExecutor = null
 let skillDebugger = null
 let cachedApiKey = null
 let agentRunning = false
+let agentRunningAt = 0
+const AGENT_LOCK_TIMEOUT = 300000 // 5 分钟超时自动释放
 
 // 初始化 Skill 系统（应用启动时调用）
 async function initSkillSystem() {
@@ -107,9 +109,14 @@ function registerAgentHandlers() {
 
   ipcMain.handle('agent:run', async (event, { requestId, sessionId, message, mode }) => {
     if (agentRunning) {
-      return { success: false, error: '上一个任务还在执行中，请稍等' }
+      if (Date.now() - agentRunningAt > AGENT_LOCK_TIMEOUT) {
+        agentRunning = false
+      } else {
+        return { success: false, error: '上一个任务还在执行中，请稍等' }
+      }
     }
     agentRunning = true
+    agentRunningAt = Date.now()
     try {
       const ag = await getOrchestrator()
       if (!ag) {

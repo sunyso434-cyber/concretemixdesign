@@ -89,10 +89,10 @@ class UnifiedStrategy {
 
       let response
       try {
-        response = await this.deepseekService.chatWithTools({
+        response = await this.deepseekService.chatWithTools(
           messages,
-          tools: this.skillRegistry.getToolSchemas()
-        })
+          this.skillRegistry.getToolSchemas()
+        )
       } catch (err) {
         // 区分错误源：429/超时/网络 → llmNetwork；其他 → llmParse
         if (err.status === 429 || err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
