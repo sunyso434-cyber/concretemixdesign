@@ -125,10 +125,12 @@ class UnifiedStrategy {
 
       // 3. 处理 tool_calls
       if (response.tool_calls && response.tool_calls.length > 0) {
+        console.log(`[UnifiedStrategy] LLM returned ${response.tool_calls.length} tool_calls`)
         for (const tc of response.tool_calls) {
           const { name, arguments: argsStr } = tc.function
           let args = {}
           try { args = JSON.parse(argsStr) } catch (e) { args = {} }
+          console.log(`[UnifiedStrategy] executing tool: ${name}, args: ${JSON.stringify(args).slice(0, 200)}`)
 
           const skill = this.skillRegistry.getSkill(name)
 
@@ -142,9 +144,17 @@ class UnifiedStrategy {
             })
           } else if (skill) {
             // JS 技能：调执行器
-            const execResult = await this.skillExecutor.execute(name, args, sessionId)
+            let execResult
+            try {
+              execResult = await this.skillExecutor.execute(name, args, sessionId)
+              console.log(`[UnifiedStrategy] tool ${name} result: success=${execResult?.success}, hasData=${!!execResult?.data}`)
+            } catch (execErr) {
+              console.error(`[UnifiedStrategy] tool ${name} threw:`, execErr.message)
+              execResult = { success: false, error: execErr.message }
+            }
             if (execResult && execResult.success === false) {
               failureCounters.skillExec++
+              console.warn(`[UnifiedStrategy] tool ${name} failed (${failureCounters.skillExec}/${threshold}): ${execResult.error}`)
               if (failureCounters.skillExec >= threshold) {
                 errorHandler.fatal('orchestrator', { counters: failureCounters })
                 return { success: false, error: 'max_failures_exceeded' }
@@ -157,8 +167,16 @@ class UnifiedStrategy {
               tool_call_id: tc.id,
               content: JSON.stringify(execResult)
             })
+          } else {
+            console.warn(`[UnifiedStrategy] tool ${name} not found in registry`)
+            messages.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              content: JSON.stringify({ success: false, error: `工具 ${name} 不存在` })
+            })
           }
         }
+        console.log(`[UnifiedStrategy] all tools processed, continuing to next step, messages=${messages.length}`)
         continue
       }
 
