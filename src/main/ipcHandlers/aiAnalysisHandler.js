@@ -16,6 +16,7 @@ const BasicMixDesignService = require('../services/BasicMixDesignService')
 const SalesQuoteRuleService = require('../services/SalesQuoteRuleService')
 const SalesQuoteCalculationService = require('../services/SalesQuoteCalculationService')
 const SalesQuoteToolGuard = require('../services/SalesQuoteToolGuard')
+const { buildBasicMixMaterials } = require('../utils/buildBasicMixMaterials')
 const { Material } = require('../db/database')
 
 // 从系统参数获取API密钥
@@ -622,55 +623,26 @@ const executeToolCall = async (toolName, args) => {
         return { success: false, error: '没有可推广的配合比方案。请先执行配合比计算并确认。' }
       }
       const d = scheme.toJSON ? scheme.toJSON() : scheme
-      const materials = d.materials || {}
-      const selected = d.materialDetails || {}
-      const fineBreakdown = d.fineAggregateBreakdown || []
-      const coarseBreakdown = d.coarseAggregateBreakdown || []
-      // 将 materials 对象转换为 BasicMixDesign 所需的数组格式
-      const buildMaterialsArray = async (mats, sel, fineBd, coarseBd) => {
-        const arr = []
-        const findName = (key, fallback) => {
-          if (sel && sel[key] && typeof sel[key] === 'object') return sel[key].name || sel[key]
-          if (sel && sel[key] && typeof sel[key] === 'string') return sel[key]
-          return fallback || key
-        }
-        const findId = (key) => {
-          if (sel && sel[key] && typeof sel[key] === 'object') return sel[key].id
-          return null
-        }
-        if (mats.cement != null) arr.push({ materialId: findId('cement'), materialType: '水泥', materialName: findName('cement', '水泥'), usage: mats.cement })
-        if (mats.flyAsh != null && mats.flyAsh > 0) arr.push({ materialId: findId('flyAsh'), materialType: '粉煤灰', materialName: findName('flyAsh', '粉煤灰'), usage: mats.flyAsh })
-        if (mats.slag != null && mats.slag > 0) arr.push({ materialId: findId('slag'), materialType: '矿渣粉', materialName: findName('slag', '矿渣粉'), usage: mats.slag })
-        if (mats.lithiumSlag != null && mats.lithiumSlag > 0) arr.push({ materialId: findId('lithiumSlag'), materialType: '锂渣', materialName: findName('lithiumSlag', '锂渣'), usage: mats.lithiumSlag })
-        if (mats.compositePowder != null && mats.compositePowder > 0) arr.push({ materialId: findId('compositePowder'), materialType: '复合粉', materialName: findName('compositePowder', '复合粉'), usage: mats.compositePowder })
-        if (mats.superplasticizer != null && mats.superplasticizer > 0) arr.push({ materialId: findId('superplasticizer'), materialType: '减水剂', materialName: findName('superplasticizer', '减水剂'), usage: mats.superplasticizer })
-        // 细骨料
-        if (fineBd && fineBd.length > 0) {
-          fineBd.forEach((f, i) => arr.push({ materialId: f.id || null, materialType: '细骨料', materialName: f.name || `细骨料${i + 1}`, usage: f.amount }))
-        } else if (mats.sand != null && mats.sand > 0) {
-          arr.push({ materialId: findId('sand'), materialType: '细骨料', materialName: findName('sand', '细骨料'), usage: mats.sand })
-        }
-        // 粗骨料
-        if (coarseBd && coarseBd.length > 0) {
-          coarseBd.forEach((c, i) => arr.push({ materialId: c.id || null, materialType: '粗骨料', materialName: c.name || `粗骨料${i + 1}`, usage: c.amount }))
-        } else if (mats.stone != null && mats.stone > 0) {
-          arr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone })
-        }
-        if (mats.water != null && mats.water > 0) {
-          const waterMat = await Material.findOne({ where: { type: '其他', name: '水' } })
-          arr.push({ materialId: waterMat?.id || null, materialType: '水', materialName: '水', usage: mats.water })
-        }
-        return arr
-      }
       const strength = d.strength || 'C30'
       const slump = d.slump || 180
       try {
+        // 一次性把方案数据转成 BasicMixDesign.materials 数组
+        // buildBasicMixMaterials 内部会按 materialDetails → 材料名 → 材料类型 三级兜底反查 materialId，
+        // 即便上游漏写 materialDetails 也能正确解析（修复"水泥没有单价"bug）
+        const allMaterials = await MaterialService.getAllMaterials()
+        const materialsArr = buildBasicMixMaterials({
+          materials: d.materials || {},
+          selected: d.materialDetails || {},
+          fineBreakdown: d.fineAggregateBreakdown || [],
+          coarseBreakdown: d.coarseAggregateBreakdown || [],
+          allMaterials
+        })
         const created = await BasicMixDesignService.createBasicMixDesign({
           name: args.name || `${strength}智能设计基准 - ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
           strengthGrade: args.strengthGrade || strength,
           concreteType: args.concreteType || '普通',
           slump: args.slump != null ? args.slump : slump,
-          materials: await buildMaterialsArray(materials, selected, fineBreakdown, coarseBreakdown),
+          materials: materialsArr,
           isDefault: args.isDefault || false,
           remarks: args.remarks || '',
           source: '智能设计保存'

@@ -221,6 +221,22 @@ module.exports = {
       try {
         const now = new Date()
         const timestamp = now.toLocaleString('zh-CN', { hour12: false })
+        // 构造 materialDetails：把每种材料对应的"身份证号（id+name+price）"带进去，
+        // 供后续 save_to_basic_mix_library / 销售报价 等链路按 id 查价格。
+        // 多砂/多石时只取第一个作为代表（细目由 fineAggregateBreakdown/coarseAggregateBreakdown 记录）。
+        const sandMain = Array.isArray(materials.sand) ? materials.sand[0] : materials.sand
+        const stoneMain = Array.isArray(materials.stone) ? materials.stone[0] : materials.stone
+        const materialDetails = {
+          cement: cement ? { id: cement.id, name: cement.name, price: cement.price } : null,
+          sand: sandMain ? { id: sandMain.id, name: sandMain.name, price: sandMain.price } : null,
+          stone: stoneMain ? { id: stoneMain.id, name: stoneMain.name, price: stoneMain.price } : null
+        }
+        if (materials.flyAsh) materialDetails.flyAsh = { id: materials.flyAsh.id, name: materials.flyAsh.name, price: materials.flyAsh.price }
+        if (materials.slag) materialDetails.slag = { id: materials.slag.id, name: materials.slag.name, price: materials.slag.price }
+        if (materials.lithiumSlag) materialDetails.lithiumSlag = { id: materials.lithiumSlag.id, name: materials.lithiumSlag.name, price: materials.lithiumSlag.price }
+        if (materials.compositePowder) materialDetails.compositePowder = { id: materials.compositePowder.id, name: materials.compositePowder.name, price: materials.compositePowder.price }
+        if (materials.superplasticizer) materialDetails.superplasticizer = { id: materials.superplasticizer.id, name: materials.superplasticizer.name, price: materials.superplasticizer.price }
+
         const draft = await mixDesignService.createMixDesign({
           name: `${strength}智能设计方案 - ${timestamp}`,
           projectName: 'AI智能设计',
@@ -230,6 +246,7 @@ module.exports = {
           sandRatio: result.sandRatio,
           density: result.density,
           materials: result.materials,
+          materialDetails,
           materialCosts: result.materialCosts,
           totalCost: result.totalCost,
           fineAggregateBreakdown: result.fineAggregateBreakdown,
