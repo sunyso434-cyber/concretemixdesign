@@ -1,6 +1,29 @@
 # 版本更新记录
 
-## 打包记录 (2026-06-08 撤回 v4.4.2-6 重新打包 4.4.0)
+## 打包记录 (2026-06-08 发消息没有反馈 bug 修复 + 重新打包 4.4.0)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功（exit code 0）
+- **构建产物**:
+  - `dist-4.4.0/混凝土配合比设计软件 Setup 4.4.0.exe`（NSIS 安装包，242 MB）
+  - `dist-4.4.0/混凝土配合比设计软件-4.4.0-x64.exe`（便携版，242 MB）
+  - `dist-4.4.0/win-unpacked/`（解包目录）
+- **版本号**: **4.4.0**（`package.json` 实际值，未改动）
+- **输出目录**: `dist-4.4.0/`（覆盖上一次构建）
+- **说明**: 修复发消息没有反馈 bug（P0），并重新打包：
+  - **Bug 根因**
+    - 位置：`src/main/agent/strategies/UnifiedStrategy.js` + `src/renderer/components/SmartDesignChat.jsx`
+    - 现象：发消息后一直转圈，没有任何反馈
+    - 根因：UnifiedStrategy 执行完直接 return，没发 `agent:progress` 事件通知前端；前端 `handleSendChat` 只处理错误不处理成功，loading 永远不清除
+  - **修复方案（三处改动）**
+    1. `src/main/ipcHandlers/agentHandler.js` — `agent:run` 完成后发 `agent:progress` 事件（done/error）
+    2. `src/renderer/components/SmartDesignChat.jsx` — `handleSendChat` 增加成功分支处理
+    3. `src/renderer/components/AgentMode.jsx` — done/error 事件防重复添加消息
+  - **同时包含**：撤回 v4.4.2-6 + 输出目录改为 dist-4.4.0/
+  - **提交**: `b68ae4e` fix(agent): 撤回 v4.4.2-6 修复 + 修复发消息没有反馈 bug
+- **测试结果**: 21 套件 / 114 测试全绿
+
+## 打包记录 (2026-06-08 撤回 v4.4.2-6 重新打包 4.4.0) ← 旧版，被上面版本覆盖
 
 - **命令**: `npm run electron:build`
 - **结果**: 成功（exit code 0）
