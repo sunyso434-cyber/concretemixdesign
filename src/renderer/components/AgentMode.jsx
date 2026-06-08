@@ -50,24 +50,20 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
   useEffect(() => {
     const onProgress = (data) => {
       const eventType = data.type
-      setAgentStatus(data.status || 'running')
 
-      // 根据事件类型更新 timeline
+      // 根据事件类型更新 timeline + status
       if (eventType === 'reasoning_start') {
+        setAgentStatus('running')
         setAgentTimeline(prev => [...prev, {
-          type: 'reasoning',
-          content: '',
-          roundIndex: data.roundIndex,
-          status: 'running',
-          collapsed: true
+          type: 'reasoning', content: '', roundIndex: data.roundIndex,
+          status: 'running', collapsed: true
         }])
         return
       }
-
       if (eventType === 'reasoning_delta') {
+        setAgentStatus('running')
         setAgentTimeline(prev => {
           const next = [...prev]
-          // 找到最后一个 reasoning 块追加内容
           for (let i = next.length - 1; i >= 0; i--) {
             if (next[i].type === 'reasoning' && next[i].status === 'running') {
               next[i] = { ...next[i], content: next[i].content + (data.content || '') }
@@ -78,8 +74,8 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
         })
         return
       }
-
       if (eventType === 'reasoning_done') {
+        setAgentStatus('running')
         setAgentTimeline(prev => {
           const next = [...prev]
           for (let i = next.length - 1; i >= 0; i--) {
@@ -92,8 +88,8 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
         })
         return
       }
-
       if (eventType === 'reasoning_error') {
+        setAgentStatus('running')
         setAgentTimeline(prev => {
           const next = [...prev]
           for (let i = next.length - 1; i >= 0; i--) {
@@ -106,21 +102,16 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
         })
         return
       }
-
       if (eventType === 'tool_start') {
+        setAgentStatus('running')
         setAgentTimeline(prev => [...prev, {
-          type: 'tool',
-          toolCallId: data.toolCallId,
-          toolName: data.toolName,
-          args: data.args || {},
-          status: 'running',
-          collapsed: true,
-          roundIndex: data.roundIndex
+          type: 'tool', toolCallId: data.toolCallId, toolName: data.toolName,
+          args: data.args || {}, status: 'running', collapsed: true, roundIndex: data.roundIndex
         }])
         return
       }
-
       if (eventType === 'tool_done') {
+        setAgentStatus('running')
         setAgentTimeline(prev => prev.map(item =>
           item.type === 'tool' && item.toolCallId === data.toolCallId
             ? { ...item, status: 'done', result: data.result }
@@ -128,8 +119,8 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
         ))
         return
       }
-
       if (eventType === 'tool_error') {
+        setAgentStatus('running')
         setAgentTimeline(prev => prev.map(item =>
           item.type === 'tool' && item.toolCallId === data.toolCallId
             ? { ...item, status: 'error', error: data.error }
@@ -137,18 +128,15 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
         ))
         return
       }
-
       if (eventType === 'text_delta') {
+        setAgentStatus('running')
         agentReplyTextRef.current = agentReplyTextRef.current + (data.content || '')
         setAgentReplyText(agentReplyTextRef.current)
         return
       }
-
-      // ===== 旧格式兼容 =====
-      setAgentSteps(data.steps || [])
-
-      if (data.status === 'done' || eventType === 'done') {
+      if (eventType === 'done') {
         setChatLoading(false)
+        setAgentStatus('done')
         const reply = data.result?.reply || agentReplyTextRef.current
         if (reply) {
           setChatMessages(prev => {
@@ -157,29 +145,48 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
             return [...prev, { role: 'assistant', content: reply }]
           })
         }
-        // 将所有还在 running 的项标记为 done
         setAgentTimeline(prev => prev.map(item =>
           item.status === 'running' ? { ...item, status: 'done' } : item
         ))
         return
       }
-
-      if (data.status === 'error' || eventType === 'error') {
+      if (eventType === 'error') {
         setChatLoading(false)
-        const errorMsg = data.error
-          ? (typeof data.error === 'string' ? data.error
-            : typeof data.error === 'object' ? (data.error.message || data.error.error || JSON.stringify(data.error))
-            : String(data.error))
-          : '未知错误'
-        // 错误信息追加到聊天
+        setAgentStatus('error')
+        const errorMsg = typeof data.error === 'string' ? data.error
+          : data.error?.message || data.error?.error || JSON.stringify(data.error || '未知错误')
         if (data.result?.reply) {
           setChatMessages(prev => [...prev, { role: 'assistant', content: data.result.reply, isError: true }])
-        } else if (errorMsg && errorMsg !== 'aborted' && errorMsg !== 'wc_destroyed') {
+        } else if (errorMsg !== 'aborted' && errorMsg !== 'wc_destroyed') {
           setChatMessages(prev => [...prev, { role: 'assistant', content: errorMsg, isError: true }])
         }
         setAgentTimeline(prev => prev.map(item =>
           item.status === 'running' ? { ...item, status: 'error' } : item
         ))
+        return
+      }
+
+      // ===== 旧格式兼容（无 type 字段的旧事件） =====
+      setAgentSteps(data.steps || [])
+      setAgentStatus(data.status)
+
+      if (data.status === 'done') {
+        setChatLoading(false)
+        if (data.result?.reply) {
+          setChatMessages(prev => {
+            const last = prev[prev.length - 1]
+            if (last?.role === 'assistant' && last?.content === data.result.reply) return prev
+            return [...prev, { role: 'assistant', content: data.result.reply }]
+          })
+        }
+      }
+      if (data.status === 'error') {
+        setChatLoading(false)
+        const em = typeof data.error === 'string' ? data.error
+          : data.error?.message || data.error?.error || JSON.stringify(data.error || '未知错误')
+        if (em !== 'aborted' && em !== 'wc_destroyed') {
+          setChatMessages(prev => [...prev, { role: 'assistant', content: em, isError: true }])
+        }
       }
     }
 
@@ -201,6 +208,33 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
       } catch (_) {}
     }
   }, [])
+
+  // 同步 timeline 变化到聊天消息（确保进度卡片始终显示）
+  useEffect(() => {
+    if (agentStatus === null) return
+    setChatMessages(prev => {
+      const progressIdx = prev.findIndex(m => m._agentProgress && m._agentRequestId === agentRequestIdRef.current)
+      const progressMsg = {
+        _agentProgress: true,
+        _agentRequestId: agentRequestIdRef.current,
+        status: agentStatus,
+        isPaused: agentPausedRef.current,
+      }
+      if (progressIdx >= 0) {
+        const next = [...prev]
+        next[progressIdx] = progressMsg
+        return next
+      } else {
+        let insertAt = prev.length
+        for (let i = prev.length - 1; i >= 0; i--) {
+          if (prev[i].role === 'user') { insertAt = i + 1; break }
+        }
+        const next = [...prev]
+        next.splice(insertAt, 0, progressMsg)
+        return next
+      }
+    })
+  }, [agentTimeline, agentStatus])
 
   // 加载历史会话列表
   const loadSessions = () => {
