@@ -165,14 +165,29 @@ class AgentMemoryService {
 
     const messages = []
     for (const row of rows) {
-      const msg = { role: row.role, content: row.content || '' }
-      if (row.toolCallId) msg.tool_call_id = row.toolCallId
-      if (row.toolCalls) msg.tool_calls = row.toolCalls
-      if (row.metadata && row.metadata.reasoning_content) {
-        msg.reasoning_content = row.metadata.reasoning_content
+      // SQLite JSON 字段可能是字符串，需要安全解析
+      let toolCalls = null
+      if (row.toolCalls) {
+        toolCalls = typeof row.toolCalls === 'string' ? JSON.parse(row.toolCalls) : row.toolCalls
       }
-      if (row.metadata && row.metadata.name) {
-        msg.name = row.metadata.name
+
+      const msg = {
+        role: row.role,
+        content: (row.content == null && toolCalls) ? null : (row.content || '')
+      }
+      if (row.toolCallId) msg.tool_call_id = row.toolCallId
+      if (toolCalls) msg.tool_calls = toolCalls
+
+      // metadata 可能也是字符串
+      let meta = row.metadata
+      if (typeof meta === 'string') {
+        try { meta = JSON.parse(meta) } catch (_) { meta = null }
+      }
+      if (meta && meta.reasoning_content) {
+        msg.reasoning_content = meta.reasoning_content
+      }
+      if (meta && meta.name) {
+        msg.name = meta.name
       }
       messages.push(msg)
     }

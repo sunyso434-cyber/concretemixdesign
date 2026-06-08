@@ -33,6 +33,7 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
   const agentRequestIdRef = useRef(null)
   const agentPausedRef = useRef(false)
   const agentReplyTextRef = useRef('')
+  const agentTimelineRef = useRef([])
 
   // 读取 Agent 设置（仅执行一次）
   useEffect(() => {
@@ -138,16 +139,29 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
         setChatLoading(false)
         setAgentStatus('done')
         const reply = data.result?.reply || agentReplyTextRef.current
-        if (reply) {
-          setChatMessages(prev => {
-            const last = prev[prev.length - 1]
-            if (last?.role === 'assistant' && last?.content === reply) return prev
-            return [...prev, { role: 'assistant', content: reply }]
-          })
-        }
-        setAgentTimeline(prev => prev.map(item =>
+        const doneTimeline = agentTimelineRef.current.map(item =>
           item.status === 'running' ? { ...item, status: 'done' } : item
-        ))
+        )
+        setAgentTimeline(doneTimeline)
+        // 更新流式 assistant 消息为最终状态
+        setChatMessages(prev => {
+          const streamingIdx = prev.findIndex(m => m._agentRequestId === agentRequestIdRef.current)
+          if (streamingIdx >= 0) {
+            const next = [...prev]
+            next[streamingIdx] = {
+              role: 'assistant',
+              content: reply || '',
+              timeline: doneTimeline,
+              agentStatus: 'done',
+              _streaming: false,
+            }
+            return next
+          }
+          // 没有流式消息（异常情况），直接追加
+          const last = prev[prev.length - 1]
+          if (last?.role === 'assistant' && last?.content === reply) return prev
+          return [...prev, { role: 'assistant', content: reply || '', timeline: doneTimeline }]
+        })
         return
       }
       if (eventType === 'error') {
@@ -155,14 +169,27 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
         setAgentStatus('error')
         const errorMsg = typeof data.error === 'string' ? data.error
           : data.error?.message || data.error?.error || JSON.stringify(data.error || '未知错误')
-        if (data.result?.reply) {
-          setChatMessages(prev => [...prev, { role: 'assistant', content: data.result.reply, isError: true }])
-        } else if (errorMsg !== 'aborted' && errorMsg !== 'wc_destroyed') {
-          setChatMessages(prev => [...prev, { role: 'assistant', content: errorMsg, isError: true }])
-        }
-        setAgentTimeline(prev => prev.map(item =>
+        const errTimeline = agentTimelineRef.current.map(item =>
           item.status === 'running' ? { ...item, status: 'error' } : item
-        ))
+        )
+        setAgentTimeline(errTimeline)
+        setChatMessages(prev => {
+          const streamingIdx = prev.findIndex(m => m._agentRequestId === agentRequestIdRef.current)
+          const content = data.result?.reply || (errorMsg !== 'aborted' && errorMsg !== 'wc_destroyed' ? errorMsg : '')
+          if (streamingIdx >= 0) {
+            const next = [...prev]
+            next[streamingIdx] = {
+              role: 'assistant',
+              content: content || '',
+              timeline: errTimeline,
+              agentStatus: 'error',
+              isError: true,
+              _streaming: false,
+            }
+            return next
+          }
+          return [...prev, { role: 'assistant', content: content || '', timeline: errTimeline, isError: true }]
+        })
         return
       }
 
@@ -209,28 +236,33 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
     }
   }, [])
 
-  // 同步 timeline 变化到聊天消息（确保进度卡片始终显示）
+  // 同步 timeline 变化到聊天消息（嵌入 assistant 消息内部）
   useEffect(() => {
+    agentTimelineRef.current = agentTimeline
     if (agentStatus === null) return
     setChatMessages(prev => {
-      const progressIdx = prev.findIndex(m => m._agentProgress && m._agentRequestId === agentRequestIdRef.current)
-      const progressMsg = {
-        _agentProgress: true,
+      const streamingIdx = prev.findIndex(m => m._agentRequestId === agentRequestIdRef.current)
+      const streamingMsg = {
+        role: 'assistant',
+        content: '',
         _agentRequestId: agentRequestIdRef.current,
-        status: agentStatus,
+        _streaming: true,
+        timeline: agentTimeline,
+        agentStatus: agentStatus,
         isPaused: agentPausedRef.current,
       }
-      if (progressIdx >= 0) {
+      if (streamingIdx >= 0) {
         const next = [...prev]
-        next[progressIdx] = progressMsg
+        next[streamingIdx] = { ...next[streamingIdx], ...streamingMsg }
         return next
       } else {
+        // 在最后一条用户消息之后插入
         let insertAt = prev.length
         for (let i = prev.length - 1; i >= 0; i--) {
           if (prev[i].role === 'user') { insertAt = i + 1; break }
         }
         const next = [...prev]
-        next.splice(insertAt, 0, progressMsg)
+        next.splice(insertAt, 0, streamingMsg)
         return next
       }
     })
