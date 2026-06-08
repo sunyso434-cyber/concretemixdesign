@@ -183,9 +183,10 @@ class AgentMemoryService {
       if (typeof meta === 'string') {
         try { meta = JSON.parse(meta) } catch (_) { meta = null }
       }
-      if (meta && meta.reasoning_content) {
-        msg.reasoning_content = meta.reasoning_content
-      }
+      // ⚠️ DeepSeek thinking 模式要求：reasoning_content 只能出现在最新的 assistant 消息中
+      // 历史消息中不能携带 reasoning_content，否则 API 返回 400
+      // 因此只保留 name，不保留 reasoning_content
+
       if (meta && meta.name) {
         msg.name = meta.name
       }

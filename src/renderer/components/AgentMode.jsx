@@ -151,6 +151,7 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
             next[streamingIdx] = {
               role: 'assistant',
               content: reply || '',
+              _agentRequestId: agentRequestIdRef.current,
               timeline: doneTimeline,
               agentStatus: 'done',
               _streaming: false,
@@ -181,6 +182,7 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
             next[streamingIdx] = {
               role: 'assistant',
               content: content || '',
+              _agentRequestId: agentRequestIdRef.current,
               timeline: errTimeline,
               agentStatus: 'error',
               isError: true,
@@ -239,7 +241,7 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
   // 同步 timeline 变化到聊天消息（嵌入 assistant 消息内部）
   useEffect(() => {
     agentTimelineRef.current = agentTimeline
-    if (agentStatus === null) return
+    if (agentStatus === null || agentStatus === 'done' || agentStatus === 'error') return
     setChatMessages(prev => {
       const streamingIdx = prev.findIndex(m => m._agentRequestId === agentRequestIdRef.current)
       const streamingMsg = {
