@@ -142,7 +142,7 @@ class UnifiedStrategy {
             })
           } else if (skill) {
             // JS 技能：调执行器
-            const execResult = await this.skillExecutor.execute(skill, args, sessionId)
+            const execResult = await this.skillExecutor.execute(name, args, sessionId)
             if (execResult && execResult.success === false) {
               failureCounters.skillExec++
               if (failureCounters.skillExec >= threshold) {
