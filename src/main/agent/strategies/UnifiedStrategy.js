@@ -128,6 +128,19 @@ class UnifiedStrategy {
       // 3. 处理 tool_calls
       if (response.tool_calls && response.tool_calls.length > 0) {
         _log(`[UnifiedStrategy] LLM returned ${response.tool_calls.length} tool_calls`)
+
+        // 关键：先把 assistant 消息（含 tool_calls）加入 messages，
+        // 否则后续 tool 消息没有对应的 preceding message，API 会报 400
+        messages.push({
+          role: 'assistant',
+          content: response.content || null,
+          tool_calls: response.tool_calls.map(tc => ({
+            id: tc.id,
+            type: 'function',
+            function: { name: tc.function.name, arguments: tc.function.arguments }
+          }))
+        })
+
         for (const tc of response.tool_calls) {
           const { name, arguments: argsStr } = tc.function
           let args = {}
