@@ -73,6 +73,7 @@ class UnifiedStrategy {
 
     // 2. 主循环
     for (let step = 0; step < 10; step++) {
+      console.log(`[UnifiedStrategy] step=${step}, state=${getState?.()}`)
       if (webContents?.isDestroyed?.()) {
         return { success: false, error: 'wc_destroyed' }
       }
@@ -89,11 +90,14 @@ class UnifiedStrategy {
 
       let response
       try {
+        console.log(`[UnifiedStrategy] calling chatWithTools, messages=${messages.length}, tools=${this.skillRegistry.getToolSchemas().length}`)
         response = await this.deepseekService.chatWithTools(
           messages,
           this.skillRegistry.getToolSchemas()
         )
+        console.log(`[UnifiedStrategy] API response: content=${typeof response?.content}, tool_calls=${response?.tool_calls?.length || 0}`)
       } catch (err) {
+        console.error(`[UnifiedStrategy] API error:`, err.message)
         // 区分错误源：429/超时/网络 → llmNetwork；其他 → llmParse
         if (err.status === 429 || err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
           failureCounters.llmNetwork++
@@ -159,9 +163,11 @@ class UnifiedStrategy {
       }
 
       // 4. 直接结束
+      console.log(`[UnifiedStrategy] returning content, length=${response.content?.length || 0}`)
       return { success: true, content: response.content }
     }
 
+    console.log(`[UnifiedStrategy] max steps exceeded`)
     return { success: false, error: 'max_steps_exceeded' }
   }
 }
