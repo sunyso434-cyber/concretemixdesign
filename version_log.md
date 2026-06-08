@@ -1,6 +1,21 @@
 # 版本更新记录
 
-## 打包记录 (2026-06-08 发消息没有反馈 bug 修复 + 重新打包 4.4.0)
+## 打包记录 (2026-06-08 chatWithTools 参数修复 4.4.0)
+
+- **命令**: `npm run electron:build`
+- **结果**: 打包中...
+- **版本号**: **4.4.0**
+- **输出目录**: `dist-4.4.0/`
+- **说明**: 修复发消息没有反馈 bug 的真正根因（P0）
+  - **根因**: `UnifiedStrategy.js` 第 92 行把 `{messages, tools}` 作为一个对象传给 `chatWithTools(messages, tools)`，导致 `messages` 参数收到对象而非数组，DeepSeek API 调用必然失败，被错误处理吞掉后前端只看到空回复
+  - **修复**:
+    1. `UnifiedStrategy.js`: `chatWithTools({messages, tools})` → `chatWithTools(messages, tools)`（参数传递修正）
+    2. `agentHandler.js`: `agentRunning` 锁加 5 分钟超时保护，防止死锁
+    3. `AgentMode.jsx`: 修复 `removeListener` 调用方式（用 `on` 返回的 id 而非 channel+func），防止监听器泄漏
+  - **提交**: `e246736` fix(agent): 修复 chatWithTools 参数传递导致消息无反馈 (P0)
+  - **测试**: 21 套件 / 114 测试全绿
+
+## 打包记录 (2026-06-08 发消息没有反馈 bug 修复 + 重新打包 4.4.0) ← 旧版，已被上面版本替代
 
 - **命令**: `npm run electron:build`
 - **结果**: 成功（exit code 0）
