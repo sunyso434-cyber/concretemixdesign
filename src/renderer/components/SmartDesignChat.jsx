@@ -13,6 +13,7 @@ import ComplianceResultCard from './ComplianceResultCard'
 import SalesQuoteResultCard from './SalesQuoteResultCard'
 import SaveBasicMixModal from './SaveBasicMixModal'
 import AgentProgressCard from './AgentProgressCard'
+import StreamingAgentCard from './StreamingAgentCard'
 import DecisionGate from './DecisionGate'
 import MemorySidebar from './MemorySidebar'
 import SlashCommandMenu from './SlashCommandMenu'
@@ -947,19 +948,33 @@ const SmartDesignChat = () => {
             renderItem={(item) => {
               // Agent 进度消息——内嵌在消息流中，位于用户消息之后、AI回复之前
               if (item._agentProgress) {
+                // 优先使用新的流式时间线渲染
+                const hasTimeline = agent.agentTimeline && agent.agentTimeline.length > 0
                 return (
                   <List.Item style={{ border: 'none', padding: '4px 0 4px 48px' }}>
                     <div style={{ width: '100%' }}>
-                      <AgentProgressCard
-                        steps={item.steps || []}
-                        status={item.status}
-                        isPaused={item.isPaused}
-                        showControls={item.status === 'running'}
-                        latestReasoning={item.latestReasoning}
-                        onPause={() => { agent.setAgentPaused(true); window.electronAPI.invoke('agent:pause', { requestId: agent.agentRequestIdRef.current }) }}
-                        onResume={() => { agent.setAgentPaused(false); window.electronAPI.invoke('agent:resume', { requestId: agent.agentRequestIdRef.current }) }}
-                        onAbort={() => { window.electronAPI.invoke('agent:abort', { requestId: agent.agentRequestIdRef.current }); chatState.setChatLoading(false); agent.setAgentStatus(null) }}
-                      />
+                      {hasTimeline ? (
+                        <StreamingAgentCard
+                          timeline={agent.agentTimeline}
+                          status={item.status}
+                          isPaused={item.isPaused}
+                          showControls={item.status === 'running'}
+                          onPause={() => { agent.setAgentPaused(true); window.electronAPI.invoke('agent:pause', { requestId: agent.agentRequestIdRef.current }) }}
+                          onResume={() => { agent.setAgentPaused(false); window.electronAPI.invoke('agent:resume', { requestId: agent.agentRequestIdRef.current }) }}
+                          onAbort={() => { window.electronAPI.invoke('agent:abort', { requestId: agent.agentRequestIdRef.current }); chatState.setChatLoading(false); agent.setAgentStatus(null) }}
+                        />
+                      ) : (
+                        <AgentProgressCard
+                          steps={item.steps || []}
+                          status={item.status}
+                          isPaused={item.isPaused}
+                          showControls={item.status === 'running'}
+                          latestReasoning={item.latestReasoning}
+                          onPause={() => { agent.setAgentPaused(true); window.electronAPI.invoke('agent:pause', { requestId: agent.agentRequestIdRef.current }) }}
+                          onResume={() => { agent.setAgentPaused(false); window.electronAPI.invoke('agent:resume', { requestId: agent.agentRequestIdRef.current }) }}
+                          onAbort={() => { window.electronAPI.invoke('agent:abort', { requestId: agent.agentRequestIdRef.current }); chatState.setChatLoading(false); agent.setAgentStatus(null) }}
+                        />
+                      )}
                       {agent.pendingConfirmation && (
                         <DecisionGate
                           toolName={agent.pendingConfirmation.toolName}

@@ -15,7 +15,7 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
   // 共用 mock 工厂
   const makeMocks = () => {
     const deepseekService = {
-      chatWithTools: jest.fn()
+      chatWithToolsStream: jest.fn()
     }
     const skillRegistry = {
       getSkill: jest.fn(),
@@ -34,7 +34,7 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
 
   test('场景 1: 用户消息 → LLM 单次回复 → 直接结束', async () => {
     const mocks = makeMocks()
-    mocks.deepseekService.chatWithTools.mockResolvedValue({
+    mocks.deepseekService.chatWithToolsStream.mockResolvedValue({
       content: '你好',
       tool_calls: null
     })
@@ -44,7 +44,7 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
 
     expect(result.success).toBe(true)
     expect(result.content).toBe('你好')
-    expect(mocks.deepseekService.chatWithTools).toHaveBeenCalledTimes(1)
+    expect(mocks.deepseekService.chatWithToolsStream).toHaveBeenCalledTimes(1)
   })
 
   test('场景 2: 用户消息 → LLM 调工具 → 工具执行 → LLM 基于结果再回复', async () => {
@@ -52,7 +52,7 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     const mockSkill = { name: 'query_material', parameters: {} }
     mocks.skillRegistry.getSkill.mockReturnValue(mockSkill)
     mocks.skillExecutor.execute.mockResolvedValue({ success: true, data: 'result' })
-    mocks.deepseekService.chatWithTools
+    mocks.deepseekService.chatWithToolsStream
       .mockResolvedValueOnce({
         content: null,
         tool_calls: [{ id: 'c1', function: { name: 'query_material', arguments: '{}' } }]
@@ -63,25 +63,25 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     const result = await strategy.execute({ sessionId: 's1', message: '查询' })
 
     expect(result.success).toBe(true)
-    expect(mocks.deepseekService.chatWithTools).toHaveBeenCalledTimes(2)
+    expect(mocks.deepseekService.chatWithToolsStream).toHaveBeenCalledTimes(2)
   })
 
   test('场景 3: 连续 2 次 LLM 失败 → 终止', async () => {
     const mocks = makeMocks()
-    mocks.deepseekService.chatWithTools.mockRejectedValue(new Error('LLM down'))
+    mocks.deepseekService.chatWithToolsStream.mockRejectedValue(new Error('LLM down'))
 
     const strategy = new UnifiedStrategy(mocks)
     const result = await strategy.execute({ sessionId: 's1', message: 'hi' })
 
     expect(result.success).toBe(false)
-    // 验证 chatWithTools 调用 ≤ 2 次（maxConsecutiveFailures=2）
-    expect(mocks.deepseekService.chatWithTools.mock.calls.length).toBeLessThanOrEqual(2)
+    // 验证 chatWithToolsStream 调用 ≤ 2 次（maxConsecutiveFailures=2）
+    expect(mocks.deepseekService.chatWithToolsStream.mock.calls.length).toBeLessThanOrEqual(2)
   })
 
   test('场景 4: LLM 触发 429 → 退避重试', async () => {
     // 429 退避首轮需等 5000ms，第三个参数显式传 15s 超时
     const mocks = makeMocks()
-    mocks.deepseekService.chatWithTools
+    mocks.deepseekService.chatWithToolsStream
       .mockRejectedValueOnce({ status: 429, message: 'rate limit' })
       .mockResolvedValueOnce({ content: 'ok' })
 
@@ -89,14 +89,14 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     const result = await strategy.execute({ sessionId: 's1', message: 'hi' })
 
     // 退避后应重试并成功（不直接返回失败）
-    expect(mocks.deepseekService.chatWithTools).toHaveBeenCalledTimes(2)
+    expect(mocks.deepseekService.chatWithToolsStream).toHaveBeenCalledTimes(2)
   }, 15000)
 
   test('场景 5: 用户中途调 abort → 优雅停止', async () => {
     const mocks = makeMocks()
-    // 让 chatWithTools 触发 abort 检查
+    // 让 chatWithToolsStream 触发 abort 检查
     let aborted = false
-    mocks.deepseekService.chatWithTools.mockImplementation(async () => {
+    mocks.deepseekService.chatWithToolsStream.mockImplementation(async () => {
       if (aborted) throw new Error('aborted')
       return { content: null, tool_calls: [{ id: 'c1', function: { name: 'x', arguments: '{}' } }] }
     })
@@ -111,14 +111,14 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
 
   test('场景 6: LLM 抽风 2 次 + skill 失败 1 次不应终止（不同源）', async () => {
     const mocks = makeMocks()
-    mocks.deepseekService.chatWithTools
+    mocks.deepseekService.chatWithToolsStream
       .mockRejectedValueOnce(new Error('LLM timeout'))
       .mockRejectedValueOnce(new Error('LLM timeout'))
       // 第 3 次：成功调工具
       .mockResolvedValueOnce({ content: null, tool_calls: [{ id: 'c1', function: { name: 'q', arguments: '{}' } }] })
     mocks.skillRegistry.getSkill.mockReturnValue({ name: 'q', parameters: {} })
     mocks.skillExecutor.execute.mockResolvedValue({ success: true, data: 'r' })
-    mocks.deepseekService.chatWithTools
+    mocks.deepseekService.chatWithToolsStream
       .mockResolvedValueOnce({ content: 'ok' })  // 工具结果后再 LLM 一次
 
     const strategy = new UnifiedStrategy(mocks)
@@ -134,7 +134,7 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     // 在第一次 LLM 调用前 abort
     abortController.abort()
 
-    mocks.deepseekService.chatWithTools.mockResolvedValue({ content: '不会到这里', tool_calls: null })
+    mocks.deepseekService.chatWithToolsStream.mockResolvedValue({ content: '不会到这里', tool_calls: null })
 
     const strategy = new UnifiedStrategy(mocks)
     const result = await strategy.execute({
@@ -145,7 +145,7 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
 
     expect(result.success).toBe(false)
     expect(result.error).toBe('aborted')
-    expect(mocks.deepseekService.chatWithTools).not.toHaveBeenCalled()
+    expect(mocks.deepseekService.chatWithToolsStream).not.toHaveBeenCalled()
   })
 
   test('场景 8: getState() === "paused" 时主循环应阻塞，恢复后继续', async () => {
@@ -153,7 +153,7 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     let currentState = 'paused'
     setTimeout(() => { currentState = 'running' }, 200)  // 200ms 后恢复
 
-    mocks.deepseekService.chatWithTools.mockResolvedValue({ content: 'ok', tool_calls: null })
+    mocks.deepseekService.chatWithToolsStream.mockResolvedValue({ content: 'ok', tool_calls: null })
 
     const strategy = new UnifiedStrategy(mocks)
     const result = await strategy.execute({

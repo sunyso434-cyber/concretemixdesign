@@ -16,7 +16,7 @@ describe('Orchestrator.run 集成测试', () => {
 
   beforeEach(() => {
     mocks = {
-      deepseekService: { chatWithTools: jest.fn() },
+      deepseekService: { chatWithToolsStream: jest.fn() },
       skillRegistry: { getSkill: jest.fn(), getToolSchemas: jest.fn(() => []) },
       skillExecutor: { execute: jest.fn() },
       agentMemoryService: {
@@ -29,7 +29,7 @@ describe('Orchestrator.run 集成测试', () => {
   })
 
   test('主路径: 用户消息 → LLM → 直接返回', async () => {
-    mocks.deepseekService.chatWithTools.mockResolvedValue({ content: 'hi', tool_calls: null })
+    mocks.deepseekService.chatWithToolsStream.mockResolvedValue({ content: 'hi', tool_calls: null })
     const result = await orch.run({ sessionId: 's', message: 'hello' })
     expect(result.success).toBe(true)
   })
@@ -38,12 +38,12 @@ describe('Orchestrator.run 集成测试', () => {
     const mockSkill = { name: 'q', parameters: {} }
     mocks.skillRegistry.getSkill.mockReturnValue(mockSkill)
     mocks.skillExecutor.execute.mockResolvedValue({ success: true, data: 'r' })
-    mocks.deepseekService.chatWithTools
+    mocks.deepseekService.chatWithToolsStream
       .mockResolvedValueOnce({ content: null, tool_calls: [{ id: 'c1', function: { name: 'q', arguments: '{}' } }] })
       .mockResolvedValueOnce({ content: 'result' })
 
     const result = await orch.run({ sessionId: 's', message: 'q' })
     expect(result.success).toBe(true)
-    expect(mocks.deepseekService.chatWithTools).toHaveBeenCalledTimes(2)
+    expect(mocks.deepseekService.chatWithToolsStream).toHaveBeenCalledTimes(2)
   })
 })

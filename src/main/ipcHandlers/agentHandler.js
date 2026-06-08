@@ -135,25 +135,15 @@ function registerAgentHandlers() {
       const result = await ag.run({ sessionId, message, mode: mode || 'auto', webContents: event.sender })
       _log(`[AgentHandler] agent:run result: ${JSON.stringify({ success: result?.success, hasContent: !!result?.content, contentLen: result?.content?.length || 0, error: result?.error })}`)
 
-      // 通知前端 Agent 执行完成（UnifiedStrategy 不会自己发 progress 事件）
-      try {
-        if (!event.sender.isDestroyed()) {
-          event.sender.send('agent:progress', {
-            status: 'done',
-            steps: [],
-            result: { reply: result?.content || '' }
-          })
-        }
-      } catch (_) {}
+      // UnifiedStrategy 已通过流式事件发送 type: 'done' / type: 'error'，这里不再重复发送
 
       return { success: true, result }
     } catch (error) {
-      // 通知前端 Agent 执行出错
+      // 异常情况（Orchestrator 层面崩溃）：发送错误事件
       try {
         if (!event.sender.isDestroyed()) {
           event.sender.send('agent:progress', {
-            status: 'error',
-            steps: [],
+            type: 'error',
             error: error.message
           })
         }

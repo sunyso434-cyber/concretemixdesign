@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 /**
  * AgentMode hook - 从 SmartDesignChat 中提取的 Agent 模式状态和逻辑。
@@ -12,8 +12,10 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
   const [agentEnabled, setAgentEnabled] = useState(true)  // 默认启用
   const [agentMode, setAgentMode] = useState('agent')     // 统一为agent模式
   const [agentRunMode, setAgentRunMode] = useState('collaborative') // 运行模式：collaborative | auto
-  const [agentSteps, setAgentSteps] = useState([])
+  const [agentSteps, setAgentSteps] = useState([])        // 旧格式 steps（兼容）
   const [agentStatus, setAgentStatus] = useState(null)
+  const [agentTimeline, setAgentTimeline] = useState([])   // 新格式：时间线数组
+  const [agentReplyText, setAgentReplyText] = useState('') // 流式累积的最终回复文本
   const [agentPaused, setAgentPausedRaw] = useState(false)
   const setAgentPaused = (val) => {
     const resolved = typeof val === 'function' ? val(agentPausedRef.current) : val
@@ -30,6 +32,7 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
 
   const agentRequestIdRef = useRef(null)
   const agentPausedRef = useRef(false)
+  const agentReplyTextRef = useRef('')
 
   // 读取 Agent 设置（仅执行一次）
   useEffect(() => {
@@ -43,56 +46,140 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
       .catch(() => {})
   }, [])
 
-  // Agent进度监听
+  // Agent进度监听（流式事件）
   useEffect(() => {
     const onProgress = (data) => {
-      setAgentSteps(data.steps || [])
-      setAgentStatus(data.status)
-      // 更新/插入进度消息到消息列表（位于用户消息之后、AI回复之前）
-      setChatMessages(prev => {
-        const progressIdx = prev.findIndex(m => m._agentProgress && m._agentRequestId === agentRequestIdRef.current)
-        const progressMsg = {
-          _agentProgress: true,
-          _agentRequestId: agentRequestIdRef.current,
-          steps: data.steps,
-          status: data.status,
-          isPaused: agentPausedRef.current,
-          latestReasoning: data.latestReasoning
-        }
-        if (progressIdx >= 0) {
+      const eventType = data.type
+      setAgentStatus(data.status || 'running')
+
+      // 根据事件类型更新 timeline
+      if (eventType === 'reasoning_start') {
+        setAgentTimeline(prev => [...prev, {
+          type: 'reasoning',
+          content: '',
+          roundIndex: data.roundIndex,
+          status: 'running',
+          collapsed: true
+        }])
+        return
+      }
+
+      if (eventType === 'reasoning_delta') {
+        setAgentTimeline(prev => {
           const next = [...prev]
-          next[progressIdx] = progressMsg
-          return next
-        } else {
-          // 找到最后一条用户消息，插入其后
-          let insertAt = prev.length
-          for (let i = prev.length - 1; i >= 0; i--) {
-            if (prev[i].role === 'user') { insertAt = i + 1; break }
+          // 找到最后一个 reasoning 块追加内容
+          for (let i = next.length - 1; i >= 0; i--) {
+            if (next[i].type === 'reasoning' && next[i].status === 'running') {
+              next[i] = { ...next[i], content: next[i].content + (data.content || '') }
+              break
+            }
           }
-          const next = [...prev]
-          next.splice(insertAt, 0, progressMsg)
           return next
-        }
-      })
-      if (data.status === 'done') {
+        })
+        return
+      }
+
+      if (eventType === 'reasoning_done') {
+        setAgentTimeline(prev => {
+          const next = [...prev]
+          for (let i = next.length - 1; i >= 0; i--) {
+            if (next[i].type === 'reasoning' && next[i].status === 'running') {
+              next[i] = { ...next[i], status: 'done' }
+              break
+            }
+          }
+          return next
+        })
+        return
+      }
+
+      if (eventType === 'reasoning_error') {
+        setAgentTimeline(prev => {
+          const next = [...prev]
+          for (let i = next.length - 1; i >= 0; i--) {
+            if (next[i].type === 'reasoning' && next[i].status === 'running') {
+              next[i] = { ...next[i], status: 'error', error: data.error }
+              break
+            }
+          }
+          return next
+        })
+        return
+      }
+
+      if (eventType === 'tool_start') {
+        setAgentTimeline(prev => [...prev, {
+          type: 'tool',
+          toolCallId: data.toolCallId,
+          toolName: data.toolName,
+          args: data.args || {},
+          status: 'running',
+          collapsed: true,
+          roundIndex: data.roundIndex
+        }])
+        return
+      }
+
+      if (eventType === 'tool_done') {
+        setAgentTimeline(prev => prev.map(item =>
+          item.type === 'tool' && item.toolCallId === data.toolCallId
+            ? { ...item, status: 'done', result: data.result }
+            : item
+        ))
+        return
+      }
+
+      if (eventType === 'tool_error') {
+        setAgentTimeline(prev => prev.map(item =>
+          item.type === 'tool' && item.toolCallId === data.toolCallId
+            ? { ...item, status: 'error', error: data.error }
+            : item
+        ))
+        return
+      }
+
+      if (eventType === 'text_delta') {
+        agentReplyTextRef.current = agentReplyTextRef.current + (data.content || '')
+        setAgentReplyText(agentReplyTextRef.current)
+        return
+      }
+
+      // ===== 旧格式兼容 =====
+      setAgentSteps(data.steps || [])
+
+      if (data.status === 'done' || eventType === 'done') {
         setChatLoading(false)
-        if (data.result?.reply) {
+        const reply = data.result?.reply || agentReplyTextRef.current
+        if (reply) {
           setChatMessages(prev => {
-            // 防止与 handleSendChat 成功处理重复添加
             const last = prev[prev.length - 1]
-            if (last?.role === 'assistant' && last?.content === data.result.reply) return prev
-            return [...prev, { role: 'assistant', content: data.result.reply }]
+            if (last?.role === 'assistant' && last?.content === reply) return prev
+            return [...prev, { role: 'assistant', content: reply }]
           })
         }
+        // 将所有还在 running 的项标记为 done
+        setAgentTimeline(prev => prev.map(item =>
+          item.status === 'running' ? { ...item, status: 'done' } : item
+        ))
+        return
       }
-      if (data.status === 'error') {
+
+      if (data.status === 'error' || eventType === 'error') {
         setChatLoading(false)
-        if (data.error) {
-          const errorMsg = typeof data.error === 'string' ? data.error
+        const errorMsg = data.error
+          ? (typeof data.error === 'string' ? data.error
             : typeof data.error === 'object' ? (data.error.message || data.error.error || JSON.stringify(data.error))
-            : String(data.error)
+            : String(data.error))
+          : '未知错误'
+        // 错误信息追加到聊天
+        if (data.result?.reply) {
+          setChatMessages(prev => [...prev, { role: 'assistant', content: data.result.reply, isError: true }])
+        } else if (errorMsg && errorMsg !== 'aborted' && errorMsg !== 'wc_destroyed') {
           setChatMessages(prev => [...prev, { role: 'assistant', content: errorMsg, isError: true }])
         }
+        setAgentTimeline(prev => prev.map(item =>
+          item.status === 'running' ? { ...item, status: 'error' } : item
+        ))
       }
     }
 
@@ -162,6 +249,9 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
   const handleSend = async (userMessage) => {
     setChatLoading(true)
     setAgentSteps([])
+    setAgentTimeline([])
+    setAgentReplyText('')
+    agentReplyTextRef.current = ''
     setAgentStatus('running')
     agentRequestIdRef.current = 'agent-' + Date.now()
     try {
@@ -185,6 +275,8 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
     agentRunMode,
     agentSteps,
     agentStatus,
+    agentTimeline,
+    agentReplyText,
     agentPaused,
     pendingConfirmation,
     sessions,
@@ -201,6 +293,8 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
     setAgentRunMode,
     setAgentSteps,
     setAgentStatus,
+    setAgentTimeline,
+    setAgentReplyText,
     setAgentPaused,
     setPendingConfirmation,
     setSessions,

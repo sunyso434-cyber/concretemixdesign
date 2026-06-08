@@ -545,7 +545,18 @@ class DeepSeekService {
     }
   }
 
-  async _callAPIStream(messages, includeTools = false, onEvent = null) {
+  /**
+   * 携自定义工具定义流式调用 API（供 Agent 模式使用）
+   * @param {Array} messages - 消息列表
+   * @param {Array} tools - 工具定义数组
+   * @param {Function} onEvent - 流式事件回调 ({ type, content, toolCallId, toolName, args })
+   * @returns {Promise<Object>} - 完整的 assistant message（含 content + tool_calls）
+   */
+  async chatWithToolsStream(messages, tools, onEvent) {
+    return this._callAPIStream(messages, true, onEvent, tools)
+  }
+
+  async _callAPIStream(messages, includeTools = false, onEvent = null, customTools = null) {
     const cfg = await this._getConfig()
     const requestBody = {
       model: cfg.model,
@@ -554,7 +565,9 @@ class DeepSeekService {
       stream: true,
       thinking: { type: cfg.thinkingEnabled ? 'enabled' : 'disabled' }
     }
-    if (includeTools) {
+    if (customTools) {
+      requestBody.tools = customTools
+    } else if (includeTools) {
       // 优先从 SkillRegistry 获取工具定义（与 _callAPI 保持一致）
       requestBody.tools = _skillRegistry ? _skillRegistry.getToolSchemas() : TOOLS
     }
