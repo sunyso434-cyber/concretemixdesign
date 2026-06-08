@@ -41,14 +41,20 @@ class UnifiedStrategy {
   }
 
   /**
-   * 清理消息对象，保留 reasoning_content（DeepSeek thinking 模式需要）
+   * 清理消息对象
+   * ⚠️ DeepSeek thinking 模式硬性规定：
+   * reasoning_content 只能出现在最后一条 assistant 消息中
+   * 如果消息有 tool_calls（说明不是最后一条），必须剥离 reasoning_content，否则 API 400
    */
   _cleanMessage(msg) {
     const cleaned = {
       role: msg.role,
       content: msg.content || null
     }
-    if (msg.reasoning_content) cleaned.reasoning_content = msg.reasoning_content
+    // 只有无 tool_calls 的消息（最终回复）才能保留 reasoning_content
+    if (msg.reasoning_content && !msg.tool_calls) {
+      cleaned.reasoning_content = msg.reasoning_content
+    }
     if (msg.tool_call_id) cleaned.tool_call_id = msg.tool_call_id
     if (msg.name) cleaned.name = msg.name
     if (msg.tool_calls) cleaned.tool_calls = msg.tool_calls

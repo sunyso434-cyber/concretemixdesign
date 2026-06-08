@@ -553,7 +553,23 @@ class DeepSeekService {
    * @returns {Promise<Object>} - 完整的 assistant message（含 content + tool_calls）
    */
   async chatWithToolsStream(messages, tools, onEvent) {
-    return this._callAPIStream(messages, true, onEvent, tools)
+    try {
+      return await this._callAPIStream(messages, true, onEvent, tools)
+    } catch (error) {
+      // 读取流式请求的错误响应体，获取具体错误信息
+      let errDetail = ''
+      if (error.response) {
+        try {
+          errDetail = await this._readErrorBody(error.response.data)
+        } catch (_) {}
+        const status = error.response.status
+        const msg = typeof errDetail === 'object'
+          ? (errDetail?.error?.message || JSON.stringify(errDetail).slice(0, 300))
+          : (typeof errDetail === 'string' ? errDetail.slice(0, 300) : '')
+        throw new Error(`API ${status}: ${msg || '未知错误'}`)
+      }
+      throw error
+    }
   }
 
   async _callAPIStream(messages, includeTools = false, onEvent = null, customTools = null) {
