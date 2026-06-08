@@ -57,6 +57,19 @@ function trim(messages, { tokenBudget = 30000 } = {}) {
     }
   }
 
+  // 构建 assistant → tool 的父子关系索引
+  // key: assistant 消息在 messages 中的 index, value: 属于该 assistant 的 tool 消息 indices
+  const toolToParent = new Map() // tool index → assistant index
+  let lastAssistantIdx = -1
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role === 'assistant' && messages[i].tool_calls) {
+      lastAssistantIdx = i
+    }
+    if (messages[i].role === 'tool') {
+      toolToParent.set(i, lastAssistantIdx)
+    }
+  }
+
   // 2. 中间：排除 system 和 lastRounds
   const reservedSet = new Set([system, ...lastRounds].filter(Boolean))
   const middle = messages.filter(m => !reservedSet.has(m))
@@ -66,11 +79,20 @@ function trim(messages, { tokenBudget = 30000 } = {}) {
   let totalTokens = reserved.reduce((sum, m) => sum + estimateTokens(m), 0)
 
   const kept = [...reserved]
+  // 记录已保留的原始消息索引
+  const keptOrigIndices = new Set()
+  for (const m of reserved) {
+    const origIdx = messages.indexOf(m)
+    if (origIdx >= 0) keptOrigIndices.add(origIdx)
+  }
+
   for (let i = middle.length - 1; i >= 0; i--) {
     const m = middle[i]
+    const origIdx = messages.indexOf(m)
     const tokens = estimateTokens(m)
+
     if (totalTokens + tokens > tokenBudget) {
-      // 截断这条
+      // 超出预算：tool 消息尝试截断，非 tool 消息丢弃
       if (m.role === 'tool') {
         const maxChars = Math.floor((tokenBudget - totalTokens) * CHARS_PER_TOKEN_ZH)
         if (maxChars > 100) {
@@ -79,6 +101,7 @@ function trim(messages, { tokenBudget = 30000 } = {}) {
             : safeTruncateString(m.content, maxChars)
           kept.splice(1, 0, { ...m, content: truncated })
           totalTokens += Math.ceil(truncated.length / CHARS_PER_TOKEN_ZH)
+          if (origIdx >= 0) keptOrigIndices.add(origIdx)
         }
         // 否则丢
       }
@@ -86,6 +109,32 @@ function trim(messages, { tokenBudget = 30000 } = {}) {
     } else {
       kept.splice(1, 0, m)
       totalTokens += tokens
+      if (origIdx >= 0) keptOrigIndices.add(origIdx)
+    }
+  }
+
+  // 4. ⚠️ 后处理：确保所有 tool 消息的父 assistant 也在 kept 中
+  // 如果 tool 的父 assistant 被丢掉了，需要补回来，否则 API 400
+  for (let i = 0; i < kept.length; i++) {
+    const msg = kept[i]
+    if (msg.role === 'tool') {
+      // 查找该 tool 在原 messages 中的索引，然后在 kept 中找到或添加其父 assistant
+      const origToolIdx = messages.findIndex(
+        om => om.role === 'tool' && om.tool_call_id === msg.tool_call_id && om.content === msg.content
+      )
+      if (origToolIdx >= 0) {
+        const parentIdx = toolToParent.get(origToolIdx)
+        if (parentIdx >= 0 && !keptOrigIndices.has(parentIdx)) {
+          // 父 assistant 不在 kept 中，需要添加
+          const parentMsg = messages[parentIdx]
+          // 在 tool 消息之前插入父 assistant
+          const keptInsertAt = i // 在当前 tool 之前
+          kept.splice(keptInsertAt, 0, parentMsg)
+          keptOrigIndices.add(parentIdx)
+          totalTokens += estimateTokens(parentMsg)
+          i++ // 跳过刚插入的 assistant
+        }
+      }
     }
   }
 
