@@ -209,15 +209,18 @@ const SmartDesignChat = () => {
 
   const streamSeqRef = useRef({ current: 0 })
 
+  // 派生：Agent 是否在工作中（流式/思考/工具调用）
+  const isAgentBusy = ['streaming', 'thinking', 'tool_calling'].includes(state.agent.status)
+
   // 仅在消息条数变化时刷新会话列表（避免流式输出时频繁刷新）
   const prevMsgCountRef = useRef(0)
   useEffect(() => {
-    const count = chatState.chatMessages?.length || 0
+    const count = state.messages?.length || 0
     if (count !== prevMsgCountRef.current && count > 0) {
       prevMsgCountRef.current = count
       loadSessionList({ dispatch })
     }
-  }, [chatState.chatMessages?.length, dispatch])
+  }, [state.messages?.length, dispatch])
 
   // ===== 斜杠命令状态 =====
   const [slashMenuVisible, setSlashMenuVisible] = useState(false)
@@ -253,7 +256,7 @@ const SmartDesignChat = () => {
   // 监听输入变化，检测斜杠命令
   const handleInputChange = useCallback((e) => {
     const value = e.target.value
-    chatState.setChatInput(value)
+    dispatch({ type: 'SET_INPUT', payload: value })
 
     // 检测是否输入了 "/" 开头
     if (value.startsWith('/')) {
@@ -262,18 +265,18 @@ const SmartDesignChat = () => {
     } else {
       setSlashMenuVisible(false)
     }
-  }, [chatState, availableSkills.length])
+  }, [dispatch, availableSkills.length])
 
   // 选择技能
   const handleSkillSelect = useCallback((skill) => {
-    chatState.setChatInput(`/${skill.name} `)
+    dispatch({ type: 'SET_INPUT', payload: `/${skill.name} ` })
     setSlashMenuVisible(false)
     // 聚焦到输入框
     setTimeout(() => {
       const input = document.querySelector('.smart-chat-input-area input')
       if (input) input.focus()
     }, 100)
-  }, [chatState])
+  }, [dispatch])
 
   // 关闭菜单
   const handleSlashMenuClose = useCallback(() => {
@@ -287,9 +290,9 @@ const SmartDesignChat = () => {
   }
 
   const updateStreamMessage = (streamId, updater) => {
-    chatState.setChatMessages(prev => prev.map(item => (
+    dispatch({ type: 'SET_MESSAGES', payload: state.messages.map(item => (
       item.streamId === streamId ? updater(item) : item
-    )))
+    )) })
   }
 
   const buildAssistantMessageFromResult = (result) => {
@@ -425,13 +428,13 @@ const SmartDesignChat = () => {
     const streamId = requestId
     let listenerId = null
 
-    chatState.setChatMessages(prev => [...prev, {
+    dispatch({ type: 'ADD_MESSAGE', payload: {
       role: 'assistant',
       content: '',
       streamId,
       streaming: true,
       toolEvents: []
-    }])
+    } })
 
     try {
       listenerId = window.electronAPI.on(CHAT_STREAM_EVENT, (payload) => {
@@ -508,8 +511,7 @@ const SmartDesignChat = () => {
       const parts = Object.entries(grouped).map(([type, names]) => `${type}：${names.join('、')}`)
       const summary = `我选择以下材料：${parts.join('；')}。请根据这些材料设计配合比。`
       chatState.markMaterialPickerDone(pickerId)
-      chatState.setChatMessages(prev => [...prev, { role: 'user', content: summary }])
-      chatState.setChatLoading(true)
+      dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: summary } })
       await handleDesignMode(summary, { selectedMaterials })
       return
     }
@@ -564,32 +566,30 @@ const SmartDesignChat = () => {
 
     if (nextQueue.length === 0) {
       const customPrompt = [chatState.pendingMaterialPicker.initialUserPrompt, ...summary].filter(Boolean).join('\n')
-      chatState.setChatInput(summary.join('；'))
+      dispatch({ type: 'SET_INPUT', payload: summary.join('；') })
       executeAnalysis(chatState.pendingMaterialPicker.mixDesigns, newMapping, { customPrompt })
       chatState.setPendingMaterialPicker(null)
-      chatState.setChatLoading(true)
       return
     }
 
     const next = nextQueue[0]
-    chatState.setChatMessages(prev => [...prev, {
+    dispatch({ type: 'ADD_MESSAGE', payload: {
       role: 'assistant',
       content: `编号 **${current.mixId}** 已补充完成。请继续为 **编号 ${next.mixId}**（${next.strengthGrade || '—'}）选择材料：`
-    }])
+    } })
     chatState.setPendingMaterialPicker({
       ...chatState.pendingMaterialPicker,
       materialMapping: newMapping,
       materialPickSummary: summary,
       pickerKey: `${Date.now()}-${next.mixId}-${next.slots.length}`
     })
-    chatState.setChatInput(msg)
+    dispatch({ type: 'SET_INPUT', payload: msg })
     message.success(`编号 ${current.mixId} 材料已保存`)
   }
 
   // 进入分析模式
   const handleEnterAnalysisMode = async (attachment, userMessage) => {
     chatState.setAnalysisMode(true)
-    chatState.setChatLoading(true)
 
     try {
       let mixDesigns = []
@@ -609,17 +609,16 @@ const SmartDesignChat = () => {
             if (perMixQueue.length === 0) {
               message.warning('存在未匹配材料但无法逐条定位，将按当前映射尝试分析')
               await executeAnalysis(mixDesigns, materialMapping, { customPrompt: userMessage })
-              chatState.setChatLoading(false)
               return
             }
             const first = perMixQueue[0]
             const mixCount = perMixQueue.length
-            chatState.setChatMessages(prev => [...prev, {
+            dispatch({ type: 'ADD_MESSAGE', payload: {
               role: 'assistant',
               content: mixCount > 1
                 ? `有 **${mixCount}** 条配合比存在材料未自动匹配（共 ${result.unmatchedMaterials.size} 类名称未对上库），将**按表格顺序逐条**补充。\n\n请先为 **编号 ${first.mixId}**（${first.strengthGrade || '—'}）选择材料：`
                 : `检测到 **${result.unmatchedMaterials.size}** 类材料未能自动匹配。\n\n请为 **编号 ${first.mixId}**（${first.strengthGrade || '—'}）选择材料：`
-            }])
+            } })
             chatState.setPendingMaterialPicker({
               mixDesigns,
               materialMapping,
@@ -629,22 +628,21 @@ const SmartDesignChat = () => {
               materialPickSummary: [],
               pickerKey: `${Date.now()}-${first.mixId}-${first.slots.length}`
             })
-            chatState.setChatLoading(false)
             return
           }
         } else if (attachment.type === 'md') {
           const content = await processMarkdownAttachment(attachment.file)
           // 将 Markdown 内容发送给 AI 分析
           const mdMessage = `请分析以下 Markdown 文档内容：\n\n${content}`
-          chatState.setChatMessages(prev => [...prev, { role: 'user', content: mdMessage }])
+          dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: mdMessage } })
           await runStreamingChat(mdMessage)
           return
         }
       } else if (userMessage) {
-        chatState.setChatMessages(prev => [...prev, {
+        dispatch({ type: 'ADD_MESSAGE', payload: {
           role: 'assistant',
           content: '正在分析文本中的配合比数据...'
-        }])
+        } })
       }
 
       // 执行分析（使用用户发送时的文案作为试验目的等补充说明）
@@ -652,7 +650,6 @@ const SmartDesignChat = () => {
     } catch (error) {
       message.error('进入分析模式失败: ' + error.message)
       chatState.setAnalysisMode(false)
-      chatState.setChatLoading(false)
     }
   }
 
@@ -686,20 +683,18 @@ const SmartDesignChat = () => {
         content = intro
       }
 
-      chatState.setChatMessages(prev => [...prev, { role: 'assistant', content, analysisReport: report }])
+      dispatch({ type: 'ADD_MESSAGE', payload: { role: 'assistant', content, analysisReport: report } })
       chatState.setAnalysisResult(report)
     } catch (error) {
       message.error('分析执行失败: ' + error.message)
       chatState.setAnalysisMode(false)
-    } finally {
-      chatState.setChatLoading(false)
     }
   }
 
   // 执行AI分析
   const executeAnalysis = async (mixDesigns, materialMapping, opts = {}) => {
     try {
-      const effectivePrompt = opts.customPrompt !== undefined && opts.customPrompt !== null ? opts.customPrompt : chatState.chatInput
+      const effectivePrompt = opts.customPrompt !== undefined && opts.customPrompt !== null ? opts.customPrompt : state.input
 
       // 先构建完整的分析数据（包含 analysisRequirements）
       const analysisDataBuilt = buildAnalysisData(mixDesigns, materialMapping)
@@ -741,7 +736,6 @@ const SmartDesignChat = () => {
             })),
             multipleSelect: true,
             onSelect: (selected) => {
-              chatState.setChatLoading(true)
               if (selected.length === 0) {
                 // 不进行材料对比，仅做参数趋势
                 executeAnalysisWithModes(mixDesigns, materialMapping, effectivePrompt, {
@@ -759,9 +753,8 @@ const SmartDesignChat = () => {
           }
         }
 
-        chatState.setChatMessages(prev => [...prev, chatMsg])
+        dispatch({ type: 'ADD_MESSAGE', payload: chatMsg })
         chatState.setContrastPickerSelected([])
-        chatState.setChatLoading(false)
         return
       }
       // ========== END Task 7 ==========
@@ -797,20 +790,16 @@ const SmartDesignChat = () => {
         analysisReport: report
       }
 
-      chatState.setChatMessages(prev => [...prev, chatMsg])
+      dispatch({ type: 'ADD_MESSAGE', payload: chatMsg })
       chatState.setAnalysisResult(report)
     } catch (error) {
       message.error('分析执行失败: ' + error.message)
       chatState.setAnalysisMode(false)
-    } finally {
-      chatState.setChatLoading(false)
     }
   }
 
   // 分析模式后续追问
   const handleAnalysisFollowUp = async (userMessage) => {
-    chatState.setChatLoading(true)
-
     try {
       // 将用户消息和分析数据一起发送给AI
       const context = {
@@ -824,8 +813,6 @@ const SmartDesignChat = () => {
       await runStreamingChat(userMessage, context)
     } catch (error) {
       message.error('追问失败: ' + error.message)
-    } finally {
-      chatState.setChatLoading(false)
     }
   }
 
@@ -835,19 +822,16 @@ const SmartDesignChat = () => {
       await runStreamingChat(userMessage, { ...extraContext })
     } catch (error) {
       message.error('发送消息失败: ' + error.message)
-      chatState.setChatLoading(false)
-    } finally {
-      chatState.setChatLoading(false)
     }
   }
 
   // 发送聊天消息（统一使用 Agent 模式）
   const handleSendChat = async () => {
-    if (!chatState.chatInput.trim() || chatState.chatLoading) return
+    if (!state.input.trim() || isAgentBusy) return
 
-    const userMessage = chatState.chatInput.trim()
-    chatState.setChatInput('')
-    chatState.setChatMessages(prev => [...prev, { role: 'user', content: userMessage, attachment: chatState.attachment ? { name: chatState.attachment.name, type: chatState.attachment.type } : null }])
+    const userMessage = state.input.trim()
+    dispatch({ type: 'SET_INPUT', payload: '' })
+    dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: userMessage, attachment: chatState.attachment ? { name: chatState.attachment.name, type: chatState.attachment.type } : null } })
     chatState.setAttachment(null)
 
     await sendMessage({
@@ -860,16 +844,14 @@ const SmartDesignChat = () => {
 
   // 键盘事件 handler (spec 7.1)
   const handleKeyDown = (e) => {
-    const isAgentWorking = ['streaming', 'thinking', 'tool_calling'].includes(state.agent.status)
-
-    if (e.key === 'Escape' && isAgentWorking) {
+    if (e.key === 'Escape' && isAgentBusy) {
       e.preventDefault()
       abortAgent({ dispatch, requestId: state.agent.requestId })
       return
     }
 
     if (e.key === 'Enter' && !e.shiftKey) {
-      if (isAgentWorking && !chatState.chatInput.trim()) {
+      if (isAgentBusy && !state.input.trim()) {
         e.preventDefault()
         abortAgent({ dispatch, requestId: state.agent.requestId })
       }
@@ -882,16 +864,17 @@ const SmartDesignChat = () => {
       abortAgent({ dispatch, requestId: state.agent.requestId })
     }
     await chatState.handleClearChat()
+    dispatch({ type: 'CLEAR_MESSAGES' })
     dispatch({ type: 'RESET_AGENT' })
   }
 
   const handleQuickPrompt = (msg) => {
     if (msg === '/') {
       // 显示斜杠命令菜单
-      chatState.setChatInput('/')
+      dispatch({ type: 'SET_INPUT', payload: '/' })
       setSlashMenuVisible(true)
     } else {
-      chatState.setChatInput(msg)
+      dispatch({ type: 'SET_INPUT', payload: msg })
     }
   }
 
@@ -906,14 +889,14 @@ const SmartDesignChat = () => {
         onDeleteSession={async (sessionId) => {
           await window.electronAPI.invoke('agent:deleteSession', { sessionId })
           if (state.session.currentId === sessionId) {
-            chatState.setChatMessages([])
+            dispatch({ type: 'CLEAR_MESSAGES' })
             createSession({ dispatch })
           }
           loadSessionList({ dispatch })
         }}
         onNewSession={() => {
           createSession({ dispatch })
-          chatState.setChatMessages([])
+          dispatch({ type: 'CLEAR_MESSAGES' })
         }}
       />
 
@@ -945,7 +928,7 @@ const SmartDesignChat = () => {
           </div>
 
           <div className="smart-chat-list">
-        {chatState.chatMessages.length === 0 ? (
+        {state.messages.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px' }}>
             <BulbOutlined style={{ fontSize: 48, color: '#faad14', marginBottom: 16 }} />
             <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: 'var(--color-text)' }}>智能设计助手</div>
@@ -967,7 +950,7 @@ const SmartDesignChat = () => {
           </div>
         ) : (
           <List
-            dataSource={chatState.chatMessages}
+            dataSource={state.messages}
             renderItem={(item) => {
               return (
               <List.Item className={item.role === 'user' ? 'smart-chat-item-user' : 'smart-chat-item-assistant'}>
@@ -1073,7 +1056,7 @@ const SmartDesignChat = () => {
                               if (opt === '手动选择材料' && chatState.pendingMaterialPicker) {
                                 chatState.setPendingMaterialPicker(null)
                               } else if (opt === '继续分析' && chatState.pendingMaterialPicker) {
-                                executeAnalysis(chatState.pendingMaterialPicker.mixDesigns, chatState.pendingMaterialPicker.materialMapping, { customPrompt: chatState.chatInput })
+                                executeAnalysis(chatState.pendingMaterialPicker.mixDesigns, chatState.pendingMaterialPicker.materialMapping, { customPrompt: state.input })
                                 chatState.setPendingMaterialPicker(null)
                               }
                             }}>
@@ -1189,11 +1172,11 @@ const SmartDesignChat = () => {
         )}
         <Input
           placeholder={chatState.analysisMode ? '输入你的追问，或继续对话...' : '输入 "/" 查看可用技能，或直接输入需求...'}
-          value={chatState.chatInput}
+          value={state.input}
           onChange={handleInputChange}
           onPressEnter={handleSendChat}
           onKeyDown={handleKeyDown}
-          disabled={chatState.chatLoading}
+          disabled={isAgentBusy}
           prefix={<AppstoreOutlined style={{ color: '#bfbfbf', marginRight: 4 }} />}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
@@ -1217,7 +1200,7 @@ const SmartDesignChat = () => {
               size="small"
               icon={<ClearOutlined />}
               onClick={handleClearChat}
-              disabled={chatState.chatMessages.length === 0}
+              disabled={state.messages.length === 0}
               title="清空对话"
             />
           </Space>
@@ -1225,8 +1208,8 @@ const SmartDesignChat = () => {
             type="primary"
             icon={<SendOutlined />}
             onClick={handleSendChat}
-            loading={chatState.chatLoading}
-            disabled={!chatState.chatInput.trim()}
+            loading={isAgentBusy}
+            disabled={!state.input.trim()}
           />
         </div>
       </div>
