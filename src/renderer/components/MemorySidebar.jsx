@@ -1,11 +1,26 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { Button, List, Typography, Space, Tabs, Descriptions, Popconfirm, Layout } from 'antd'
 import { HistoryOutlined, PlusOutlined, DeleteOutlined, RobotOutlined } from '@ant-design/icons'
+import { useAgentStore } from './AgentStore'
+const { createSession, switchSession, loadSessionList } = require('./agentActions')
 
 const { Text } = Typography
 const { Sider } = Layout
 
-const MemorySidebar = ({ collapsed, onToggle, sessions, currentSessionId, onLoadSession, onDeleteSession, onNewSession }) => {
+/**
+ * MemorySidebar - 记忆管理侧栏
+ * - state 全部从 useAgentStore() 读取（不再 props 透传）
+ * - 新建/切换/刷新会话通过 agentActions
+ * - 保留所有原有功能: 3 Tabs(对话/偏好/修正) + 删除会话 + 清空全部记忆
+ *
+ * Props:
+ * - onToggle: 关闭侧栏按钮的回调（折叠到 IconButton）
+ */
+const MemorySidebar = ({ onToggle }) => {
+  const { state, dispatch } = useAgentStore()
+  const sessions = state.session.list
+  const currentSessionId = state.session.currentId
+
   const [sidebarTab, setSidebarTab] = useState('history')
   const [preferences, setPreferences] = useState({})
   const [corrections, setCorrections] = useState([])
@@ -22,7 +37,23 @@ const MemorySidebar = ({ collapsed, onToggle, sessions, currentSessionId, onLoad
       .catch(() => {})
   }
 
-  if (collapsed) return null
+  const handleNewSession = () => {
+    // agentActions.createSession 内部已 dispatch CLEAR_MESSAGES + SET_SESSION_ID + RESET_AGENT
+    createSession({ dispatch })
+  }
+
+  const handleLoadSession = (sessionId) => {
+    switchSession({ dispatch, sessionId })
+  }
+
+  const handleDeleteSession = async (sessionId) => {
+    await window.electronAPI.invoke('agent:deleteSession', { sessionId })
+    await loadSessionList({ dispatch })
+    // 如果删的是当前会话，自动开新会话（避免 messages 还停留在已删除会话上）
+    if (sessionId === currentSessionId) {
+      handleNewSession()
+    }
+  }
 
   return (
     <Sider width="28%" style={{
@@ -33,7 +64,12 @@ const MemorySidebar = ({ collapsed, onToggle, sessions, currentSessionId, onLoad
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <Text strong style={{ fontSize: 14 }}><HistoryOutlined /> 记忆管理</Text>
-        <Button size="small" type="text" icon={<PlusOutlined />} onClick={onNewSession} title="新建对话" />
+        <Space>
+          <Button size="small" type="text" icon={<PlusOutlined />} onClick={handleNewSession} title="新建对话" />
+          {onToggle && (
+            <Button size="small" type="text" onClick={onToggle} title="关闭侧栏">×</Button>
+          )}
+        </Space>
       </div>
 
       <Tabs
@@ -56,11 +92,11 @@ const MemorySidebar = ({ collapsed, onToggle, sessions, currentSessionId, onLoad
                     background: s.sessionId === currentSessionId ? 'var(--color-border)' : 'transparent',
                     padding: '4px 8px', borderRadius: 4
                   }}
-                    onClick={() => onLoadSession(s.sessionId)}
+                    onClick={() => handleLoadSession(s.sessionId)}
                     actions={[
                       <Popconfirm key="del" title="删除此对话？" onConfirm={async (e) => {
                         e?.stopPropagation?.()
-                        await onDeleteSession(s.sessionId)
+                        await handleDeleteSession(s.sessionId)
                       }}>
                         <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={e => e.stopPropagation()} />
                       </Popconfirm>
@@ -128,7 +164,7 @@ const MemorySidebar = ({ collapsed, onToggle, sessions, currentSessionId, onLoad
         <Button size="small" danger block icon={<DeleteOutlined />} onClick={async () => {
           if (confirm('确定清空全部记忆？（对话历史 + 偏好 + 修正记录）')) {
             await window.electronAPI.invoke('agent:clearAllMemory')
-            onNewSession()
+            handleNewSession()
           }
         }}>清空全部记忆</Button>
       </div>

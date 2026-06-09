@@ -18,7 +18,7 @@ import SlashCommandMenu from './SlashCommandMenu'
 import useChatState from '../hooks/useChatState'
 import { AgentStoreProvider, useAgentStore } from './AgentStore'
 import useAgentMode from './AgentMode'
-import { sendMessage, abortAgent, loadSessionList, switchSession, createSession, useAssistantPersistence } from './agentActions'
+import { sendMessage, abortAgent, loadSessionList, useAssistantPersistence } from './agentActions'
 import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
 import { AnalysisReport } from '../pages/AIAnalysisPage_Results'
 import { getAllMaterials } from '../services/MaterialService'
@@ -880,25 +880,12 @@ const SmartDesignChat = () => {
 
   return (
     <Layout style={{ height: '100%', background: 'transparent' }}>
-      {/* 记忆侧栏 */}
-      <MemorySidebar
-        collapsed={state.session.sidebarCollapsed}
-        sessions={state.session.list}
-        currentSessionId={state.session.currentId}
-        onLoadSession={(sessionId) => switchSession({ dispatch, sessionId })}
-        onDeleteSession={async (sessionId) => {
-          await window.electronAPI.invoke('agent:deleteSession', { sessionId })
-          if (state.session.currentId === sessionId) {
-            dispatch({ type: 'CLEAR_MESSAGES' })
-            createSession({ dispatch })
-          }
-          loadSessionList({ dispatch })
-        }}
-        onNewSession={() => {
-          createSession({ dispatch })
-          dispatch({ type: 'CLEAR_MESSAGES' })
-        }}
-      />
+      {/* 记忆侧栏 — 折叠时不渲染；state 由 MemorySidebar 内部从 AgentStore 读 */}
+      {!state.session.sidebarCollapsed && (
+        <MemorySidebar
+          onToggle={() => dispatch({ type: 'SET_SIDEBAR_COLLAPSED', payload: true })}
+        />
+      )}
 
       <Content style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '0 var(--space-md)' }}>
         <div className="smart-design-chat">
