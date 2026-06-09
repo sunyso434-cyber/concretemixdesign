@@ -1,233 +1,103 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef } from 'react'
+import { useAgentStore } from './AgentStore'
 
 /**
- * AgentMode hook - 从 SmartDesignChat 中提取的 Agent 模式状态和逻辑。
- *
- * @param {Object} opts
- * @param {Function} opts.setChatMessages - 更新聊天消息列表
- * @param {Function} opts.setChatLoading - 更新聊天加载状态
+ * AgentMode hook - 纯事件监听器。
+ * 监听 agent:progress / agent:confirmation-request 事件并 dispatch 到 AgentStore。
+ * 所有状态通过 useAgentStore() 读取，不再自维护 state。
  */
-export default function useAgentMode({ setChatMessages, setChatLoading }) {
-  // ===== Agent 状态 =====
-  const [agentEnabled, setAgentEnabled] = useState(true)  // 默认启用
-  const [agentMode, setAgentMode] = useState('agent')     // 统一为agent模式
-  const [agentRunMode, setAgentRunMode] = useState('collaborative') // 运行模式：collaborative | auto
-  const [agentSteps, setAgentSteps] = useState([])        // 旧格式 steps（兼容）
-  const [agentStatus, setAgentStatus] = useState(null)
-  const [agentTimeline, setAgentTimeline] = useState([])   // 新格式：时间线数组
-  const [agentReplyText, setAgentReplyText] = useState('') // 流式累积的最终回复文本
-  const [agentPaused, setAgentPausedRaw] = useState(false)
-  const setAgentPaused = (val) => {
-    const resolved = typeof val === 'function' ? val(agentPausedRef.current) : val
-    agentPausedRef.current = resolved
-    setAgentPausedRaw(resolved)
-  }
-  const [pendingConfirmation, setPendingConfirmation] = useState(null)
-  const [sessions, setSessions] = useState([])
-  const [currentSessionId, setCurrentSessionId] = useState(() => 'session-' + Date.now())
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
-  const [sidebarTab, setSidebarTab] = useState('history')
-  const [preferences, setPreferences] = useState({})
-  const [corrections, setCorrections] = useState([])
-
+export default function useAgentMode() {
+  const { state, dispatch } = useAgentStore()
   const agentRequestIdRef = useRef(null)
-  const agentPausedRef = useRef(false)
-  const agentReplyTextRef = useRef('')
-  const agentTimelineRef = useRef([])
 
-  // 读取 Agent 设置（仅执行一次）
+  // 读取运行模式（应用启动时执行一次，spec 3.1）
   useEffect(() => {
     window.electronAPI.invoke('get-param-by-name', 'agentDefaultMode')
       .then(defaultMode => {
         const runMode = defaultMode?.data?.value
         if (runMode === 'auto' || runMode === 'collaborative') {
-          setAgentRunMode(runMode)
+          dispatch({ type: 'SET_RUN_MODE', payload: runMode })
         }
       })
       .catch(() => {})
-  }, [])
+  }, [dispatch])
 
-  // Agent进度监听（流式事件）
+  // 同步 currentRequestId 到 ref（用于 stop 时获取 requestId）
+  useEffect(() => {
+    agentRequestIdRef.current = state.agent.requestId
+  }, [state.agent.requestId])
+
+  // 监听 agent:progress 事件
   useEffect(() => {
     const onProgress = (data) => {
       const eventType = data.type
 
-      // 根据事件类型更新 timeline + status
-      if (eventType === 'reasoning_start') {
-        setAgentStatus('running')
-        setAgentTimeline(prev => [...prev, {
-          type: 'reasoning', content: '', roundIndex: data.roundIndex,
-          status: 'running', collapsed: true
-        }])
-        return
-      }
-      if (eventType === 'reasoning_delta') {
-        setAgentStatus('running')
-        setAgentTimeline(prev => {
-          const next = [...prev]
-          for (let i = next.length - 1; i >= 0; i--) {
-            if (next[i].type === 'reasoning' && next[i].status === 'running') {
-              next[i] = { ...next[i], content: next[i].content + (data.content || '') }
-              break
-            }
-          }
-          return next
-        })
-        return
-      }
-      if (eventType === 'reasoning_done') {
-        setAgentStatus('running')
-        setAgentTimeline(prev => {
-          const next = [...prev]
-          for (let i = next.length - 1; i >= 0; i--) {
-            if (next[i].type === 'reasoning' && next[i].status === 'running') {
-              next[i] = { ...next[i], status: 'done' }
-              break
-            }
-          }
-          return next
-        })
-        return
-      }
-      if (eventType === 'reasoning_error') {
-        setAgentStatus('running')
-        setAgentTimeline(prev => {
-          const next = [...prev]
-          for (let i = next.length - 1; i >= 0; i--) {
-            if (next[i].type === 'reasoning' && next[i].status === 'running') {
-              next[i] = { ...next[i], status: 'error', error: data.error }
-              break
-            }
-          }
-          return next
-        })
-        return
-      }
-      if (eventType === 'tool_start') {
-        setAgentStatus('running')
-        setAgentTimeline(prev => [...prev, {
-          type: 'tool', toolCallId: data.toolCallId, toolName: data.toolName,
-          args: data.args || {}, status: 'running', collapsed: true, roundIndex: data.roundIndex
-        }])
-        return
-      }
-      if (eventType === 'tool_done') {
-        setAgentStatus('running')
-        setAgentTimeline(prev => prev.map(item =>
-          item.type === 'tool' && item.toolCallId === data.toolCallId
-            ? { ...item, status: 'done', result: data.result }
-            : item
-        ))
-        return
-      }
-      if (eventType === 'tool_error') {
-        setAgentStatus('running')
-        setAgentTimeline(prev => prev.map(item =>
-          item.type === 'tool' && item.toolCallId === data.toolCallId
-            ? { ...item, status: 'error', error: data.error }
-            : item
-        ))
-        return
-      }
-      if (eventType === 'text_delta') {
-        setAgentStatus('running')
-        agentReplyTextRef.current = agentReplyTextRef.current + (data.content || '')
-        setAgentReplyText(agentReplyTextRef.current)
-        return
-      }
-      if (eventType === 'done') {
-        setChatLoading(false)
-        setAgentStatus('done')
-        const reply = data.result?.reply || agentReplyTextRef.current
-        const doneTimeline = agentTimelineRef.current.map(item =>
-          item.status === 'running' ? { ...item, status: 'done' } : item
-        )
-        setAgentTimeline(doneTimeline)
-        // 更新流式 assistant 消息为最终状态
-        setChatMessages(prev => {
-          const streamingIdx = prev.findIndex(m => m._agentRequestId === agentRequestIdRef.current)
-          if (streamingIdx >= 0) {
-            const next = [...prev]
-            next[streamingIdx] = {
-              role: 'assistant',
-              content: reply || '',
-              _agentRequestId: agentRequestIdRef.current,
-              timeline: doneTimeline,
-              agentStatus: 'done',
-              _streaming: false,
-            }
-            return next
-          }
-          // 没有流式消息（异常情况），直接追加
-          const last = prev[prev.length - 1]
-          if (last?.role === 'assistant' && last?.content === reply) return prev
-          return [...prev, { role: 'assistant', content: reply || '', timeline: doneTimeline }]
-        })
-        return
-      }
-      if (eventType === 'error') {
-        setChatLoading(false)
-        setAgentStatus('error')
-        const errorMsg = typeof data.error === 'string' ? data.error
-          : data.error?.message || data.error?.error || JSON.stringify(data.error || '未知错误')
-        const errTimeline = agentTimelineRef.current.map(item =>
-          item.status === 'running' ? { ...item, status: 'error' } : item
-        )
-        setAgentTimeline(errTimeline)
-        setChatMessages(prev => {
-          const streamingIdx = prev.findIndex(m => m._agentRequestId === agentRequestIdRef.current)
-          const content = data.result?.reply || (errorMsg !== 'aborted' && errorMsg !== 'wc_destroyed' ? errorMsg : '')
-          if (streamingIdx >= 0) {
-            const next = [...prev]
-            next[streamingIdx] = {
-              role: 'assistant',
-              content: content || '',
-              _agentRequestId: agentRequestIdRef.current,
-              timeline: errTimeline,
-              agentStatus: 'error',
-              isError: true,
-              _streaming: false,
-            }
-            return next
-          }
-          return [...prev, { role: 'assistant', content: content || '', timeline: errTimeline, isError: true }]
-        })
+      // 事件 requestId 不匹配当前任务则忽略（spec 8.2 锁超时说明）
+      if (data.requestId && data.requestId !== state.agent.requestId) {
         return
       }
 
-      // ===== 旧格式兼容（无 type 字段的旧事件） =====
-      setAgentSteps(data.steps || [])
-      setAgentStatus(data.status)
-
-      if (data.status === 'done') {
-        setChatLoading(false)
-        if (data.result?.reply) {
-          setChatMessages(prev => {
-            const last = prev[prev.length - 1]
-            if (last?.role === 'assistant' && last?.content === data.result.reply) return prev
-            return [...prev, { role: 'assistant', content: data.result.reply }]
+      switch (eventType) {
+        case 'reasoning_start':
+          dispatch({ type: 'REASONING_START', payload: { roundIndex: data.roundIndex } })
+          return
+        case 'reasoning_delta':
+          dispatch({ type: 'REASONING_DELTA', payload: { content: data.content } })
+          return
+        case 'reasoning_done':
+          dispatch({ type: 'REASONING_DONE' })
+          return
+        case 'tool_start':
+          dispatch({
+            type: 'TOOL_START',
+            payload: { toolCallId: data.toolCallId, toolName: data.toolName, args: data.args || {} }
           })
+          return
+        case 'tool_done':
+          dispatch({
+            type: 'TOOL_DONE',
+            payload: { toolCallId: data.toolCallId, result: data.result }
+          })
+          return
+        case 'tool_error':
+          dispatch({
+            type: 'TOOL_ERROR',
+            payload: { toolCallId: data.toolCallId, error: data.error }
+          })
+          return
+        case 'text_delta':
+          dispatch({ type: 'TEXT_DELTA', payload: { content: data.content } })
+          return
+        case 'done':
+          dispatch({ type: 'DONE', payload: { reply: data.result?.reply } })
+          return
+        case 'error': {
+          const errorMsg = typeof data.error === 'string' ? data.error
+            : data.error?.message || data.error?.error || '未知错误'
+          if (errorMsg === 'aborted' || errorMsg === 'wc_destroyed') {
+            dispatch({ type: 'ABORT' })
+          } else {
+            dispatch({ type: 'ERROR', payload: { error: errorMsg } })
+          }
+          return
         }
-      }
-      if (data.status === 'error') {
-        setChatLoading(false)
-        const em = typeof data.error === 'string' ? data.error
-          : data.error?.message || data.error?.error || JSON.stringify(data.error || '未知错误')
-        if (em !== 'aborted' && em !== 'wc_destroyed') {
-          setChatMessages(prev => [...prev, { role: 'assistant', content: em, isError: true }])
-        }
+        default:
+          // 旧格式兼容（无 type 字段的旧事件）
+          if (data.status === 'done' && data.result?.reply) {
+            dispatch({ type: 'DONE', payload: { reply: data.result.reply } })
+          }
       }
     }
 
-    const onConfirmationRequest = (data) => {
-      setPendingConfirmation(data)
+    const onConfirmation = (data) => {
+      dispatch({ type: 'SET_CONFIRMATION', payload: data })
     }
 
     let progressId = null
     let confirmId = null
     try {
       progressId = window.electronAPI?.on?.('agent:progress', onProgress)
-      confirmId = window.electronAPI?.on?.('agent:confirmation-request', onConfirmationRequest)
+      confirmId = window.electronAPI?.on?.('agent:confirmation-request', onConfirmation)
     } catch (_) {}
 
     return () => {
@@ -236,146 +106,7 @@ export default function useAgentMode({ setChatMessages, setChatLoading }) {
         if (confirmId) window.electronAPI?.removeListener?.(confirmId)
       } catch (_) {}
     }
-  }, [])
+  }, [dispatch, state.agent.requestId])
 
-  // 同步 timeline 变化到聊天消息（嵌入 assistant 消息内部）
-  useEffect(() => {
-    agentTimelineRef.current = agentTimeline
-    if (agentStatus === null || agentStatus === 'done' || agentStatus === 'error') return
-    setChatMessages(prev => {
-      const streamingIdx = prev.findIndex(m => m._agentRequestId === agentRequestIdRef.current)
-      const streamingMsg = {
-        role: 'assistant',
-        content: '',
-        _agentRequestId: agentRequestIdRef.current,
-        _streaming: true,
-        timeline: agentTimeline,
-        agentStatus: agentStatus,
-        isPaused: agentPausedRef.current,
-      }
-      if (streamingIdx >= 0) {
-        const next = [...prev]
-        next[streamingIdx] = { ...next[streamingIdx], ...streamingMsg }
-        return next
-      } else {
-        // 在最后一条用户消息之后插入
-        let insertAt = prev.length
-        for (let i = prev.length - 1; i >= 0; i--) {
-          if (prev[i].role === 'user') { insertAt = i + 1; break }
-        }
-        const next = [...prev]
-        next.splice(insertAt, 0, streamingMsg)
-        return next
-      }
-    })
-  }, [agentTimeline, agentStatus])
-
-  // 加载历史会话列表
-  const loadSessions = () => {
-    window.electronAPI.invoke('agent:listSessions')
-      .then(r => {
-        if (r?.sessions?.length > 0) {
-          setSessions(r.sessions)
-          if (sidebarCollapsed) setSidebarCollapsed(false)
-        }
-      })
-      .catch(e => console.error('加载会话列表失败:', e))
-  }
-
-  useEffect(() => { loadSessions() }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 加载指定会话的消息
-  const loadSessionMessages = async (sessionId) => {
-    try {
-      const r = await window.electronAPI.invoke('agent:getSessionMessages', { sessionId })
-      if (r?.messages) {
-        setChatMessages(r.messages.map(m => ({
-          role: m.role,
-          content: m.content,
-          agentSteps: m.metadata?.steps
-        })))
-        setCurrentSessionId(sessionId)
-      }
-    } catch (e) {
-      console.error('加载会话消息失败:', e)
-    }
-  }
-
-  const loadPreferences = () => {
-    window.electronAPI.invoke('agent:getPreferences')
-      .then(r => { if (r?.preferences) setPreferences(r.preferences) })
-      .catch(() => {})
-  }
-
-  const loadCorrections = () => {
-    window.electronAPI.invoke('agent:getCorrections')
-      .then(r => { if (r?.corrections) setCorrections(r.corrections) })
-      .catch(() => {})
-  }
-
-  // 发送消息到 Agent 模式
-  const handleSend = async (userMessage) => {
-    setChatLoading(true)
-    setAgentSteps([])
-    setAgentTimeline([])
-    setAgentReplyText('')
-    agentReplyTextRef.current = ''
-    setAgentStatus('running')
-    agentRequestIdRef.current = 'agent-' + Date.now()
-    try {
-      await window.electronAPI.invoke('agent:run', {
-        requestId: agentRequestIdRef.current,
-        sessionId: currentSessionId,
-        message: userMessage,
-        mode: agentRunMode
-      })
-    } catch (e) {
-      setChatLoading(false)
-      setAgentStatus('error')
-      setChatMessages(prev => [...prev, { role: 'assistant', content: 'Agent执行出错: ' + (e.message || '未知错误'), isError: true }])
-    }
-  }
-
-  return {
-    // 状态
-    agentEnabled,
-    agentMode,
-    agentRunMode,
-    agentSteps,
-    agentStatus,
-    agentTimeline,
-    agentReplyText,
-    agentPaused,
-    pendingConfirmation,
-    sessions,
-    currentSessionId,
-    sidebarCollapsed,
-    sidebarTab,
-    preferences,
-    corrections,
-    // ref
-    agentRequestIdRef,
-    // setters
-    setAgentEnabled,
-    setAgentMode,
-    setAgentRunMode,
-    setAgentSteps,
-    setAgentStatus,
-    setAgentTimeline,
-    setAgentReplyText,
-    setAgentPaused,
-    setPendingConfirmation,
-    setSessions,
-    setCurrentSessionId,
-    setSidebarCollapsed,
-    setSidebarTab,
-    setPreferences,
-    setCorrections,
-    // 函数
-    handleSend,
-    loadSessions,
-    loadSessionMessages,
-    loadPreferences,
-    loadCorrections,
-  }
+  return { state, dispatch, agentRequestIdRef }
 }
