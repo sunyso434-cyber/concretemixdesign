@@ -7,14 +7,33 @@ const DEFAULT_WINDOW_SIZE = 20
 class AgentMemoryService {
   // ===== 对话历史 =====
 
-  async saveMessage({ sessionId, role, content, toolCallId, toolCalls, metadata }) {
+  /**
+   * 持久化单条消息到 ChatHistory。
+   *
+   * @param {Object} params
+   * @param {string} params.sessionId  会话 ID
+   * @param {string} params.role       消息角色 (user / assistant / system / tool)
+   * @param {string|Object} params.content  消息内容
+   * @param {string} [params.toolCallId]  工具消息对应的 tool_call ID
+   * @param {Array}  [params.toolCalls]   assistant 消息的工具调用列表
+   * @param {Object} [params.metadata]    附加元数据
+   * @param {string|null} [params.stopReason]  停止原因，'aborted' 表示用户主动中止，null/undefined 表示正常完成
+   *
+   * 说明:
+   * - `toolCallId` 和 `toolCalls` 主要用于还原工具调用链路。本次计划中 `agent:saveMessage` IPC
+   *   只在 `DONE/ABORT` 时持久化 assistant 消息，不需要这两个字段 (assistant 消息的 tool_calls
+   *   已在 flow 中分次保存为独立的 `role: 'tool'` 消息)。但保留在 `saveMessage` 签名里以便后续扩展。
+   * - `stopReason`: 'aborted' 表示用户主动中止，null 或 undefined 表示正常完成。
+   */
+  async saveMessage({ sessionId, role, content, toolCallId, toolCalls, metadata, stopReason }) {
     return ChatHistory.create({
       sessionId,
       role,
       content: typeof content === 'string' ? content : JSON.stringify(content),
       toolCallId: toolCallId || null,
       toolCalls: toolCalls || null,
-      metadata: metadata || null
+      metadata: metadata || null,
+      stopReason: stopReason || null
     })
   }
 
