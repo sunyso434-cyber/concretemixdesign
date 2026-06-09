@@ -86,11 +86,16 @@ function abortAgent({ dispatch, requestId }) {
  * @returns {Promise<Array>} 会话列表
  */
 async function loadSessionList({ dispatch }) {
-  const r = await window.electronAPI.invoke('agent:listSessions')
-  if (r && r.sessions) {
-    dispatch({ type: 'SET_SESSION_LIST', payload: r.sessions })
+  try {
+    const r = await window.electronAPI.invoke('agent:listSessions')
+    if (r && r.sessions) {
+      dispatch({ type: 'SET_SESSION_LIST', payload: r.sessions })
+    }
+    return (r && r.sessions) || []
+  } catch (e) {
+    console.error('加载会话列表失败:', e)
+    return []
   }
-  return (r && r.sessions) || []
 }
 
 /**
@@ -102,20 +107,25 @@ async function loadSessionList({ dispatch }) {
 async function switchSession({ dispatch, sessionId }) {
   dispatch({ type: 'RESET_AGENT' })
 
-  const r = await window.electronAPI.invoke('agent:getSessionMessages', { sessionId })
-  if (r && r.messages) {
-    dispatch({
-      type: 'SET_MESSAGES',
-      payload: r.messages.map(m => ({
-        role: m.role,
-        content: m.content,
-        toolCalls: m.toolCalls,
-        timeline: (m.metadata && m.metadata.timeline) || [],
-        stopReason: m.stopReason || null
-      }))
-    })
-    dispatch({ type: 'SET_SESSION_ID', payload: sessionId })
+  try {
+    const r = await window.electronAPI.invoke('agent:getSessionMessages', { sessionId })
+    if (r && r.messages) {
+      dispatch({
+        type: 'SET_MESSAGES',
+        payload: r.messages.map(m => ({
+          role: m.role,
+          content: m.content,
+          toolCalls: m.toolCalls,
+          timeline: (m.metadata && m.metadata.timeline) || [],
+          stopReason: m.stopReason || null
+        }))
+      })
+    }
+  } catch (e) {
+    console.error('加载会话消息失败:', e)
+    // IPC 失败仍然切换 sessionId，让 UI 进入"空消息"状态
   }
+  dispatch({ type: 'SET_SESSION_ID', payload: sessionId })
 }
 
 /**
@@ -128,7 +138,8 @@ function createSession({ dispatch }) {
   dispatch({ type: 'SET_SESSION_ID', payload: newId })
   dispatch({ type: 'CLEAR_MESSAGES' })
   dispatch({ type: 'RESET_AGENT' })
-  loadSessionList({ dispatch })
+  // loadSessionList 内部已 try/catch，但仍加 .catch 兜底防止未来重构去掉
+  loadSessionList({ dispatch }).catch(() => {})
 }
 
 /**
