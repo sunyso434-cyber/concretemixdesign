@@ -12,14 +12,14 @@ import DiagnosisResultCard from './DiagnosisResultCard'
 import ComplianceResultCard from './ComplianceResultCard'
 import SalesQuoteResultCard from './SalesQuoteResultCard'
 import SaveBasicMixModal from './SaveBasicMixModal'
-import AgentProgressCard from './AgentProgressCard'
-import StreamingAgentCard from './StreamingAgentCard'
 import DecisionGate from './DecisionGate'
 import MemorySidebar from './MemorySidebar'
 import SlashCommandMenu from './SlashCommandMenu'
 import useChatState from '../hooks/useChatState'
+import { AgentStoreProvider, useAgentStore } from './AgentStore'
 import useAgentMode from './AgentMode'
-import { getAttachmentType, detectAnalysisModeIntent, processExcelAttachment, processMarkdownAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
+import { sendMessage, abortAgent, loadSessionList, switchSession, createSession, useAssistantPersistence } from './agentActions'
+import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
 import { AnalysisReport } from '../pages/AIAnalysisPage_Results'
 import { getAllMaterials } from '../services/MaterialService'
 import { buildAnalysisData, MATERIAL_TYPE_MAP } from '../pages/AIAnalysisPage_Upload'
@@ -159,19 +159,55 @@ function buildPerMixMaterialQueue(mixDesigns, materialMapping) {
     .filter(entry => entry.slots.length > 0)
 }
 
+/**
+ * MessageContent (spec 6.1)
+ * 统一渲染消息文本部分，处理 4 个分支：
+ * 1. user  → 直接渲染
+ * 2. assistant streaming → 流式内容 + 光标
+ * 3. assistant thinking → "AI 正在思考" 占位
+ * 4. assistant aborted → 文本 + [已停止] 标签
+ *
+ * 注意：toolCall 卡片 / materialPicker / analysisReport 等复杂业务渲染不在本组件内，
+ * 由 SmartDesignChat 主体保留处理（不在 Task 9 重构范围）。
+ */
+function MessageContent({ item, agentStatus, agentReplyText }) {
+  if (item.role !== 'assistant') {
+    return <ReactMarkdown>{item.content}</ReactMarkdown>
+  }
+  if (agentStatus === 'thinking' && item._streaming) {
+    return <div className="ai-thinking">AI 正在思考<span className="ai-thinking-text"></span></div>
+  }
+  if (agentStatus === 'streaming' && item._streaming) {
+    return (
+      <div className="chat-markdown-body">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{agentReplyText || item.content}</ReactMarkdown>
+        <span className="streaming-cursor">|</span>
+      </div>
+    )
+  }
+  if (item.stopReason === 'aborted') {
+    return (
+      <div className="chat-markdown-body">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+        <span className="aborted-tag">[已停止]</span>
+      </div>
+    )
+  }
+  return (
+    <div className="chat-markdown-body">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+    </div>
+  )
+}
+
 const SmartDesignChat = () => {
   // ===== Hooks =====
   const chatState = useChatState()
-  const agent = useAgentMode(chatState)
+  const { state, dispatch } = useAgentStore()
+  const { agentRequestIdRef } = useAgentMode() // 纯事件监听器
+  useAssistantPersistence() // 副作用 hook（done/aborted 时自动持久化）
 
-  const streamSeqRef = useState(() => ({ current: 0 }))[0]
-
-  // Agent 状态重置辅助
-  const resetAgentState = () => {
-    agent.setAgentSteps([])
-    agent.setAgentStatus(null)
-    agent.setPendingConfirmation(null)
-  }
+  const streamSeqRef = useRef({ current: 0 })
 
   // 仅在消息条数变化时刷新会话列表（避免流式输出时频繁刷新）
   const prevMsgCountRef = useRef(0)
@@ -179,9 +215,9 @@ const SmartDesignChat = () => {
     const count = chatState.chatMessages?.length || 0
     if (count !== prevMsgCountRef.current && count > 0) {
       prevMsgCountRef.current = count
-      agent.loadSessions()
+      loadSessionList({ dispatch })
     }
-  }, [chatState.chatMessages?.length])
+  }, [chatState.chatMessages?.length, dispatch])
 
   // ===== 斜杠命令状态 =====
   const [slashMenuVisible, setSlashMenuVisible] = useState(false)
@@ -805,59 +841,48 @@ const SmartDesignChat = () => {
     }
   }
 
-  // 发送聊天消息（分发到不同模式）
+  // 发送聊天消息（统一使用 Agent 模式）
   const handleSendChat = async () => {
     if (!chatState.chatInput.trim() || chatState.chatLoading) return
 
     const userMessage = chatState.chatInput.trim()
     chatState.setChatInput('')
     chatState.setChatMessages(prev => [...prev, { role: 'user', content: userMessage, attachment: chatState.attachment ? { name: chatState.attachment.name, type: chatState.attachment.type } : null }])
-
-    // 统一使用 Agent 模式
-    chatState.setChatLoading(true)
-    agent.setAgentSteps([])
-    agent.setAgentStatus('running')
-    agent.agentRequestIdRef.current = 'agent-' + Date.now()
-    try {
-      const res = await window.electronAPI.invoke('agent:run', {
-        requestId: agent.agentRequestIdRef.current,
-        sessionId: agent.currentSessionId,
-        message: userMessage,
-        mode: agent.agentRunMode
-      })
-      if (res && res.success === false) {
-        chatState.setChatLoading(false)
-        agent.setAgentStatus('error')
-        chatState.setChatMessages(prev => [...prev, { role: 'assistant', content: '执行出错: ' + (extractErrorMessage(res.error) || '未知错误'), isError: true }])
-      } else if (res && res.success !== false) {
-        // 成功：如果 agent:progress 事件还没处理过，这里兜底处理
-        chatState.setChatLoading(false)
-        agent.setAgentStatus('done')
-        const replyContent = res.result?.content
-        if (replyContent) {
-          chatState.setChatMessages(prev => {
-            // 防止 agent:progress 事件已经添加了消息导致重复
-            const last = prev[prev.length - 1]
-            if (last?.role === 'assistant' && last?.content === replyContent) return prev
-            return [...prev, { role: 'assistant', content: replyContent }]
-          })
-        }
-      }
-    } catch (e) {
-      chatState.setChatLoading(false)
-      agent.setAgentStatus('error')
-      chatState.setChatMessages(prev => [...prev, { role: 'assistant', content: '执行出错: ' + (extractErrorMessage(e.message) || '未知错误'), isError: true }])
-    }
     chatState.setAttachment(null)
+
+    await sendMessage({
+      dispatch,
+      sessionId: state.session.currentId,
+      message: userMessage,
+      runMode: state.agent.runMode
+    })
+  }
+
+  // 键盘事件 handler (spec 7.1)
+  const handleKeyDown = (e) => {
+    const isAgentWorking = ['streaming', 'thinking', 'tool_calling'].includes(state.agent.status)
+
+    if (e.key === 'Escape' && isAgentWorking) {
+      e.preventDefault()
+      abortAgent({ dispatch, requestId: state.agent.requestId })
+      return
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      if (isAgentWorking && !chatState.chatInput.trim()) {
+        e.preventDefault()
+        abortAgent({ dispatch, requestId: state.agent.requestId })
+      }
+    }
   }
 
   // 清空对话（先中止运行中的 Agent，再重置状态）
   const handleClearChat = async () => {
-    if (agent.agentRequestIdRef.current) {
-      window.electronAPI.invoke('agent:abort', { requestId: agent.agentRequestIdRef.current }).catch(() => {})
+    if (state.agent.requestId) {
+      abortAgent({ dispatch, requestId: state.agent.requestId })
     }
     await chatState.handleClearChat()
-    resetAgentState()
+    dispatch({ type: 'RESET_AGENT' })
   }
 
   const handleQuickPrompt = (msg) => {
@@ -874,23 +899,21 @@ const SmartDesignChat = () => {
     <Layout style={{ height: '100%', background: 'transparent' }}>
       {/* 记忆侧栏 */}
       <MemorySidebar
-        collapsed={agent.sidebarCollapsed}
-        sessions={agent.sessions}
-        currentSessionId={agent.currentSessionId}
-        onLoadSession={agent.loadSessionMessages}
+        collapsed={state.session.sidebarCollapsed}
+        sessions={state.session.list}
+        currentSessionId={state.session.currentId}
+        onLoadSession={(sessionId) => switchSession({ dispatch, sessionId })}
         onDeleteSession={async (sessionId) => {
           await window.electronAPI.invoke('agent:deleteSession', { sessionId })
-          if (agent.currentSessionId === sessionId) {
+          if (state.session.currentId === sessionId) {
             chatState.setChatMessages([])
-            agent.setCurrentSessionId('session-' + Date.now())
+            createSession({ dispatch })
           }
-          agent.loadSessions()
+          loadSessionList({ dispatch })
         }}
         onNewSession={() => {
-          agent.setCurrentSessionId('session-' + Date.now())
+          createSession({ dispatch })
           chatState.setChatMessages([])
-          resetAgentState()
-          agent.loadSessions()
         }}
       />
 
@@ -902,8 +925,8 @@ const SmartDesignChat = () => {
                 size="small"
                 type="text"
                 icon={<HistoryOutlined />}
-                onClick={() => agent.setSidebarCollapsed(!agent.sidebarCollapsed)}
-                title={agent.sidebarCollapsed ? '打开对话历史' : '关闭对话历史'}
+                onClick={() => dispatch({ type: 'SET_SIDEBAR_COLLAPSED', payload: !state.session.sidebarCollapsed })}
+                title={state.session.sidebarCollapsed ? '打开对话历史' : '关闭对话历史'}
               />
               <RobotOutlined style={{ fontSize: 18, color: 'var(--color-primary)' }} />
               <Text strong style={{ fontSize: 16 }}>智能设计助手</Text>
@@ -911,8 +934,8 @@ const SmartDesignChat = () => {
             <Space size={8}>
               <Segmented
                 size="small"
-                value={agent.agentRunMode}
-                onChange={val => agent.setAgentRunMode(val)}
+                value={state.agent.runMode}
+                onChange={val => dispatch({ type: 'SET_RUN_MODE', payload: val })}
                 options={[
                   { label: '协作', value: 'collaborative', icon: <TeamOutlined /> },
                   { label: '全自动', value: 'auto', icon: <ThunderboltOutlined /> }
@@ -1009,26 +1032,13 @@ const SmartDesignChat = () => {
                           </Button>
                         </div>
                       )}
-                      {/* Agent 流式时间线（思考过程 + 工具调用，嵌入 AI 输出内部） */}
-                      {item.timeline && item.timeline.length > 0 && (
-                        <div style={{ marginBottom: 8 }}>
-                          <StreamingAgentCard
-                            timeline={item.timeline}
-                            status={item.agentStatus || item.status}
-                            isPaused={item.isPaused}
-                            showControls={item._streaming && item.agentStatus === 'running'}
-                            onPause={() => { agent.setAgentPaused(true); window.electronAPI.invoke('agent:pause', { requestId: agent.agentRequestIdRef.current }) }}
-                            onResume={() => { agent.setAgentPaused(false); window.electronAPI.invoke('agent:resume', { requestId: agent.agentRequestIdRef.current }) }}
-                            onAbort={() => { window.electronAPI.invoke('agent:abort', { requestId: agent.agentRequestIdRef.current }); chatState.setChatLoading(false); agent.setAgentStatus(null) }}
-                          />
-                        </div>
-                      )}
-                      {agent.pendingConfirmation && (
+                      {/* Agent 流式时间线（思考过程 + 工具调用，嵌入 AI 输出内部）— spec 7: pause/resume 由 Esc/Enter 替代 */}
+                      {state.confirmation && (
                         <DecisionGate
-                          toolName={agent.pendingConfirmation.toolName}
-                          args={agent.pendingConfirmation.args}
-                          onConfirm={(args) => { window.electronAPI.invoke('agent:confirm', { confirmed: true, args }); agent.setPendingConfirmation(null) }}
-                          onReject={() => { window.electronAPI.invoke('agent:confirm', { confirmed: false }); agent.setPendingConfirmation(null) }}
+                          toolName={state.confirmation.toolName}
+                          args={state.confirmation.args}
+                          onConfirm={(args) => { window.electronAPI.invoke('agent:confirm', { confirmed: true, args }); dispatch({ type: 'SET_CONFIRMATION', payload: null }) }}
+                          onReject={() => { window.electronAPI.invoke('agent:confirm', { confirmed: false }); dispatch({ type: 'SET_CONFIRMATION', payload: null }) }}
                         />
                       )}
                       {item.toolEvents?.length > 0 && (
@@ -1078,9 +1088,11 @@ const SmartDesignChat = () => {
                           <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit' }}>{item.reasoning}</pre>
                         </div>
                       )}
-                      <div className="chat-markdown-body">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content || (item.streaming ? 'AI 正在生成...' : '')}</ReactMarkdown>
-                      </div>
+                      <MessageContent
+                        item={item}
+                        agentStatus={state.agent.status}
+                        agentReplyText={state.agent.replyText}
+                      />
                       {item.materialPicker && !chatState.isMaterialPickerDone(item.materialPicker.pickerId) && item.materialPicker.type !== 'contrast_selection' && (
                         <MaterialPicker
                           materials={item.materialPicker.materials || chatState.pendingMaterialPicker?.allMaterials}
@@ -1169,11 +1181,18 @@ const SmartDesignChat = () => {
           onSelect={handleSkillSelect}
           onClose={handleSlashMenuClose}
         />
+        {/* Stop hint (spec 7.3): 工作态时提示 Esc/Enter 停止 */}
+        {['streaming', 'thinking', 'tool_calling'].includes(state.agent.status) && (
+          <div className="stop-hint">
+            AI 正在输出中... 按 Esc 停止（输入框为空时也可按 Enter）
+          </div>
+        )}
         <Input
           placeholder={chatState.analysisMode ? '输入你的追问，或继续对话...' : '输入 "/" 查看可用技能，或直接输入需求...'}
           value={chatState.chatInput}
           onChange={handleInputChange}
           onPressEnter={handleSendChat}
+          onKeyDown={handleKeyDown}
           disabled={chatState.chatLoading}
           prefix={<AppstoreOutlined style={{ color: '#bfbfbf', marginRight: 4 }} />}
         />
@@ -1223,4 +1242,10 @@ const SmartDesignChat = () => {
   )
 }
 
-export default SmartDesignChat
+export default function SmartDesignChatWrapper(props) {
+  return (
+    <AgentStoreProvider>
+      <SmartDesignChat {...props} />
+    </AgentStoreProvider>
+  )
+}
