@@ -216,6 +216,22 @@ module.exports = {
 
       logger.info(`配合比计算完成: 水胶比=${result.waterRatio}, 砂率=${result.sandRatio}`)
 
+      // 构建 materialDetails，保存材料的ID、名称、价格等详细信息
+      const materialDetails = {
+        cement: cement ? { id: cement.id, name: cement.name, price: cement.price } : null,
+        flyAsh: materials.flyAsh ? { id: materials.flyAsh.id, name: materials.flyAsh.name, price: materials.flyAsh.price } : null,
+        slag: materials.slag ? { id: materials.slag.id, name: materials.slag.name, price: materials.slag.price } : null,
+        lithiumSlag: materials.lithiumSlag ? { id: materials.lithiumSlag.id, name: materials.lithiumSlag.name, price: materials.lithiumSlag.price } : null,
+        compositePowder: materials.compositePowder ? { id: materials.compositePowder.id, name: materials.compositePowder.name, price: materials.compositePowder.price } : null,
+        superplasticizer: materials.superplasticizer ? { id: materials.superplasticizer.id, name: materials.superplasticizer.name, price: materials.superplasticizer.price } : null,
+        sand: Array.isArray(materials.sand)
+          ? materials.sand.map(s => ({ id: s.id, name: s.name, price: s.price }))
+          : (materials.sand ? { id: materials.sand.id, name: materials.sand.name, price: materials.sand.price } : null),
+        stone: Array.isArray(materials.stone)
+          ? materials.stone.map(s => ({ id: s.id, name: s.name, price: s.price }))
+          : (materials.stone ? { id: materials.stone.id, name: materials.stone.name, price: materials.stone.price } : null)
+      }
+
       // 自动保存草稿
       let draftId = null
       try {
@@ -230,6 +246,7 @@ module.exports = {
           sandRatio: result.sandRatio,
           density: result.density,
           materials: result.materials,
+          materialDetails,
           materialCosts: result.materialCosts,
           totalCost: result.totalCost,
           fineAggregateBreakdown: result.fineAggregateBreakdown,
@@ -245,7 +262,7 @@ module.exports = {
       return {
         success: true,
         type: 'mix_design',
-        data: result,
+        data: { ...result, materialDetails },
         draftId,
         suggestions: ['是否需要成本优化？', '是否需要规范审查？']
       }

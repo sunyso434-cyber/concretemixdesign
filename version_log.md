@@ -1,5 +1,22 @@
 # 版本更新记录
 
+## 打包记录 (2026-06-09 修复材料ID和价格丢失bug 4.4.2)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.2**
+- **输出目录**: `dist-4.4.2/`
+- **修复内容**:
+  - **配合比保存到基准库后，材料ID和价格丢失** - 修复calculate_mix_design返回结果中缺少materialDetails字段
+    - `mix-design.js` - 在返回结果中添加materialDetails字段，包含材料的id、name、price
+    - `save-to-basic-mix.js` - 重构buildMaterialsArray函数，正确从materialDetails中提取材料信息
+
+- **问题根因**:
+  - `calculate_mix_design`返回的`result`对象中只有`materials`（用量）和`materialCosts`（成本），没有`materialDetails`
+  - `save-to-basic-mix.js`中`d.materialDetails`为空对象，导致无法获取材料ID和价格
+
+---
+
 ## 打包记录 (2026-06-09 修复报价计算"水泥没有单价"bug 4.4.2)
 
 - **命令**: `npm run electron:build`

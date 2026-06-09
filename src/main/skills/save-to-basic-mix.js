@@ -63,53 +63,74 @@ module.exports = {
       const coarseBreakdown = d.coarseAggregateBreakdown || []
 
       // 2. 将材料对象转换为 BasicMixDesign 所需的数组格式
-      // 获取所有材料以获取价格信息
-      const allMaterials = await materialService.getAllMaterials()
-      const materialPriceMap = {}
-      allMaterials.forEach(m => { materialPriceMap[m.id] = m.price })
-
       const buildMaterialsArray = async (mats, sel, fineBd, coarseBd) => {
         const arr = []
-        const findName = (key, fallback) => {
-          if (sel && sel[key] && typeof sel[key] === 'object') return sel[key].name || sel[key]
-          if (sel && sel[key] && typeof sel[key] === 'string') return sel[key]
-          return fallback || key
+
+        // 从 materialDetails 中提取材料信息（id, name, price）
+        const getMaterialInfo = (key, fallbackName) => {
+          const info = sel[key]
+          if (info && typeof info === 'object' && !Array.isArray(info)) {
+            return {
+              id: info.id || null,
+              name: info.name || fallbackName,
+              price: info.price != null ? Number(info.price) : null
+            }
+          }
+          return { id: null, name: fallbackName, price: null }
         }
-        const findId = (key) => {
-          if (sel && sel[key] && typeof sel[key] === 'object') return sel[key].id
-          return null
+
+        const pushIf = (cond, type, key, fallbackName, usage) => {
+          if (cond) {
+            const info = getMaterialInfo(key, fallbackName)
+            arr.push({ materialId: info.id, materialType: type, materialName: info.name, usage, price: info.price })
+          }
         }
-        const findPrice = (id) => {
-          if (id && materialPriceMap[id] != null) return materialPriceMap[id]
-          return null
-        }
-        const pushIf = (cond, type, name, usage, id = null) => {
-          if (cond) arr.push({ materialId: id, materialType: type, materialName: name, usage, price: findPrice(id) })
-        }
-        pushIf(mats.cement != null, '水泥', findName('cement', '水泥'), mats.cement, findId('cement'))
-        pushIf(mats.flyAsh != null && mats.flyAsh > 0, '粉煤灰', findName('flyAsh', '粉煤灰'), mats.flyAsh, findId('flyAsh'))
-        pushIf(mats.slag != null && mats.slag > 0, '矿渣粉', findName('slag', '矿渣粉'), mats.slag, findId('slag'))
-        pushIf(mats.lithiumSlag != null && mats.lithiumSlag > 0, '锂渣', findName('lithiumSlag', '锂渣'), mats.lithiumSlag, findId('lithiumSlag'))
-        pushIf(mats.compositePowder != null && mats.compositePowder > 0, '复合粉', findName('compositePowder', '复合粉'), mats.compositePowder, findId('compositePowder'))
-        pushIf(mats.superplasticizer != null && mats.superplasticizer > 0, '减水剂', findName('superplasticizer', '减水剂'), mats.superplasticizer, findId('superplasticizer'))
+
+        pushIf(mats.cement != null, '水泥', 'cement', '水泥', mats.cement)
+        pushIf(mats.flyAsh != null && mats.flyAsh > 0, '粉煤灰', 'flyAsh', '粉煤灰', mats.flyAsh)
+        pushIf(mats.slag != null && mats.slag > 0, '矿渣粉', 'slag', '矿渣粉', mats.slag)
+        pushIf(mats.lithiumSlag != null && mats.lithiumSlag > 0, '锂渣', 'lithiumSlag', '锂渣', mats.lithiumSlag)
+        pushIf(mats.compositePowder != null && mats.compositePowder > 0, '复合粉', 'compositePowder', '复合粉', mats.compositePowder)
+        pushIf(mats.superplasticizer != null && mats.superplasticizer > 0, '减水剂', 'superplasticizer', '减水剂', mats.superplasticizer)
 
         // 细骨料：优先用 breakdown，否则用 sand
         if (fineBd && fineBd.length > 0) {
-          fineBd.forEach((f, i) => arr.push({ materialId: f.id || null, materialType: '细骨料', materialName: f.name || `细骨料${i + 1}`, usage: f.amount, price: findPrice(f.id) }))
+          fineBd.forEach((f, i) => {
+            arr.push({ materialId: f.id || null, materialType: '细骨料', materialName: f.name || `细骨料${i + 1}`, usage: f.amount, price: f.price || null })
+          })
         } else if (mats.sand != null && mats.sand > 0) {
-          arr.push({ materialId: findId('sand'), materialType: '细骨料', materialName: findName('sand', '细骨料'), usage: mats.sand, price: findPrice(findId('sand')) })
+          const info = getMaterialInfo('sand', '细骨料')
+          // 处理数组形式的砂
+          if (Array.isArray(sel.sand) && sel.sand.length > 0) {
+            sel.sand.forEach((s, i) => {
+              arr.push({ materialId: s.id || null, materialType: '细骨料', materialName: s.name || `细骨料${i + 1}`, usage: mats.sand / sel.sand.length, price: s.price || null })
+            })
+          } else {
+            arr.push({ materialId: info.id, materialType: '细骨料', materialName: info.name, usage: mats.sand, price: info.price })
+          }
         }
 
         // 粗骨料：优先用 breakdown，否则用 stone
         if (coarseBd && coarseBd.length > 0) {
-          coarseBd.forEach((c, i) => arr.push({ materialId: c.id || null, materialType: '粗骨料', materialName: c.name || `粗骨料${i + 1}`, usage: c.amount, price: findPrice(c.id) }))
+          coarseBd.forEach((c, i) => {
+            arr.push({ materialId: c.id || null, materialType: '粗骨料', materialName: c.name || `粗骨料${i + 1}`, usage: c.amount, price: c.price || null })
+          })
         } else if (mats.stone != null && mats.stone > 0) {
-          arr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone, price: findPrice(findId('stone')) })
+          const info = getMaterialInfo('stone', '粗骨料')
+          // 处理数组形式的石
+          if (Array.isArray(sel.stone) && sel.stone.length > 0) {
+            sel.stone.forEach((s, i) => {
+              arr.push({ materialId: s.id || null, materialType: '粗骨料', materialName: s.name || `粗骨料${i + 1}`, usage: mats.stone / sel.stone.length, price: s.price || null })
+            })
+          } else {
+            arr.push({ materialId: info.id, materialType: '粗骨料', materialName: info.name, usage: mats.stone, price: info.price })
+          }
         }
 
         // 水
         if (mats.water != null && mats.water > 0) {
-          const waterMat = allMaterials.find(m => m.type === '水' || m.name === '水')
+          const allMats = await materialService.getAllMaterials()
+          const waterMat = allMats.find(m => m.type === '水' || m.name === '水')
           arr.push({ materialId: waterMat?.id || null, materialType: '水', materialName: '水', usage: mats.water, price: null })
         }
         return arr
