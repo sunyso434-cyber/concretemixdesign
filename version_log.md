@@ -1,3 +1,17 @@
+
+## v4.4.3 (2026-06-09)
+
+### Bug修复
+- **修复连续对话第二次消息需发两次的bug**：`messageTrimmer.trim()` 函数在拼接消息时将所有中间消息插入到固定位置（index 1），导致 tool 消息出现在其对应 assistant(tool_calls) 消息之前，违反 DeepSeek API 格式要求，API 返回 400 错误
+  - 新增 `origIndexMap` 记录原始消息位置
+  - 将 `kept.splice(1, 0, m)` 改为 `kept.push(m)`
+  - 最后按原始顺序排序恢复正确消息顺序
+
+**构建输出**：`混凝土配合比设计软件 Setup 4.4.3.exe` (241.9 MB) / `混凝土配合比设计软件-4.4.3-x64.exe` (241.3 MB)
+
+### 修改文件
+- `src/main/agent/messageTrimmer.js`：修复 trim() 消息顺序错乱
+- `package.json`：版本号 bump 至 4.4.3
 # 版本更新记录
 
 ## 打包记录 (2026-06-09 修复Agent状态卡死问题 4.4.2)
@@ -1341,6 +1355,8 @@ ad50a90 chore(agent): 删 ContextProvider.js + 清理 agentHandler fallback（�
 - `EXTRACT_SYSTEM_PROMPT` 在模块顶层定义了，但从未传给 DeepSeek API
 - 修复：`extractClausesFromChunk` 调用 chat 时传入 `systemPrompt: EXTRACT_SYSTEM_PROMPT`
 
+**构建输出**：`混凝土配合比设计软件 Setup 4.4.3.exe` (241.9 MB) / `混凝土配合比设计软件-4.4.3-x64.exe` (241.3 MB)
+
 ### 修改文件
 - `src/main/services/EmbeddingService.js`
 - `src/main/services/DeepSeekService.js`
@@ -1374,6 +1390,8 @@ ad50a90 chore(agent): 删 ContextProvider.js + 清理 agentHandler fallback（�
 4. **进度阶段简化**：移除 MinerU 阶段，简化为 文本分块 → AI提取 → 向量计算 → 保存
 5. **不再需要 MinerU Token**，无需任何第三方 API 配置
 
+**构建输出**：`混凝土配合比设计软件 Setup 4.4.3.exe` (241.9 MB) / `混凝土配合比设计软件-4.4.3-x64.exe` (241.3 MB)
+
 ### 修改文件
 - `src/main/services/StandardKnowledgeService.js`
 - `src/main/ipcHandlers/complianceHandler.js`
@@ -1398,6 +1416,8 @@ ad50a90 chore(agent): 删 ContextProvider.js + 清理 agentHandler fallback（�
   - 删除无用的 `CHECK_TYPE_FIELD_MAP` 死代码
   - `_extractParamValues` 补充 `strength` 和 `waterAmount` 提取
 
+**构建输出**：`混凝土配合比设计软件 Setup 4.4.3.exe` (241.9 MB) / `混凝土配合比设计软件-4.4.3-x64.exe` (241.3 MB)
+
 ### 修改文件
 - `src/main/services/EmbeddingService.js`
 - `src/main/services/StandardComplianceService.js`
@@ -1418,6 +1438,8 @@ ad50a90 chore(agent): 删 ContextProvider.js + 清理 agentHandler fallback（�
 6. **降级策略**：模型缺失时返回友好错误信息，部分模型缺失时仅返回可预测指标
 7. **置信度判断**：根据特征是否超出训练范围自动标注高/中/低置信度
 8. **Python训练脚本**：供应商用训练工具，支持交叉验证、模型导出、特征统计
+
+**构建输出**：`混凝土配合比设计软件 Setup 4.4.3.exe` (241.9 MB) / `混凝土配合比设计软件-4.4.3-x64.exe` (241.3 MB)
 
 ### 修改文件
 - `main.js`：注册xgboostPredictionHandler

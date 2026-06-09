@@ -74,6 +74,13 @@ function trim(messages, { tokenBudget = 30000 } = {}) {
   const reservedSet = new Set([system, ...lastRounds].filter(Boolean))
   const middle = messages.filter(m => !reservedSet.has(m))
 
+  // 记录每条消息在原始数组中的位置，用于最后恢复正确顺序
+  // DeepSeek API 要求 tool 消息必须出现在对应的 assistant(tool_calls) 之后
+  const origIndexMap = new Map()
+  for (let i = 0; i < messages.length; i++) {
+    origIndexMap.set(messages[i], i)
+  }
+
   // 3. 累计 token
   const reserved = [system, ...lastRounds].filter(Boolean)
   let totalTokens = reserved.reduce((sum, m) => sum + estimateTokens(m), 0)
@@ -99,7 +106,7 @@ function trim(messages, { tokenBudget = 30000 } = {}) {
           const truncated = (m.content || '').startsWith('{') || (m.content || '').startsWith('[')
             ? safeTruncateJson(m.content, maxChars)
             : safeTruncateString(m.content, maxChars)
-          kept.splice(1, 0, { ...m, content: truncated })
+          kept.push({ ...m, content: truncated })
           totalTokens += Math.ceil(truncated.length / CHARS_PER_TOKEN_ZH)
           if (origIdx >= 0) keptOrigIndices.add(origIdx)
         }
@@ -107,13 +114,13 @@ function trim(messages, { tokenBudget = 30000 } = {}) {
       }
       // 其他类型不截，直接丢
     } else {
-      kept.splice(1, 0, m)
+      kept.push(m)
       totalTokens += tokens
       if (origIdx >= 0) keptOrigIndices.add(origIdx)
     }
   }
 
-  // 4. ⚠️ 后处理：确保所有 tool 消息的父 assistant 也在 kept 中
+  // 4. 后处理：确保所有 tool 消息的父 assistant 也在 kept 中
   // 如果 tool 的父 assistant 被丢掉了，需要补回来，否则 API 400
   for (let i = 0; i < kept.length; i++) {
     const msg = kept[i]
@@ -137,6 +144,10 @@ function trim(messages, { tokenBudget = 30000 } = {}) {
       }
     }
   }
+
+  // 4.5 按原始顺序排序：修复 push() 拼装导致的 tool/assistant 顺序错乱
+  // DeepSeek API 硬性要求 tool 消息在对应 assistant(tool_calls) 之后
+  kept.sort((a, b) => (origIndexMap.get(a) ?? Infinity) - (origIndexMap.get(b) ?? Infinity))
 
   errorHandler.warn('truncate', { originalCount: messages.length, keptCount: kept.length, totalTokens })
   return kept
