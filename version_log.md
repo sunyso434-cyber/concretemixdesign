@@ -1,5 +1,26 @@
 # 版本更新记录
 
+## 打包记录 (2026-06-09 修复报价计算"水泥没有单价"bug 4.4.2)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.2**
+- **输出目录**: `dist-4.4.2/`
+- **构建产物**:
+  - `dist-4.4.2/混凝土配合比设计软件 Setup 4.4.2.exe`（NSIS 安装包）
+  - `dist-4.4.2/混凝土配合比设计软件-4.4.2-x64.exe`（便携版）
+- **修复内容**:
+  - **报价计算失败"水泥没有单价"** - 修复保存配合比到基准库时材料价格丢失的问题
+    - `BasicMixDesignService.js` - normalizeMaterials函数增加price字段保存
+    - `MixDesignToQuoteService.js` - formatMixDesignToBasicMix函数增加price字段传递
+    - `save-to-basic-mix.js` - buildMaterialsArray函数增加price字段，从材料库获取价格
+
+- **问题根因**:
+  - 配合比设计结果保存到基准库时，只保存了`materialId, materialType, materialName, usage`，没有保存`price`
+  - 当调用`calculate_sales_quote`计算报价时，`getMaterialPrice`函数找不到`material.price`，抛出"没有单价"错误
+
+---
+
 ## 打包记录 (2026-06-09 聊天界面三个问题修复 4.4.2)
 
 - **命令**: `npm run electron:build`

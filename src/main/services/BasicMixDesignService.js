@@ -8,7 +8,8 @@ function normalizeMaterials(materials) {
     materialId: item.materialId,
     materialType: item.materialType,
     materialName: item.materialName,
-    usage: Number(item.usage)
+    usage: Number(item.usage),
+    price: item.price != null ? Number(item.price) : null
   }))
 }
 

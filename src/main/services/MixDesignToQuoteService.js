@@ -32,7 +32,8 @@ class MixDesignToQuoteService {
       materialId: mat.materialId || mat.id,
       materialType: mat.materialType || mat.type,
       materialName: mat.materialName || mat.name,
-      usage: Number(mat.usage || mat.amount || 0)
+      usage: Number(mat.usage || mat.amount || 0),
+      price: mat.price != null ? Number(mat.price) : null
     }))
 
     // 验证材料用量

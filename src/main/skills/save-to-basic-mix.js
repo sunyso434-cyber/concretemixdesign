@@ -63,6 +63,11 @@ module.exports = {
       const coarseBreakdown = d.coarseAggregateBreakdown || []
 
       // 2. 将材料对象转换为 BasicMixDesign 所需的数组格式
+      // 获取所有材料以获取价格信息
+      const allMaterials = await materialService.getAllMaterials()
+      const materialPriceMap = {}
+      allMaterials.forEach(m => { materialPriceMap[m.id] = m.price })
+
       const buildMaterialsArray = async (mats, sel, fineBd, coarseBd) => {
         const arr = []
         const findName = (key, fallback) => {
@@ -74,8 +79,12 @@ module.exports = {
           if (sel && sel[key] && typeof sel[key] === 'object') return sel[key].id
           return null
         }
+        const findPrice = (id) => {
+          if (id && materialPriceMap[id] != null) return materialPriceMap[id]
+          return null
+        }
         const pushIf = (cond, type, name, usage, id = null) => {
-          if (cond) arr.push({ materialId: id, materialType: type, materialName: name, usage })
+          if (cond) arr.push({ materialId: id, materialType: type, materialName: name, usage, price: findPrice(id) })
         }
         pushIf(mats.cement != null, '水泥', findName('cement', '水泥'), mats.cement, findId('cement'))
         pushIf(mats.flyAsh != null && mats.flyAsh > 0, '粉煤灰', findName('flyAsh', '粉煤灰'), mats.flyAsh, findId('flyAsh'))
@@ -86,23 +95,22 @@ module.exports = {
 
         // 细骨料：优先用 breakdown，否则用 sand
         if (fineBd && fineBd.length > 0) {
-          fineBd.forEach((f, i) => arr.push({ materialId: f.id || null, materialType: '细骨料', materialName: f.name || `细骨料${i + 1}`, usage: f.amount }))
+          fineBd.forEach((f, i) => arr.push({ materialId: f.id || null, materialType: '细骨料', materialName: f.name || `细骨料${i + 1}`, usage: f.amount, price: findPrice(f.id) }))
         } else if (mats.sand != null && mats.sand > 0) {
-          arr.push({ materialId: findId('sand'), materialType: '细骨料', materialName: findName('sand', '细骨料'), usage: mats.sand })
+          arr.push({ materialId: findId('sand'), materialType: '细骨料', materialName: findName('sand', '细骨料'), usage: mats.sand, price: findPrice(findId('sand')) })
         }
 
         // 粗骨料：优先用 breakdown，否则用 stone
         if (coarseBd && coarseBd.length > 0) {
-          coarseBd.forEach((c, i) => arr.push({ materialId: c.id || null, materialType: '粗骨料', materialName: c.name || `粗骨料${i + 1}`, usage: c.amount }))
+          coarseBd.forEach((c, i) => arr.push({ materialId: c.id || null, materialType: '粗骨料', materialName: c.name || `粗骨料${i + 1}`, usage: c.amount, price: findPrice(c.id) }))
         } else if (mats.stone != null && mats.stone > 0) {
-          arr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone })
+          arr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone, price: findPrice(findId('stone')) })
         }
 
         // 水
         if (mats.water != null && mats.water > 0) {
-          const allMats = await materialService.getAllMaterials()
-          const waterMat = allMats.find(m => m.type === '水' || m.name === '水')
-          arr.push({ materialId: waterMat?.id || null, materialType: '水', materialName: '水', usage: mats.water })
+          const waterMat = allMaterials.find(m => m.type === '水' || m.name === '水')
+          arr.push({ materialId: waterMat?.id || null, materialType: '水', materialName: '水', usage: mats.water, price: null })
         }
         return arr
       }
