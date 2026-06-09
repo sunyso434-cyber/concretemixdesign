@@ -37,12 +37,12 @@ describe('buildHistoryMessages (spec 8.1 回归测试)', () => {
 
     expect(msgs).toHaveLength(3)
     expect(msgs[0]).toMatchObject({ role: 'user', content: '帮我算C30' })
-    expect(msgs[1]).toMatchObject({
+    expect(msgs[1]).toEqual({
       role: 'assistant',
       content: null,
-      tool_calls: [{ id: 'call_1' }]
+      tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'calc', arguments: '{}' } }]
     })
-    expect(msgs[2]).toMatchObject({
+    expect(msgs[2]).toEqual({
       role: 'tool',
       content: '{"result":1}',
       tool_call_id: 'call_1'
