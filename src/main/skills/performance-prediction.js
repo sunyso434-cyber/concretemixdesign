@@ -10,21 +10,31 @@ module.exports = {
   category: 'analysis',
 
   parameters: {
-    cementId: {
-      type: 'integer',
-      description: '水泥材料ID',
-      required: true
-    },
-    sandId: {
-      type: 'integer',
-      description: '细骨料材料ID',
-      required: true
-    },
-    stoneId: {
-      type: 'integer',
-      description: '粗骨料材料ID',
-      required: true
-    }
+    cementAmount: { type: 'number', description: '水泥用量(kg/m³)', required: true },
+    waterBinderRatio: { type: 'number', description: '水胶比', required: true },
+    cementId: { type: 'integer', description: '水泥材料ID', required: true },
+    sandId: { type: 'integer', description: '细骨料材料ID', required: true },
+    stoneId: { type: 'integer', description: '粗骨料材料ID', required: true },
+    flyAshDosage: { type: 'number', description: '粉煤灰掺量(%)' },
+    slagDosage: { type: 'number', description: '矿渣粉掺量(%)' },
+    lithiumSlagDosage: { type: 'number', description: '锂渣掺量(%)' },
+    compositePowderDosage: { type: 'number', description: '复合粉掺量(%)' },
+    sandRatio: { type: 'number', description: '砂率(%)' },
+    superplasticizerDosage: { type: 'number', description: '减水剂掺量(%)' },
+    flyAshId: { type: 'integer', description: '粉煤灰材料ID' },
+    slagId: { type: 'integer', description: '矿渣粉材料ID' },
+    lithiumSlagId: { type: 'integer', description: '锂渣材料ID' },
+    compositePowderId: { type: 'integer', description: '复合粉材料ID' },
+    superplasticizerId: { type: 'integer', description: '减水剂材料ID' },
+    flyAshAmount: { type: 'number', description: '粉煤灰用量(kg/m³)' },
+    slagAmount: { type: 'number', description: '矿渣粉用量(kg/m³)' },
+    waterAmount: { type: 'number', description: '用水量(kg/m³)' },
+    sandAmount: { type: 'number', description: '砂用量(kg/m³)' },
+    stoneAmount: { type: 'number', description: '石用量(kg/m³)' },
+    superplasticizerAmount: { type: 'number', description: '减水剂用量(kg/m³)' },
+    temperature: { type: 'number', description: '养护温度(℃)' },
+    humidity: { type: 'number', description: '养护湿度(%)' },
+    curingAge: { type: 'number', description: '养护龄期(天)' }
   },
 
   errors: {

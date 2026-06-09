@@ -401,10 +401,16 @@ const executeToolCall = async (toolName, args) => {
 
     case 'predict_performance': {
       const XGBoostPredictionService = require('../services/XGBoostPredictionService')
+      const MixFormatConverter = require('../services/MixFormatConverter')
       const predRequiredParams = ['cementId', 'sandId', 'stoneId']
       const predMissing = predRequiredParams.filter(p => args[p] === undefined || args[p] === null)
       if (predMissing.length > 0) {
         return { success: false, missingParams: predMissing, hint: `缺少必填参数: ${predMissing.join(', ')}，请向用户追问。` }
+      }
+      // 如果传入配合比计算结果的 materials 格式，自动转换为模型所需参数格式
+      if (args.materials && !args.cementAmount) {
+        const converted = MixFormatConverter.mixDesignResultToPredictionInput(args)
+        args = { ...args, ...converted }
       }
       return await XGBoostPredictionService.predict(args)
     }
@@ -609,7 +615,11 @@ const executeToolCall = async (toolName, args) => {
 
             // 通过materialId获取price
             if (item.materialId != null) {
-              return { ...item, price: pricesById.get(item.materialId) }
+              const lookedUpPrice = pricesById.get(item.materialId)
+              if (lookedUpPrice != null) {
+                return { ...item, price: lookedUpPrice }
+              }
+              // 查不到价，继续尝试名称匹配
             }
 
             // 水特殊处理
@@ -684,6 +694,18 @@ const executeToolCall = async (toolName, args) => {
       const selected = d.materialDetails || {}
       const fineBreakdown = d.fineAggregateBreakdown || []
       const coarseBreakdown = d.coarseAggregateBreakdown || []
+      // 细/粗骨料价格辅助查询（materialDetails中sand/stone可能是数组）
+      const findAggPrice = (key, aggId) => {
+        const val = selected[key]
+        if (!val || aggId == null) return undefined
+        const arr = Array.isArray(val) ? val : [val]
+        const found = arr.find(a => String(a.id) === String(aggId))
+        return found ?.price
+      }
+      const findMatPrice = (key) => {
+        if (selected && selected[key] && typeof selected[key] === 'object') return selected[key].price
+        return undefined
+      }
       // 将 materials 对象转换为 BasicMixDesign 所需的数组格式
       const buildMaterialsArray = async (mats, sel, fineBd, coarseBd) => {
         const arr = []
@@ -696,27 +718,27 @@ const executeToolCall = async (toolName, args) => {
           if (sel && sel[key] && typeof sel[key] === 'object') return sel[key].id
           return null
         }
-        if (mats.cement != null) arr.push({ materialId: findId('cement'), materialType: '水泥', materialName: findName('cement', '水泥'), usage: mats.cement })
-        if (mats.flyAsh != null && mats.flyAsh > 0) arr.push({ materialId: findId('flyAsh'), materialType: '粉煤灰', materialName: findName('flyAsh', '粉煤灰'), usage: mats.flyAsh })
-        if (mats.slag != null && mats.slag > 0) arr.push({ materialId: findId('slag'), materialType: '矿渣粉', materialName: findName('slag', '矿渣粉'), usage: mats.slag })
-        if (mats.lithiumSlag != null && mats.lithiumSlag > 0) arr.push({ materialId: findId('lithiumSlag'), materialType: '锂渣', materialName: findName('lithiumSlag', '锂渣'), usage: mats.lithiumSlag })
-        if (mats.compositePowder != null && mats.compositePowder > 0) arr.push({ materialId: findId('compositePowder'), materialType: '复合粉', materialName: findName('compositePowder', '复合粉'), usage: mats.compositePowder })
-        if (mats.superplasticizer != null && mats.superplasticizer > 0) arr.push({ materialId: findId('superplasticizer'), materialType: '减水剂', materialName: findName('superplasticizer', '减水剂'), usage: mats.superplasticizer })
+        if (mats.cement != null) arr.push({ materialId: findId('cement'), materialType: '水泥', materialName: findName('cement', '水泥'), usage: mats.cement, price: findMatPrice('cement') })
+        if (mats.flyAsh != null && mats.flyAsh > 0) arr.push({ materialId: findId('flyAsh'), materialType: '粉煤灰', materialName: findName('flyAsh', '粉煤灰'), usage: mats.flyAsh, price: findMatPrice('flyAsh') })
+        if (mats.slag != null && mats.slag > 0) arr.push({ materialId: findId('slag'), materialType: '矿渣粉', materialName: findName('slag', '矿渣粉'), usage: mats.slag, price: findMatPrice('slag') })
+        if (mats.lithiumSlag != null && mats.lithiumSlag > 0) arr.push({ materialId: findId('lithiumSlag'), materialType: '锂渣', materialName: findName('lithiumSlag', '锂渣'), usage: mats.lithiumSlag, price: findMatPrice('lithiumSlag') })
+        if (mats.compositePowder != null && mats.compositePowder > 0) arr.push({ materialId: findId('compositePowder'), materialType: '复合粉', materialName: findName('compositePowder', '复合粉'), usage: mats.compositePowder, price: findMatPrice('compositePowder') })
+        if (mats.superplasticizer != null && mats.superplasticizer > 0) arr.push({ materialId: findId('superplasticizer'), materialType: '减水剂', materialName: findName('superplasticizer', '减水剂'), usage: mats.superplasticizer, price: findMatPrice('superplasticizer') })
         // 细骨料
         if (fineBd && fineBd.length > 0) {
-          fineBd.forEach((f, i) => arr.push({ materialId: f.id || null, materialType: '细骨料', materialName: f.name || `细骨料${i + 1}`, usage: f.amount }))
+          fineBd.forEach((f, i) => arr.push({ materialId: f.id || null, materialType: '细骨料', materialName: f.name || `细骨料${i + 1}`, usage: f.amount, price: findAggPrice('sand', f.id) }))
         } else if (mats.sand != null && mats.sand > 0) {
-          arr.push({ materialId: findId('sand'), materialType: '细骨料', materialName: findName('sand', '细骨料'), usage: mats.sand })
+          arr.push({ materialId: findId('sand'), materialType: '细骨料', materialName: findName('sand', '细骨料'), usage: mats.sand, price: findAggPrice('sand', findId('sand')) })
         }
         // 粗骨料
         if (coarseBd && coarseBd.length > 0) {
-          coarseBd.forEach((c, i) => arr.push({ materialId: c.id || null, materialType: '粗骨料', materialName: c.name || `粗骨料${i + 1}`, usage: c.amount }))
+          coarseBd.forEach((c, i) => arr.push({ materialId: c.id || null, materialType: '粗骨料', materialName: c.name || `粗骨料${i + 1}`, usage: c.amount, price: findAggPrice('stone', c.id) }))
         } else if (mats.stone != null && mats.stone > 0) {
-          arr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone })
+          arr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone, price: findAggPrice('stone', findId('stone')) })
         }
         if (mats.water != null && mats.water > 0) {
           const waterMat = await Material.findOne({ where: { type: '其他', name: '水' } })
-          arr.push({ materialId: waterMat?.id || null, materialType: '水', materialName: '水', usage: mats.water })
+          arr.push({ materialId: waterMat?.id || null, materialType: '水', materialName: '水', usage: mats.water, price: waterMat?.price })
         }
         return arr
       }

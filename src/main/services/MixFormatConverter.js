@@ -99,6 +99,33 @@ class MixFormatConverter {
     ]
     return massKeys.some((key) => key in params && params[key] !== undefined && params[key] !== null)
   }
+
+  /**
+   * 将 calculate_mix_design 返回的配合比结果格式转换为预测模型所需格式
+   * 输入: { materials: { cement: 292, flyAsh: 51, sand: 856, ... }, waterRatio: 0.45, sandRatio: 0.38, ... }
+   * 输出: { cementAmount: 292, flyAshAmount: 51, sandAmount: 856, waterBinderRatio: 0.45, sandRatio: 38, ... }
+   */
+  mixDesignResultToPredictionInput(input) {
+    if (!input || typeof input !== 'object') return input
+    const { materials, waterRatio, sandRatio, ...rest } = input
+    const result = { ...rest }
+
+    if (materials && typeof materials === 'object') {
+      if (materials.cement != null) result.cementAmount = materials.cement
+      if (materials.flyAsh != null) result.flyAshAmount = materials.flyAsh
+      if (materials.slag != null) result.slagAmount = materials.slag
+      if (materials.lithiumSlag != null) result.lithiumSlagAmount = materials.lithiumSlag
+      if (materials.compositePowder != null) result.compositePowderAmount = materials.compositePowder
+      if (materials.sand != null) result.sandAmount = materials.sand
+      if (materials.stone != null) result.stoneAmount = materials.stone
+      if (materials.water != null) result.waterAmount = materials.water
+      if (materials.superplasticizer != null) result.superplasticizerAmount = materials.superplasticizer
+    }
+    if (waterRatio != null && result.waterBinderRatio == null) result.waterBinderRatio = waterRatio
+    if (sandRatio != null && result.sandRatio == null) result.sandRatio = (sandRatio > 1 ? sandRatio : sandRatio * 100)
+
+    return result
+  }
 }
 
 module.exports = new MixFormatConverter()
