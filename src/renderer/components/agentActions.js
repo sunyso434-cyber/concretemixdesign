@@ -3,12 +3,13 @@
  * - sendMessage / abortAgent / loadSessionList / switchSession / createSession
  * - useAssistantPersistence: 监听 agent.status 变化自动持久化到 DB
  *
- * 注意：本文件使用 CommonJS（require）以与 agentStoreCore.js 保持一致，
- * 避免 "type": "commonjs" 项目下 ESM/CJS 混用导致 Jest 解析失败。
+ * 导出风格：ESM（export const/function）
+ * - Vite/React 端用 `import { ... } from './agentActions'`
+ * - Jest 端通过 babel-jest (babel.config.js) 自动转 CJS
  */
 
-const { useEffect, useRef } = require('react')
-const { useAgentStore } = require('./AgentStore')
+import { useEffect, useRef } from 'react'
+import { useAgentStore } from './AgentStore'
 
 /**
  * 生成 sessionId：时间戳 + 随机后缀，避免快速点击重复
@@ -25,7 +26,7 @@ function newSessionId() {
  * @param {string} args.message - 用户消息
  * @param {string} [args.runMode] - 运行模式 auto | collaborative
  */
-async function sendMessage({ dispatch, sessionId, message, runMode }) {
+export async function sendMessage({ dispatch, sessionId, message, runMode }) {
   if (!message || !message.trim()) return
 
   // 0. 生成 requestId（调用方生成，spec 4.1）
@@ -72,7 +73,7 @@ async function sendMessage({ dispatch, sessionId, message, runMode }) {
  * @param {Function} args.dispatch - reducer 的 dispatch
  * @param {string} [args.requestId] - 当前请求 ID（用于后端终止）
  */
-function abortAgent({ dispatch, requestId }) {
+export function abortAgent({ dispatch, requestId }) {
   if (requestId) {
     window.electronAPI.invoke('agent:abort', { requestId }).catch(() => {})
   }
@@ -85,7 +86,7 @@ function abortAgent({ dispatch, requestId }) {
  * @param {Function} args.dispatch - reducer 的 dispatch
  * @returns {Promise<Array>} 会话列表
  */
-async function loadSessionList({ dispatch }) {
+export async function loadSessionList({ dispatch }) {
   try {
     const r = await window.electronAPI.invoke('agent:listSessions')
     if (r && r.sessions) {
@@ -104,7 +105,7 @@ async function loadSessionList({ dispatch }) {
  * @param {Function} args.dispatch - reducer 的 dispatch
  * @param {string} args.sessionId - 目标会话 ID
  */
-async function switchSession({ dispatch, sessionId }) {
+export async function switchSession({ dispatch, sessionId }) {
   dispatch({ type: 'RESET_AGENT' })
 
   try {
@@ -133,7 +134,7 @@ async function switchSession({ dispatch, sessionId }) {
  * @param {Object} args
  * @param {Function} args.dispatch - reducer 的 dispatch
  */
-function createSession({ dispatch }) {
+export function createSession({ dispatch }) {
   const newId = newSessionId()
   dispatch({ type: 'SET_SESSION_ID', payload: newId })
   dispatch({ type: 'CLEAR_MESSAGES' })
@@ -159,7 +160,7 @@ function createSession({ dispatch }) {
  *   3. 初始挂载时错误触发（lastStatusRef.current 是 null，不是工作态）
  * - 终态本身不发持久化（done→done 不触发；aborted→aborted 不触发）
  */
-function useAssistantPersistence() {
+export function useAssistantPersistence() {
   const { state } = useAgentStore()
   const lastStatusRef = useRef(null)
 
@@ -197,13 +198,4 @@ function useAssistantPersistence() {
       stopReason
     }).catch(e => console.error('持久化 assistant 消息失败:', e))
   }, [state.agent.status, state.messages, state.session.currentId, state.agent.timeline])
-}
-
-module.exports = {
-  sendMessage,
-  abortAgent,
-  loadSessionList,
-  switchSession,
-  createSession,
-  useAssistantPersistence
 }

@@ -47,8 +47,10 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@babel/preset-env": "^7.29.7",
     "@electron/rebuild": "^4.0.3",
     "@vitejs/plugin-react": "^4.2.1",
+    "babel-jest": "^30.4.1",
     "cross-env": "^10.1.0",
     "electron": "^28.3.3",
     "electron-builder": "^24.9.1",

@@ -1510,3 +1510,16 @@ ad50a90 chore(agent): 删 ContextProvider.js + 清理 agentHandler fallback（�
 **依赖：** 无新增（spec 11 明确不引入 Zustand 等）
 
 **前置依赖：** v4.4.x — 6/5 tool_call 协议 P0 修复必须先合入
+
+---
+
+**v4.4.1 打包记录（2026-06-09）**
+- 修复构建失败：装 `babel-jest` + `@babel/preset-env` + 新建 `babel.config.js`
+- `agentStoreCore.js` + `agentActions.js` 从 CJS (`module.exports`) 改 ESM (`export const/function`)
+- `MemorySidebar.jsx` 内部 `require()` 改 `import`
+- 验证：jest 23/23 suites / 140/140 tests 全过
+- 验证：vite build + electron-builder 成功
+- 产物：
+  - `dist-4.4.1/混凝土配合比设计软件 Setup 4.4.1.exe` (~242 MB, NSIS 安装包)
+  - `dist-4.4.1/混凝土配合比设计软件-4.4.1-x64.exe` (~241 MB, portable)
+  - `dist-4.4.1/win-unpacked/` (解包目录)

@@ -4,9 +4,13 @@
  *
  * 重要：此模块严格保持纯函数，不允许任何副作用（IPC、随机、时间戳）
  * 所有副作用下沉到 agentActions.js 的 useAssistantPersistence hook
+ *
+ * 导出风格：ESM（export const）
+ * - Vite/React 端用 `import { ... } from './agentStoreCore'`
+ * - Jest 端通过 babel-jest (babel.config.js) 自动转 CJS
  */
 
-const initialState = {
+export const initialState = {
   messages: [],
   input: '',
   attachment: null,
@@ -25,7 +29,7 @@ const initialState = {
   confirmation: null
 }
 
-function mergeReplyToMessages(messages, reply, requestId, timeline, stopReason) {
+export function mergeReplyToMessages(messages, reply, requestId, timeline, stopReason) {
   // 用 `=== true` 严格匹配：历史消息的 _streaming 是 undefined（spec 6.3），
   // 不会被误判为 falsy 跳过；只有当前正在流式输出的消息才是 true
   const idx = messages.findIndex(m => m._agentRequestId === requestId && m._streaming === true)
@@ -45,7 +49,7 @@ function mergeReplyToMessages(messages, reply, requestId, timeline, stopReason) 
   return [...messages, { role: 'assistant', content: reply || '', timeline, stopReason: stopReason || null }]
 }
 
-function agentReducer(state, action) {
+export function agentReducer(state, action) {
   switch (action.type) {
     case 'SEND_MESSAGE': {
       return {
@@ -210,5 +214,3 @@ function agentReducer(state, action) {
       return state
   }
 }
-
-module.exports = { agentReducer, mergeReplyToMessages, initialState }

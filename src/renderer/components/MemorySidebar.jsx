@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Button, List, Typography, Space, Tabs, Descriptions, Popconfirm, Layout } from 'antd'
 import { HistoryOutlined, PlusOutlined, DeleteOutlined, RobotOutlined } from '@ant-design/icons'
 import { useAgentStore } from './AgentStore'
-const { createSession, switchSession, loadSessionList } = require('./agentActions')
+import { createSession, switchSession, loadSessionList } from './agentActions'
 
 const { Text } = Typography
 const { Sider } = Layout
