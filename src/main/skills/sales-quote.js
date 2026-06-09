@@ -39,6 +39,7 @@ module.exports = {
 
   async execute(args, context) {
     const { basicMixDesignService, salesQuoteCalculation, logger } = context
+    const MaterialService = require('../services/MaterialService')
     const { basicMixId, pricing } = args
 
     logger.info(`生成销售报价: basicMixId=${basicMixId}`)
@@ -48,6 +49,31 @@ module.exports = {
       const basicMix = await basicMixDesignService.findById(basicMixId)
       if (!basicMix) {
         return { success: false, error: this.errors.MIX_NOT_FOUND, details: { basicMixId } }
+      }
+
+      // 补充材料单价（基准配合比存储时可能不含 price，需从材料库查询）
+      const basicMixData = basicMix.toJSON()
+      if (basicMixData.materials && Array.isArray(basicMixData.materials)) {
+        const allMaterials = await MaterialService.getAllMaterials()
+        const materialMap = new Map(allMaterials.map(m => [m.id, m]))
+        const nameToMaterial = new Map()
+        allMaterials.forEach(m => {
+          nameToMaterial.set(m.name, m)
+          if (m.type) nameToMaterial.set(`${m.type}_${m.name}`, m)
+        })
+        basicMixData.materials = basicMixData.materials.map(mat => {
+          if (mat.price != null) return mat
+          if (mat.materialId && materialMap.has(mat.materialId)) {
+            const fullMat = materialMap.get(mat.materialId)
+            return { ...mat, price: fullMat.price }
+          }
+          const matched = nameToMaterial.get(mat.materialName) ||
+                          nameToMaterial.get(`${mat.materialType}_${mat.materialName}`)
+          if (matched) {
+            return { ...mat, materialId: matched.id, price: matched.price }
+          }
+          return mat
+        })
       }
 
       // 默认定价参数
@@ -65,7 +91,7 @@ module.exports = {
 
       // 计算报价
       const result = salesQuoteCalculation.calculate({
-        basicMix: basicMix.toJSON(),
+        basicMix: basicMixData,
         pricing: mergedPricing
       })
 
