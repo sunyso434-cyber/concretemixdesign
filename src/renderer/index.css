@@ -2231,3 +2231,42 @@ body {
   margin-bottom: 8px;
   flex-wrap: wrap;
 }
+
+/* ===== Agent Chat (智能设计助手) v4.4.1 ===== */
+
+/* 打字机光标（spec 6.2） */
+.streaming-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  animation: agent-blink 1s step-end infinite;
+  color: var(--color-primary);
+  font-weight: bold;
+}
+
+@keyframes agent-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* 停止提示（spec 7.3） */
+.stop-hint {
+  padding: 6px 12px;
+  background: var(--color-bg-elevated, #f5f5f5);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+/* 已停止标记（spec 6.1） */
+.aborted-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--color-text-secondary);
+  border-radius: 3px;
+  font-size: 11px;
+  vertical-align: middle;
+  color: var(--color-text-secondary);
+}
