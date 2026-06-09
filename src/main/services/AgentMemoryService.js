@@ -17,13 +17,12 @@ class AgentMemoryService {
    * @param {string} [params.toolCallId]  工具消息对应的 tool_call ID
    * @param {Array}  [params.toolCalls]   assistant 消息的工具调用列表
    * @param {Object} [params.metadata]    附加元数据
-   * @param {string|null} [params.stopReason]  停止原因，'aborted' 表示用户主动中止，null/undefined 表示正常完成
+   * @param {string|null} [params.stopReason]  停止原因
    *
    * 说明:
-   * - `toolCallId` 和 `toolCalls` 主要用于还原工具调用链路。本次计划中 `agent:saveMessage` IPC
-   *   只在 `DONE/ABORT` 时持久化 assistant 消息，不需要这两个字段 (assistant 消息的 tool_calls
-   *   已在 flow 中分次保存为独立的 `role: 'tool'` 消息)。但保留在 `saveMessage` 签名里以便后续扩展。
-   * - `stopReason`: 'aborted' 表示用户主动中止，null 或 undefined 表示正常完成。
+   * - `toolCallId` 和 `toolCalls` 保留在 `saveMessage` 签名里以便后续扩展
+   *   (例如持久化含 tool_calls 的 assistant 消息)。
+   * - `stopReason` 当前仅支持 `'aborted'`，其他取值会被当作 null（视为无停止原因）。
    */
   async saveMessage({ sessionId, role, content, toolCallId, toolCalls, metadata, stopReason }) {
     return ChatHistory.create({
