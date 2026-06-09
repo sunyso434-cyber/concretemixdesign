@@ -4,6 +4,7 @@ import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined,
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
+import ToolMessageBubble from './ToolMessageBubble'
 import StreamingAgentCard from './StreamingAgentCard'
 import MixDesignResultCard from './MixDesignResultCard'
 import OptimizationResultCard from './OptimizationResultCard'
@@ -186,7 +187,7 @@ function MessageContent({ item, agentStatus, agentReplyText }) {
       </div>
     )
   }
-  if (item.stopReason === 'aborted') {
+  if ((item.stopReason === 'aborted' || item.stopReason === 'error')) {
     return (
       <div className="chat-markdown-body">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
@@ -1086,14 +1087,18 @@ const SmartDesignChat = () => {
                       )}
                     </div>
                   ) : (
-                    <div className="smart-chat-bubble-user">
-                      {item.attachment && (
-                        <Tag icon={item.attachment.type === 'xlsx' ? <FileExcelOutlined /> : <FileTextOutlined />} style={{ marginBottom: 8, color: 'inherit' }}>
-                          {item.attachment.name}
-                        </Tag>
-                      )}
-                      {item.content}
-                    </div>
+                    item.role === 'tool' ? (
+                      <ToolMessageBubble content={item.content} />
+                    ) : (
+                      <div className="smart-chat-bubble-user">
+                        {item.attachment && (
+                          <Tag icon={item.attachment.type === 'xlsx' ? <FileExcelOutlined /> : <FileTextOutlined />} style={{ marginBottom: 8, color: 'inherit' }}>
+                            {item.attachment.name}
+                          </Tag>
+                        )}
+                        {item.content}
+                      </div>
+                    )
                   )}
                   {item.role === 'user' && <Avatar icon={<UserOutlined />} className="chat-avatar-user" />}
                 </Space>

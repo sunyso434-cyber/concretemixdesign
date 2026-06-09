@@ -1203,7 +1203,7 @@ class StandardComplianceService {
       .slice(0, 15)
 
     const vectorOnlySummary = vectorOnlyClauses.map(c =>
-      `[语义相关] ${c.standardName || ''} ${c.section || c.clause || ''} - ${(c.originalText || c.text || '').substring(0, 120)}`
+      `[语义相关] ${c.standardName || ''} ${c.section || c.clause || ''} - ${(c.originalText || c.text || '').substring(0, 80)}`
     ).join('\n')
 
     const manualReviewSummary = manualReviewItems.map(item =>

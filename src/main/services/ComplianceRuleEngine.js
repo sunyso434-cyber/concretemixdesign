@@ -331,7 +331,20 @@ const evaluateClauses = (rawMixDesign, rawClauses) => {
   const reviewContext = buildReviewContext(normalizedMixDesign)
   const mixDesign = reviewContext.mixDesign
   const skippedSpecialRules = []
-  const clauses = (rawClauses || []).map(clause => StandardClauseNormalizer.normalizeClause(clause))
+  const clauses = (rawClauses || []).map((clause, idx) => {
+    try {
+      return StandardClauseNormalizer.normalizeClause(clause)
+    } catch (normErr) {
+      console.error([ComplianceRuleEngine] normalizeClause # failed:, normErr.message, 'clause:', JSON.stringify(clause?.section || clause?.title || ''))
+      // 返回信息性条款作为降级，确保审查不被单条异常数据阻断
+      return {
+        ...clause,
+        clauseRole: 'informational',
+        limitRules: [],
+        _normalizeError: normErr.message
+      }
+    }
+  })
   const filteredClauseCounts = buildFilteredClauseCounts(clauses)
   const ruleResults = []
   const manualReviewItems = []

@@ -1,14 +1,28 @@
 const Material = require('../db/models/Material')
 
 class MaterialService {
+  /**
+   * 清理材料输出：移除 null/undefined/NaN 字段。
+   */
+  _cleanMaterial(obj) {
+    const cleaned = {}
+    for (const [key, value] of Object.entries(obj)) {
+      if (value === null || value === undefined) continue
+      if (typeof value === 'number' && !Number.isFinite(value)) continue
+      cleaned[key] = value
+    }
+    if (!('id' in cleaned)) cleaned.id = obj.id
+    if (!('name' in cleaned)) cleaned.name = obj.name
+    if (!('type' in cleaned)) cleaned.type = obj.type
+    return cleaned
+  }
+
   // 获取所有原材料
   async getAllMaterials() {
     try {
       const materials = await Material.findAll()
       console.log('从数据库获取到的材料数量:', materials.length)
-      console.log('材料列表:', materials.map(m => ({ id: m.id, name: m.name, type: m.type })))
-      // 将Sequelize模型实例转换为普通JavaScript对象
-      return materials.map(m => m.toJSON())
+      return materials.map(m => this._cleanMaterial(m.toJSON()))
     } catch (error) {
       console.error('获取原材料列表失败:', error)
       throw error
@@ -19,7 +33,7 @@ class MaterialService {
   async getMaterialById(id) {
     try {
       const material = await Material.findByPk(id)
-      return material ? material.toJSON() : null
+      return material ? this._cleanMaterial(material.toJSON()) : null
     } catch (error) {
       console.error('获取原材料详情失败:', error)
       throw error
@@ -30,7 +44,7 @@ class MaterialService {
   async createMaterial(data) {
     try {
       const material = await Material.create(data)
-      return material.toJSON()
+      return this._cleanMaterial(material.toJSON())
     } catch (error) {
       console.error('创建原材料失败:', error)
       throw error
@@ -45,7 +59,7 @@ class MaterialService {
         throw new Error('原材料不存在')
       }
       const updatedMaterial = await material.update(data)
-      return updatedMaterial.toJSON()
+      return this._cleanMaterial(updatedMaterial.toJSON())
     } catch (error) {
       console.error('更新原材料失败:', error)
       throw error
@@ -70,7 +84,7 @@ class MaterialService {
   async getMaterialsByType(type) {
     try {
       const materials = await Material.findAll({ where: { type } })
-      return materials.map(m => m.toJSON())
+      return materials.map(m => this._cleanMaterial(m.toJSON()))
     } catch (error) {
       console.error('根据类型获取原材料失败:', error)
       throw error
@@ -89,7 +103,7 @@ class MaterialService {
       // 先尝试精确匹配
       let material = await Material.findOne({ where: { type, name } })
       if (material) {
-        return material.toJSON()
+        return this._cleanMaterial(material.toJSON())
       }
 
       // 尝试模糊匹配 (名称包含)
@@ -104,14 +118,14 @@ class MaterialService {
 
       if (materials.length > 0) {
         // 返回第一个匹配的结果
-        return materials[0].toJSON()
+        return this._cleanMaterial(materials[0].toJSON())
       }
 
       // 尝试反向模糊匹配 (传入的名称包含数据库中的名称)
       const allMaterials = await Material.findAll({ where: { type } })
       const matched = allMaterials.find(m => name.includes(m.name))
       if (matched) {
-        return matched.toJSON()
+        return this._cleanMaterial(matched.toJSON())
       }
 
       return null
