@@ -826,12 +826,12 @@ const SmartDesignChat = () => {
   }
 
   // 发送聊天消息（统一使用 Agent 模式）
+  // 注意：user 消息的 dispatch 由 sendMessage 内部统一处理，避免重复添加
   const handleSendChat = async () => {
     if (!state.input.trim() || isAgentBusy) return
 
     const userMessage = state.input.trim()
     dispatch({ type: 'SET_INPUT', payload: '' })
-    dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: userMessage, attachment: chatState.attachment ? { name: chatState.attachment.name, type: chatState.attachment.type } : null } })
     chatState.setAttachment(null)
 
     await sendMessage({

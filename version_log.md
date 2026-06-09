@@ -1523,3 +1523,34 @@ ad50a90 chore(agent): 删 ContextProvider.js + 清理 agentHandler fallback（�
   - `dist-4.4.1/混凝土配合比设计软件 Setup 4.4.1.exe` (~242 MB, NSIS 安装包)
   - `dist-4.4.1/混凝土配合比设计软件-4.4.1-x64.exe` (~241 MB, portable)
   - `dist-4.4.1/win-unpacked/` (解包目录)
+
+---
+
+**v4.4.2 热修复（2026-06-09）**
+
+修复 v4.4.1 发现的两个 bug：
+
+**Bug 1：用户消息被重复 dispatch**
+- 位置：`SmartDesignChat.jsx:handleSendChat`
+- 现象：用户消息在 `handleSendChat` 添加一次，在 `sendMessage`（agentActions）又添加一次 → 聊天列表出现两条相同的 user 气泡 → "页面很乱"
+- 修复：删除 `handleSendChat` 里的 `dispatch ADD_MESSAGE(user)`，由 `sendMessage` 统一负责
+
+**Bug 2：`useAssistantPersistence` 找错消息**
+- 位置：`agentActions.js:useAssistantPersistence`
+- 现象：用 `state.messages[state.messages.length - 1]` 找最后一条消息，bug 1 导致最后一条是 user 而非 assistant → 持久化被守卫拒绝 → assistant 回复没保存到 DB → 切会话再回来丢失
+- 修复：改用 `state.messages.find(m => m._agentRequestId === state.agent.requestId && !m._streaming)` 按 requestId 精确匹配
+
+**附带**：useAssistantPersistence 的 effect deps 增加 `state.agent.requestId`，保证 requestId 变化时 effect 重跑
+
+**验证**：
+- jest 23/23 suites / 140/140 tests 全过
+- vite build 12.63s 成功
+- electron-builder 生成 NSIS + Portable
+
+**产物**：
+- `dist-4.4.2/混凝土配合比设计软件 Setup 4.4.2.exe` (~242 MB)
+- `dist-4.4.2/混凝土配合比设计软件-4.4.2-x64.exe` (~241 MB)
+
+**附注**（建议老板执行）：
+- 若想清理历史 session 里残留的"小砼欢迎"内容：直接清空 chat_history 表
+- 若想让"小砼欢迎"作为系统级消息常驻（不进 messages 数组），需要在 initialState 加 `systemWelcome` 字段并单独渲染

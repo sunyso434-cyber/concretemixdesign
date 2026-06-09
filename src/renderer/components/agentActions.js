@@ -176,15 +176,17 @@ export function useAssistantPersistence() {
       return // 跳过本次 effect
     }
 
-    // guard 2: 找到最新的 assistant 消息（已经被 reducer 合并了最终 content）
+    // guard 2: 用 requestId 找到当前任务对应的 assistant 消息（不被重复 user 消息干扰）
     // 且消息必须已"消流式"（_streaming === false），否则是异常路径
-    const lastMsg = state.messages[state.messages.length - 1]
-    if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg._streaming !== false) {
+    const targetMsg = state.messages.find(m =>
+      m._agentRequestId === state.agent.requestId && !m._streaming
+    )
+    if (!targetMsg) {
       return // 跳过：没有可持久化的消息
     }
 
     // guard 3: 跳过空内容（极端情况下 reducer 合并后 content 为空）
-    if (!lastMsg.content && curr === 'done') {
+    if (!targetMsg.content && curr === 'done') {
       return // 跳过：done 状态但 content 为空（异常路径）
     }
 
@@ -193,9 +195,9 @@ export function useAssistantPersistence() {
     window.electronAPI.invoke('agent:saveMessage', {
       sessionId: state.session.currentId,
       role: 'assistant',
-      content: lastMsg.content || '',
+      content: targetMsg.content || '',
       metadata: { timeline: state.agent.timeline },
       stopReason
     }).catch(e => console.error('持久化 assistant 消息失败:', e))
-  }, [state.agent.status, state.messages, state.session.currentId, state.agent.timeline])
+  }, [state.agent.status, state.messages, state.agent.requestId, state.session.currentId, state.agent.timeline])
 }
