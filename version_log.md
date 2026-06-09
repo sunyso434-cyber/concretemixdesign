@@ -1459,3 +1459,54 @@ ad50a90 chore(agent): 删 ContextProvider.js + 清理 agentHandler fallback（�
   - `src/renderer/components/AgentMode.jsx`?? 34?37-40?85-90 ??
 
 
+
+## v4.4.1 — 2026-06-09
+
+### 智能设计助手全面重构
+
+**问题修复：**
+- 修复连续对话 400 错误（buildHistoryMessages toolCalls 链断裂 — 6/5 已修，本版本补加回归测试覆盖）
+- 修复新建会话回到原会话（loadSessionList 不再覆盖 currentSessionId）
+- 新增流式 AI 输出 + 打字机光标（agent.replyText + .streaming-cursor）
+- 修复第二次消息重复输出第一次内容（agentTimeline 在 SEND_MESSAGE 时自动清空）
+
+**新增功能：**
+- AgentStore 统一状态管理（Context + useReducer，reducer 严格纯函数）
+- Esc/Enter 双重停止机制
+- stopReason 字段持久化（abort 后刷新仍显示"[已停止]"）
+- Agent 锁超时从 5min 缩短到 2min
+- useAssistantPersistence hook（副作用集中到一处，reducer 保持纯函数）
+- 锁超时/释放日志含 requestId+sessionId（便于多窗口排查）
+- agent:saveMessage IPC 加 sessionId+role 白名单校验
+
+**重构：**
+- SmartDesignChat.jsx 1226 → 1234 行（架构 100% 迁移到 AgentStore，但保留非 Agent 业务边界导致行数未大降）
+  - 37 处 `agent.xxx` 读取全部 dispatch 化
+  - 12 处 `agent.setXxx` 全部 dispatch 化或删除
+  - 14 处 `chatState.setXxx` 全部迁移到 AgentStore 或派生
+  - 新增 MessageContent 子组件（4 分支：user/streaming/thinking/aborted）
+  - 新增 handleKeyDown 函数（Esc/Enter 双重停止机制）
+  - 新增 stop-hint UI（spec 7.3）
+- AgentMode.jsx 381 → 116 行（纯事件监听器 hook，零内部 state）
+- agentStoreCore.js 新建（CommonJS 纯函数核心，21 个 reducer 测试）
+- AgentStore.jsx 新建（Context 薄壳 + useMemo 稳定 value 引用）
+- agentActions.js 新建（业务函数 + useAssistantPersistence 副作用 hook）
+- MemorySidebar.jsx 重写（保留 7 项功能：3 Tabs + 4 按钮）
+- StreamingAgentCard.jsx 添加 agentReplyText prop
+- useChatState.js 清理（chatMessages/Input/Loading 迁出，保留非 Agent 状态）
+
+**架构原则：**
+- Reducer 严格纯函数（无 IPC、Date.now、Math.random 副作用）
+- 所有副作用下沉到 useAssistantPersistence hook（订阅 status 转移 + 3 个 guard）
+- CJS/ESM 隔离：纯函数走 CommonJS（agentStoreCore.js），React 组件走 ESM
+
+**测试覆盖：**
+- agentStoreCore：21 个 reducer 单测（CommonJS require）
+- buildHistoryMessages：5 个回归测试
+- agentHandler 兼容：2 个测试
+- 6/5 回归：messageTrimmer + UnifiedStrategy 12 个测试
+- 全量 jest：23 suites / 140 tests 全过
+
+**依赖：** 无新增（spec 11 明确不引入 Zustand 等）
+
+**前置依赖：** v4.4.x — 6/5 tool_call 协议 P0 修复必须先合入
