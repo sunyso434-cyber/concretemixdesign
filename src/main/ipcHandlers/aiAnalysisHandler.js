@@ -526,6 +526,39 @@ const executeToolCall = async (toolName, args) => {
           hint: '请先让用户选择已有基础配合比，或明确授权生成新配合比并确认材料后，再进入配合比设计流程。不能自动调用配合比设计工具。'
         }
       }
+
+      // 补充材料ID和价格（处理旧数据中缺少这些信息的情况）
+      const basicMixData = basicMix.toJSON()
+      if (basicMixData.materials && Array.isArray(basicMixData.materials)) {
+        const allMaterials = await MaterialService.getAllMaterials()
+        const materialMap = new Map(allMaterials.map(m => [m.id, m]))
+        const nameToMaterial = new Map()
+        allMaterials.forEach(m => {
+          nameToMaterial.set(m.name, m)
+          if (m.type) nameToMaterial.set(`${m.type}_${m.name}`, m)
+        })
+
+        basicMixData.materials = basicMixData.materials.map(mat => {
+          // 如果已经有materialId和price，直接返回
+          if (mat.materialId && mat.price != null) return mat
+
+          // 尝试通过materialId补充price
+          if (mat.materialId && materialMap.has(mat.materialId)) {
+            const fullMat = materialMap.get(mat.materialId)
+            return { ...mat, price: fullMat.price }
+          }
+
+          // 尝试通过名称匹配补充ID和price
+          const matched = nameToMaterial.get(mat.materialName) ||
+                          nameToMaterial.get(`${mat.materialType}_${mat.materialName}`)
+          if (matched) {
+            return { ...mat, materialId: matched.id, price: matched.price }
+          }
+
+          return mat
+        })
+      }
+
       return {
         success: true,
         type: 'sales_quote_draft',
@@ -533,7 +566,7 @@ const executeToolCall = async (toolName, args) => {
           strengthGrade: args.strengthGrade,
           concreteType: args.concreteType,
           slump: args.slump || rule.suggestedSlump,
-          basicMix: basicMix.toJSON(),
+          basicMix: basicMixData,
           rule: rule.toJSON(),
           explanationPrompt: `请根据混凝土类型"${args.concreteType}"向客户解释报价构成，包括：1) 该类型混凝土的特点和适用场景；2) 成本主要提升点；3) 生产技术难点。需要通俗易懂，适合向客户说明。`,
           suggestedPricing: {
@@ -555,6 +588,12 @@ const executeToolCall = async (toolName, args) => {
       if (!basicMixRow) return { success: false, error: '基础配合比不存在' }
       const allMaterials = await MaterialService.getAllMaterials()
       const pricesById = new Map(allMaterials.map(material => [material.id, material.price]))
+      // 建立名称到材料的映射，用于补充缺失的materialId和price
+      const nameToMaterial = new Map()
+      allMaterials.forEach(m => {
+        nameToMaterial.set(m.name, m)
+        if (m.type) nameToMaterial.set(`${m.type}_${m.name}`, m)
+      })
       // 水的 materialId 可能为 null，从材料库中查找默认水材料的价格
       const waterMaterial = allMaterials.find(m => m.type === '其他' && m.name === '水')
       const waterPrice = waterMaterial?.price ?? 0
@@ -564,10 +603,29 @@ const executeToolCall = async (toolName, args) => {
           strengthGrade: basicMix.strengthGrade,
           concreteType: basicMix.concreteType,
           slump: basicMix.slump,
-          materials: basicMix.materials.map(item => ({
-            ...item,
-            price: item.materialId != null ? pricesById.get(item.materialId) : (item.materialType === '水' ? waterPrice : pricesById.get(item.materialId))
-          }))
+          materials: basicMix.materials.map(item => {
+            // 如果已经有price，直接返回
+            if (item.price != null) return item
+
+            // 通过materialId获取price
+            if (item.materialId != null) {
+              return { ...item, price: pricesById.get(item.materialId) }
+            }
+
+            // 水特殊处理
+            if (item.materialType === '水') {
+              return { ...item, price: waterPrice }
+            }
+
+            // 通过名称匹配补充materialId和price
+            const matched = nameToMaterial.get(item.materialName) ||
+                            nameToMaterial.get(`${item.materialType}_${item.materialName}`)
+            if (matched) {
+              return { ...item, materialId: matched.id, price: matched.price }
+            }
+
+            return item
+          })
         },
         pricing: args.pricing
       })
