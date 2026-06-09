@@ -1,5 +1,23 @@
 # 版本更新记录
 
+## 打包记录 (2026-06-09 修复Agent状态卡死问题 4.4.2)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.2**
+- **输出目录**: `dist-4.4.2/`
+- **修复内容**:
+  - **Agent状态卡死导致无法继续对话** - 修复ERROR状态时流式消息未清理的问题
+    - `agentStoreCore.js` - ERROR action现在会清理流式的assistant占位消息，并重置requestId
+    - 避免因为残留的流式消息导致UI卡住
+
+- **问题根因**:
+  - 当agent:run返回错误（如"上一个任务还在执行中"）时，前端dispatch了ERROR
+  - 但ERROR只是将status设置为'error'，没有清理之前添加的流式assistant占位消息
+  - 这些占位消息（_streaming: true）残留在messages中，导致UI显示异常
+
+---
+
 ## 打包记录 (2026-06-09 修复旧基准配合比材料信息丢失兼容性 4.4.2)
 
 - **命令**: `npm run electron:build`

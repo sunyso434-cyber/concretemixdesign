@@ -175,9 +175,12 @@ export function agentReducer(state, action) {
       }
     }
     case 'ERROR': {
+      // 清理流式的assistant占位消息，避免卡住UI
+      const cleanedMessages = state.messages.filter(m => !(m._streaming && m._agentRequestId === state.agent.requestId))
       return {
         ...state,
-        agent: { ...state.agent, status: 'error' }
+        agent: { ...state.agent, status: 'error', requestId: null },
+        messages: cleanedMessages
       }
     }
     case 'SET_SESSION_ID': {
