@@ -43,7 +43,7 @@ module.exports = {
     logger.info('开始规范审查')
 
     try {
-      const result = await complianceService.checkCompliance(mixDesign)
+      const result = await complianceService.check(mixDesign)
       logger.info(`规范审查完成: ${result.violations?.length || 0} 个违规项`)
       return { success: true, type: 'compliance', data: result }
     } catch (error) {
