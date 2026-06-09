@@ -29,35 +29,44 @@ function newSessionId() {
 export async function sendMessage({ dispatch, sessionId, message, runMode }) {
   if (!message || !message.trim()) return
 
-  // 0. 生成 requestId（调用方生成，spec 4.1）
+  // 0. 确保 sessionId 有效（如果为空，创建新会话）
+  let effectiveSessionId = sessionId
+  if (!effectiveSessionId) {
+    effectiveSessionId = newSessionId()
+    dispatch({ type: 'SET_SESSION_ID', payload: effectiveSessionId })
+    // 刷新会话列表
+    loadSessionList({ dispatch }).catch(() => {})
+  }
+
+  // 1. 生成 requestId
   const requestId = 'agent-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)
 
-  // 1. 重置 Agent 状态
+  // 2. 重置 Agent 状态
   dispatch({ type: 'SEND_MESSAGE', payload: { requestId } })
 
-  // 1.5 插入 assistant 占位消息（mergeReplyToMessages 依赖此消息定位流式内容）
+  // 3. 先添加用户消息（确保用户消息在前）
+  dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: message } })
+
+  // 4. 插入 assistant 占位消息（mergeReplyToMessages 依赖此消息定位流式内容）
   dispatch({
     type: 'ADD_MESSAGE',
     payload: { role: 'assistant', content: '', _streaming: true, _agentRequestId: requestId }
   })
 
-  // 2. 添加用户消息
-  dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: message } })
-
-  // 3. 保存用户消息
+  // 5. 保存用户消息
   try {
     await window.electronAPI.invoke('agent:saveMessage', {
-      sessionId, role: 'user', content: message, stopReason: null
+      sessionId: effectiveSessionId, role: 'user', content: message, stopReason: null
     })
   } catch (e) {
     console.error('保存用户消息失败:', e)
     // 不阻塞发送（spec 4.1）
   }
 
-  // 4. 调用 agent:run（必须 try/catch，spec 4.1）
+  // 6. 调用 agent:run（必须 try/catch，spec 4.1）
   try {
     const r = await window.electronAPI.invoke('agent:run', {
-      requestId, sessionId, message, mode: runMode
+      requestId, sessionId: effectiveSessionId, message, mode: runMode
     })
     if (r && r.success === false) {
       dispatch({ type: 'ERROR', payload: { error: r.error || '启动失败' } })

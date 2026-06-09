@@ -4,6 +4,7 @@ import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined,
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
+import StreamingAgentCard from './StreamingAgentCard'
 import MixDesignResultCard from './MixDesignResultCard'
 import OptimizationResultCard from './OptimizationResultCard'
 import MaterialCompareCard from './MaterialCompareCard'
@@ -18,7 +19,7 @@ import SlashCommandMenu from './SlashCommandMenu'
 import useChatState from '../hooks/useChatState'
 import { AgentStoreProvider, useAgentStore } from './AgentStore'
 import useAgentMode from './AgentMode'
-import { sendMessage, abortAgent, loadSessionList, useAssistantPersistence } from './agentActions'
+import { sendMessage, abortAgent, loadSessionList, switchSession, useAssistantPersistence } from './agentActions'
 import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
 import { AnalysisReport } from '../pages/AIAnalysisPage_Results'
 import { getAllMaterials } from '../services/MaterialService'
@@ -244,7 +245,21 @@ const SmartDesignChat = () => {
   // 初始加载
   useEffect(() => {
     loadSkills()
-  }, [loadSkills])
+    // 初始化加载会话列表并恢复上次的会话
+    const initSessions = async () => {
+      try {
+        const sessions = await loadSessionList({ dispatch })
+        if (sessions && sessions.length > 0) {
+          // 恢复最近的会话
+          const latestSession = sessions[0]
+          await switchSession({ dispatch, sessionId: latestSession.sessionId })
+        }
+      } catch (error) {
+        console.warn('[SmartDesignChat] 初始化加载会话失败:', error)
+      }
+    }
+    initSessions()
+  }, [loadSkills, dispatch])
 
   // 当菜单打开时重新加载（确保最新）
   useEffect(() => {
@@ -1052,11 +1067,11 @@ const SmartDesignChat = () => {
                           ))}
                         </div>
                       )}
-                      {item.reasoning && (
-                        <div style={{ marginBottom: 8, padding: '8px 12px', background: '#f6f8fa', borderRadius: 6, fontSize: 13, color: '#666', lineHeight: 1.6, maxHeight: 200, overflowY: 'auto' }}>
-                          <div style={{ fontWeight: 500, marginBottom: 4, color: '#333' }}>思考过程</div>
-                          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit' }}>{item.reasoning}</pre>
-                        </div>
+                      {item.timeline && item.timeline.length > 0 && (
+                        <StreamingAgentCard
+                          timeline={item.timeline}
+                          status="done"
+                        />
                       )}
                       <MessageContent
                         item={item}

@@ -1,5 +1,40 @@
 # 版本更新记录
 
+## 打包记录 (2026-06-09 聊天界面三个问题修复 4.4.2)
+
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.2**
+- **输出目录**: `dist-4.4.2/`
+- **构建产物**:
+  - `dist-4.4.2/混凝土配合比设计软件 Setup 4.4.2.exe`（NSIS 安装包）
+  - `dist-4.4.2/混凝土配合比设计软件-4.4.2-x64.exe`（便携版）
+- **修复内容**:
+  1. **对话不能连续（AI上下文丢失）** - 修复sessionId为null时自动创建新会话，确保历史消息正确保存和加载
+  2. **思考过程和工具调用过程没有保留在页面** - 使用StreamingAgentCard组件来渲染timeline
+  3. **AI的输出和用户的输入页面显示反了** - 调整了消息添加顺序，先添加用户消息，再添加assistant占位消息
+
+---
+
+## 修复记录 (2026-06-09 聊天界面三个问题修复)
+
+- **修复内容**:
+  1. **对话不能连续（AI上下文丢失）** - 修复sessionId为null时自动创建新会话，确保历史消息正确保存和加载
+  2. **思考过程和工具调用过程没有保留在页面** - 使用StreamingAgentCard组件来渲染timeline
+  3. **AI的输出和用户的输入页面显示反了** - 调整了消息添加顺序，先添加用户消息，再添加assistant占位消息
+
+- **修改文件**:
+  - `src/renderer/components/agentActions.js` - 修复消息添加顺序，添加sessionId为空时自动创建新会话
+  - `src/renderer/components/SmartDesignChat.jsx` - 添加初始化加载会话逻辑，导入StreamingAgentCard组件
+  - `src/main/agent/strategies/UnifiedStrategy.js` - 移除重复保存用户消息的逻辑
+
+- **技术细节**:
+  - 问题1根因：当sessionId为null时（第一次使用或会话列表为空），用户消息无法正确保存到数据库，导致AI无法加载历史上下文
+  - 问题2根因：代码使用`item.reasoning`渲染思考过程，但实际保存的是`item.timeline`
+  - 问题3根因：sendMessage函数中先添加assistant占位消息，再添加用户消息，导致显示顺序错误
+
+- **测试**: agentStoreCore测试通过（21个测试）
+
 ## 打包记录 (2026-06-08 步骤跟踪 + 进度推送 + 呼吸灯 4.4.0)
 
 - **命令**: `npm run electron:build`

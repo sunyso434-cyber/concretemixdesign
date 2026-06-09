@@ -99,8 +99,7 @@ class UnifiedStrategy {
     }
     const trimmedMessages = trim(messages, { tokenBudget })
 
-    // 保存用户消息到对话历史
-    try { await this.agentMemoryService.saveMessage({ sessionId, role: 'user', content: message }) } catch (_) {}
+    // 注意：用户消息已由前端 agentActions.js 保存，此处不再重复保存
 
     let finalResult = null
 
