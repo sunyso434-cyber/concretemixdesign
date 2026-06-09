@@ -335,7 +335,7 @@ const evaluateClauses = (rawMixDesign, rawClauses) => {
     try {
       return StandardClauseNormalizer.normalizeClause(clause)
     } catch (normErr) {
-      console.error([ComplianceRuleEngine] normalizeClause # failed:, normErr.message, 'clause:', JSON.stringify(clause?.section || clause?.title || ''))
+      console.error(`[ComplianceRuleEngine] normalizeClause #${idx} failed:`, normErr.message, 'clause:', JSON.stringify(clause?.section || clause?.title || ''))
       // 返回信息性条款作为降级，确保审查不被单条异常数据阻断
       return {
         ...clause,
