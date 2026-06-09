@@ -7,14 +7,32 @@ const DEFAULT_WINDOW_SIZE = 20
 class AgentMemoryService {
   // ===== 对话历史 =====
 
-  async saveMessage({ sessionId, role, content, toolCallId, toolCalls, metadata }) {
+  /**
+   * 持久化单条消息到 ChatHistory。
+   *
+   * @param {Object} params
+   * @param {string} params.sessionId  会话 ID
+   * @param {string} params.role       消息角色 (user / assistant / system / tool)
+   * @param {string|Object} params.content  消息内容
+   * @param {string} [params.toolCallId]  工具消息对应的 tool_call ID
+   * @param {Array}  [params.toolCalls]   assistant 消息的工具调用列表
+   * @param {Object} [params.metadata]    附加元数据
+   * @param {string|null} [params.stopReason]  停止原因
+   *
+   * 说明:
+   * - `toolCallId` 和 `toolCalls` 保留在 `saveMessage` 签名里以便后续扩展
+   *   (例如持久化含 tool_calls 的 assistant 消息)。
+   * - `stopReason` 当前仅支持 `'aborted'`，其他取值会被当作 null（视为无停止原因）。
+   */
+  async saveMessage({ sessionId, role, content, toolCallId, toolCalls, metadata, stopReason }) {
     return ChatHistory.create({
       sessionId,
       role,
       content: typeof content === 'string' ? content : JSON.stringify(content),
       toolCallId: toolCallId || null,
       toolCalls: toolCalls || null,
-      metadata: metadata || null
+      metadata: metadata || null,
+      stopReason: stopReason || null
     })
   }
 

@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import ReactMarkdown from 'react-markdown'
 import { Space, Typography, Button } from 'antd'
 import {
   LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined,
@@ -288,8 +289,9 @@ const ToolBlock = ({ item }) => {
  * - 工具调用穿插在思考过程中
  * - 运行中的项目呼吸灯效果
  * - "AI思考中..." 动画提示
+ * - 流式回复文本预览 + 打字机光标
  */
-const StreamingAgentCard = ({ timeline, status, isPaused, showControls, onPause, onResume, onAbort }) => {
+const StreamingAgentCard = ({ timeline, status, agentReplyText, isPaused, showControls, onPause, onResume, onAbort }) => {
   if (!timeline || timeline.length === 0) {
     // 如果没有 timeline，但 agent 在运行，显示 "AI思考中..."
     if (status === 'running') {
@@ -371,6 +373,14 @@ const StreamingAgentCard = ({ timeline, status, isPaused, showControls, onPause,
             : <ToolBlock key={`t-${item.toolCallId || index}`} item={item} />
         ))}
       </div>
+
+      {/* 流式回复文本预览（仅 streaming 状态时显示） */}
+      {status === 'streaming' && agentReplyText && (
+        <div className="reply-preview" style={{ marginTop: 8, fontSize: 13, color: 'var(--color-text-secondary)' }}>
+          <ReactMarkdown>{agentReplyText}</ReactMarkdown>
+          <span className="streaming-cursor">|</span>
+        </div>
+      )}
     </div>
   )
 }

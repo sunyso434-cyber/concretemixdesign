@@ -2,21 +2,21 @@ import { useState, useEffect, useRef } from 'react'
 import { message } from 'antd'
 
 /**
- * useChatState - 聊天公共状态 Hook
+ * useChatState - 聊天公共状态 Hook（非 Agent 状态）
  *
- * 集中管理 SmartDesignChat 中各模式组件共享的状态：
- * - 聊天消息、输入框、加载状态
- * - 附件、分析模式相关状态
+ * 集中管理 SmartDesignChat 中各模式组件共享的非 Agent 状态：
+ * - 附件（attachment）— 暂留此处
+ * - 分析模式相关状态（analysisMode/Data/Result）
  * - 材料选择器状态（completedMaterialPickerIds, pendingMaterialPicker, contrastPickerSelected）
  * - 基础配合比弹窗数据
  * - 泵送费数据
  * - chatEndRef 自动滚动
+ *
+ * 注：聊天消息（messages）、输入框（input）、加载状态（chatLoading）
+ *      已迁到 AgentStore 的 reducer 中统一管理。
  */
 const useChatState = () => {
-  // ===== 核心聊天状态 =====
-  const [chatMessages, setChatMessages] = useState([])
-  const [chatInput, setChatInput] = useState('')
-  const [chatLoading, setChatLoading] = useState(false)
+  // ===== 附件（暂留 useChatState） =====
   const [attachment, setAttachment] = useState(null)
 
   // ===== 分析模式状态 =====
@@ -40,7 +40,7 @@ const useChatState = () => {
   // ===== 自动滚动到底部 =====
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatMessages, pendingMaterialPicker?.pickerKey])
+  }, [pendingMaterialPicker?.pickerKey])
 
   // ===== 初始化泵送费数据 =====
   useEffect(() => {
@@ -66,11 +66,11 @@ const useChatState = () => {
 
   const isMaterialPickerDone = (pickerId) => pickerId && completedMaterialPickerIds.has(pickerId)
 
-  // ===== 清空对话 =====
+  // ===== 清空对话（非 Agent 状态部分）=====
+  // 注：messages 由 SmartDesignChat 显式 dispatch CLEAR_MESSAGES
   const handleClearChat = async () => {
     try {
       await window.electronAPI.invoke('aiAnalysis:clearHistory')
-      setChatMessages([])
       setCompletedMaterialPickerIds(new Set())
       setAttachment(null)
       setAnalysisMode(false)
@@ -84,10 +84,7 @@ const useChatState = () => {
   }
 
   return {
-    // 聊天核心
-    chatMessages, setChatMessages,
-    chatInput, setChatInput,
-    chatLoading, setChatLoading,
+    // 附件
     attachment, setAttachment,
 
     // 分析模式
