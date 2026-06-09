@@ -25,7 +25,7 @@ let skillDebugger = null
 let cachedApiKey = null
 let agentRunning = false
 let agentRunningAt = 0
-const AGENT_LOCK_TIMEOUT = 300000 // 5 分钟超时自动释放
+const AGENT_LOCK_TIMEOUT = 120000 // 2 分钟超时自动释放（spec 8.2）
 
 // 初始化 Skill 系统（应用启动时调用）
 async function initSkillSystem() {
@@ -119,6 +119,7 @@ function registerAgentHandlers() {
   ipcMain.handle('agent:run', async (event, { requestId, sessionId, message, mode }) => {
     if (agentRunning) {
       if (Date.now() - agentRunningAt > AGENT_LOCK_TIMEOUT) {
+        _log(`[AgentHandler] agent:run 锁超时自动释放 (held ${Math.round((Date.now() - agentRunningAt) / 1000)}s)`)
         agentRunning = false
       } else {
         return { success: false, error: '上一个任务还在执行中，请稍等' }
@@ -152,6 +153,7 @@ function registerAgentHandlers() {
       return { success: false, error: error.message }
     } finally {
       agentRunning = false
+      _log(`[AgentHandler] agent:run lock released`)
     }
   })
 
@@ -168,6 +170,15 @@ function registerAgentHandlers() {
   ipcMain.handle('agent:abort', async (_event, { requestId }) => {
     if (orchestrator) orchestrator.abort()
     return { success: true }
+  })
+
+  ipcMain.handle('agent:saveMessage', async (_event, { sessionId, role, content, metadata, stopReason }) => {
+    try {
+      await agentMemoryService.saveMessage({ sessionId, role, content, metadata, stopReason })
+      return { success: true }
+    } catch (e) {
+      return { success: false, error: e.message }
+    }
   })
 
   ipcMain.handle('agent:confirm', async (_event, { confirmed, args }) => {
