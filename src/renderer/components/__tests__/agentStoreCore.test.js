@@ -47,6 +47,25 @@ describe('agentReducer', () => {
     expect(next.agent.timeline[0].content).toBe('x')
   })
 
+  test('REASONING_START 追加 reasoning 节点（status=running）', () => {
+    const state = initialState
+    const next = agentReducer(state, { type: 'REASONING_START', payload: { roundIndex: 0 } })
+    expect(next.agent.timeline).toHaveLength(1)
+    expect(next.agent.timeline[0]).toMatchObject({
+      type: 'reasoning', content: '', status: 'running', roundIndex: 0
+    })
+  })
+
+  test('REASONING_DONE 把 running 节点标 done', () => {
+    const state = {
+      ...initialState,
+      agent: { ...initialState.agent, timeline: [{ type: 'reasoning', status: 'running', content: 'thinking...' }] }
+    }
+    const next = agentReducer(state, { type: 'REASONING_DONE' })
+    expect(next.agent.timeline[0].status).toBe('done')
+    expect(next.agent.timeline[0].content).toBe('thinking...') // 内容保留
+  })
+
   test('DONE 合并 replyText 到流式 assistant 消息（reducer 纯函数，不调 IPC）', () => {
     const state = {
       ...initialState,

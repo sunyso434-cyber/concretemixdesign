@@ -26,6 +26,8 @@ const initialState = {
 }
 
 function mergeReplyToMessages(messages, reply, requestId, timeline, stopReason) {
+  // 用 `=== true` 严格匹配：历史消息的 _streaming 是 undefined（spec 6.3），
+  // 不会被误判为 falsy 跳过；只有当前正在流式输出的消息才是 true
   const idx = messages.findIndex(m => m._agentRequestId === requestId && m._streaming === true)
   if (idx >= 0) {
     const next = [...messages]
@@ -39,6 +41,7 @@ function mergeReplyToMessages(messages, reply, requestId, timeline, stopReason) 
     }
     return next
   }
+  // 兜底追加：消息无内存标记（spec 6.3 — 历史消息不存 _streaming/_agentRequestId）
   return [...messages, { role: 'assistant', content: reply || '', timeline, stopReason: stopReason || null }]
 }
 
@@ -60,7 +63,9 @@ function agentReducer(state, action) {
       return { ...state, messages: [...state.messages, action.payload] }
     }
     case 'SET_MESSAGES': {
-      // 历史消息：不带 _streaming / _agentRequestId（spec 3.1）
+      // 历史消息：故意只投影 5 个必要字段（spec 3.1）
+      // - 内存标记 _streaming / _agentRequestId 不进数据库也不接受（spec 6.3）
+      // - attachment / input 等 UI 状态从历史中不还原
       const clean = action.payload.map(m => ({
         role: m.role,
         content: m.content,
