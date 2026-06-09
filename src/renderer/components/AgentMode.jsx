@@ -85,6 +85,10 @@ export default function useAgentMode() {
           // 旧格式兼容（无 type 字段的旧事件）
           if (data.status === 'done' && data.result?.reply) {
             dispatch({ type: 'DONE', payload: { reply: data.result.reply } })
+          } else if (data.status === 'error' && data.error && data.error !== 'aborted' && data.error !== 'wc_destroyed') {
+            const em = typeof data.error === 'string' ? data.error
+              : data.error?.message || data.error?.error || '未知错误'
+            dispatch({ type: 'ERROR', payload: { error: em } })
           }
       }
     }
