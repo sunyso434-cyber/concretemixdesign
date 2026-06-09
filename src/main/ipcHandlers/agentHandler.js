@@ -119,7 +119,7 @@ function registerAgentHandlers() {
   ipcMain.handle('agent:run', async (event, { requestId, sessionId, message, mode }) => {
     if (agentRunning) {
       if (Date.now() - agentRunningAt > AGENT_LOCK_TIMEOUT) {
-        _log(`[AgentHandler] agent:run 锁超时自动释放 (held ${Math.round((Date.now() - agentRunningAt) / 1000)}s)`)
+        _log(`[AgentHandler] agent:run 锁超时自动释放 sessionId=${sessionId} requestId=${requestId} (held ${Math.round((Date.now() - agentRunningAt) / 1000)}s)`)
         agentRunning = false
       } else {
         return { success: false, error: '上一个任务还在执行中，请稍等' }
@@ -132,9 +132,9 @@ function registerAgentHandlers() {
       if (!ag) {
         return { success: false, error: 'DeepSeek API未配置，请在系统设置中配置API密钥' }
       }
-      _log(`[AgentHandler] agent:run starting, message="${message.slice(0, 50)}", mode=${mode}`)
+      _log(`[AgentHandler] agent:run starting sessionId=${sessionId} requestId=${requestId} message="${message.slice(0, 50)}" mode=${mode}`)
       const result = await ag.run({ sessionId, message, mode: mode || 'auto', webContents: event.sender })
-      _log(`[AgentHandler] agent:run result: ${JSON.stringify({ success: result?.success, hasContent: !!result?.content, contentLen: result?.content?.length || 0, error: result?.error })}`)
+      _log(`[AgentHandler] agent:run result sessionId=${sessionId} requestId=${requestId}: ${JSON.stringify({ success: result?.success, hasContent: !!result?.content, contentLen: result?.content?.length || 0, error: result?.error })}`)
 
       // UnifiedStrategy 已通过流式事件发送 type: 'done' / type: 'error'，这里不再重复发送
 
@@ -153,7 +153,7 @@ function registerAgentHandlers() {
       return { success: false, error: error.message }
     } finally {
       agentRunning = false
-      _log(`[AgentHandler] agent:run lock released`)
+      _log(`[AgentHandler] agent:run 锁已释放 sessionId=${sessionId} requestId=${requestId}`)
     }
   })
 
@@ -173,6 +173,12 @@ function registerAgentHandlers() {
   })
 
   ipcMain.handle('agent:saveMessage', async (_event, { sessionId, role, content, metadata, stopReason }) => {
+    if (!sessionId) {
+      return { success: false, error: 'sessionId is required' }
+    }
+    if (role && !['user', 'assistant', 'system', 'tool'].includes(role)) {
+      return { success: false, error: `invalid role: ${role}` }
+    }
     try {
       await agentMemoryService.saveMessage({ sessionId, role, content, metadata, stopReason })
       return { success: true }
