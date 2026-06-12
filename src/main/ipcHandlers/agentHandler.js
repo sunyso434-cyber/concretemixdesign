@@ -27,6 +27,8 @@ let agentRunning = false
 let agentRunningAt = 0
 const AGENT_LOCK_TIMEOUT = 120000 // 2 分钟超时自动释放（spec 8.2）
 
+const { getInstance: getAgentMdService, agentMdPath } = require('../agent/agentMd')
+
 // 初始化 Skill 系统（应用启动时调用）
 async function initSkillSystem() {
   if (skillRegistry) return skillRegistry
@@ -668,6 +670,41 @@ module.exports = {
       return { success: true, data: { skillName, filePath } }
     } catch (error) {
       return { success: false, error: error.message }
+    }
+  })
+
+  // ===== AgentMd (用户自定义规则) =====
+
+  ipcMain.handle('agentMd:load', async () => {
+    try {
+      const svc = getAgentMdService()
+      return { success: true, data: svc.getCached() }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('agentMd:save', async (_event, { content }) => {
+    try {
+      const svc = getAgentMdService()
+      // 4KB 警告
+      if (content && content.length > 4 * 1024) {
+        console.warn(`[AgentMd] 保存内容 ${content.length} 字节，超过 4KB 阈值`)
+      }
+      svc.saveToFile(content || '')
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('agentMd:reload', async () => {
+    try {
+      const svc = getAgentMdService()
+      svc.loadFromFile()
+      return { success: true, data: svc.getCached() }
+    } catch (err) {
+      return { success: false, error: err.message }
     }
   })
 }

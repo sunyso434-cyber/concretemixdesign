@@ -49,6 +49,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getUserSkills: () => ipcRenderer.invoke('skill:getUserSkills'),
     openUserDir: () => ipcRenderer.invoke('skill:openUserDir'),
     reload: () => ipcRenderer.invoke('skill:reload')
+  },
+  // AgentMd (用户自定义规则)
+  agentMd: {
+    load: () => ipcRenderer.invoke('agentMd:load'),
+    save: (content) => ipcRenderer.invoke('agentMd:save', { content }),
+    reload: () => ipcRenderer.invoke('agentMd:reload')
   }
 })
 
