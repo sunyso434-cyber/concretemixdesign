@@ -188,6 +188,21 @@ function registerAgentHandlers() {
     }
     try {
       await agentMemoryService.saveMessage({ sessionId, role, content, metadata, stopReason })
+
+      // upsert ChatSession：取 user 消息前 15 字作为 sessionName
+      if (role === 'user' && content && sessionId) {
+        const { ChatSession } = require('../db/database')
+        // grapheme-safe 截取（用 spread 操作符避免 surrogate pair 截断）
+        const truncated = [...content.trim()].slice(0, 15).join('')
+        const sessionName = truncated || `对话 ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`
+
+        await ChatSession.upsert({
+          sessionId,
+          sessionName,
+          lastActivity: new Date()
+        })
+      }
+
       return { success: true }
     } catch (e) {
       return { success: false, error: e.message }
