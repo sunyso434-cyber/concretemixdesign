@@ -157,8 +157,8 @@ describe('AgentMemoryService 集成测试（真实 SQLite）', () => {
     )
   })
 
-  test('TF-IDF 召回（C1 修复后）：buildMemoryContext 接 queryContext 命中规则', async () => {
-    // 写一条修正规则：context 含 material=42.5水泥
+  test('buildMemoryContext 改读 agent.md（不再召回调 CorrectionRule）', async () => {
+    // 写一条修正规则：即使存在也不应再被 buildMemoryContext 注入
     await AgentMemoryService.saveCorrection({
       context: { material: '42.5水泥' },
       originalSuggestion: { strength: 'C30' },
@@ -166,12 +166,14 @@ describe('AgentMemoryService 集成测试（真实 SQLite）', () => {
       toolName: null
     })
 
-    // 用相同 queryContext 触发 buildMemoryContext
     const ctx = await AgentMemoryService.buildMemoryContext('s1', {
       queryContext: { material: '42.5水泥' }
     })
 
-    // 关键断言：PO42.5 必须出现在返回的上下文里（C1 修好后 TF-IDF 召回非 0）
-    expect(ctx).toContain('PO42.5')
+    // 新实现：返回 "用户自定义规则" + "历史摘要"，不再注入 CorrectionRule
+    expect(ctx).toContain('用户自定义规则')
+    expect(ctx).toContain('历史摘要')
+    expect(ctx).not.toContain('PO42.5')
+    expect(ctx).not.toContain('修正记录')
   })
 })

@@ -69,6 +69,15 @@ const ChatHistory = require('./models/ChatHistory')
 const UserPreference = require('./models/UserPreference')
 const CorrectionRule = require('./models/CorrectionRule')
 
+// ChatSession 是工厂函数模型（需传入 sequelize），其他模型已自加载 sequelize
+const ChatSessionModel = require('./models/ChatSession')
+const ChatSession = ChatSessionModel(sequelize)
+
+// 关联：ChatSession 1 - N ChatHistory
+// constraints: false —— 不在 DB 层强制外键，因为 chat_history 是先于 ChatSession 写入的
+ChatSession.hasMany(ChatHistory, { foreignKey: 'sessionId', sourceKey: 'sessionId', constraints: false })
+ChatHistory.belongsTo(ChatSession, { foreignKey: 'sessionId', targetKey: 'sessionId', constraints: false })
+
 // 数据库迁移前备份
 function backupDatabase() {
   const backupPath = dbPath + '.backup-' + Date.now()
@@ -147,7 +156,7 @@ async function syncModels() {
   // 迁移前备份
   const backupFile = backupDatabase()
 
-  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, SalesQuoteRule, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, UserPreference, CorrectionRule]
+  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, SalesQuoteRule, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, UserPreference, CorrectionRule, ChatSession]
   let migrationFailed = false
 
   for (const model of allModels) {
@@ -230,3 +239,4 @@ module.exports.AppSetting = AppSetting
 module.exports.ChatHistory = ChatHistory
 module.exports.UserPreference = UserPreference
 module.exports.CorrectionRule = CorrectionRule
+module.exports.ChatSession = ChatSession
