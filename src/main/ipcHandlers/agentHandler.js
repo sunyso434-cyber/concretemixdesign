@@ -117,29 +117,36 @@ function registerAgentHandlers() {
   })
 
   ipcMain.handle('agent:run', async (event, { requestId, sessionId, message, mode }) => {
+    // [DEBUG] 记录请求到达和锁状态
+    _log(`[AgentHandler] 🔵 agent:run 收到请求 sessionId=${sessionId} requestId=${requestId} agentRunning=${agentRunning} 锁持有=${agentRunning ? Math.round((Date.now() - agentRunningAt) / 1000) + 's' : '无'}`)
+
     if (agentRunning) {
       if (Date.now() - agentRunningAt > AGENT_LOCK_TIMEOUT) {
-        _log(`[AgentHandler] agent:run 锁超时自动释放 sessionId=${sessionId} requestId=${requestId} (held ${Math.round((Date.now() - agentRunningAt) / 1000)}s)`)
+        _log(`[AgentHandler] ⚠️ agent:run 锁超时自动释放 sessionId=${sessionId} requestId=${requestId} (held ${Math.round((Date.now() - agentRunningAt) / 1000)}s)`)
         agentRunning = false
       } else {
+        _log(`[AgentHandler] 🚫 agent:run 被锁拒绝 sessionId=${sessionId} requestId=${requestId}`)
         return { success: false, error: '上一个任务还在执行中，请稍等' }
       }
     }
     agentRunning = true
     agentRunningAt = Date.now()
+    _log(`[AgentHandler] 🔒 agent:run 获取锁 requestId=${requestId}`)
     try {
       const ag = await getOrchestrator()
       if (!ag) {
+        _log(`[AgentHandler] ❌ agent:run Orchestrator 未初始化 requestId=${requestId}`)
         return { success: false, error: 'DeepSeek API未配置，请在系统设置中配置API密钥' }
       }
-      _log(`[AgentHandler] agent:run starting sessionId=${sessionId} requestId=${requestId} message="${message.slice(0, 50)}" mode=${mode}`)
+      _log(`[AgentHandler] 🚀 agent:run 开始执行 requestId=${requestId} message="${message.slice(0, 50)}" mode=${mode}`)
       const result = await ag.run({ sessionId, message, mode: mode || 'auto', webContents: event.sender })
-      _log(`[AgentHandler] agent:run result sessionId=${sessionId} requestId=${requestId}: ${JSON.stringify({ success: result?.success, hasContent: !!result?.content, contentLen: result?.content?.length || 0, error: result?.error })}`)
+      _log(`[AgentHandler] ✅ agent:run 执行完成 requestId=${requestId}: ${JSON.stringify({ success: result?.success, hasContent: !!result?.content, contentLen: result?.content?.length || 0, error: result?.error })}`)
 
       // UnifiedStrategy 已通过流式事件发送 type: 'done' / type: 'error'，这里不再重复发送
 
       return { success: true, result }
     } catch (error) {
+      _log(`[AgentHandler] 💥 agent:run 异常 requestId=${requestId}: ${error.message}`)
       // 异常情况（Orchestrator 层面崩溃）：发送错误事件
       try {
         if (!event.sender.isDestroyed()) {
@@ -153,7 +160,7 @@ function registerAgentHandlers() {
       return { success: false, error: error.message }
     } finally {
       agentRunning = false
-      _log(`[AgentHandler] agent:run 锁已释放 sessionId=${sessionId} requestId=${requestId}`)
+      _log(`[AgentHandler] 🔓 agent:run 释放锁 requestId=${requestId}`)
     }
   })
 
@@ -195,8 +202,36 @@ function registerAgentHandlers() {
   })
 
   ipcMain.handle('agent:listSessions', async () => {
-    const sessions = await agentMemoryService.getSessionIds(20)
-    return { success: true, sessions }
+    const { ChatHistory, ChatSession } = require('../db/database')
+    const { fn, col, literal } = require('sequelize')
+    // 取最近 50 个 sessionId
+    const rows = await ChatHistory.findAll({
+      attributes: [
+        'sessionId',
+        [fn('MAX', col('createdAt')), 'lastActivity']
+      ],
+      group: ['sessionId'],
+      order: [[literal('lastActivity'), 'DESC']],
+      limit: 50,
+      raw: true
+    })
+
+    // 批量查 sessionName
+    const sessionIds = rows.map(r => r.sessionId)
+    const sessions = await ChatSession.findAll({
+      where: { sessionId: sessionIds },
+      raw: true
+    })
+    const nameMap = Object.fromEntries(sessions.map(s => [s.sessionId, s.sessionName]))
+
+    return {
+      success: true,
+      sessions: rows.map(r => ({
+        sessionId: r.sessionId,
+        lastActivity: r.lastActivity,
+        sessionName: nameMap[r.sessionId] || null
+      }))
+    }
   })
 
   ipcMain.handle('agent:getSessionMessages', async (_event, { sessionId }) => {
