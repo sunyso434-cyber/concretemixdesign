@@ -52,6 +52,9 @@ require('./src/main/ipcHandlers/complianceHandler').registerHandlers(ipcMain) //
 require('./src/main/ipcHandlers/agentHandler').registerAgentHandlers() // AI Agent IPC 处理器
 // const { autoUpdater } = require('electron-updater')
 
+// agent.md 用户自定义规则服务（单例，启动时初始化）
+const { init: initAgentMd } = require('./src/main/agent/agentMd')
+
 // 数据库就绪状态
 let isDatabaseReady = false
 module.exports.getDatabaseReadyStatus = function() {
@@ -253,6 +256,9 @@ app.whenReady().then(async () => {
   console.log('开始创建窗口...')
   await createWindow()
   console.log('窗口创建完成')
+
+  // 初始化 agent.md 服务（加载 + 监听用户自定义规则文件）
+  initAgentMd()
 
   // 数据库初始化放在后台进行，不阻塞UI
   console.log('数据库初始化开始（后台）...')
