@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Button, Input, Space, Avatar, List, Alert, message, Typography, Upload, Tag, Checkbox, Segmented, Layout } from 'antd'
-import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined } from '@ant-design/icons'
+import { Button, Input, Space, Avatar, List, Alert, message, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip } from 'antd'
+import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
@@ -14,6 +14,7 @@ import DiagnosisResultCard from './DiagnosisResultCard'
 import ComplianceResultCard from './ComplianceResultCard'
 import SalesQuoteResultCard from './SalesQuoteResultCard'
 import SaveBasicMixModal from './SaveBasicMixModal'
+import AgentRulesModal from './AgentRulesModal'
 import DecisionGate from './DecisionGate'
 import MemorySidebar from './MemorySidebar'
 import SlashCommandMenu from './SlashCommandMenu'
@@ -227,6 +228,9 @@ const SmartDesignChat = () => {
   // ===== 斜杠命令状态 =====
   const [slashMenuVisible, setSlashMenuVisible] = useState(false)
   const [availableSkills, setAvailableSkills] = useState([])
+
+  // ===== 智能助手规则 Modal =====
+  const [rulesModalOpen, setRulesModalOpen] = useState(false)
 
   // 加载可用技能
   const loadSkills = useCallback(async () => {
@@ -927,6 +931,14 @@ const SmartDesignChat = () => {
                   { label: '全自动', value: 'auto', icon: <ThunderboltOutlined /> }
                 ]}
               />
+              <Tooltip title="智能助手规则">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<SettingOutlined />}
+                  onClick={() => setRulesModalOpen(true)}
+                />
+              </Tooltip>
             </Space>
           </div>
 
@@ -1225,6 +1237,10 @@ const SmartDesignChat = () => {
         data={chatState.basicMixModalData}
         onCancel={() => chatState.setBasicMixModalData(null)}
         onSaved={() => chatState.setBasicMixModalData(null)}
+      />
+      <AgentRulesModal
+        visible={rulesModalOpen}
+        onClose={() => setRulesModalOpen(false)}
       />
     </div>
     </Content>
