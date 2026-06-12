@@ -56,4 +56,28 @@ describe('messageTrimmer', () => {
     // reasoning_content 巨大时应该被截断
     expect(result.length).toBeGreaterThan(0)
   })
+
+  test('Bug A+B 回归：截断 tool 后位置不丢且父 assistant 在场', () => {
+    const messages = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'u1' },
+      { role: 'assistant', content: 'a1', tool_calls: [{ id: 'call_1' }] },
+      { role: 'tool', content: 'x'.repeat(20000), tool_call_id: 'call_1' },
+      { role: 'user', content: 'u2' },
+      { role: 'assistant', content: 'a2' }
+    ]
+    const result = trim(messages, { tokenBudget: 500 })
+
+    const toolIdx = result.findIndex(m => m.role === 'tool' && m.tool_call_id === 'call_1')
+    expect(toolIdx).toBeGreaterThan(-1)
+
+    const parentIdx = result.findIndex(m =>
+      m.role === 'assistant' && m.tool_calls && m.tool_calls.some(tc => tc.id === 'call_1')
+    )
+    expect(parentIdx).toBeGreaterThan(-1)
+
+    expect(toolIdx).toBeGreaterThan(parentIdx)
+    expect(toolIdx).toBeLessThan(result.length - 1)
+    expect(result[toolIdx].content).toContain('已截断')
+  })
 })

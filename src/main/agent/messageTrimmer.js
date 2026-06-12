@@ -106,7 +106,8 @@ function trim(messages, { tokenBudget = 30000 } = {}) {
           const truncated = (m.content || '').startsWith('{') || (m.content || '').startsWith('[')
             ? safeTruncateJson(m.content, maxChars)
             : safeTruncateString(m.content, maxChars)
-          kept.push({ ...m, content: truncated })
+          m.content = truncated
+          kept.push(m)
           totalTokens += Math.ceil(truncated.length / CHARS_PER_TOKEN_ZH)
           if (origIdx >= 0) keptOrigIndices.add(origIdx)
         }
@@ -127,7 +128,7 @@ function trim(messages, { tokenBudget = 30000 } = {}) {
     if (msg.role === 'tool') {
       // 查找该 tool 在原 messages 中的索引，然后在 kept 中找到或添加其父 assistant
       const origToolIdx = messages.findIndex(
-        om => om.role === 'tool' && om.tool_call_id === msg.tool_call_id && om.content === msg.content
+        om => om.role === 'tool' && om.tool_call_id === msg.tool_call_id
       )
       if (origToolIdx >= 0) {
         const parentIdx = toolToParent.get(origToolIdx)

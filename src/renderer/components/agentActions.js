@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useRef } from 'react'
+import { message } from 'antd'
 import { useAgentStore } from './AgentStore'
 
 /**
@@ -70,9 +71,11 @@ export async function sendMessage({ dispatch, sessionId, message, runMode }) {
     })
     if (r && r.success === false) {
       dispatch({ type: 'ERROR', payload: { error: r.error || '启动失败' } })
+      message.error(r.error || '启动失败，请稍候重试')
     }
   } catch (e) {
     dispatch({ type: 'ERROR', payload: { error: '通信失败: ' + (e.message || '未知错误') } })
+    message.error('通信失败: ' + (e.message || '未知错误'))
   }
 }
 
