@@ -5,6 +5,14 @@ const { Op } = Sequelize
 const DEFAULT_WINDOW_SIZE = 20
 
 class AgentMemoryService {
+  /**
+   * @param {Object} [opts]
+   * @param {Object} [opts.agentMdService] - 可选注入 agentMdService,便于测试和解耦
+   */
+  constructor({ agentMdService } = {}) {
+    this.agentMdService = agentMdService || null
+  }
+
   // ===== 对话历史 =====
 
   /**
@@ -153,28 +161,20 @@ class AgentMemoryService {
   // ===== 窗口截断提示词构建 =====
 
   async buildMemoryContext(sessionId, { windowSize = DEFAULT_WINDOW_SIZE, queryContext = {} } = {}) {
-    const [preferences, corrections] = await Promise.all([
-      this.getAllPreferences(),
-      this.findSimilarCorrections(queryContext, null, 5)
-    ])
+    // 1. 读取 agent.md(全局,不依赖 sessionId)
+    const agentMdService = this.agentMdService || require('../agent/agentMd').getInstance()
+    const agentMdRules = agentMdService.getFormattedRules() || '（未配置）'
 
-    const parts = []
+    // 2. 保留 sessionId 用于其他用途(如历史摘要)
+    const history = await this.getHistory(sessionId)
 
-    if (Object.keys(preferences).length > 0) {
-      parts.push('用户偏好:')
-      for (const [key, value] of Object.entries(preferences)) {
-        parts.push(`- ${key}: ${JSON.stringify(value)}`)
-      }
-    }
+    // 3. 组装
+    return `# 用户自定义规则
+${agentMdRules}
 
-    if (corrections.length > 0) {
-      parts.push('\n用户最近的修正记录（请在生成建议时参考，避免重复过去的错误）:')
-      for (const c of corrections) {
-        parts.push(`- 原建议: ${JSON.stringify(c.originalSuggestion)} → 用户修正为: ${JSON.stringify(c.userCorrection)}`)
-      }
-    }
-
-    return parts.join('\n')
+# 历史摘要
+${history}
+`
   }
 
   async buildHistoryMessages(sessionId, { limit = DEFAULT_WINDOW_SIZE } = {}) {
