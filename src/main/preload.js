@@ -55,6 +55,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     load: () => ipcRenderer.invoke('agentMd:load'),
     save: (content) => ipcRenderer.invoke('agentMd:save', { content }),
     reload: () => ipcRenderer.invoke('agentMd:reload')
+  },
+  shell: {
+    openAgentMd: () => ipcRenderer.invoke('shell:openAgentMd')
   }
 })
 

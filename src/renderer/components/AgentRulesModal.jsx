@@ -121,6 +121,17 @@ const AgentRulesModal = ({ visible, onClose }) => {
     setRaw(formatToMarkdownClient(next))
   }
 
+  async function handleOpenExternal() {
+    try {
+      const res = await window.electronAPI.shell.openAgentMd()
+      if (res && res.success === false) {
+        message.error('打开失败：' + res.error)
+      }
+    } catch (err) {
+      message.info('请在文件管理器中打开 ~/.concrete-mixdesign/agent.md')
+    }
+  }
+
   if (!rules) {
     return (
       <Modal title="智能助手规则" open={visible} onCancel={onClose} footer={null} width={720}>
@@ -212,8 +223,30 @@ const AgentRulesModal = ({ visible, onClose }) => {
           </div>
         </TabPane>
         <TabPane tab="文件" key="file">
-          {/* Task 13 实现文件模式 */}
-          <div style={{ padding: 16, color: '#999' }}>文件模式（Task 13 实现）</div>
+          <div style={{ padding: 16 }}>
+            <Space style={{ marginBottom: 12 }}>
+              <Button onClick={handleOpenExternal}>在外部编辑器打开</Button>
+              <Button onClick={async () => {
+                const res = await reloadAgentMd()
+                if (res.success) {
+                  setRaw(res.data.raw)
+                  setRules(res.data.parsed)
+                  message.success('已刷新')
+                } else {
+                  message.error('刷新失败：' + res.error)
+                }
+              }}>刷新</Button>
+            </Space>
+            <Input.TextArea
+              value={raw}
+              readOnly
+              rows={20}
+              style={{ fontFamily: 'monospace', fontSize: 12 }}
+            />
+            <p style={{ color: '#999', marginTop: 8, fontSize: 12 }}>
+              只读视图。修改后请用"刷新"按钮重新加载（外部编辑器保存后，缓存 1s 内自动同步）。
+            </p>
+          </div>
         </TabPane>
       </Tabs>
     </Modal>

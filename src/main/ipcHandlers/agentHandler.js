@@ -1,4 +1,4 @@
-const { ipcMain } = require('electron')
+const { ipcMain, shell } = require('electron')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
@@ -703,6 +703,15 @@ module.exports = {
       const svc = getAgentMdService()
       svc.loadFromFile()
       return { success: true, data: svc.getCached() }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  ipcMain.handle('shell:openAgentMd', async () => {
+    try {
+      await shell.openPath(agentMdPath)
+      return { success: true }
     } catch (err) {
       return { success: false, error: err.message }
     }
