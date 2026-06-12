@@ -17,6 +17,7 @@ const { buildSystemPrompt } = require('../systemPromptBuilder')
 const { buildMDInstruction } = require('../mdInstructionBuilder')
 const { trim } = require('../messageTrimmer')
 const errorHandler = require('../../utils/errorHandler')
+const { getInstance: getAgentMdService } = require('../agentMd')
 
 const DEFAULT_TOKEN_BUDGET = 30000
 
@@ -27,6 +28,7 @@ class UnifiedStrategy {
     this.skillExecutor = skillExecutor
     this.agentMemoryService = agentMemoryService
     this.systemService = systemService || null
+    this.agentMdService = getAgentMdService()
   }
 
   /**
@@ -78,7 +80,11 @@ class UnifiedStrategy {
     const historyMessages = await this.agentMemoryService.buildHistoryMessages(sessionId)
     const skillNames = this.skillRegistry.getToolSchemas().map(s => s.function.name)
 
-    const systemPrompt = buildSystemPrompt({ memoryContext, skillNames, preferences: {} })
+    const systemPrompt = buildSystemPrompt({
+      memoryContext,
+      skillNames,
+      agentMdRules: this.agentMdService.getFormattedRules()
+    })
 
     const messages = [
       { role: 'system', content: systemPrompt },
