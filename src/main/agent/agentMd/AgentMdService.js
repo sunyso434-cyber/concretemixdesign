@@ -27,20 +27,60 @@ class AgentMdService {
   /**
    * 从磁盘加载 agent.md 并刷新缓存
    * 文件不存在时初始化为空结构(不抛错)
+   * 文件过大(>1MB)时输出 warning
+   * 非 UTF-8 编码时抛出友好错误
    */
   loadFromFile() {
     try {
-      const content = fs.readFileSync(this.path, 'utf8')
+      // 1. 读 buffer 以检测编码
+      const buf = fs.readFileSync(this.path)
+      const content = this._decodeUtf8(buf)
       this.rawCache = content
       this.cache = AgentMdParser.parse(content)
+
+      // 2. 文件大小警告
+      if (buf.length > 1024 * 1024) {
+        console.warn(`[AgentMdService] 文件过大 (${buf.length} 字节 > 1MB)，建议精简以提升加载速度`)
+      }
     } catch (err) {
       if (err.code === 'ENOENT') {
         this.rawCache = ''
         this.cache = AgentMdParser.parse('')
       } else {
+        // 编码错误/IO 错误均透传，由 IPC handler 兜底提示
         throw err
       }
     }
+  }
+
+  /**
+   * 检测并解码 UTF-8
+   * - 自动剥离 UTF-8 BOM
+   * - 检测并拒绝 UTF-16 编码
+   * - 检测可能的非 UTF-8 编码（含乱码字符）
+   * @param {Buffer} buf
+   * @returns {string} 解码后的字符串
+   */
+  _decodeUtf8(buf) {
+    // 自动剥离 UTF-8 BOM
+    if (buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) {
+      return buf.slice(3).toString('utf8')
+    }
+    // 检测 UTF-16 LE BOM
+    if (buf[0] === 0xFF && buf[1] === 0xFE) {
+      throw new Error('检测到 UTF-16 编码，请用编辑器另存为 UTF-8 后再试')
+    }
+    // 检测 UTF-16 BE BOM
+    if (buf[0] === 0xFE && buf[1] === 0xFF) {
+      throw new Error('检测到 UTF-16 编码，请用编辑器另存为 UTF-8 后再试')
+    }
+    // 尝试 UTF-8 解码
+    const str = buf.toString('utf8')
+    // 简单检测：是否有乱码字符（replacement character）
+    if (str.includes('�')) {
+      throw new Error('检测到可能的非 UTF-8 编码（含乱码），请用编辑器另存为 UTF-8 后再试')
+    }
+    return str
   }
 
   /**

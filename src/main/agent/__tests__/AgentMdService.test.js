@@ -157,3 +157,59 @@ version: 1
     svc.stopWatching()
   }, 10000)
 })
+
+describe('AgentMdService - 边缘情况（编码/文件大小/BOM）', () => {
+  let tmpDir
+  let tmpFile
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentmd-edge-'))
+    tmpFile = path.join(tmpDir, 'agent.md')
+  })
+
+  afterEach(() => {
+    if (tmpDir && fs.existsSync(tmpDir)) {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  // 测试 7: 文件超大（>1MB）应返回警告
+  test('文件超大（>1MB）应返回警告', () => {
+    const big = 'x'.repeat(1024 * 1024 + 1)
+    fs.writeFileSync(tmpFile, big, 'utf8')
+    const service = new AgentMdService({ path: tmpFile })
+    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation()
+    service.loadFromFile()
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('过大'))
+    consoleSpy.mockRestore()
+  })
+
+  // 测试 8: 非 UTF-8 编码（GBK）应抛出友好错误
+  test('非 UTF-8 编码应抛出友好错误', () => {
+    // GBK 编码写入（"你好"）
+    const gbk = Buffer.from([0xC4, 0xE3, 0xBA, 0xC3])
+    fs.writeFileSync(tmpFile, gbk)
+    const service = new AgentMdService({ path: tmpFile })
+    expect(() => service.loadFromFile()).toThrow(/UTF-8/)
+  })
+
+  // 测试 9: UTF-8 BOM 头应被自动剥离
+  test('UTF-8 BOM 头应被自动剥离', () => {
+    const bom = Buffer.from([0xEF, 0xBB, 0xBF])
+    const content = Buffer.from('## 回复风格\n- 语气：有BOM', 'utf8')
+    const withBom = Buffer.concat([bom, content])
+    fs.writeFileSync(tmpFile, withBom)
+    const service = new AgentMdService({ path: tmpFile })
+    service.loadFromFile()
+    const cached = service.getCached()
+    expect(cached.parsed.replyStyle['语气']).toBe('有BOM')
+  })
+
+  // 测试 10: UTF-16 LE BOM 应被检测并报错
+  test('UTF-16 LE BOM 应被检测并报错', () => {
+    const bom = Buffer.from([0xFF, 0xFE])
+    fs.writeFileSync(tmpFile, bom)
+    const service = new AgentMdService({ path: tmpFile })
+    expect(() => service.loadFromFile()).toThrow(/UTF-16/)
+  })
+})
