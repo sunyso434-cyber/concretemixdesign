@@ -261,28 +261,6 @@ function registerAgentHandlers() {
     return { success: true }
   })
 
-  ipcMain.handle('agent:getPreferences', async () => {
-    const prefs = await agentMemoryService.getAllPreferences()
-    return { success: true, preferences: prefs }
-  })
-
-  ipcMain.handle('agent:getCorrections', async () => {
-    const rules = await agentMemoryService.getAllCorrections()
-    return { success: true, corrections: rules.map(r => ({
-      id: r.id,
-      context: r.context,
-      originalSuggestion: r.originalSuggestion,
-      userCorrection: r.userCorrection,
-      toolName: r.toolName,
-      createdAt: r.createdAt
-    })) }
-  })
-
-  ipcMain.handle('agent:deleteCorrection', async (_event, { id }) => {
-    await agentMemoryService.deleteCorrection(id)
-    return { success: true }
-  })
-
   ipcMain.handle('agent:clearAllMemory', async () => {
     const { ChatHistory, UserPreference, CorrectionRule } = require('../db/database')
     await ChatHistory.destroy({ where: {}, truncate: true })
