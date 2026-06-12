@@ -2,10 +2,15 @@ const { ipcMain, shell } = require('electron')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const { rotateIfNeeded } = require('../utils/logRotator')
 const _logFile = path.join(os.homedir(), '.concrete-mixdesign', 'agent-debug.log')
 function _log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}\n`
-  try { fs.appendFileSync(_logFile, line) } catch (_) {}
+  try {
+    // 写入前先按 5MB 阈值轮转，保留 5 个旧文件
+    rotateIfNeeded(_logFile, { maxSize: 5 * 1024 * 1024, maxFiles: 5 })
+    fs.appendFileSync(_logFile, line)
+  } catch (_) {}
   console.log(msg)
 }
 const DeepSeekService = require('../services/DeepSeekService')
