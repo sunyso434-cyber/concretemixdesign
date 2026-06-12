@@ -31,7 +31,6 @@
     "chokidar": "^3.6.0",
     "echarts": "^5.6.0",
     "echarts-for-react": "^3.0.6",
-    "electron-updater": "^6.8.3",
     "gray-matter": "^4.0.3",
     "iconv-lite": "^0.7.2",
     "onnxruntime-node": "^1.26.0",
@@ -110,11 +109,6 @@
       "artifactName": "${productName}-${version}-x64.exe"
     },
     "buildDependenciesFromSource": true,
-    "publish": {
-      "provider": "generic",
-      "url": "https://example.com/updates",
-      "useMultipleRangeRequest": false
-    },
     "nsis": {
       "oneClick": false,
       "perMachine": false,

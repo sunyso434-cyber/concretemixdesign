@@ -50,7 +50,6 @@ require('./src/main/ipcHandlers/mixDesignToQuoteHandler') // 配合比→报价�
 require('./src/main/ipcHandlers/xgboostPredictionHandler') // XGBoost性能预测 IPC 处理器
 require('./src/main/ipcHandlers/complianceHandler').registerHandlers(ipcMain) // 规范审查 IPC 处理器
 require('./src/main/ipcHandlers/agentHandler').registerAgentHandlers() // AI Agent IPC 处理器
-// const { autoUpdater } = require('electron-updater')
 
 // agent.md 用户自定义规则服务（单例，启动时初始化）
 const { init: initAgentMd } = require('./src/main/agent/agentMd')
@@ -185,44 +184,6 @@ async function createWindow() {
   }
 
   // 系统处理器已在导入时自动初始化
-
-  // // 配置自动更新
-  // if (process.env.NODE_ENV === 'production') {
-  //   autoUpdater.checkForUpdatesAndNotify()
-  //
-  //   // 自动更新事件监听
-  //   autoUpdater.on('checking-for-update', () => {
-  //     console.log('正在检查更新...')
-  //   })
-  //
-  //   autoUpdater.on('update-available', (info) => {
-  //     console.log('发现新版本:', info.version)
-  //     mainWindow.webContents.send('update-available', info)
-  //   })
-  //
-  //   autoUpdater.on('update-not-available', (info) => {
-  //     console.log('当前已是最新版本')
-  //   })
-  //
-  //   autoUpdater.on('error', (err) => {
-  //     console.error('更新检查失败:', err)
-  //   })
-  //
-  //   autoUpdater.on('download-progress', (progressObj) => {
-  //     let log_message = "下载进度: " + progressObj.percent + '%'
-  //     console.log(log_message)
-  //     mainWindow.webContents.send('download-progress', progressObj)
-  //   })
-  //
-  //   autoUpdater.on('update-downloaded', (info) => {
-  //     console.log('更新下载完成')
-  //     mainWindow.webContents.send('update-downloaded', info)
-  //     // 自动安装更新
-  //     setTimeout(() => {
-  //       autoUpdater.quitAndInstall()
-  //     }, 5000)
-  //   })
-  // }
 }
 
 // 应用准备就绪

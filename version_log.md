@@ -1,3 +1,81 @@
+## v4.4.5 (2026-06-12) - 修复对话静默bug + 减少AI追问
+
+### 打包记录
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.5**
+- **输出目录**: `dist-4.4.5/`
+- **构建产物**:
+  - `dist-4.4.5/混凝土配合比设计软件 Setup 4.4.5.exe`（NSIS 安装包）
+  - `dist-4.4.5/混凝土配合比设计软件-4.4.5-x64.exe`（便携版）
+- **提交**: `b1a029c`
+- **测试**: 23 suites / 141 tests 全部通过
+
+### 修复内容
+1. **修复 max_failures_exceeded 错误提示不显示**
+   - `agentActions.js`: 检查 `r.result.success` 而非 `r.success`（agent:run 外层总是 success:true）
+   - `AgentMode.jsx`: error 事件添加 `message.error()` 提示
+   - 新增 `getFriendlyError()` 将错误码转用户友好提示
+
+2. **调整系统提示词减少AI过度追问**
+   - 非必填参数可用合理默认值（掺合料10%，粉煤灰15%）
+   - 用户意图明确时直接计算，让用户调整
+   - 移除"永远不要跳过参数确认直接调用计算工具"的严格限制
+
+### 问题根因
+- **静默bug**: `agent:run` 返回 `{ success: true, result: { success: false, error: 'max_failures_exceeded' } }`，前端只检查外层 `success`，导致错误被吞掉
+- **AI追问**: 系统提示词要求"永远不要跳过参数确认"，导致AI在用户意图明确时还在追问
+
+### 测试结果
+- 23 suites / 141 tests 全部通过
+- 提交: `b1a029c`
+
+---
+
+## v4.4.5 (2026-06-12) - 对话卡死诊断日志
+
+### 打包记录
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.5**
+- **输出目录**: `dist-4.4.5/`
+- **构建产物**:
+  - `dist-4.4.5/混凝土配合比设计软件 Setup 4.4.5.exe`（NSIS 安装包）
+  - `dist-4.4.5/混凝土配合比设计软件-4.4.5-x64.exe`（便携版）
+
+### 修复内容
+- **连续对话后消息静默问题** - 添加诊断日志和超时保护
+  - `agentActions.js` - 前端发送/响应/错误日志
+  - `agentHandler.js` - 后端锁状态、请求生命周期日志
+  - `DeepSeekService.js` - 流式响应数据接收/结束/错误日志 + 60秒无数据超时保护
+
+### 问题现象
+连续几次对话后，发送消息显示"AI正在思考中"然后静默无响应，切换会话再回来又能正常响应。
+
+### 诊断日志位置
+1. **前端控制台** (F12): `[AgentChat]` 前缀
+2. **后端日志** (`~/.concrete-mixdesign/agent-debug.log`): `[AgentHandler]` 和 `[DeepSeek]` 前缀
+
+### 修改文件
+- `src/renderer/components/agentActions.js` - 前端日志
+- `src/main/ipcHandlers/agentHandler.js` - 后端锁状态日志
+- `src/main/services/DeepSeekService.js` - 流式响应超时检测
+
+---
+
+## v4.4.5 (2026-06-12)
+
+### 打包记录
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.4.5**
+- **输出目录**: `dist-4.4.5/`
+- **构建产物**:
+  - `dist-4.4.5/混凝土配合比设计软件 Setup 4.4.5.exe`（NSIS 安装包，242 MB）
+  - `dist-4.4.5/混凝土配合比设计软件-4.4.5-x64.exe`（便携版，242 MB）
+- **测试结果**: 23 套件 / 141 测试全部通过
+
+---
 
 ## v4.4.3 (2026-06-09)
 
@@ -1684,3 +1762,67 @@ ad50a90 chore(agent): 删 ContextProvider.js + 清理 agentHandler fallback（�
 **附注**（建议老板执行）：
 - 若想清理历史 session 里残留的"小砼欢迎"内容：直接清空 chat_history 表
 - 若想让"小砼欢迎"作为系统级消息常驻（不进 messages 数组），需要在 initialState 加 `systemWelcome` 字段并单独渲染
+
+## v4.4.3 - 2026-06-09 全链路加固
+
+**P1 材料 JSON 清洁**
+- MaterialService 新增 _cleanMaterial() 方法，过滤所有 null/undefined/NaN 字段
+- 新增 ToolMessageBubble 组件：旧会话中 tool 消息折叠为摘要卡片，可展开查看原始数据
+- SmartDesignChat 中 tool 消息渲染由裸 JSON 改为 ToolMessageBubble
+
+**P2 规范审查纠错**
+- ComplianceRuleEngine 的 normalizeClause 调用包裹 try-catch，单条条款解析异常不阻断全局审查
+- StandardComplianceService 条款原文 originalText 截断至 300 字符
+- 新增 DeepSeek prompt 预检：超过 28000 token 自动降级为纯规则匹配
+
+**P3 历史消息清理**
+- buildHistoryMessages 完整重构：消息配对验证、孤立 tool 消息过滤、尾部未完成序列清除
+
+**P4 中断恢复**
+- ERROR reducer 调用 mergeReplyToMessages 将思考过程 timeline 合并进消息
+- useAssistantPersistence 扩展监听 error 状态，持久化 timeline 到 ChatHistory
+- stopReason=error 与 aborted 同等显示错误标识
+
+**构建产物**
+- 混凝土配合比设计软件 Setup 4.4.3.exe (253 MB)
+- 混凝土配合比设计软件-4.4.3-x64.exe (253 MB)
+
+---
+
+## [v4.5.0] - 2026-06-12 - agent.md 用户自定义规则
+
+### 新增
+- AgentMdParser 纯函数解析器（frontmatter/4 大类别/未知类别）
+- AgentMdService（IO + chokidar 缓存 + 主动 invalidate）
+- agent.md 存储：`~/.concrete-mixdesign/agent.md`
+- 智能助手规则 Modal（我的规则/文件 两个 Tab）
+- agentMd:load/save/reload IPC 通道
+- shell:openAgentMd IPC（用系统编辑器打开）
+- ChatSession 表（sessionName 持久化）
+- 日志轮转（5MB × 5 个旧文件）
+
+### 变更
+- buildSystemPrompt 改用 agentMdRules 替代 preferences
+- buildMemoryContext 不再读 UserPreference/CorrectionRule 表
+- 记忆侧栏删除"偏好"和"修正" Tab
+- 会话列表显示从时间改为 sessionName
+- saveMessage 同步 upsert ChatSession
+- listSessions JOIN ChatSession 返回 sessionName
+- 移除 electron-updater 依赖（URL 是占位符）
+
+### 修复
+- chokidar 监听：自身 save 主动 invalidate，不被旧值覆盖
+- UTF-8 BOM 自动剥离
+- 非 UTF-8 编码友好报错
+- 文件 > 1MB 警告
+- 主进程入口路径修正（main.js 在项目根目录）
+- chokidar 5.x ESM 不兼容，降级到 3.6.0
+
+### 决策
+- agent.md 路径：~/.concrete-mixdesign/agent.md
+- 文件名：保留 agent.md
+- 老数据迁移：懒加载 + 默认名
+- token 预算：> 2000 token 截断警告
+- **AI 建议功能砍掉**（数据库不支持水泥统计 + 投入产出比低）
+- electron-updater 依赖移除
+- 国产杀毒误报 v1 不处理
