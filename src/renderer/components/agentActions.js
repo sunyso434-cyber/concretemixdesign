@@ -13,6 +13,19 @@ import { message } from 'antd'
 import { useAgentStore } from './AgentStore'
 
 /**
+ * 将后端错误码转换为用户友好的提示信息
+ */
+function getFriendlyError(errorCode) {
+  const errorMap = {
+    'max_failures_exceeded': 'AI 连续响应失败，请稍后重试',
+    'max_steps_exceeded': 'AI 执行步骤过多，请简化需求后重试',
+    'aborted': '任务已取消',
+    'wc_destroyed': '窗口已关闭',
+  }
+  return errorMap[errorCode] || errorCode || '未知错误'
+}
+
+/**
  * 生成 sessionId：时间戳 + 随机后缀，避免快速点击重复
  */
 function newSessionId() {
@@ -42,6 +55,9 @@ export async function sendMessage({ dispatch, sessionId, message, runMode }) {
   // 1. 生成 requestId
   const requestId = 'agent-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)
 
+  // [DEBUG] 记录发送消息
+  console.log('[AgentChat] 📤 发送消息', { requestId, sessionId: effectiveSessionId, messageLen: message.length, runMode })
+
   // 2. 重置 Agent 状态
   dispatch({ type: 'SEND_MESSAGE', payload: { requestId } })
 
@@ -60,20 +76,31 @@ export async function sendMessage({ dispatch, sessionId, message, runMode }) {
       sessionId: effectiveSessionId, role: 'user', content: message, stopReason: null
     })
   } catch (e) {
-    console.error('保存用户消息失败:', e)
+    console.error('[AgentChat] ❌ 保存用户消息失败:', e)
     // 不阻塞发送（spec 4.1）
   }
 
   // 6. 调用 agent:run（必须 try/catch，spec 4.1）
   try {
+    console.log('[AgentChat] ⏳ 等待 agent:run 返回...', { requestId })
     const r = await window.electronAPI.invoke('agent:run', {
       requestId, sessionId: effectiveSessionId, message, mode: runMode
     })
-    if (r && r.success === false) {
+    console.log('[AgentChat] 📨 agent:run 返回', { requestId, success: r?.success, resultSuccess: r?.result?.success, error: r?.result?.error })
+
+    // 注意：agent:run 外层总是 { success: true, result }，真正的错误在 result 中
+    if (r && r.success === true && r.result && r.result.success === false) {
+      const errorMsg = r.result.error || '启动失败'
+      const friendlyMsg = getFriendlyError(errorMsg)
+      dispatch({ type: 'ERROR', payload: { error: friendlyMsg } })
+      message.error(friendlyMsg)
+    } else if (r && r.success === false) {
+      // 兜底：外层 success=false（通信层面错误）
       dispatch({ type: 'ERROR', payload: { error: r.error || '启动失败' } })
       message.error(r.error || '启动失败，请稍候重试')
     }
   } catch (e) {
+    console.error('[AgentChat] 💥 agent:run 异常', { requestId, error: e.message })
     dispatch({ type: 'ERROR', payload: { error: '通信失败: ' + (e.message || '未知错误') } })
     message.error('通信失败: ' + (e.message || '未知错误'))
   }

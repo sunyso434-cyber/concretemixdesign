@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { message } from 'antd'
 import { useAgentStore } from './AgentStore'
 
 /**
@@ -78,6 +79,12 @@ export default function useAgentMode() {
             dispatch({ type: 'ABORT' })
           } else {
             dispatch({ type: 'ERROR', payload: { error: errorMsg } })
+            // 显示用户友好的错误提示
+            const friendlyMap = {
+              'max_failures_exceeded': 'AI 连续响应失败，请稍后重试',
+              'max_steps_exceeded': 'AI 执行步骤过多，请简化需求后重试',
+            }
+            message.error(friendlyMap[errorMsg] || errorMsg || '未知错误')
           }
           return
         }

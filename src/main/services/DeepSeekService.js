@@ -601,6 +601,20 @@ class DeepSeekService {
       let buffer = ''
       const finalMessage = { role: 'assistant', content: '' }
       const toolCallMap = new Map()
+      const streamStartTime = Date.now()
+      let lastDataTime = Date.now()
+      let chunkCount = 0
+      const STREAM_IDLE_TIMEOUT = 60000 // 60秒无数据视为卡住
+
+      // [DEBUG] 流式响应超时检测定时器
+      const idleTimer = setInterval(() => {
+        const idleTime = Date.now() - lastDataTime
+        if (idleTime > STREAM_IDLE_TIMEOUT) {
+          console.error(`[DeepSeek] ⏰ 流式响应超时: ${idleTime}ms 无数据, chunks=${chunkCount}, 耗时=${Date.now() - streamStartTime}ms`)
+          clearInterval(idleTimer)
+          reject(new Error(`流式响应超时: ${idleTime}ms 无数据`))
+        }
+      }, 10000) // 每10秒检查一次
 
       const mergeToolCallDelta = (deltaToolCall) => {
         const index = deltaToolCall.index || 0
@@ -654,6 +668,8 @@ class DeepSeekService {
       }
 
       response.data.on('data', chunk => {
+        lastDataTime = Date.now() // [DEBUG] 更新最后数据时间
+        chunkCount++
         buffer += chunk.toString('utf8')
         const events = buffer.split('\n\n')
         buffer = events.pop() || ''
@@ -670,6 +686,9 @@ class DeepSeekService {
       })
 
       response.data.on('end', () => {
+        clearInterval(idleTimer) // [DEBUG] 清理超时检测
+        console.log(`[DeepSeek] ✅ 流式响应结束: chunks=${chunkCount}, 耗时=${Date.now() - streamStartTime}ms`)
+
         if (buffer.trim()) {
           const lines = buffer.split('\n')
           for (const line of lines) {
@@ -688,7 +707,11 @@ class DeepSeekService {
         resolve(finalMessage)
       })
 
-      response.data.on('error', reject)
+      response.data.on('error', (err) => {
+        clearInterval(idleTimer) // [DEBUG] 清理超时检测
+        console.error(`[DeepSeek] 💥 流式响应错误: chunks=${chunkCount}, 耗时=${Date.now() - streamStartTime}ms, error=${err.message}`)
+        reject(err)
+      })
     })
   }
 
@@ -773,7 +796,7 @@ class DeepSeekService {
 - 如果已有匹配的用户自定义技能（如 self_compacting_concrete_design、scc_mix_design），直接调用该技能，不需要先查材料——自定义技能内部会自行获取材料数据
 - 向用户展示可选材料并做定性对比建议（基于材料属性：强度、价格、活性等）
 - 用户说"用默认值"或明确选定时，再调用计算工具
-- 永远不要跳过参数确认直接调用计算工具
+- **不要过度追问**：当用户意图已经足够明确时（如已指定方案、材料、替代方式），使用合理默认值直接计算，然后让用户调整。常见默认值：掺合料掺量10%、粉煤灰掺量15%。计算完成后告诉用户"使用了默认掺量XX%，如需调整请告诉我"
 
 ### 材料列表输出格式（强制要求）
 
@@ -798,7 +821,8 @@ class DeepSeekService {
 ### 参数规则（重要）
 - 必填参数: strength, slump, cementId, sandIds, stoneIds
 - 缺少必填参数时必须向用户追问，不可自行填充
-- 只有当用户明确说"用默认值"、"默认就行"时，才允许省略非必填参数
+- 非必填参数（如 flyAshDosage, slagDosage, lithiumSlagDosage, compositePowderDosage）可使用合理默认值（掺合料10%，粉煤灰15%），计算后告知用户
+- 用户说"方案X加"、"在XX基础上加"时，结合上下文理解意图，用默认值先算，让用户调整
 
 ### 砂率参数传递规则（重要）
 - **用户明确指定砂率时**：必须将用户说的砂率值传递给 sandRatio 参数（数字类型，单位%）
