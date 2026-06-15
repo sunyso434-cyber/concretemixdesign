@@ -71,3 +71,27 @@ describe('systemPromptBuilder', () => {
     expect(prompt).toContain('token')
   })
 })
+
+describe('buildSystemPrompt 注入 preferenceSummary', () => {
+  test('应把 preferenceSummary 嵌入用户偏好段落', () => {
+    const prompt = buildSystemPrompt({
+      memoryContext: '历史摘要',
+      skillNames: ['calculate_mix_design'],
+      agentMdRules: '规则',
+      preferenceSummary: '- 选材：水泥厂家偏好拉法基\n- 计算方法：体积法'
+    })
+    expect(prompt).toContain('- 选材：水泥厂家偏好拉法基')
+    expect(prompt).toContain('- 计算方法：体积法')
+  })
+
+  test('preferenceSummary 为空时不应输出该段落', () => {
+    const prompt = buildSystemPrompt({})
+    expect(prompt).not.toContain('# 用户偏好')
+  })
+
+  test('preferenceSummary 非空时应有独立小标题', () => {
+    const prompt = buildSystemPrompt({ preferenceSummary: '- 计算方法：体积法' })
+    expect(prompt).toContain('# 用户偏好')
+    expect(prompt).toContain('- 计算方法：体积法')
+  })
+})
