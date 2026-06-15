@@ -68,6 +68,57 @@ async function initializeDatabase() {
     // 同步所有模型
     await syncModels()
     console.log('数据库表同步完成')
+
+    // 阶段 B 数据迁移（废弃 user_preferences + agent.md v1→v2）
+    // 注意：必须在 initializeDatabase 函数体内、syncModels 之后，保证表已存在
+    try {
+      const { sequelize: db } = require('./src/main/db/database')
+      const UserPreference = require('./src/main/db/models/UserPreference')
+      const deprecateMigration = require('./migrations/2026-06-15-deprecate-user-preferences')
+      const agentMdMigration = require('./migrations/2026-06-15-migrate-agent-md-v2')
+      const { getInstance: getAgentMdSvc, agentMdPath: mdPath } = require('./src/main/agent/agentMd')
+
+      // 检查 user_preferences 表是否还存在
+      const tables = await db.query(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='user_preferences'",
+        { type: db.QueryTypes.SELECT }
+      )
+      if (tables.length > 0) {
+        console.log('[main] 检测到 user_preferences 表，开始执行废弃迁移...')
+        // 用 raw SQL 建 migration_log 表（避免和 Sequelize 临时 define 混用）
+        await db.query(`CREATE TABLE IF NOT EXISTS migration_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          appliedAt DATETIME NOT NULL,
+          details TEXT
+        )`)
+        // 迁移脚本不依赖 MigrationLog 模型，logs 通过 raw SQL 写入（见 Task 10 实现）
+        // 但 deprecateMigration.up 仍接受 MigrationLog 参数以便它写日志，所以用一个查询接口包装
+        const logWriter = {
+          async create({ name, appliedAt, details }) {
+            await db.query(
+              'INSERT INTO migration_log (name, appliedAt, details) VALUES (?, ?, ?)',
+              { replacements: [name, appliedAt, JSON.stringify(details || {})], type: db.QueryTypes.INSERT }
+            )
+          }
+        }
+        await deprecateMigration.up({
+          context: {
+            sequelize: db,
+            UserPreference, // 直接 import 已有模型（带 id/key/value/category 列定义）
+            logWriter,
+            dbPath: ''
+          }
+        })
+        await agentMdMigration.up({ context: { agentMdPath: mdPath } })
+        // 触发 agent.md 重新加载
+        getAgentMdSvc().loadFromFile()
+        console.log('[main] 数据迁移完成')
+      }
+    } catch (err) {
+      console.error('[main] 数据迁移失败（应用继续启动）:', err.message)
+    }
+
     // 初始化预设材料
     const MaterialService = require('./src/main/services/MaterialService')
     await MaterialService.initDefaultMaterials()
