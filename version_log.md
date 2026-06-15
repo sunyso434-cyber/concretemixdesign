@@ -1,3 +1,65 @@
+## v4.6.1 (2026-06-15) - Hotfix：修复保存偏好崩溃
+
+### 打包记录
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.6.1**
+- **输出目录**: `dist-4.6.1/`
+- **构建产物**:
+  - `dist-4.6.1/混凝土配合比设计软件 Setup 4.6.1.exe`（NSIS 安装包，242 MB）
+  - `dist-4.6.1/混凝土配合比设计软件-4.6.1-x64.exe`(便携版，242 MB）
+  - `dist-4.6.1/win-unpacked/`（未打包的运行时）
+- **提交**: `0a6b5bc`
+- **测试**: 61 suites / 387 tests 全部通过（v4.6.0 基线 383 + 新增 4）
+- **electron-builder**: 24.13.3 / electron 28.3.3 / win32 x64
+
+### 修复内容
+
+老板报告：保存偏好时弹出错误对话框
+"agent.md ## 专业偏好 段 YAML 解析失败: end of the stream or a document separator is expected (2:1)"，
+应用主进程崩溃。
+
+#### 根因（两个 Bug 叠加）
+
+1. **Bug A：渲染进程手工拼 YAML 漏写 `materials:` 头**
+   `AgentRulesModal.jsx` 的 `formatToMarkdownClient` 函数为"我的规则" tab 保存按钮拼接 Markdown 时，
+   直接输出 `  - { category: ..., dimension: ..., value: ... }` 加 `method: ...`，
+   缺少顶层 `materials:` key，导致写盘内容 YAML 非法。
+
+2. **Bug B：chokidar watcher 抛出未捕获异常**
+   `AgentMdService.startWatching()` 的 change 回调直接 `this.loadFromFile()`，
+   parse 失败时抛错且回调内未 catch → unhandled exception → 主进程整体崩溃。
+
+#### 修复方案（贴合原设计文档 §5.2 进程归属约定）
+
+设计文档 `docs/superpowers/specs/2026-06-15-user-preference-redesign-design.md`
+明确要求：渲染进程不做序列化，所有 IPC 传结构化对象，agent.md 文件 IO 只走主进程。
+实施时违反此约定才有此 Bug。
+
+1. **主进程新增 `agent:rules:upsert` IPC**：接收完整 rules 结构化对象，
+   由主进程 `AgentMdParser.formatToMarkdown`（基于 yaml.dump）统一序列化
+2. **渲染进程删除前端序列化**：
+   - 删除 `formatToMarkdownClient` 函数
+   - `applyRules` 只更新 React 状态，不再生成 raw
+   - `handleSaveRaw` → `handleSaveRules`：传 rules 对象走 IPC
+3. **AgentMdService 容错强化**：
+   - `saveToFile`：先 parse 校验通过再写盘，脏数据不落地
+   - watcher change 回调：try/catch 保护，仅打 log + 保留旧缓存
+4. **测试补强（+4）**：
+   - IPC: `agent:rules:upsert` 正常 / 缺参 / 仅 method 三场景
+   - watcher: 外部写入非法 YAML 时不抛异常 + 保留旧缓存
+
+#### 变更文件
+- src/main/agent/agentMd/AgentMdService.js
+- src/main/ipcHandlers/agentHandler.js
+- src/renderer/components/AgentRulesModal.jsx
+- src/renderer/store/agentRulesActions.js
+- src/main/__tests__/preferenceIPC.test.js
+- src/main/agent/__tests__/AgentMdService.test.js
+- package.json (4.6.0 → 4.6.1, output → dist-4.6.1)
+
+---
+
 ## v4.6.0 (2026-06-15) - 用户偏好重做
 
 ### 打包记录
