@@ -33,6 +33,8 @@ let agentRunningAt = 0
 const AGENT_LOCK_TIMEOUT = 120000 // 2 分钟超时自动释放（spec 8.2）
 
 const { getInstance: getAgentMdService, agentMdPath } = require('../agent/agentMd')
+const { AgentMdParser } = require('../agent/agentMd/AgentMdParser')
+const { getSuggestionStore } = require('../agent/preferences')
 
 // 初始化 Skill 系统（应用启动时调用）
 async function initSkillSystem() {
@@ -699,6 +701,99 @@ module.exports = {
       return { success: false, error: err.message }
     }
   })
+
+  // ===== 偏好建议 IPC（spec §5.2）=====
+
+  function _wrap(fn) {
+    return async (event, payload) => {
+      try {
+        return await fn(event, payload)
+      } catch (err) {
+        console.error('[AgentHandler] preference IPC error:', err.message)
+        return { success: false, error: err.message }
+      }
+    }
+  }
+
+  ipcMain.handle('agent:suggestions:list', _wrap(async () => {
+    return { success: true, suggestions: getSuggestionStore().list() }
+  }))
+
+  ipcMain.handle('agent:suggestions:accept', _wrap(async (_event, { id }) => {
+    const sugg = getSuggestionStore().acceptById(id)
+    if (!sugg) {
+      return { success: false, error: '建议不存在或已被处理' }
+    }
+    // 合并到 agent.md.materials
+    const agentMdSvc = getAgentMdService()
+    const cached = agentMdSvc.getCached()
+    const prefs = cached.parsed.professionalPrefs || { materials: [], method: null }
+    const newItem = sugg.proposedYaml
+    if (newItem.method) {
+      prefs.method = newItem.method
+    } else {
+      // 避免重复（结构化比较）
+      const exists = prefs.materials.some(m =>
+        m.category === newItem.category &&
+        m.dimension === newItem.dimension &&
+        (m.metric || '') === (newItem.metric || '') &&
+        (m.value || '') === (newItem.value || '')
+      )
+      if (!exists) prefs.materials.push(newItem)
+    }
+    cached.parsed.professionalPrefs = prefs
+    agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
+    return { success: true, newMaterials: prefs.materials }
+  }))
+
+  ipcMain.handle('agent:suggestions:dismiss', _wrap(async (_event, { id }) => {
+    const ok = getSuggestionStore().dismissById(id)
+    if (!ok) {
+      return { success: false, error: '建议不存在或已被处理' }
+    }
+    return { success: true }
+  }))
+
+  ipcMain.handle('agent:suggestions:blacklist', _wrap(async (_event, { id, type }) => {
+    getSuggestionStore().dismissById(id)
+    const agentMdSvc = getAgentMdService()
+    const cached = agentMdSvc.getCached()
+    const list = cached.parsed.ignoredSuggestionTypes || []
+    if (!list.includes(type)) {
+      list.push(type)
+    }
+    cached.parsed.ignoredSuggestionTypes = list
+    agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
+    return { success: true }
+  }))
+
+  ipcMain.handle('agent:preferences:get', _wrap(async () => {
+    const agentMdSvc = getAgentMdService()
+    const cached = agentMdSvc.getCached()
+    const prefs = cached.parsed.professionalPrefs || { materials: [], method: null }
+    return { materials: prefs.materials, method: prefs.method }
+  }))
+
+  ipcMain.handle('agent:preferences:upsert', _wrap(async (_event, { materials, method }) => {
+    const agentMdSvc = getAgentMdService()
+    const cached = agentMdSvc.getCached()
+    cached.parsed.professionalPrefs = { materials, method }
+    agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
+    return { success: true }
+  }))
+
+  ipcMain.handle('agent:preferences:delete', _wrap(async (_event, { index }) => {
+    const agentMdSvc = getAgentMdService()
+    const cached = agentMdSvc.getCached()
+    const mats = (cached.parsed.professionalPrefs && cached.parsed.professionalPrefs.materials) || []
+    if (index < 0 || index >= mats.length) {
+      return { success: false, error: `索引越界: ${index}` }
+    }
+    mats.splice(index, 1)
+    cached.parsed.professionalPrefs.materials = mats
+    agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
+    return { success: true }
+  }))
 }
 
 module.exports = {
