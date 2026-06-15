@@ -1,3 +1,22 @@
+## v4.6.0 (2026-06-15) - 用户偏好重做
+
+### 打包记录
+- **命令**: `npm run electron:build`（待老板触发）
+- **计划提交**: 阶段 A + 阶段 B 共 15 个 commit
+
+### 重构内容
+1. **AgentMdParser 升级 v2**：支持 fenced YAML code block（结构化偏好）+ v1 扁平兼容
+2. **PreferencePatternDetector**：观察 + 80% 阈值模式识别（5 次窗口 + 内存）
+3. **suggestionStore 单例**：内存建议存储 + IPC 事件推送
+4. **LearningService 改造**：移除 UserPreference 自动写入，改为 PatternDetector 建议
+5. **AgentMemoryService.getResourceSummary**：改读 agent.md 偏好，生成中文摘要
+6. **7 个新 IPC channel**：suggestions list/accept/dismiss/blacklist + preferences get/upsert/delete
+7. **AgentRulesModal 三 tab 化**：我的规则 / 偏好建议 / 文件
+8. **数据迁移**：废弃 user_preferences 表 + agent.md v1→v2 升级
+9. **删表零风险**：静态扫描确认无业务代码依赖 UserPreference
+
+---
+
 ## v4.4.5 (2026-06-12) - 修复对话静默bug + 减少AI追问
 
 ### 打包记录
