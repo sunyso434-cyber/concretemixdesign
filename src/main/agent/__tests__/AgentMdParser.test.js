@@ -191,3 +191,58 @@ method: null
     expect(result.professionalPrefs).toEqual({ materials: [], method: null })
   })
 })
+
+describe('AgentMdParser v1 扁平兼容', () => {
+  test('应将 "- 常用水泥: P.O 42.5" 映射为 materials 项', () => {
+    const content = `---
+version: 1
+---
+
+## 专业偏好
+- 常用水泥: P.O 42.5
+- 常用粉煤灰: 粉煤灰
+`
+    const result = AgentMdParser.parse(content)
+    expect(result.professionalPrefs.materials).toEqual([
+      { category: '水泥', dimension: '厂家', value: 'P.O 42.5' },
+      { category: '掺合料', dimension: '种类', value: '粉煤灰' }
+    ])
+    expect(result.professionalPrefs.method).toBeNull()
+  })
+
+  test('应丢弃 "- 默认强度: C30" 不出现在 materials', () => {
+    const content = `## 专业偏好
+- 默认强度: C30
+- 常用水泥: P.O 42.5
+`
+    const result = AgentMdParser.parse(content)
+    expect(result.professionalPrefs.materials).toEqual([
+      { category: '水泥', dimension: '厂家', value: 'P.O 42.5' }
+    ])
+    // 默认强度不计入 unknownV1Keys
+    expect(result.unknownV1Keys).toEqual([])
+  })
+
+  test('未知 v1 键应进入 unknownV1Keys', () => {
+    const content = `## 专业偏好
+- 自定义规则: 严禁水胶比超过0.5
+- 常用水泥: P.O 42.5
+`
+    const result = AgentMdParser.parse(content)
+    expect(result.professionalPrefs.materials).toEqual([
+      { category: '水泥', dimension: '厂家', value: 'P.O 42.5' }
+    ])
+    expect(result.unknownV1Keys).toContain('自定义规则')
+  })
+
+  test('空数据（materials: [] / method: null）应正常序列化', () => {
+    const parsed = AgentMdParser.parse('')
+    parsed.version = 2
+    const md = AgentMdParser.formatToMarkdown(parsed)
+    expect(md).toContain('## 专业偏好')
+    expect(md).toContain('```yaml')
+    // 重新解析后 materials 应该是空数组
+    const reparsed = AgentMdParser.parse(md)
+    expect(reparsed.professionalPrefs.materials).toEqual([])
+  })
+})
