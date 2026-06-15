@@ -33,6 +33,7 @@
     "echarts-for-react": "^3.0.6",
     "gray-matter": "^4.0.3",
     "iconv-lite": "^0.7.2",
+    "js-yaml": "^4.2.0",
     "onnxruntime-node": "^1.26.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -44,6 +45,7 @@
     "sequelize-cli": "^6.6.5",
     "sql.js": "^1.14.1",
     "sqlite3": "^6.0.1",
+    "uuid": "^14.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

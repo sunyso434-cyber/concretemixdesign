@@ -27,8 +27,12 @@ version: 1
     expect(result.version).toBe(1)
     expect(result.replyStyle['语气']).toBe('专业但亲切')
     expect(result.replyStyle['称呼']).toBe('王工')
-    expect(result.professionalPrefs['默认强度']).toBe('C30')
-    expect(result.professionalPrefs['常用水泥']).toBe('P.O 42.5')
+    // v1 兼容路径：默认强度被丢弃，常用水泥被映射成 material
+    expect(result.professionalPrefs).toEqual({
+      materials: [{ category: '水泥', dimension: '厂家', value: 'P.O 42.5' }],
+      method: null
+    })
+    expect(result.unknownV1Keys).toEqual([])
     expect(result.workflow).toEqual(['先确认工程部位', '再确认强度等级'])
     expect(result.customKnowledge).toEqual(['我们公司内部规范要求水胶比不超过0.45'])
     expect(result.unknownSections).toEqual({})
@@ -38,7 +42,7 @@ version: 1
     const result = AgentMdParser.parse('')
     expect(result.version).toBe(1)
     expect(result.replyStyle).toEqual({})
-    expect(result.professionalPrefs).toEqual({})
+    expect(result.professionalPrefs).toEqual({ materials: [], method: null })
     expect(result.workflow).toEqual([])
     expect(result.customKnowledge).toEqual([])
     expect(result.unknownSections).toEqual({})
@@ -87,9 +91,9 @@ version: 1
     expect(result.replyStyle['语气']).toBe('友好')
   })
 
-  test('formatToMarkdown 应能往返', () => {
+  test('formatToMarkdown 应能往返（v2 YAML 格式）', () => {
     const original = `---
-version: 1
+version: 2
 ---
 
 # 我的智能助手规则
@@ -99,7 +103,16 @@ version: 1
 - 称呼：王工
 
 ## 专业偏好
-- 默认强度：C30
+
+\`\`\`yaml
+materials:
+  - { category: 水泥, dimension: 厂家, value: 拉法基 }
+  - { category: 掺合料, dimension: 种类, values: [粉煤灰, 锂渣] }
+method: 体积法
+\`\`\`
+
+## 已忽略的建议类型
+- material_performance
 
 ## 工作流程
 1. 第一步
@@ -111,10 +124,70 @@ version: 1
     const parsed = AgentMdParser.parse(original)
     const formatted = AgentMdParser.formatToMarkdown(parsed)
     const reparsed = AgentMdParser.parse(formatted)
-    expect(reparsed.version).toBe(parsed.version)
+    expect(reparsed.version).toBe(2)
     expect(reparsed.replyStyle).toEqual(parsed.replyStyle)
-    expect(reparsed.professionalPrefs).toEqual(parsed.professionalPrefs)
+    expect(reparsed.professionalPrefs).toEqual({
+      materials: [
+        { category: '水泥', dimension: '厂家', value: '拉法基' },
+        { category: '掺合料', dimension: '种类', values: ['粉煤灰', '锂渣'] }
+      ],
+      method: '体积法'
+    })
     expect(reparsed.workflow).toEqual(parsed.workflow)
     expect(reparsed.customKnowledge).toEqual(parsed.customKnowledge)
+    expect(reparsed.ignoredSuggestionTypes).toEqual(['material_performance'])
+  })
+})
+
+describe('AgentMdParser v2 YAML 格式', () => {
+  test('应解析 ## 专业偏好 中的 fenced YAML code block', () => {
+    const content = `---
+version: 2
+---
+
+# 我的智能助手规则
+
+## 专业偏好
+
+\`\`\`yaml
+materials:
+  - { category: 水泥,   dimension: 厂家, value: 拉法基 }
+  - { category: 掺合料, dimension: 种类, values: [粉煤灰, 锂渣] }
+  - { category: 细骨料, dimension: 性能, metric: 细度模数, value: 2.7 }
+method: 体积法
+\`\`\`
+
+## 已忽略的建议类型
+- material_performance
+
+## 回复风格
+- 语气: 专业但亲切
+`
+    const result = AgentMdParser.parse(content)
+    expect(result.version).toBe(2)
+    expect(result.professionalPrefs).toEqual({
+      materials: [
+        { category: '水泥', dimension: '厂家', value: '拉法基' },
+        { category: '掺合料', dimension: '种类', values: ['粉煤灰', '锂渣'] },
+        { category: '细骨料', dimension: '性能', metric: '细度模数', value: 2.7 }
+      ],
+      method: '体积法'
+    })
+  })
+
+  test('空 YAML code block 应返回空结构', () => {
+    const content = `---
+version: 2
+---
+
+## 专业偏好
+
+\`\`\`yaml
+materials: []
+method: null
+\`\`\`
+`
+    const result = AgentMdParser.parse(content)
+    expect(result.professionalPrefs).toEqual({ materials: [], method: null })
   })
 })

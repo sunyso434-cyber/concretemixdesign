@@ -1,8 +1,10 @@
 const matter = require('gray-matter')
+const yaml = require('js-yaml')
 
 const KNOWN_CATEGORIES = {
   '回复风格': 'replyStyle',
   '专业偏好': 'professionalPrefs',
+  '已忽略的建议类型': 'ignoredSuggestionTypes',
   '工作流程': 'workflow',
   '自定义知识': 'customKnowledge'
 }
@@ -29,7 +31,9 @@ class AgentMdParser {
       return {
         version: 1,
         replyStyle: {},
-        professionalPrefs: {},
+        professionalPrefs: { materials: [], method: null },
+        ignoredSuggestionTypes: [],
+        unknownV1Keys: [],
         workflow: [],
         customKnowledge: [],
         unknownSections: {}
@@ -44,7 +48,9 @@ class AgentMdParser {
     const result = {
       version,
       replyStyle: {},
-      professionalPrefs: {},
+      professionalPrefs: { materials: [], method: null },
+      ignoredSuggestionTypes: [],
+      unknownV1Keys: [],
       workflow: [],
       customKnowledge: [],
       unknownSections: {}
@@ -67,8 +73,25 @@ class AgentMdParser {
       } else if (categoryKey === 'customKnowledge') {
         // 自定义知识用数组
         result.customKnowledge = this._parseListItems(sectionBody)
+      } else if (categoryKey === 'ignoredSuggestionTypes') {
+        // 已忽略的建议类型：用列表项解析，过滤掉含冒号的"键值"脏行
+        const allItems = this._parseListItems(sectionBody)
+        result.ignoredSuggestionTypes = allItems.filter(item => !item.includes('：') && !item.includes(':'))
+      } else if (categoryKey === 'professionalPrefs') {
+        // 专业偏好：v2 YAML code block 优先，v1 扁平兼容
+        if (this._hasStrayFlatLines(sectionBody)) {
+          console.warn('agent.md 中 ## 专业偏好 段落存在 code block 外的扁平键，已忽略')
+        }
+        const parsed = this._parseProfessionalPrefsSection(sectionBody)
+        result.professionalPrefs = {
+          materials: parsed.materials,
+          method: parsed.method
+        }
+        if (parsed.unknownV1Keys.length > 0) {
+          result.unknownV1Keys = parsed.unknownV1Keys
+        }
       } else {
-        // 回复风格/专业偏好用键值对，键原样保留（中文键透传）
+        // 回复风格用键值对，键原样保留（中文键透传）
         const kvPairs = this._parseKeyValueLines(sectionBody)
         Object.assign(result[categoryKey], kvPairs)
       }
@@ -93,9 +116,20 @@ class AgentMdParser {
     }
 
     if (parsed.professionalPrefs && Object.keys(parsed.professionalPrefs).length > 0) {
-      parts.push('\n## 专业偏好\n')
-      for (const [k, v] of Object.entries(parsed.professionalPrefs)) {
-        parts.push(`- ${k}: ${v}\n`)
+      parts.push('\n## 专业偏好\n\n')
+      const mats = (parsed.professionalPrefs && parsed.professionalPrefs.materials) || []
+      const method = parsed.professionalPrefs && parsed.professionalPrefs.method
+      const yamlObj = { materials: mats }
+      if (method) yamlObj.method = method
+      parts.push('```yaml\n')
+      parts.push(yaml.dump(yamlObj, { lineWidth: -1, noRefs: true, forceQuotes: false }))
+      parts.push('```\n')
+    }
+
+    if (parsed.ignoredSuggestionTypes && parsed.ignoredSuggestionTypes.length > 0) {
+      parts.push('\n## 已忽略的建议类型\n')
+      for (const t of parsed.ignoredSuggestionTypes) {
+        parts.push(`- ${t}\n`)
       }
     }
 
@@ -188,6 +222,66 @@ class AgentMdParser {
       else if (m2) items.push(m2[1])
     }
     return items
+  }
+
+  /**
+   * 解析 ## 专业偏好 段落中的 fenced YAML code block
+   * 若不含 code block 走 v1 扁平兼容解析
+   * @param {string} body
+   * @returns {{materials: Array, method: string|null, unknownV1Keys: string[]}}
+   */
+  static _parseProfessionalPrefsSection(body) {
+    const codeBlockMatch = body.match(/```yaml\n([\s\S]*?)\n```/)
+    if (codeBlockMatch) {
+      // 含 fenced code block：只解析 code block 内的 YAML
+      const yamlText = codeBlockMatch[1]
+      try {
+        const parsed = yaml.load(yamlText) || {}
+        return {
+          materials: Array.isArray(parsed.materials) ? parsed.materials : [],
+          method: parsed.method || null,
+          unknownV1Keys: []
+        }
+      } catch (err) {
+        throw new Error('agent.md ## 专业偏好 段 YAML 解析失败: ' + err.message)
+      }
+    }
+
+    // 不含 code block：v1 扁平兼容
+    const flat = this._parseKeyValueLines(body)
+    const materials = []
+    const unknownV1Keys = []
+    const V1_KEY_MAP = {
+      '常用水泥': { category: '水泥', dimension: '厂家' },
+      '常用粉煤灰': { category: '掺合料', dimension: '种类' },
+      '常用矿粉': { category: '掺合料', dimension: '种类' },
+      '常用外加剂': { category: '外加剂', dimension: '种类' }
+    }
+    const V1_DROP_KEYS = new Set(['默认强度'])
+
+    for (const [k, v] of Object.entries(flat)) {
+      if (V1_DROP_KEYS.has(k)) continue
+      if (V1_KEY_MAP[k]) {
+        materials.push({ ...V1_KEY_MAP[k], value: v })
+      } else {
+        unknownV1Keys.push(k)
+      }
+    }
+    return { materials, method: null, unknownV1Keys }
+  }
+
+  /**
+   * 检测段落内是否同时存在 fenced code block 外的扁平行（脏数据）
+   * @param {string} body
+   * @returns {boolean}
+   */
+  static _hasStrayFlatLines(body) {
+    const codeBlockMatch = body.match(/```yaml\n[\s\S]*?\n```/)
+    if (!codeBlockMatch) return false
+    const codeBlockStr = codeBlockMatch[0]
+    const rest = body.replace(codeBlockStr, '')
+    // 检查 rest 中是否含 "- key: value" 形态
+    return /^\s*-\s*.+[：:].+$/m.test(rest)
   }
 }
 
