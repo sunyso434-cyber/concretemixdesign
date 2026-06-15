@@ -122,6 +122,70 @@ describe('7 个偏好 IPC channel', () => {
     expect(result.error).toBeDefined()
   })
 
+  // ===== v4.6.x agent:rules:upsert 修复方案 A：渲染进程整体保存 rules =====
+
+  test('agent:rules:upsert 应接收结构化 rules 对象并写盘', async () => {
+    const handler = mockHandlers.get('agent:rules:upsert')
+    expect(handler).toBeDefined()
+
+    const rules = {
+      version: 2,
+      replyStyle: { '语气': '严谨专业', '称呼': '老板' },
+      professionalPrefs: {
+        materials: [
+          { category: '掺合料', dimension: '种类', value: '矿粉' }
+        ],
+        method: '质量法'
+      },
+      ignoredSuggestionTypes: [],
+      workflow: ['先确认强度等级'],
+      customKnowledge: ['公司规范水胶比不超过 0.45'],
+      unknownSections: {}
+    }
+    const result = await handler({}, { rules })
+    expect(result.success).toBe(true)
+    // 主进程返回最新 cached
+    expect(result.data).toBeDefined()
+    expect(result.data.parsed.professionalPrefs.materials).toContainEqual({
+      category: '掺合料', dimension: '种类', value: '矿粉'
+    })
+    expect(result.data.parsed.professionalPrefs.method).toBe('质量法')
+    expect(result.data.parsed.replyStyle['称呼']).toBe('老板')
+    // 写盘内容必须是合法 YAML（关键回归断言：保证不再出现"materials: 头丢失"那种崩溃）
+    const onDisk = fs.readFileSync(tmpFile, 'utf8')
+    expect(onDisk).toContain('materials:')
+    expect(onDisk).toContain('method: 质量法')
+  })
+
+  test('agent:rules:upsert 参数缺失时返回 success:false', async () => {
+    const handler = mockHandlers.get('agent:rules:upsert')
+    const result = await handler({}, { rules: null })
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('rules')
+  })
+
+  test('agent:rules:upsert 即使只含 method 也能正确写入', async () => {
+    const handler = mockHandlers.get('agent:rules:upsert')
+    const rules = {
+      version: 2,
+      replyStyle: {},
+      professionalPrefs: { materials: [], method: '体积法' },
+      ignoredSuggestionTypes: [],
+      workflow: [],
+      customKnowledge: [],
+      unknownSections: {}
+    }
+    const result = await handler({}, { rules })
+    expect(result.success).toBe(true)
+    expect(result.data.parsed.professionalPrefs.method).toBe('体积法')
+    // 关键：YAML 解析必须成功，不能再现"end of the stream or a document separator is expected"
+    const onDisk = fs.readFileSync(tmpFile, 'utf8')
+    const yaml = require('js-yaml')
+    const codeBlockMatch = onDisk.match(/```yaml\n([\s\S]*?)\n```/)
+    expect(codeBlockMatch).toBeTruthy()
+    expect(() => yaml.load(codeBlockMatch[1])).not.toThrow()
+  })
+
   afterAll(() => {
     if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)
   })

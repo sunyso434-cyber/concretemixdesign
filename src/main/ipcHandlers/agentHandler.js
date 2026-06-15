@@ -683,6 +683,34 @@ module.exports = {
     }
   })
 
+  /**
+   * 整体保存"我的规则" tab 的结构化对象（v4.6.x 修复方案 A）
+   *
+   * 老方案缺陷：渲染进程手工拼 YAML 字符串再走 agentMd:save，
+   *   - 双轨序列化（前端拼字符串 vs 主进程 yaml.dump）容易写不一致
+   *   - 一处 bug 触发 YAML 解析失败，watcher 二次抛错会让主进程崩溃
+   * 新方案：渲染进程只传结构化 rules 对象，序列化统一由主进程 AgentMdParser.formatToMarkdown 完成。
+   * 这与设计文档 docs/superpowers/specs/2026-06-15-user-preference-redesign-design.md §5.2 进程归属约定一致。
+   */
+  ipcMain.handle('agent:rules:upsert', async (_event, { rules }) => {
+    try {
+      if (!rules || typeof rules !== 'object') {
+        return { success: false, error: '参数 rules 必须是对象' }
+      }
+      const svc = getAgentMdService()
+      const content = AgentMdParser.formatToMarkdown(rules)
+      // 4KB 警告
+      if (content && content.length > 4 * 1024) {
+        console.warn(`[AgentMd] 保存内容 ${content.length} 字节，超过 4KB 阈值`)
+      }
+      svc.saveToFile(content)
+      return { success: true, data: svc.getCached() }
+    } catch (err) {
+      console.error('[AgentHandler] agent:rules:upsert 失败:', err.message)
+      return { success: false, error: err.message }
+    }
+  })
+
   ipcMain.handle('agentMd:reload', async () => {
     try {
       const svc = getAgentMdService()

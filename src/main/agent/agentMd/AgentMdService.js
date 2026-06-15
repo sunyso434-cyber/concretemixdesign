@@ -86,6 +86,12 @@ class AgentMdService {
   /**
    * 启动 chokidar 监听外部文件变更
    * awaitWriteFinish 避免读到正在写入的半截文件
+   *
+   * 容错策略（关键）：
+   *  - loadFromFile 内部可能因 YAML/解析错误抛出异常
+   *  - 抛出的异常在 chokidar 回调里属于 unhandled exception，会让 Electron 主进程崩溃
+   *  - 这里用 try/catch 包裹，错误只打 log + 保留旧缓存，不再让进程死掉
+   *  - 用户下次手动改文件或重启即可恢复，比"程序整体崩溃"友好得多
    */
   startWatching() {
     if (this.watcher) return
@@ -93,7 +99,13 @@ class AgentMdService {
       awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 100 },
       ignoreInitial: true
     })
-    this.watcher.on('change', () => this.loadFromFile())
+    this.watcher.on('change', () => {
+      try {
+        this.loadFromFile()
+      } catch (err) {
+        console.error('[AgentMdService] 外部修改触发的重新加载失败，已保留旧缓存:', err.message)
+      }
+    })
     this.watcher.on('error', err => {
       console.error('[AgentMdService] watcher error:', err.message)
     })
@@ -120,16 +132,27 @@ class AgentMdService {
   /**
    * 写入 agent.md 并同步更新缓存
    * 自动创建不存在的父目录
+   *
+   * 顺序保护（关键）：
+   *  - 先 parse 内容做格式校验，通过后才写盘
+   *  - 这样脏数据不会落地，cache 与磁盘永远一致
+   *  - 解析失败抛出的错误由调用方（IPC handler）兜底，转成用户友好提示
    * @param {string} content - 完整 Markdown 内容
    */
   saveToFile(content) {
+    // 1. 先解析校验（失败会抛错，不写盘）
+    const nextCache = AgentMdParser.parse(content)
+
+    // 2. 校验通过才写盘
     const dir = path.dirname(this.path)
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true })
     }
     fs.writeFileSync(this.path, content, 'utf8')
+
+    // 3. 同步缓存
     this.rawCache = content
-    this.cache = AgentMdParser.parse(content)
+    this.cache = nextCache
   }
 
   /**

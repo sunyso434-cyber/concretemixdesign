@@ -170,6 +170,70 @@ version: 1
 
     svc.stopWatching()
   }, 10000)
+
+  // 测试 6b: 外部写入非法 YAML 时 watcher 不能让进程崩溃（v4.6.x 修复 Bug B）
+  test('外部修改写入非法 YAML 时 watcher 仅打 log + 保留旧缓存，不抛出异常', async () => {
+    const initial = `---
+version: 2
+---
+
+# 我的智能助手规则
+
+## 专业偏好
+
+\`\`\`yaml
+materials:
+  - { category: 水泥, dimension: 厂家, value: 海螺 }
+method: 体积法
+\`\`\`
+`
+    fs.writeFileSync(tmpFile, initial, 'utf8')
+    const svc = new AgentMdService({ path: tmpFile })
+    svc.init()
+
+    // 等待 chokidar 启动稳定
+    await new Promise(r => setTimeout(r, 300))
+
+    // unhandled exception 监听器：旧实现会让进程崩溃，新实现绝不能再抛
+    const unhandled = []
+    const onUnhandled = (err) => unhandled.push(err)
+    process.on('uncaughtException', onUnhandled)
+
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+
+    // 外部写入故意非法的 YAML（复现老板报告的崩溃情形）
+    const bad = `---
+version: 2
+---
+
+# 我的智能助手规则
+
+## 专业偏好
+
+\`\`\`yaml
+  - { category: 掺合料, dimension: 种类, value: 矿粉 }
+method: 质量法
+\`\`\`
+`
+    fs.writeFileSync(tmpFile, bad, 'utf8')
+
+    // 等待 chokidar 触发
+    await new Promise(r => setTimeout(r, 800))
+
+    // 关键断言：进程没崩溃 + 错误进了 console.error + 旧缓存保留
+    expect(unhandled).toHaveLength(0)
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('外部修改触发的重新加载失败'),
+      expect.any(String)
+    )
+    expect(svc.getCached().parsed.professionalPrefs.materials).toEqual([
+      { category: '水泥', dimension: '厂家', value: '海螺' }
+    ])
+
+    process.removeListener('uncaughtException', onUnhandled)
+    consoleSpy.mockRestore()
+    svc.stopWatching()
+  }, 10000)
 })
 
 describe('AgentMdService - 边缘情况（编码/文件大小/BOM）', () => {

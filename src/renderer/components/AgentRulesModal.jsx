@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Modal, Tabs, Button, message, Select, Input, Space, Radio, Tag, Empty, Form, Card } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
-import { loadAgentMd, saveAgentMd, reloadAgentMd } from '../store/agentRulesActions'
+import { loadAgentMd, saveAgentMdRules, reloadAgentMd } from '../store/agentRulesActions'
 import {
   listSuggestions,
   acceptSuggestion,
@@ -19,53 +19,10 @@ const CATEGORY_OPTIONS = ['水泥', '掺合料', '细骨料', '粗骨料', '外�
 const DIMENSION_OPTIONS = ['种类', '厂家', '性能']
 const METHOD_OPTIONS = ['体积法', '质量法']
 
-// 客户端序列化：与主进程 AgentMdParser.formatToMarkdown 行为一致
-// "我的规则" tab 修改非偏好字段（回复风格/工作流程/自定义知识）时用此函数重新计算 raw
-function formatToMarkdownClient(parsed) {
-  const parts = [`---\nversion: ${parsed.version || 2}\n---\n\n# 我的智能助手规则\n`]
-
-  if (parsed.replyStyle && Object.keys(parsed.replyStyle).length > 0) {
-    parts.push('\n## 回复风格\n')
-    for (const [k, v] of Object.entries(parsed.replyStyle)) {
-      parts.push(`- ${k}: ${v}\n`)
-    }
-  }
-
-  parts.push('\n## 专业偏好\n\n```yaml\n')
-  const mats = (parsed.professionalPrefs && parsed.professionalPrefs.materials) || []
-  for (const m of mats) {
-    const parts2 = Object.entries(m).map(([k, v]) => {
-      let valStr
-      if (Array.isArray(v)) valStr = `[${v.join(', ')}]`
-      else valStr = v
-      return `${k}: ${valStr}`
-    })
-    parts.push(`  - { ${parts2.join(', ')} }\n`)
-  }
-  const method = parsed.professionalPrefs && parsed.professionalPrefs.method
-  if (method) parts.push(`method: ${method}\n`)
-  parts.push('```\n')
-
-  if (parsed.ignoredSuggestionTypes && parsed.ignoredSuggestionTypes.length > 0) {
-    parts.push('\n## 已忽略的建议类型\n')
-    for (const t of parsed.ignoredSuggestionTypes) parts.push(`- ${t}\n`)
-  }
-
-  if (parsed.workflow && parsed.workflow.length > 0) {
-    parts.push('\n## 工作流程\n')
-    parsed.workflow.forEach((item, i) => parts.push(`${i + 1}. ${item}\n`))
-  }
-
-  if (parsed.customKnowledge && parsed.customKnowledge.length > 0) {
-    parts.push('\n## 自定义知识\n')
-    parsed.customKnowledge.forEach(item => parts.push(`- ${item}\n`))
-  }
-
-  for (const [title, body] of Object.entries(parsed.unknownSections || {})) {
-    parts.push(`\n## ${title}\n${body}\n`)
-  }
-  return parts.join('')
-}
+// 说明：本组件**不再**在渲染进程拼接 YAML/Markdown 字符串。
+// 所有保存动作都把结构化 rules 对象发给主进程，由主进程 AgentMdParser.formatToMarkdown
+// 统一序列化（设计文档 docs/superpowers/specs/2026-06-15-user-preference-redesign-design.md §5.2 约定）。
+// 历史遗留的 formatToMarkdownClient 因双轨序列化导致 YAML 解析失败崩溃，已彻底删除（v4.6.x 修复方案 A）。
 
 const AgentRulesModal = ({ visible, onClose }) => {
   const [activeTab, setActiveTab] = useState('my-rules')
@@ -236,11 +193,12 @@ const AgentRulesModal = ({ visible, onClose }) => {
   }
 
   // ===== 文件 tab =====
-  // 修改非偏好字段（回复风格/工作流程/自定义知识）时同步 raw
-  // 选材偏好 / 设计方法偏好走独立 IPC，不走 raw
+  // 设计：rules 是唯一前端状态；raw 仅作为"文件"tab 的只读展示。
+  // 修改非偏好字段（回复风格/工作流程/自定义知识）只更新内存中的 rules，
+  // 真正落盘统一通过 handleSaveRules → 主进程 agent:rules:upsert。
+  // raw 在每次 loadData() 时从主进程拉回的最新内容更新，前端绝不重新拼字符串。
   function applyRules(next) {
     setRules(next)
-    setRaw(formatToMarkdownClient(next))
   }
 
   async function handleOpenExternal() {
@@ -252,13 +210,19 @@ const AgentRulesModal = ({ visible, onClose }) => {
     }
   }
 
-  // "我的规则" tab 修改非偏好字段（回复风格/工作流程/自定义知识）后用此保存
-  async function handleSaveRaw() {
+  // "我的规则" tab 保存：把整个 rules 对象发给主进程，由主进程序列化并写盘
+  async function handleSaveRules() {
     try {
-      const res = await saveAgentMd(raw)
+      const res = await saveAgentMdRules(rules)
       if (res.success) {
         message.success('已保存')
-        await loadData()
+        // 主进程返回了最新 cached；若没返回则手动 reload 同步
+        if (res.data) {
+          setRules(res.data.parsed)
+          setRaw(res.data.raw)
+        } else {
+          await loadData()
+        }
       } else {
         message.error('保存失败：' + res.error)
       }
@@ -283,7 +247,7 @@ const AgentRulesModal = ({ visible, onClose }) => {
       width={720}
       footer={activeTab === 'my-rules' ? [
         <Button key="cancel" onClick={onClose}>关闭</Button>,
-        <Button key="save" type="primary" loading={loading} onClick={handleSaveRaw}>保存</Button>
+        <Button key="save" type="primary" loading={loading} onClick={handleSaveRules}>保存</Button>
       ] : [
         <Button key="cancel" onClick={onClose}>关闭</Button>
       ]}
