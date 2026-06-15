@@ -269,9 +269,9 @@ function registerAgentHandlers() {
   })
 
   ipcMain.handle('agent:clearAllMemory', async () => {
-    const { ChatHistory, UserPreference, CorrectionRule } = require('../db/database')
+    const { ChatHistory, CorrectionRule } = require('../db/database')
+    // 注意：user_preferences 表已在阶段 B 迁移中删除，不在此处引用
     await ChatHistory.destroy({ where: {}, truncate: true })
-    await UserPreference.destroy({ where: {}, truncate: true })
     await CorrectionRule.destroy({ where: {}, truncate: true })
     return { success: true }
   })

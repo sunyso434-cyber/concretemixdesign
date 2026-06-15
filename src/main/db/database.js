@@ -156,7 +156,8 @@ async function syncModels() {
   // 迁移前备份
   const backupFile = backupDatabase()
 
-  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, SalesQuoteRule, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, UserPreference, CorrectionRule, ChatSession]
+  // UserPreference 已在阶段 B 迁移中废弃，不在此处注册
+  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, SalesQuoteRule, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession]
   let migrationFailed = false
 
   for (const model of allModels) {
@@ -164,7 +165,7 @@ async function syncModels() {
       await model.sync({ alter: true })
     } catch (error) {
       console.error(`模型 ${model.name} 同步失败:`, error.message)
-      if (['ChatHistory', 'UserPreference', 'CorrectionRule'].includes(model.name)) {
+      if (['ChatHistory', 'CorrectionRule'].includes(model.name)) {
         migrationFailed = true
       }
     }

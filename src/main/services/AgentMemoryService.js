@@ -1,4 +1,4 @@
-const { ChatHistory, UserPreference, CorrectionRule } = require('../db/database')
+const { ChatHistory, CorrectionRule } = require('../db/database')
 const Sequelize = require('sequelize')
 const { Op } = Sequelize
 
@@ -90,26 +90,6 @@ class AgentMemoryService {
 
   async deleteSession(sessionId) {
     return ChatHistory.destroy({ where: { sessionId } })
-  }
-
-  // ===== 用户偏好 =====
-
-  async savePreference(key, value, category = 'general') {
-    return UserPreference.upsert({ key, value, category })
-  }
-
-  async getPreference(key) {
-    const pref = await UserPreference.findOne({ where: { key } })
-    return pref ? pref.value : null
-  }
-
-  async getAllPreferences() {
-    const prefs = await UserPreference.findAll()
-    const result = {}
-    for (const p of prefs) {
-      result[p.key] = p.value
-    }
-    return result
   }
 
   // ===== 修正规则 =====
