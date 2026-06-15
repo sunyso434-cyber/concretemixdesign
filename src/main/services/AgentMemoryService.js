@@ -232,8 +232,7 @@ ${history}
       designHistoryResult,
       optimizationResult,
       standardsResult,
-      strengthResult,
-      preferencesResult
+      strengthResult
     ] = await Promise.allSettled([
       // 统计历史设计记录数（方案库 + 基准配合比库）
       Promise.all([MixDesign.count(), BasicMixDesign.count()]).then(([a, b]) => a + b),
@@ -248,9 +247,7 @@ ${history}
         order: [[fn('COUNT', col('strength')), 'DESC']],
         limit: 3,
         raw: true
-      }),
-      // 从 UserPreference 表读取用户偏好
-      this.getAllPreferences()
+      })
     ])
 
     let designHistoryCount = 0
@@ -281,17 +278,14 @@ ${history}
       console.warn('[AgentMemoryService] getResourceSummary: failed to query commonStrengthGrades:', strengthResult.reason?.message)
     }
 
-    let userPreferences = {}
-    if (preferencesResult.status === 'fulfilled') {
-      const prefs = preferencesResult.value
-      for (const [key, value] of Object.entries(prefs)) {
-        if (key.toLowerCase().includes('cement') || key.toLowerCase().includes('flyash') ||
-            key.toLowerCase().includes('slag') || key.toLowerCase().includes('strength')) {
-          userPreferences[key] = value
-        }
-      }
-    } else {
-      console.warn('[AgentMemoryService] getResourceSummary: failed to getAllPreferences:', preferencesResult.reason?.message)
+    // 从 agent.md 读取偏好（v2 改造：不再走 UserPreference 表）
+    const { getInstance: getAgentMdService } = require('../agent/agentMd')
+    let agentMdPrefs = { materials: [], method: null }
+    try {
+      const agentMd = getAgentMdService().getCached()
+      agentMdPrefs = agentMd.parsed.professionalPrefs || { materials: [], method: null }
+    } catch (err) {
+      console.warn('[AgentMemoryService] 读取 agent.md 偏好失败:', err.message)
     }
 
     return {
@@ -300,9 +294,34 @@ ${history}
       optimizationCount,
       userPreferences: {
         commonStrengthGrades,
-        ...userPreferences
-      }
+        materials: agentMdPrefs.materials,
+        method: agentMdPrefs.method
+      },
+      // 新增字段：注入到 prompt 的中文摘要（spec §7.2）
+      preferenceSummary: this._formatPreferenceSummary(agentMdPrefs)
     }
+  }
+
+  /**
+   * 把 agent.md 偏好格式化为中文摘要（用于 prompt 注入）
+   * @param {{materials: Array, method: string|null}} prefs
+   * @returns {string}
+   */
+  _formatPreferenceSummary(prefs) {
+    const lines = []
+    const mats = (prefs && prefs.materials) || []
+    if (mats.length > 0) {
+      const parts = mats.map(m => {
+        const v = m.values ? m.values.join('、') : m.value
+        const metric = m.metric ? `${m.metric} ` : ''
+        return `${m.category}${m.dimension}偏好${metric}${v}`
+      })
+      lines.push(`- 选材：${parts.join('；')}`)
+    }
+    if (prefs && prefs.method) {
+      lines.push(`- 计算方法：${prefs.method}`)
+    }
+    return lines.join('\n')
   }
 
   // ===== TF-IDF 相似度 =====
