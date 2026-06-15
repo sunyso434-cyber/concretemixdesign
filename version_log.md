@@ -1,3 +1,57 @@
+## v4.6.1 hotfix-2 (2026-06-15) - Hotfix：修复 `t.error is not a function` unhandled rejection
+
+### 打包记录
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.6.1**（hotfix 不升 version 号，产物命名沿用 v4.6.1）
+- **输出目录**: `dist-4.6.1/`
+- **构建产物**:
+  - `dist-4.6.1/混凝土配合比设计软件 Setup 4.6.1.exe`（NSIS 安装包，242 MB）
+  - `dist-4.6.1/混凝土配合比设计软件-4.6.1-x64.exe`（便携版，241 MB）
+  - `dist-4.6.1/win-unpacked/`（未打包运行时，907 MB）
+- **新 chunk**: `build/renderer/assets/AIAnalysisPage-hrn5pH24.js`（旧 `AIAnalysisPage-CfQRolds.js` 已替换）
+- **提交**: 待提交
+- **测试**: 6 个新增 sendMessage 回归测试全部通过（核心场景：API Key 未配 / max_failures_exceeded / IPC throw）
+- **electron-builder**: 24.13.3 / electron 28.3.3 / win32 x64
+
+### 修复内容
+
+老板报告浏览器控制台出现两条关联错误：
+```
+[AgentChat] 💥 agent:run 异常 Object
+Uncaught (in promise) TypeError: t.error is not a function
+    at A8 (AIAnalysisPage-CfQRolds.js:79:8891)
+```
+
+### 根因（一句话）
+`src/renderer/components/agentActions.js` 中 `sendMessage` 函数的入参解构 `{ message, runMode }` 与该文件 `import { message } from 'antd'` 的导入名同名。Vite/esbuild minify 时把两者都 mangle 成同一个短名 `t`，导致函数体 3 处 `message.error(...)`（antd 弹错误提示）被错误地替换为 `t.error(...)`（调用户消息字符串的 `.error`），抛 `TypeError: t.error is not a function`，成为 unhandled promise rejection。**正常发送消息不会触发，只有异常路径**（API Key 未配、任务被锁、IPC 抛错、LLM 连续失败、max_steps 溢出）才会触发。
+
+### 修复方案
+**方案 A**（已实施）：把入参解构的 `message` 改名为 `userMessage`，从根上消除 shadow。
+
+修改文件：
+- `src/renderer/components/agentActions.js`：43 行解构 `{ message: userMessage }` + 5 处形参引用替换（44/59/65/76/87 行）
+- `src/renderer/components/__tests__/agentActions.test.js`（新增）：6 个回归测试覆盖 4 类异常路径
+
+**对外 API 兼容**：调用方 [SmartDesignChat.jsx:860](src/renderer/components/SmartDesignChat.jsx#L860) 传 `message: userMessage` 形式不变。
+
+### 验证结果（重新打包后 grep 压缩产物）
+- 修复前 `A8` 函数中 3 处 `t.error(...)` 调用（bug 触发点）
+- 修复后 `T8` 函数中 3 处 `pe.error(...)` 调用（`pe` 是 antd message 对象，2 字母，不会与 userMessage `t` 冲突）
+- 变量 `t` 仍指向 userMessage（字符串），但 antd `message` 被 mangle 成 `pe` —— **shadowing 解除**
+
+### 触发场景说明（老板小白版）
+- **监理/施工员连续 2 次犯同样错** → `max_failures_exceeded`（修复后弹"AI 连续响应失败"）
+- **10 轮思考还没收敛** → `max_steps_exceeded`（修复后弹"AI 执行步骤过多"）
+- **DeepSeek API Key 没配** → `success: false`（修复后弹"DeepSeek API未配置..."）
+- **preload 链路断裂** → IPC 真的 throw（修复后弹"通信失败: <message>"）
+
+### 相关 commits
+- `fdf58e7`（2026-06-12）：首次同时引入 antd `message` import + `message.error()` 调用 → bug 起源
+- `b1a029c`（2026-06-12）：新增第 96 行 `message.error(friendlyMsg)` → 扩大触发面
+
+---
+
 ## v4.6.1 (2026-06-15) - Hotfix：修复保存偏好崩溃
 
 ### 打包记录
