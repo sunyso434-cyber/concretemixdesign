@@ -79,7 +79,7 @@ version: 1
     expect(md).toContain('专业')
   })
 
-  // 测试 4: saveToFile 持久化 + 更新缓存
+  // 测试 4: saveToFile 持久化 + 更新缓存（v2 professionalPrefs 形态：fenced YAML code block）
   test('saveToFile 应写入文件并同步更新缓存', () => {
     const svc = new AgentMdService({ path: tmpFile })
     const content = `---
@@ -89,7 +89,17 @@ version: 1
 # 我的智能助手规则
 
 ## 专业偏好
-- 默认强度：C30
+
+\`\`\`yaml
+materials:
+  - category: 水泥
+    dimension: 厂家
+    value: 海螺
+  - category: 掺合料
+    dimension: 种类
+    value: II级粉煤灰
+method: 假定表观密度法
+\`\`\`
 `
     svc.saveToFile(content)
 
@@ -97,7 +107,11 @@ version: 1
     expect(fs.readFileSync(tmpFile, 'utf8')).toBe(content)
     const cached = svc.getCached()
     expect(cached.raw).toBe(content)
-    expect(cached.parsed.professionalPrefs['默认强度']).toBe('C30')
+    expect(cached.parsed.professionalPrefs.materials).toEqual([
+      { category: '水泥', dimension: '厂家', value: '海螺' },
+      { category: '掺合料', dimension: '种类', value: 'II级粉煤灰' }
+    ])
+    expect(cached.parsed.professionalPrefs.method).toBe('假定表观密度法')
   })
 
   // 测试 5: saveToFile 自动创建目录
