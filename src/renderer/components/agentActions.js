@@ -34,14 +34,20 @@ function newSessionId() {
 
 /**
  * 发送消息（统一入口，spec 4.1）
+ *
+ * ⚠️ 注意：入参解构时把 `message` 改名为 `userMessage`，避免与 antd 的
+ * `import { message } from 'antd'` 在 minify 后产生变量 shadowing bug
+ * （曾导致 `t.error is not a function` unhandled promise rejection）。
+ * 对外 API 不变：调用方仍传 `{ message: '...' }`。
+ *
  * @param {Object} args
  * @param {Function} args.dispatch - reducer 的 dispatch
  * @param {string} args.sessionId - 当前会话 ID
  * @param {string} args.message - 用户消息
  * @param {string} [args.runMode] - 运行模式 auto | collaborative
  */
-export async function sendMessage({ dispatch, sessionId, message, runMode }) {
-  if (!message || !message.trim()) return
+export async function sendMessage({ dispatch, sessionId, message: userMessage, runMode }) {
+  if (!userMessage || !userMessage.trim()) return
 
   // 0. 确保 sessionId 有效（如果为空，创建新会话）
   let effectiveSessionId = sessionId
@@ -56,13 +62,13 @@ export async function sendMessage({ dispatch, sessionId, message, runMode }) {
   const requestId = 'agent-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)
 
   // [DEBUG] 记录发送消息
-  console.log('[AgentChat] 📤 发送消息', { requestId, sessionId: effectiveSessionId, messageLen: message.length, runMode })
+  console.log('[AgentChat] 📤 发送消息', { requestId, sessionId: effectiveSessionId, messageLen: userMessage.length, runMode })
 
   // 2. 重置 Agent 状态
   dispatch({ type: 'SEND_MESSAGE', payload: { requestId } })
 
   // 3. 先添加用户消息（确保用户消息在前）
-  dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: message } })
+  dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: userMessage } })
 
   // 4. 插入 assistant 占位消息（mergeReplyToMessages 依赖此消息定位流式内容）
   dispatch({
@@ -73,7 +79,7 @@ export async function sendMessage({ dispatch, sessionId, message, runMode }) {
   // 5. 保存用户消息
   try {
     await window.electronAPI.invoke('agent:saveMessage', {
-      sessionId: effectiveSessionId, role: 'user', content: message, stopReason: null
+      sessionId: effectiveSessionId, role: 'user', content: userMessage, stopReason: null
     })
   } catch (e) {
     console.error('[AgentChat] ❌ 保存用户消息失败:', e)
@@ -84,7 +90,7 @@ export async function sendMessage({ dispatch, sessionId, message, runMode }) {
   try {
     console.log('[AgentChat] ⏳ 等待 agent:run 返回...', { requestId })
     const r = await window.electronAPI.invoke('agent:run', {
-      requestId, sessionId: effectiveSessionId, message, mode: runMode
+      requestId, sessionId: effectiveSessionId, message: userMessage, mode: runMode
     })
     console.log('[AgentChat] 📨 agent:run 返回', { requestId, success: r?.success, resultSuccess: r?.result?.success, error: r?.result?.error })
 
