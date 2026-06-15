@@ -1,8 +1,18 @@
 ## v4.6.0 (2026-06-15) - 用户偏好重做
 
 ### 打包记录
-- **命令**: `npm run electron:build`（待老板触发）
-- **计划提交**: 阶段 A + 阶段 B 共 15 个 commit
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.6.0**
+- **输出目录**: `dist-4.6.0/`
+- **构建产物**:
+  - `dist-4.6.0/混凝土配合比设计软件 Setup 4.6.0.exe`（NSIS 安装包，242 MB）
+  - `dist-4.6.0/混凝土配合比设计软件-4.6.0-x64.exe`（便携版，242 MB）
+  - `dist-4.6.0/win-unpacked/`（未打包的运行时）
+- **提交**: `e5576c8`（含 plan 归档）
+- **前置提交**: `7e7a2cb`（chore: v4.6.0 + version_log）
+- **测试**: 61 suites / 383 tests 全部通过
+- **electron-builder**: 24.13.3 / electron 28.3.3 / win32 x64
 
 ### 重构内容
 1. **AgentMdParser 升级 v2**：支持 fenced YAML code block（结构化偏好）+ v1 扁平兼容
