@@ -376,6 +376,48 @@ const SmartDesignChat = () => {
   }, [dispatch, state.session.currentId, state.agent.runMode, appendSystemMessage, appendSkillResult])
 
   // 统一发送处理（支持混合命令+文本）
+  // 发送聊天消息（统一使用 Agent 模式）
+  // 注意：user 消息的 dispatch 由 sendMessage 内部统一处理，避免重复添加
+  const handleSendChat = async () => {
+    if (!state.input.trim() || isAgentBusy) return
+
+    const userMessage = state.input.trim()
+    dispatch({ type: 'SET_INPUT', payload: '' })
+    chatState.setAttachment(null)
+
+    await sendMessage({
+      dispatch,
+      sessionId: state.session.currentId,
+      message: userMessage,
+      runMode: state.agent.runMode
+    })
+  }
+
+  // 键盘事件 handler (spec 7.1)
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape' && isAgentBusy) {
+      e.preventDefault()
+      abortAgent({ dispatch, requestId: state.agent.requestId })
+      return
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      if (isAgentBusy && !state.input.trim()) {
+        e.preventDefault()
+        abortAgent({ dispatch, requestId: state.agent.requestId })
+      }
+    }
+  }
+
+  // 清空对话（先中止运行中的 Agent，再重置状态）
+  const handleClearChat = async () => {
+    if (state.agent.requestId) {
+      abortAgent({ dispatch, requestId: state.agent.requestId })
+    }
+    await chatState.handleClearChat()
+    dispatch({ type: 'CLEAR_MESSAGES' })
+    dispatch({ type: 'RESET_AGENT' })
+  }
   const handleSend = useCallback(async () => {
     const input = state.input
     if (!input.trim()) return
@@ -997,48 +1039,6 @@ const SmartDesignChat = () => {
     }
   }
 
-  // 发送聊天消息（统一使用 Agent 模式）
-  // 注意：user 消息的 dispatch 由 sendMessage 内部统一处理，避免重复添加
-  const handleSendChat = async () => {
-    if (!state.input.trim() || isAgentBusy) return
-
-    const userMessage = state.input.trim()
-    dispatch({ type: 'SET_INPUT', payload: '' })
-    chatState.setAttachment(null)
-
-    await sendMessage({
-      dispatch,
-      sessionId: state.session.currentId,
-      message: userMessage,
-      runMode: state.agent.runMode
-    })
-  }
-
-  // 键盘事件 handler (spec 7.1)
-  const handleKeyDown = (e) => {
-    if (e.key === 'Escape' && isAgentBusy) {
-      e.preventDefault()
-      abortAgent({ dispatch, requestId: state.agent.requestId })
-      return
-    }
-
-    if (e.key === 'Enter' && !e.shiftKey) {
-      if (isAgentBusy && !state.input.trim()) {
-        e.preventDefault()
-        abortAgent({ dispatch, requestId: state.agent.requestId })
-      }
-    }
-  }
-
-  // 清空对话（先中止运行中的 Agent，再重置状态）
-  const handleClearChat = async () => {
-    if (state.agent.requestId) {
-      abortAgent({ dispatch, requestId: state.agent.requestId })
-    }
-    await chatState.handleClearChat()
-    dispatch({ type: 'CLEAR_MESSAGES' })
-    dispatch({ type: 'RESET_AGENT' })
-  }
 
   const handleQuickPrompt = (msg) => {
     if (msg === '/') {
