@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Button, Input, Space, Avatar, List, Alert, message, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip } from 'antd'
+import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip } from 'antd'
 import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -26,6 +26,7 @@ import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, f
 import { AnalysisReport } from '../pages/AIAnalysisPage_Results'
 import { getAllMaterials } from '../services/MaterialService'
 import { buildAnalysisData, MATERIAL_TYPE_MAP } from '../pages/AIAnalysisPage_Upload'
+import { parseMixedMessage, isInCommandMode, tabComplete, buildAllCommandNames } from '../utils/slashCommandParser'
 
 const { Text } = Typography
 const { Content } = Layout
@@ -211,6 +212,8 @@ const SmartDesignChat = () => {
   useAssistantPersistence() // 副作用 hook（done/aborted 时自动持久化）
 
   const streamSeqRef = useRef({ current: 0 })
+  const inputRef = useRef(null)
+  const slashMenuApiRef = useRef({ moveSelection: () => {}, getSelectedIndex: () => 0 })
 
   // 派生：Agent 是否在工作中（流式/思考/工具调用）
   const isAgentBusy = ['streaming', 'thinking', 'tool_calling'].includes(state.agent.status)
@@ -228,6 +231,10 @@ const SmartDesignChat = () => {
   // ===== 斜杠命令状态 =====
   const [slashMenuVisible, setSlashMenuVisible] = useState(false)
   const [availableSkills, setAvailableSkills] = useState([])
+  const [cursorPos, setCursorPos] = useState(0)
+
+  // 由光标位置和输入内容决定是否显示斜杠菜单
+  const showSlashMenu = isInCommandMode(state.input, cursorPos)
 
   // ===== 智能助手规则 Modal =====
   const [rulesModalOpen, setRulesModalOpen] = useState(false)
@@ -268,24 +275,21 @@ const SmartDesignChat = () => {
 
   // 当菜单打开时重新加载（确保最新）
   useEffect(() => {
-    if (slashMenuVisible && availableSkills.length === 0) {
+    if (showSlashMenu && availableSkills.length === 0) {
       loadSkills()
     }
-  }, [slashMenuVisible, availableSkills.length, loadSkills])
+  }, [showSlashMenu, availableSkills.length, loadSkills])
 
-  // 监听输入变化，检测斜杠命令
+  // 监听输入变化，同步光标位置
   const handleInputChange = useCallback((e) => {
-    const value = e.target.value
-    dispatch({ type: 'SET_INPUT', payload: value })
-
-    // 检测是否输入了 "/" 开头
-    if (value.startsWith('/')) {
-      setSlashMenuVisible(true)
-      console.log('[SlashCommand] 显示菜单, 当前技能数:', availableSkills.length)
-    } else {
-      setSlashMenuVisible(false)
-    }
-  }, [dispatch, availableSkills.length])
+    const newValue = e.target.value
+    dispatch({ type: 'SET_INPUT', payload: newValue })
+    setTimeout(() => {
+      if (inputRef.current) {
+        setCursorPos(inputRef.current.selectionStart)
+      }
+    }, 0)
+  }, [dispatch])
 
   // 选择技能
   const handleSkillSelect = useCallback((skill) => {
@@ -302,6 +306,154 @@ const SmartDesignChat = () => {
   const handleSlashMenuClose = useCallback(() => {
     setSlashMenuVisible(false)
   }, [])
+
+  // 光标选择事件
+  const handleInputSelect = useCallback((e) => {
+    setCursorPos(e.target.selectionStart)
+  }, [])
+
+  // 添加系统消息
+  const appendSystemMessage = useCallback((content) => {
+    dispatch({
+      type: 'ADD_MESSAGE',
+      payload: { id: `sys-${Date.now()}`, role: 'system', content, timestamp: Date.now() }
+    })
+  }, [dispatch])
+
+  // 添加技能结果消息
+  const appendSkillResult = useCallback((result) => {
+    dispatch({
+      type: 'ADD_MESSAGE',
+      payload: {
+        id: `skill-${Date.now()}`,
+        role: 'assistant',
+        content: result.message || '技能执行完成',
+        timestamp: Date.now(),
+        toolCall: result.data ? { status: 'done', type: result.type, data: result.data } : null
+      }
+    })
+  }, [dispatch])
+
+  // /clear 命令确认
+  const handleClearCommand = useCallback(() => {
+    Modal.confirm({
+      title: '清空当前对话',
+      content: '确定要清空当前对话吗？此操作不可恢复。',
+      okText: '清空',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: () => { handleClearChat(); message.success('对话已清空') }
+    })
+  }, [handleClearChat])
+
+  // 执行剩余命令和文本
+  const executeRemainingCommands = useCallback(async (commandParts, textParts) => {
+    for (const part of commandParts) {
+      const result = await window.electronAPI.invoke('slash:execute', { command: part.command, param: part.param })
+      if (result.success) {
+        if (result.action === 'list' || result.action === 'help') {
+          appendSystemMessage(result.message)
+        } else if (result.action === 'skill') {
+          appendSkillResult(result)
+        } else {
+          message.success(result.message)
+        }
+      } else {
+        message.error(result.error)
+        dispatch({ type: 'SET_INPUT', payload: '' })
+        return
+      }
+    }
+    if (textParts.length > 0) {
+      await sendMessage({
+        dispatch,
+        sessionId: state.session.currentId,
+        message: textParts.join(' '),
+        runMode: state.agent.runMode
+      })
+    }
+    dispatch({ type: 'SET_INPUT', payload: '' })
+  }, [dispatch, state.session.currentId, state.agent.runMode, appendSystemMessage, appendSkillResult])
+
+  // 统一发送处理（支持混合命令+文本）
+  const handleSend = useCallback(async () => {
+    const input = state.input
+    if (!input.trim()) return
+
+    if (input.trim() === '/clear') {
+      handleClearCommand()
+      dispatch({ type: 'SET_INPUT', payload: '' })
+      return
+    }
+
+    const parts = parseMixedMessage(input)
+    const textParts = parts.filter(p => p.type === 'text').map(p => p.content)
+    const commandParts = parts.filter(p => p.type === 'command')
+
+    // 无命令时走原有发送逻辑
+    if (commandParts.length === 0) {
+      await handleSendChat()
+      return
+    }
+
+    const realCommandParts = commandParts.filter(p => p.command !== 'clear')
+    const hasClearInParts = commandParts.some(p => p.command === 'clear')
+
+    if (hasClearInParts) {
+      Modal.confirm({
+        title: '清空当前对话',
+        content: '消息中包含 /clear 命令，确定要清空当前对话吗？',
+        okText: '清空',
+        cancelText: '取消',
+        okButtonProps: { danger: true },
+        onOk: () => { handleClearChat(); executeRemainingCommands(realCommandParts, textParts) },
+        onCancel: () => { dispatch({ type: 'SET_INPUT', payload: '' }) }
+      })
+      return
+    }
+
+    await executeRemainingCommands(commandParts, textParts)
+  }, [state.input, state.session.currentId, state.agent.runMode, handleClearCommand, handleClearChat, handleSendChat, executeRemainingCommands, dispatch])
+
+  // 输入框键盘事件（斜杠菜单导航 + Tab 补全 + Enter 发送）
+  const handleInputKeyDown = useCallback((e) => {
+    if (e.key === 'ArrowDown' && showSlashMenu) {
+      e.preventDefault()
+      slashMenuApiRef.current.moveSelection(1)
+      return
+    }
+    if (e.key === 'ArrowUp' && showSlashMenu) {
+      e.preventDefault()
+      slashMenuApiRef.current.moveSelection(-1)
+      return
+    }
+    if (e.key === 'Tab') {
+      if (isInCommandMode(state.input, cursorPos)) {
+        e.preventDefault()
+        const allCmds = buildAllCommandNames(availableSkills)
+        const result = tabComplete(state.input, cursorPos, allCmds)
+        dispatch({ type: 'SET_INPUT', payload: result.newInput })
+        setCursorPos(result.newCursor)
+        setTimeout(() => {
+          if (inputRef.current) inputRef.current.setSelectionRange(result.newCursor, result.newCursor)
+        }, 0)
+      }
+      return
+    }
+    if (e.key === 'Escape' && isAgentBusy) {
+      e.preventDefault()
+      abortAgent({ dispatch, requestId: state.agent.requestId })
+      return
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      if (isAgentBusy && !state.input.trim()) {
+        abortAgent({ dispatch, requestId: state.agent.requestId })
+      } else {
+        handleSend()
+      }
+    }
+  }, [showSlashMenu, state.input, state.agent.requestId, cursorPos, availableSkills, isAgentBusy, dispatch, handleSend])
 
   // ===== 流式聊天辅助函数 =====
   const createStreamRequestId = () => {
@@ -967,6 +1119,15 @@ const SmartDesignChat = () => {
           <List
             dataSource={state.messages}
             renderItem={(item) => {
+              if (item.role === 'system') {
+                return (
+                  <List.Item className="smart-chat-item-system" style={{ padding: 0, border: 'none' }}>
+                    <div style={{ background: '#f5f5f5', padding: '12px', borderRadius: 8, margin: '8px 0', width: '100%' }}>
+                      <pre style={{ whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}>{item.content}</pre>
+                    </div>
+                  </List.Item>
+                )
+              }
               return (
               <List.Item className={item.role === 'user' ? 'smart-chat-item-user' : 'smart-chat-item-assistant'}>
                 <Space align="start" style={{ width: item.role === 'user' ? 'auto' : '100%' }}>
@@ -1178,10 +1339,30 @@ const SmartDesignChat = () => {
       </div>
       <div className="smart-chat-input-area" style={{ position: 'relative' }}>
         <SlashCommandMenu
-          visible={slashMenuVisible}
-          skills={availableSkills}
-          onSelect={handleSkillSelect}
-          onClose={handleSlashMenuClose}
+          visible={showSlashMenu}
+          input={state.input}
+          cursorPos={cursorPos}
+          allCommandNames={buildAllCommandNames(availableSkills)}
+          menuApiRef={slashMenuApiRef}
+          onSelect={(name) => {
+            const beforeCursor = state.input.slice(0, cursorPos)
+            const lastSpaceIdx = beforeCursor.lastIndexOf(' ')
+            const cmdSegment = lastSpaceIdx === -1 ? beforeCursor : beforeCursor.slice(lastSpaceIdx + 1)
+            const newBefore = beforeCursor.slice(0, beforeCursor.length - cmdSegment.length) + `/${name}`
+            dispatch({ type: 'SET_INPUT', payload: newBefore + state.input.slice(cursorPos) })
+            setCursorPos(newBefore.length)
+            setTimeout(() => {
+              if (inputRef.current) {
+                inputRef.current.setSelectionRange(newBefore.length, newBefore.length)
+                inputRef.current.focus()
+              }
+            }, 0)
+          }}
+          onClose={() => {
+            dispatch({ type: 'SET_INPUT', payload: state.input + ' ' })
+            setCursorPos(state.input.length + 1)
+          }}
+          position={{ bottom: 80, left: 16, right: 16 }}
         />
         {/* Stop hint (spec 7.3): 工作态时提示 Esc/Enter 停止 */}
         {['streaming', 'thinking', 'tool_calling'].includes(state.agent.status) && (
@@ -1190,11 +1371,12 @@ const SmartDesignChat = () => {
           </div>
         )}
         <Input
+          ref={inputRef}
           placeholder={chatState.analysisMode ? '输入你的追问，或继续对话...' : '输入 "/" 查看可用技能，或直接输入需求...'}
           value={state.input}
           onChange={handleInputChange}
-          onPressEnter={handleSendChat}
-          onKeyDown={handleKeyDown}
+          onKeyDown={handleInputKeyDown}
+          onSelect={handleInputSelect}
           disabled={isAgentBusy}
           prefix={<AppstoreOutlined style={{ color: '#bfbfbf', marginRight: 4 }} />}
         />
