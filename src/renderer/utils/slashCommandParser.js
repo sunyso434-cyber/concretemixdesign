@@ -129,7 +129,7 @@ function tabComplete(input, cursorPos, allCmdNames) {
   return { newInput: newBefore + afterCursor, newCursor: newBefore.length }
 }
 
-module.exports = {
+export {
   SYSTEM_COMMANDS,
   buildAllCommandNames,
   parseMixedMessage,

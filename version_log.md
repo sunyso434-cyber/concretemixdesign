@@ -1,3 +1,50 @@
+## v4.7.0 (2026-06-17) - 斜杠命令 + 模型选择 + 循环次数可配置化
+
+### 打包记录
+- **命令**: `npm run electron:build`
+- **结果**: 成功
+- **版本号**: **4.7.0**
+- **输出目录**: `dist-4.7.0/`
+- **构建产物**:
+  - `dist-4.7.0/混凝土配合比设计软件 Setup 4.7.0.exe`（NSIS 安装包，242 MB）
+  - `dist-4.7.0/混凝土配合比设计软件-4.7.0-x64.exe`（便携版，241 MB）
+  - `dist-4.7.0/win-unpacked/`（未打包运行时）
+- **测试**: 64 suites / 426 tests 全部通过
+- **electron-builder**: 24.13.3 / electron 28.3.3 / win32 x64
+
+### 新增功能
+
+#### 斜杠命令系统（对齐 Claude Code 风格）
+- `/model [模型名]` — 切换 AI 模型（deepseek-v4-flash / deepseek-v4-pro）
+- `/rounds [次数]` — 设置工具调用循环最大次数（1-30）
+- `/clear` — 清空当前对话（二次确认）
+- `/help` — 显示所有可用命令
+- `/<技能名> [参数]` — 调用技能（如 `/mix-design 帮我设计C30`）
+- **Tab 补全**：输入 `/mo` 按 Tab 自动补全为 `/model`
+- **嵌入式命令**：`帮我看看 /model deepseek-v4-pro 然后帮我设计C30`
+- **空格退出命令模式**：输入 `/model ` 后菜单自动消失
+
+#### 后端配置可配置化
+- DeepSeekService `_getConfig()` 加 5 秒 TTL 缓存（解决多实例缓存不一致）
+- 新增 `getAvailableModels()` / `clearConfigCache()` 实例方法
+- 工具调用循环次数从硬编码改为读 `agentMaxSteps` 配置
+- 复用现有 `agentMaxSteps` 系统参数，不新建字段
+
+#### 共享常量
+- 新增 `src/main/utils/agentConstants.js`（`DEFAULT_AGENT_MAX_STEPS=10`, `AGENT_CONFIG_CACHE_TTL_MS=5000`）
+
+### 修复
+- `/rounds` 改值后即时生效（加 `clearConfigCache()`）
+- spec 内部矛盾修复（list/help 用 `appendSystemMessage` 插入对话流）
+
+### 技术改进
+- SlashCommandMenu.jsx 完全重写（基于光标位置过滤 + 状态提示）
+- SmartDesignChat.jsx 集成新解析（parseMixedMessage + isInCommandMode + tabComplete）
+- 系统消息渲染分支（灰色背景 + `<pre>` 保留换行）
+- agentHandler.js 注入式注册 slashCommandHandler（避免 getInstance 问题）
+
+---
+
 ## v4.6.1 hotfix-2 (2026-06-15) - Hotfix：修复 `t.error is not a function` unhandled rejection
 
 ### 打包记录
