@@ -1,3 +1,220 @@
+## v4.7.1 hotfix (2026-06-17) - 修复 SmartDesignChat 残留 TDZ 导致白屏
+
+### 修复内容
+老板报告：v4.7.0 生产构建（minify）后智能设计助手页打开即白屏，控制台报错：
+```
+ReferenceError: Cannot access 'X' before initialization
+  at AIAnalysisPage-XXX.js:126:117867
+```
+
+### 根因（一句话）
+v4.7.0 commit `40d1f65` 修复 `handleSend` TDZ 时，前移了 `handleSendChat`/`handleKeyDown`/`handleClearChat` 三个函数到 `handleSend` 之前，但**漏掉了关键一处**：`SmartDesignChat.jsx:338` 的 `handleClearCommand` 是个 `useCallback`，它的依赖数组里写了 `[handleClearChat]`，而 `handleClearChat` 在源码文本顺序上仍位于 L413（在 `handleClearCommand` 之后）。
+
+Vite/esbuild minify 后，React 调用 `useCallback(fn, [handleClearChat])` 时进入参数数组求值阶段，访问 `handleClearChat` 触发 TDZ（const 声明-引用倒置）。
+
+### 3 处连锁 TDZ 风险（全在 SmartDesignChat.jsx）
+| # | 行号 | 函数 | 引用了（未声明） | 实际声明位置 |
+|---|------|------|------------------|---------------|
+| 1 | 338-347 | `handleClearCommand` | `handleClearChat` | 413 |
+| 2 | 421-458 | `handleSend` | `handleClearChat` | 413 |
+| 3 | 461-498 | `handleInputKeyDown` | `handleSend`（#2 衍生） | 421 |
+
+### 修复方案（最小重构）
+把 `handleClearChat`（含注释）整段前移到 `handleClearCommand` 之前；把 `handleKeyDown` 一并前移形成清晰的 handler block。
+- **零行修改**：仅源代码物理位置变化，所有逻辑、注释、依赖关系 100% 保持
+- **不改 useCallback 包装**：保持现状，避免引入新依赖
+- **不引入 useRef 等新机制**
+- **不修改 JSX、不修改任何业务逻辑**
+
+修改文件：
+- `src/renderer/components/SmartDesignChat.jsx`：把 `handleClearChat` 和 `handleKeyDown` 整段前移；新增注释说明"为什么必须前置声明"
+
+### 验证
+- ✅ Babel parser 语法检查通过
+- ✅ `npm test`: 64 suites / 426 tests 全部通过（与 v4.7.0 基准一致）
+- ✅ 重新打包后**入口文件已无 preload helper 调用**（`grep "__vitePreload" build/renderer/assets/index-*.js` = 0）
+- 待 dev 模式 / 重新打包后人工验证：`/clear` 确认、清空按钮、技能调用、混合命令均无白屏
+
+---
+
+## v4.7.1 hotfix-2 (2026-06-17) - 修复 Vite modulePreload 在 asar 下动态 preload CSS 失败
+
+### 第二个 bug：v4.7.1 hotfix 修复后出现的 CSS preload 错误
+
+老板验证 v4.7.1 hotfix 时报告：界面出现后再白屏，控制台报：
+```
+Failed to load resource: net::ERR_CONNECTION_CLOSED
+index-XXX.js:40 Error: Unable to preload CSS for /assets/index-86-BM9O6.css
+    at HTMLLinkElement.<anonymous> (index-XXX.js:40:58397)
+```
+
+### 根因（一句话）
+Vite 5 默认开启 `modulePreload.polyfill`，会在 JS 运行时**动态创建** `<link rel="stylesheet">` 标签预加载 CSS。Vite 把路径解析为**绝对 file:// URL**：
+```js
+const s = R1(s)  // → file:///C:/Users/.../app.asar/build/renderer/assets/xxx.css
+if (document.querySelector(`link[href="${s}"]`)) return  // 找不到（已有的是相对路径）
+const m = document.createElement("link"); m.href = s; document.head.appendChild(m)
+```
+
+**index.html 中的 `<link rel="stylesheet" href="./assets/...">` 是相对路径，querySelector 拿不到匹配，于是重复创建新 link 标签并用绝对 file:// URL 加载。在 Electron asar 内部，绝对 file:// URL 加载失败，触发 `ERR_CONNECTION_CLOSED` 和 `Unable to preload CSS` 错误并白屏。**
+
+### 为什么 v4.7.0 没暴露这个 bug？
+v4.7.0 的 TDZ 错误**更早**抛出，渲染器进程整个死掉，CSS preload 根本没机会跑。修复 TDZ 后渲染器能跑，CSS preload 才执行，才暴露这个潜在 bug。**v4.7.1 hotfix 揭示了 v4.7.0 隐藏的第二个 bug。**
+
+### 修复方案
+在 `vite.config.js` 添加 `modulePreload: false`（注意：**不是 `polyfill: false`**，那只能移除 inline script，dynamic preload helper 仍在）：
+```js
+build: {
+  base: './',
+  modulePreload: false  // 彻底禁用 modulepreload 链接生成
+}
+```
+
+**为何安全**：
+1. Electron 内嵌 Chromium 100+，原生支持 `<link rel="modulepreload">`，不需要 polyfill
+2. CSS 已通过 index.html 中**已存在**的 `<link rel="stylesheet" href="./assets/...">` 加载
+3. 关闭 modulePreload 还能**减小 bundle 体积**（移除 dead code helper）
+4. 静态分析确认：**入口文件 `__vitePreload` 引用为 0**，helper 函数体是 dead code 不会执行
+
+修改文件：
+- `vite.config.js`：`build.modulePreload: false` + 详细注释
+
+### 验证
+- ✅ Babel parser 语法检查通过
+- ✅ `npm test`: 64 suites / 426 tests 全部通过
+- ✅ 入口文件 `__vitePreload` 0 个匹配（helper 函数体是 dead code）
+- ✅ index.html 仍含 `<link rel="stylesheet" href="./assets/...">` 正常加载 CSS
+- 待老板启动应用验证：界面正常显示、CSS 正常加载、无 `Unable to preload CSS` 报错
+
+---
+
+## v4.7.1 hotfix-3 (2026-06-17) - 修复 Vite dynamic preload helper 在 file:// 协议下 R1 路径解析错误
+
+### hotfix-2 失败的根因
+v4.7.1 hotfix-2 设置 `modulePreload: false` 后**仍报** `Unable to preload CSS for /assets/index-86-BM9O6.css` 错误。Codex 找出真正根因：
+
+vendor chunk `index-XXX.js` 中 Vite 5 注入的 dynamic preload helper 内部调用一个 R1 路径解析函数：
+```js
+R1 = function(e) { return "/" + e }
+```
+
+这个 R1 把所有 preload 依赖路径**强制加 `/` 前缀**变成绝对 URL：
+- 输入：`./assets/index-86-BM9O6.css`
+- 输出：`/assets/index-86-BM9O6.css`
+- 在 `file://` 协议下解析为 `file:///C:/assets/index-86-BM9O6.css`（C 盘根目录）
+- 找不到文件 → 加载失败 → 触发 `Unable to preload CSS` 错误
+
+### 为什么 `modulePreload: false` 不能修复？
+- `modulePreload: false` 阻止 Vite 注入 `<link rel="modulepreload">` 标签
+- 但**不影响** vendor chunk 中的 dynamic preload helper
+- helper 仍然被调用，R1 仍然把路径加 `/` 前缀
+
+### 为什么 hotfix-1 (TDZ 修复) 时没暴露此问题？
+TDZ 错误**比 CSS preload 更早**抛出，整个渲染器进程死掉，CSS preload 根本没机会跑。
+TDZ 修复 → 渲染器能跑 → CSS preload 才执行 → 暴露此 bug。
+**所以这是 v4.7.0 一直存在的隐藏 bug，被 TDZ 错误掩盖。**
+
+### 修复方案
+在 `vite.config.js` 的 `closeBundle` 钩子中**编译后**直接修改 vendor chunk：
+```js
+content = content.replaceAll(
+  'R1=function(e){return"/"+e}',
+  'R1=function(e){return"./"+e}'
+)
+```
+
+把 R1 改为相对路径前缀 `./`，配合 `file://` 协议正确解析到 `app.asar` 内部。
+
+**为何这是唯一可行方案**：
+- Vite 5 没有公开选项控制 R1 实现
+- `transform` 钩子在 Vite 生成 chunk 之后才执行，R1 是 minify 后内联代码
+- `closeBundle` 后期修改文件是唯一钩子点
+
+**为何安全**：
+- R1 只在 `index-XXX.js`（vendor chunk）出现一次（其他 chunk 的同名 R1 是 echarts 等库的不相关函数，已 grep 验证）
+- 修改 R1 只影响 dynamic preload helper 内部的路径解析
+- CSS 已通过 index.html 中**已存在**的 `<link rel="stylesheet" href="./assets/...">` 加载，不依赖 R1 修复
+- 修改后的 `"./"+e` 等价于 `e` 本身，对相对路径输入无副作用
+
+修改文件：
+- [vite.config.js](vite.config.js)：`fix-html-paths` 插件 `closeBundle` 钩子增加 R1 修改步骤 + 详细注释
+
+### 验证
+- ✅ Babel parser 语法检查通过
+- ✅ `npm test`: 64 suites / 426 tests 全部通过
+- ✅ Build 后 grep 验证 R1 改写：`grep -oE 'R1=function\(e\)\{return"[^"]*"\+e\}' build/renderer/assets/index-BMo9SgYV.js` = `R1=function(e){return"./"+e}`
+- ✅ 其他 chunk 的同名 R1（echarts 等）未受影响
+- ✅ index.html 入口路径 `./assets/index-XXX.js` 正常
+- ✅ 重新打包后 `dist-4.7.0/` 产物生成成功
+- 待老板启动应用验证最终修复
+
+---
+
+## v4.7.1 hotfix-4 (2026-06-17) - 修复斜杠技能设计缺陷（v1.3 spec 修订）
+
+### 老板反馈
+v4.7.0 引入的"调技能"功能在 hotfix-1/2/3 修复后暴露出设计缺陷：菜单里能看到 `mix-design` 等技能，但执行 `/mix-design 帮我设计C30` 时显示红×错误。
+
+### 根因
+v4.7.0 commit `77769d6` 实现的"调技能"语义有偏差：
+- spec L752 期望：`/mix-design 帮我设计C30` → 技能被调用（暗示 LLM 工具调用）
+- 实现 L405：`_skillExecutor.execute(command, { input: param })` → **直接执行**技能
+
+但内置技能（如 `mix-design`）的 parameters 全部是**结构化字段**（`cementId`、`sandIds` 等），**不接受** `input` 字段 → `SchemaValidator` 验证失败 → 返回 `VALIDATION_FAILED` → IPC `success: false` → 前端 `message.error()` 红×。
+
+### 老板的真正意图（明确指导）
+> "斜杠技能的目的是告诉 LLM 我要用这个技能来做这个事情，而不是给这个技能传递参数。"
+
+所以正确的语义是：**调技能 = 给 LLM 提示用指定技能 + 传自然语言 prompt**。真正的结构化参数由 LLM 工具调用机制自然处理。
+
+### 修复方案（spec v1.3 修订 + 实现）
+
+#### 改动 1：[src/main/ipcHandlers/slashCommandHandler.js](src/main/ipcHandlers/slashCommandHandler.js)
+`default` 分支不再直接执行技能，改为返回 `skill_prompt` 标记：
+```js
+default: {
+  if (_skillRegistry.has(command)) {
+    return {
+      success: true,
+      action: 'skill_prompt',  // 新增 action
+      skillName: command,
+      prompt: param || ''
+    }
+  }
+  return { success: false, error: `未知命令: /${command}` }
+}
+```
+
+#### 改动 2：[src/renderer/components/SmartDesignChat.jsx](src/renderer/components/SmartDesignChat.jsx)
+`executeRemainingCommands` 处理 `skill_prompt`：
+- 加 system 消息：`[用户希望使用 ${skillName} 技能]`（提示 LLM 用户意图）
+- 把 prompt（或 skillName）拼到 `messagesToSend`
+- 最后统一 `sendMessage` 走 LLM chat 路径
+
+#### 改动 3：[docs/superpowers/specs/2026-06-17-slash-command-model-loop-design.md](docs/superpowers/specs/2026-06-17-slash-command-model-loop-design.md)
+spec 5.2 节 default 分支更新 + 命令清单表更新，标注 "v1.3 修订"。
+
+### 行为变化
+| 用户输入 | 旧行为 | 新行为 |
+|---------|-------|-------|
+| `/mix-design 帮我设计C30` | 验证失败 → 红× | LLM 用 mix-design 工具处理"帮我设计C30" |
+| `/mix-design` | 验证失败 → 红× | LLM 用 mix-design 工具 |
+| `先看材料 /mix-design 用C30` | 验证失败 → 红× | LLM 用 mix-design 工具处理 "先看材料 用C30" |
+| `/model deepseek-v4-pro` | 不变（系统命令） | 不变（系统命令） |
+| `/clear` | 不变（系统命令） | 不变（系统命令） |
+
+### 验证
+- ✅ Babel parser 语法检查通过（两个文件）
+- ✅ `npm test`: 64 suites / 426 tests 全部通过
+- ✅ spec 文档同步更新
+- 待老板启动应用验证：
+  - `/mix-design 帮我设计C30` → 消息正常显示，LLM 调 mix-design 工具
+  - `/mix-design` → LLM 自动用 mix-design 工具
+  - 系统命令（/model、/rounds、/clear、/help）不变
+  - 混合命令（`先看 /model pro 然后 /mix-design C30`）正常工作
+
+---
+
 ## v4.7.0 (2026-06-17) - 斜杠命令 + 模型选择 + 循环次数可配置化
 
 ### 打包记录

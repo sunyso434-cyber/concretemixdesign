@@ -94,13 +94,14 @@ function formatHelp() {
 
 async function handleSkillCommand(command, param) {
   if (_skillRegistry && _skillRegistry.has(command)) {
-    const result = await _skillExecutor.execute(command, param ? { input: param } : {})
+    // 调技能的语义：告诉 LLM 我要用这个技能来做这个事情（不是给技能传结构化参数）。
+    // 真正的参数（结构化字段如 cementId/sandIds）由 LLM 工具调用机制自然处理。
+    // 因此这里不直接执行技能，而是返回 skill_prompt 标记，前端把消息转发给 LLM。
     return {
-      success: result.success !== false,
-      action: 'skill',
+      success: true,
+      action: 'skill_prompt',
       skillName: command,
-      data: result,
-      message: result.message || `技能 /${command} 已执行`
+      prompt: param || ''
     }
   }
   return { success: false, error: `未知命令: /${command}` }

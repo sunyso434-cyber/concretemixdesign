@@ -377,11 +377,24 @@ const SmartDesignChat = () => {
 
   // 执行剩余命令和文本
   const executeRemainingCommands = useCallback(async (commandParts, textParts) => {
+    // 用可变数组（const 但元素可 push）收集所有要发给 LLM 的文本段
+    const messagesToSend = [...textParts]
     for (const part of commandParts) {
       const result = await window.electronAPI.invoke('slash:execute', { command: part.command, param: part.param })
       if (result.success) {
         if (result.action === 'list' || result.action === 'help') {
           appendSystemMessage(result.message)
+        } else if (result.action === 'skill_prompt') {
+          // 调技能语义：告诉 LLM 我要用这个技能来做这个事情。
+          // 加一条 system 消息提示 LLM 用户的明确意图
+          appendSystemMessage(`[用户希望使用 ${result.skillName} 技能]`)
+          // 把 prompt（或 skillName）拼到文本段，最后作为 user message 发给 LLM
+          // 真正的结构化参数（cementId/sandIds 等）由 LLM 工具调用机制自然处理
+          if (result.prompt) {
+            messagesToSend.push(result.prompt)
+          } else {
+            messagesToSend.push(`请使用 ${result.skillName} 技能`)
+          }
         } else if (result.action === 'skill') {
           appendSkillResult(result)
         } else {
@@ -393,11 +406,11 @@ const SmartDesignChat = () => {
         return
       }
     }
-    if (textParts.length > 0) {
+    if (messagesToSend.length > 0) {
       await sendMessage({
         dispatch,
         sessionId: state.session.currentId,
-        message: textParts.join(' '),
+        message: messagesToSend.join(' '),
         runMode: state.agent.runMode
       })
     }
