@@ -36,6 +36,7 @@
 ### 修复
 - `/rounds` 改值后即时生效（加 `clearConfigCache()`）
 - spec 内部矛盾修复（list/help 用 `appendSystemMessage` 插入对话流）
+- 修复 TDZ 错误（`handleSendChat`/`handleClearChat` 定义在 `handleSend` 之后导致 `Cannot access 'Z' before initialization` 白屏）
 
 ### 技术改进
 - SlashCommandMenu.jsx 完全重写（基于光标位置过滤 + 状态提示）
