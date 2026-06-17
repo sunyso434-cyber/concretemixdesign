@@ -77,6 +77,7 @@ async function handleRounds(param) {
     return { success: false, error: '循环次数必须是 1 到 30 之间的整数' }
   }
   await SystemService.setParam('agentMaxSteps', String(n), 'ai', 'Agent 最大循环步数')
+  _deepseekServiceInstance.clearConfigCache()  // 与 /model 行为一致，即时生效
   return { success: true, message: `循环次数已设为 ${n}` }
 }
 
