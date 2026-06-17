@@ -112,6 +112,15 @@ async function getOrchestrator() {
       agentMemoryService,
       systemService: SystemService
     })
+
+    // v1.1：注入式注册 slashCommandHandler（避免单例/全局变量）
+    const { registerSlashCommandHandler } = require('./slashCommandHandler')
+    registerSlashCommandHandler({
+      deepseekService: ds,
+      skillRegistry,
+      skillExecutor
+    })
+
     cachedApiKey = apiKey
   }
 
