@@ -334,6 +334,35 @@ const SmartDesignChat = () => {
     })
   }, [dispatch])
 
+  // 清空对话（先中止运行中的 Agent，再重置状态）
+  // 前置声明原因：handleClearCommand / handleSend 的 useCallback 依赖数组引用了它，
+  // 若在它之前声明则触发 TDZ（暂时性死区），生产构建 minify 后会报
+  // "Cannot access 'X' before initialization" 并导致白屏。
+  const handleClearChat = async () => {
+    if (state.agent.requestId) {
+      abortAgent({ dispatch, requestId: state.agent.requestId })
+    }
+    await chatState.handleClearChat()
+    dispatch({ type: 'CLEAR_MESSAGES' })
+    dispatch({ type: 'RESET_AGENT' })
+  }
+
+  // 键盘事件 handler (spec 7.1)
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape' && isAgentBusy) {
+      e.preventDefault()
+      abortAgent({ dispatch, requestId: state.agent.requestId })
+      return
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      if (isAgentBusy && !state.input.trim()) {
+        e.preventDefault()
+        abortAgent({ dispatch, requestId: state.agent.requestId })
+      }
+    }
+  }
+
   // /clear 命令确认
   const handleClearCommand = useCallback(() => {
     Modal.confirm({
@@ -391,32 +420,6 @@ const SmartDesignChat = () => {
       message: userMessage,
       runMode: state.agent.runMode
     })
-  }
-
-  // 键盘事件 handler (spec 7.1)
-  const handleKeyDown = (e) => {
-    if (e.key === 'Escape' && isAgentBusy) {
-      e.preventDefault()
-      abortAgent({ dispatch, requestId: state.agent.requestId })
-      return
-    }
-
-    if (e.key === 'Enter' && !e.shiftKey) {
-      if (isAgentBusy && !state.input.trim()) {
-        e.preventDefault()
-        abortAgent({ dispatch, requestId: state.agent.requestId })
-      }
-    }
-  }
-
-  // 清空对话（先中止运行中的 Agent，再重置状态）
-  const handleClearChat = async () => {
-    if (state.agent.requestId) {
-      abortAgent({ dispatch, requestId: state.agent.requestId })
-    }
-    await chatState.handleClearChat()
-    dispatch({ type: 'CLEAR_MESSAGES' })
-    dispatch({ type: 'RESET_AGENT' })
   }
   const handleSend = useCallback(async () => {
     const input = state.input
