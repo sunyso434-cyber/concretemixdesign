@@ -408,14 +408,19 @@ class DeepSeekService {
    * @returns {Promise<{model: string, maxTokens: number, timeout: number, contextLimit: number, thinkingEnabled: boolean}>}
    */
   async _getConfig() {
-    if (this._config) return this._config
+    // v1.2: 加 5 秒 TTL，过期重读数据库
+    const CACHE_TTL_MS = 5000
+    if (this._config && this._configTime && (Date.now() - this._configTime) < CACHE_TTL_MS) {
+      return this._config
+    }
     if (!this.systemService) {
       this._config = {
         model: 'deepseek-v4-flash',
         maxTokens: 32768,
         timeout: 120000,
         contextLimit: 800000,
-        thinkingEnabled: true
+        thinkingEnabled: true,
+        maxSteps: 5  // v1.2: 字段名改为 maxSteps，复用 agentMaxSteps 语义
       }
     } else {
       const all = await this.systemService.getAgentConfig()
@@ -424,10 +429,23 @@ class DeepSeekService {
         maxTokens: all.deepseekMaxTokens,
         timeout: all.deepseekTimeout,
         contextLimit: all.deepseekContextLimit,
-        thinkingEnabled: all.deepseekThinkingEnabled
+        thinkingEnabled: all.deepseekThinkingEnabled,
+        maxSteps: all.agentMaxSteps  // v1.2: 复用现有 agentMaxSteps
       }
     }
+    this._configTime = Date.now()
     return this._config
+  }
+
+  // v1.2: 返回可用模型列表
+  getAvailableModels() {
+    return ['deepseek-v4-flash', 'deepseek-v4-pro']
+  }
+
+  // v1.2: 清掉本实例的 _config 缓存（其他实例靠 TTL 失效）
+  clearConfigCache() {
+    this._config = null
+    this._configTime = null
   }
 
   /**
@@ -900,7 +918,8 @@ class DeepSeekService {
         : await this._callAPI(messages, !!toolExecutor)
 
       // Tool call loop
-      const MAX_TOOL_ROUNDS = 5
+      const cfg = await this._getConfig()
+      const MAX_TOOL_ROUNDS = cfg.maxSteps  // v1.2: 字段名改为 maxSteps
       let round = 0
 
       while (aiMessage.tool_calls && aiMessage.tool_calls.length > 0 && toolExecutor && round < MAX_TOOL_ROUNDS) {

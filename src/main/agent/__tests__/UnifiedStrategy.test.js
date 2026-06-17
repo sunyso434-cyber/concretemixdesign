@@ -29,7 +29,10 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
       buildHistoryMessages: jest.fn(async () => []),
       saveMessage: jest.fn(async () => {})
     }
-    return { deepseekService, skillRegistry, skillExecutor, agentMemoryService }
+    const systemService = {
+      getAgentConfig: jest.fn(async () => ({ agentMaxSteps: 20 }))
+    }
+    return { deepseekService, skillRegistry, skillExecutor, agentMemoryService, systemService }
   }
 
   test('场景 1: 用户消息 → LLM 单次回复 → 直接结束', async () => {
@@ -164,5 +167,28 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
 
     expect(result.success).toBe(true)
     expect(result.content).toBe('ok')
+  })
+
+  test('场景 9 (v1.2): 主循环 maxSteps 读自 systemService.getAgentConfig().agentMaxSteps', async () => {
+    const mocks = makeMocks()
+    // agentMaxSteps=3：主循环最多执行 3 轮
+    mocks.systemService.getAgentConfig.mockResolvedValue({ agentMaxSteps: 3 })
+
+    // 永远调工具（tool_calls 非空），触发主循环跑满
+    mocks.deepseekService.chatWithToolsStream.mockResolvedValue({
+      content: null,
+      tool_calls: [{ id: 'c1', function: { name: 'q', arguments: '{}' } }]
+    })
+    mocks.skillRegistry.getSkill.mockReturnValue({ name: 'q', parameters: {} })
+    mocks.skillExecutor.execute.mockResolvedValue({ success: true, data: 'r' })
+
+    const strategy = new UnifiedStrategy(mocks)
+    const result = await strategy.execute({ sessionId: 's', message: 'q' })
+
+    // LLM 调用次数应该受 maxSteps=3 限制
+    expect(mocks.deepseekService.chatWithToolsStream.mock.calls.length).toBeLessThanOrEqual(3)
+    expect(mocks.systemService.getAgentConfig).toHaveBeenCalled()
+    // 失败是预期（达到 maxSteps 上限），但 success 字段有定义
+    expect(result).toBeDefined()
   })
 })

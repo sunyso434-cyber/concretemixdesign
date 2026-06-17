@@ -112,7 +112,20 @@ class UnifiedStrategy {
     // 2. 主循环（流式）
     const toolSchemas = this.skillRegistry.getToolSchemas()
 
-    for (let step = 0; step < 10; step++) {
+    // v1.2: 从配置读取最大循环步数
+    let maxSteps = 10  // fallback 默认值
+    if (this.systemService && typeof this.systemService.getAgentConfig === 'function') {
+      try {
+        const cfg = await this.systemService.getAgentConfig()
+        if (cfg && Number.isFinite(cfg.agentMaxSteps)) {
+          maxSteps = cfg.agentMaxSteps
+        }
+      } catch (e) {
+        errorHandler.warn('agentMaxSteps_read', { msg: e?.message })
+      }
+    }
+
+    for (let step = 0; step < maxSteps; step++) {  // v1.2: 改为 maxSteps
       if (webContents?.isDestroyed?.()) {
         this._notifyProgress(webContents, { type: 'error', error: 'wc_destroyed', mode })
         return { success: false, error: 'wc_destroyed' }
