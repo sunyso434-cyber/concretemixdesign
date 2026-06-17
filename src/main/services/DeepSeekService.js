@@ -4,6 +4,7 @@
  */
 
 const axios = require('axios')
+const { DEFAULT_AGENT_MAX_STEPS, AGENT_CONFIG_CACHE_TTL_MS } = require('../utils/agentConstants')
 
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions'
 
@@ -409,8 +410,7 @@ class DeepSeekService {
    */
   async _getConfig() {
     // v1.2: 加 5 秒 TTL，过期重读数据库
-    const CACHE_TTL_MS = 5000
-    if (this._config && this._configTime && (Date.now() - this._configTime) < CACHE_TTL_MS) {
+    if (this._config && this._configTime && (Date.now() - this._configTime) < AGENT_CONFIG_CACHE_TTL_MS) {
       return this._config
     }
     if (!this.systemService) {
@@ -420,7 +420,7 @@ class DeepSeekService {
         timeout: 120000,
         contextLimit: 800000,
         thinkingEnabled: true,
-        maxSteps: 5  // v1.2: 字段名改为 maxSteps，复用 agentMaxSteps 语义
+        maxSteps: DEFAULT_AGENT_MAX_STEPS  // v1.2: 字段名改为 maxSteps，复用 agentMaxSteps 语义
       }
     } else {
       const all = await this.systemService.getAgentConfig()
@@ -918,8 +918,8 @@ class DeepSeekService {
         : await this._callAPI(messages, !!toolExecutor)
 
       // Tool call loop
-      const cfg = await this._getConfig()
-      const MAX_TOOL_ROUNDS = cfg.maxSteps  // v1.2: 字段名改为 maxSteps
+      // v1.2: 复用上方的 cfg 变量（不加 TTL 也只多调一次数据库；加 TTL 后完全免费）
+      const MAX_TOOL_ROUNDS = cfg.maxSteps
       let round = 0
 
       while (aiMessage.tool_calls && aiMessage.tool_calls.length > 0 && toolExecutor && round < MAX_TOOL_ROUNDS) {

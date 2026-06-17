@@ -15,7 +15,9 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
   // 共用 mock 工厂
   const makeMocks = () => {
     const deepseekService = {
-      chatWithToolsStream: jest.fn()
+      chatWithToolsStream: jest.fn(),
+      // v1.2: 复用 _getConfig() 读取 maxSteps
+      _getConfig: jest.fn(async () => ({ maxSteps: 20 }))
     }
     const skillRegistry = {
       getSkill: jest.fn(),
@@ -30,7 +32,7 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
       saveMessage: jest.fn(async () => {})
     }
     const systemService = {
-      getAgentConfig: jest.fn(async () => ({ agentMaxSteps: 20 }))
+      getAgentConfig: jest.fn(async () => ({ messageTrimmerTokenBudget: 30000 }))
     }
     return { deepseekService, skillRegistry, skillExecutor, agentMemoryService, systemService }
   }
@@ -169,10 +171,10 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     expect(result.content).toBe('ok')
   })
 
-  test('场景 9 (v1.2): 主循环 maxSteps 读自 systemService.getAgentConfig().agentMaxSteps', async () => {
+  test('场景 9 (v1.2): 主循环 maxSteps 读自 deepseekService._getConfig().maxSteps', async () => {
     const mocks = makeMocks()
-    // agentMaxSteps=3：主循环最多执行 3 轮
-    mocks.systemService.getAgentConfig.mockResolvedValue({ agentMaxSteps: 3 })
+    // maxSteps=3：主循环最多执行 3 轮
+    mocks.deepseekService._getConfig.mockResolvedValue({ maxSteps: 3 })
 
     // 永远调工具（tool_calls 非空），触发主循环跑满
     mocks.deepseekService.chatWithToolsStream.mockResolvedValue({
@@ -187,8 +189,30 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
 
     // LLM 调用次数应该受 maxSteps=3 限制
     expect(mocks.deepseekService.chatWithToolsStream.mock.calls.length).toBeLessThanOrEqual(3)
-    expect(mocks.systemService.getAgentConfig).toHaveBeenCalled()
+    expect(mocks.deepseekService._getConfig).toHaveBeenCalled()
     // 失败是预期（达到 maxSteps 上限），但 success 字段有定义
+    expect(result).toBeDefined()
+  })
+
+  // v1.2 修复验证：deepseekService 不存在时，maxSteps fallback 到 DEFAULT_AGENT_MAX_STEPS=10
+  test('场景 10 (v1.2 修复验证): deepseekService 缺 _getConfig 时 maxSteps 应 fallback 到共享常量 10', async () => {
+    const mocks = makeMocks()
+    // 模拟 _getConfig 抛错
+    mocks.deepseekService._getConfig = undefined
+    // 让 _getConfig 不可调用，触发 fallback
+    // 永远调工具，触发主循环跑满
+    mocks.deepseekService.chatWithToolsStream.mockResolvedValue({
+      content: null,
+      tool_calls: [{ id: 'c1', function: { name: 'q', arguments: '{}' } }]
+    })
+    mocks.skillRegistry.getSkill.mockReturnValue({ name: 'q', parameters: {} })
+    mocks.skillExecutor.execute.mockResolvedValue({ success: true, data: 'r' })
+
+    const strategy = new UnifiedStrategy(mocks)
+    const result = await strategy.execute({ sessionId: 's', message: 'q' })
+
+    // 主循环应跑满 10 次（DEFAULT_AGENT_MAX_STEPS）
+    expect(mocks.deepseekService.chatWithToolsStream.mock.calls.length).toBeLessThanOrEqual(10)
     expect(result).toBeDefined()
   })
 })

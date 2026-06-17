@@ -17,6 +17,7 @@ const { buildSystemPrompt } = require('../systemPromptBuilder')
 const { buildMDInstruction } = require('../mdInstructionBuilder')
 const { trim } = require('../messageTrimmer')
 const errorHandler = require('../../utils/errorHandler')
+const { DEFAULT_AGENT_MAX_STEPS } = require('../../utils/agentConstants')
 const { getInstance: getAgentMdService } = require('../agentMd')
 
 const DEFAULT_TOKEN_BUDGET = 30000
@@ -113,12 +114,13 @@ class UnifiedStrategy {
     const toolSchemas = this.skillRegistry.getToolSchemas()
 
     // v1.2: 从配置读取最大循环步数
-    let maxSteps = 10  // fallback 默认值
-    if (this.systemService && typeof this.systemService.getAgentConfig === 'function') {
+    // v1.2: 复用 DeepSeekService._getConfig()，避免重复实现"读 systemService + 兜底"逻辑
+    let maxSteps = DEFAULT_AGENT_MAX_STEPS
+    if (this.deepseekService && typeof this.deepseekService._getConfig === 'function') {
       try {
-        const cfg = await this.systemService.getAgentConfig()
-        if (cfg && Number.isFinite(cfg.agentMaxSteps)) {
-          maxSteps = cfg.agentMaxSteps
+        const cfg = await this.deepseekService._getConfig()
+        if (cfg && Number.isFinite(cfg.maxSteps)) {
+          maxSteps = cfg.maxSteps
         }
       } catch (e) {
         errorHandler.warn('agentMaxSteps_read', { msg: e?.message })
