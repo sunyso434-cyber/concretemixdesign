@@ -1,5 +1,6 @@
 const { ipcMain } = require('electron')
 const { wrapWorkspaceCall } = require('../workspace/error-bridge')
+const { WorkspaceError } = require('../workspace/WorkspaceError')
 
 /**
  * 注册 workspace IPC handlers（v1.5.3 多实例 + 命名统一）
@@ -33,7 +34,15 @@ function register(refs) {
     return { files: await refs.workspaceManager.listFiles(subdir) }
   }))
 
-  // 后续 task 加：workspace:ingest / workspace:readPage / workspace:search
+  // Task 1.10: workspace:ingest - 调 WikiEngine.ingest 读源文件 → 写 wiki/sources/<slug>.md
+  ipcMain.handle('workspace:ingest', wrapWorkspaceCall(async (event, { filename }) => {
+    if (!refs.wikiEngine) {
+      throw new WorkspaceError('NOT_OPEN', 'WikiEngine 未初始化（请重启应用）', false)
+    }
+    return await refs.wikiEngine.ingest({ filename })
+  }))
+
+  // 后续 task 加：workspace:readPage / workspace:search
   //                  / workspace:writeFile / workspace:lint / workspace:searchGraph
   // 这些 handler 会读 refs.wikiEngine / refs.kgExtractor
 }
