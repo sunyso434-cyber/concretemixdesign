@@ -1,3 +1,65 @@
+## v4.8.3 hotfix (2026-06-19) - 工作区文件列表 Popover + ingest 手动触发
+
+### 修复内容
+老板报告：「目前没有把文件转wiki」——v4.8.2 虽然后端 WikiEngine.ingest 写好了，但**没有任何 UI 入口**让用户触发：
+1. `preload.js` 没暴露 `ingest`（注释里写了"后续 task 加"但忘了）
+2. UI 没有任何按钮/抽屉调 ingest
+3. 用户在 DevTools console 手动 `await window.electronAPI.workspace.ingest(...)` 才能跑
+
+老板拍板方案：**A 纯手动 + 2 个独立按钮**（📁 选工作区 / 📋 文件列表 Popover）
+
+### 改动（1 commit, 6 files, +516/-6, commit d79c16d）
+- `package.json` — version 4.8.2 → 4.8.3，output dist-4.8.2 → dist-4.8.3
+- `src/main/preload.js` — 暴露 `electronAPI.workspace.ingest(filename)`
+- `src/renderer/components/WorkspaceFilePopover.jsx`（**新文件**）
+  - 点击智能助手底部新加的 📋 按钮弹 antd Popover
+  - 自动调 `listFiles('root')` + `listFiles('wiki/sources')` 合并显示
+  - 5 种支持扩展名（txt/md/pdf/docx/xlsx）显示「📥 导入」按钮
+  - 不支持的灰色显示，无按钮
+  - 已导入（slug 在 wiki 目录中）显示「✅ 已导入」+「🔄 重新导入」
+  - checkbox 多选 + 顶部「📥 导入全部」按选中文件名字母序串行执行
+  - 失败显示「❌ 失败」+ Tooltip 错误原因
+- `src/renderer/components/SmartDesignChat.jsx` — 集成 Popover
+  - 导入 `WorkspaceFilePopover` + `ProfileOutlined` 图标
+  - 在底部 📁 按钮**右侧**新增 📋 按钮（仅已选工作区时显示）
+  - 按钮 title："工作区文件（手动导入到知识库）"
+- `src/renderer/utils/workspaceFile.js`（**新文件**）
+  - `toSlug()`：与 WikiEngine.ingest slug 算法保持完全一致（注释强调⚠️）
+  - `SUPPORTED_EXTS`：5 种扩展名白名单
+  - `isSupportedExt()`：大小写不敏感
+  - `getImportedSlugs()`：从 listFiles 结果提取 slug Set
+- `src/renderer/utils/__tests__/workspaceFile.test.js`（**新文件**）— 16 个单测
+  - 覆盖 toSlug 各种边缘情况（中文/中英混/特殊字符/空字符串等）
+  - 覆盖 SUPPORTED_EXTS 完整性 + isSupportedExt 大小写
+  - 覆盖 getImportedSlugs 各种 listResult 形态（含 null/空数组/子目录/非 .md）
+
+### 用户流程
+1. 选工作区（点 📁 按钮 → 原生文件夹选择器）
+2. 旁边出现 📋 按钮（仅已选工作区时显示）
+3. 点 📋 弹 Popover，自动列出工作区根目录文件
+4. 每个支持文件右边「📥 导入」按钮 → 调 ingest → 写 wiki/sources/<slug>.md
+5. 已导入显示「✅ 已导入」徽章 + 变「🔄 重新导入」
+6. 顶部「📥 导入全部 (选中数)」批量串行导入
+
+### 验证
+- ✅ 全部 748 个单测通过（0 regression）
+- ✅ 后端 ingest 链路 9 步手动验证 OK（创建工作区 → 写源文件 → open → ingest → 验证 wiki/ → readPage → listFiles root → listFiles wiki/sources → 清理）
+- ✅ vite build 成功（13.14s）
+- ⏳ electron-builder 打包中（dist-4.8.3/）
+
+### 关键约束（注释强调）
+- ⚠️ `toSlug()` 算法**必须**与 `src/main/workspace/WikiEngine.js:53-57` 完全同步！
+- 修改任一处必须同步另一处，否则 Popover「✅ 已导入」状态会错乱
+- 当前 P1 简化版不做中文/重复文件名 sha1 后缀去重（P2 Task 2.1 升级处理）
+
+### 已知遗留（未解决）
+- LLM 不能调 workspace 工具（P4 Task 4.1 未做）
+- 聊天历史不按工作区分组（P2b Task 2.11-2.15b 未做）
+- E2E 跑不动（Electron 18.18.2 太老，P6 阶段处理）
+- 批量导入当前串行（避免并发写冲突），大文件可能慢
+
+---
+
 ## v4.8.2 hotfix (2026-06-18) - 工作区指示器移至输入框底部
 
 ### 修复内容
