@@ -1,3 +1,63 @@
+## v4.8.5 hotfix (2026-06-19) - DOMMatrix polyfill 修复 PDF 在 Node 16 解析失败
+
+### 修复内容
+老板报告：v4.8.4 导入 13MB PDF 论文，toast 显示
+`导入 1-s2.0-S095894652200302X-main.pdf 失败: [READ_FAIL] DOMMatrix is not defined (读取文件失败，请重试)`
+
+### 根因
+- pdf-parse v2 基于 pdf.js（浏览器库），依赖 DOMMatrix
+- **Electron 18.18.2 内嵌 Node 16.13.2，没有原生 DOMMatrix**（Node 21.7+ 才有）
+- Node 20+ 跑成功是因为有原生 DOMMatrix（但老板的 Electron 18 用的是 Node 16）
+
+我之前用 Node v20.20.2 复现一直成功，没意识到老板跑的是 Node 16.13.2 — 这就是为什么 v4.8.4 hotfix 没修对。
+
+### 修复（最小 DOMMatrix polyfill）
+新增 `src/main/workspace/readers/domMatrixPolyfill.js`（TDD 17 个测试覆盖）：
+- 构造：无参 / 拷贝 / init-dict `{a,b,c,d,e,f}`
+- 属性：a/b/c/d/e/f + 3D 视图 m11-m44 + is2D
+- mutating：multiplySelf / translateSelf / scaleSelf / invertSelf
+- pure：multiply / translate / scale / rotate / inverse / transformPoint
+- 静态：fromMatrix / fromFloat32Array
+
+接入 [src/main/workspace/readers/pdf.js](src/main/workspace/readers/pdf.js#L8-L14) 顶部：
+```js
+const { installDOMMatrix } = require('./domMatrixPolyfill')
+installDOMMatrix()  // 有原生则 no-op，缺则注入
+const { PDFParse } = require('pdf-parse')
+```
+
+### 改动（1 commit, 4 files, +383/-2）
+- `package.json` — version 4.8.4 → 4.8.5，output dist-4.8.4 → dist-4.8.5
+- `src/main/workspace/readers/domMatrixPolyfill.js`（**新文件**）— 17 个方法 + 静态
+- `src/main/workspace/readers/__tests__/domMatrixPolyfill.test.js`（**新文件**）— 17 个测试
+- `src/main/workspace/readers/pdf.js` — 顶部注入 polyfill
+
+### 验证
+- ✅ 17 个 polyfill 单测全部通过
+- ✅ 全部 765 单测通过（0 regression，比 v4.8.4 多 17 个）
+- ✅ 关键端到端测试：`delete global.DOMMatrix` + 注入 polyfill + PDFParse 解析 13MB PDF → 成功
+- ✅ Node 20+ 跑：`installDOMMatrix()` 自动跳过（已有原生），no-op
+- ✅ Node 16.13.2（Electron 18.18.2）跑：注入 polyfill，正常解析
+
+### 重要说明
+⚠️ polyfill **不是完整 DOMMatrix 实现**，仅供 pdf.js 文本提取用：
+- 3D 矩阵只读写不做语义
+- rotateSelf 用 2D 公式（够用）
+- is2D 总是 true（pdf.js 文本提取不会触发 3D）
+- P3 全文搜索时若需要完整 3D 矩阵，再升级
+
+### 反思（关键）
+之前 v4.8.3/v4.8.4 我都是用系统 Node 20 跑测试，**忽略了老板跑的是 Electron 18 的 Node 16**。
+下次涉及 Node 兼容性，必须确认两端 Node 版本（系统 Node + Electron 内嵌 Node）。
+
+### 已知遗留
+- LLM 不能调 workspace 工具（P4 Task 4.1）
+- 聊天历史不按工作区分组（P2b Task 2.11-2.15b）
+- E2E 跑不动（Electron 18.18.2 太老，P6 阶段处理）
+- 完整 DOMMatrix（3D 旋转/透视）留 P3+
+
+---
+
 ## v4.8.4 hotfix (2026-06-19) - 透传后端错误信息
 
 ### 修复内容
