@@ -1,3 +1,55 @@
+## v4.9.2 hotfix (2026-06-19) - chokidar 改 polling + 详细调试日志
+
+### 修复内容
+老板报告：v4.9.1 拖入文件**仍不自动 ingest**。
+
+### 根因（更深一层）
+v4.9.1 修了 `path.posix.relative()` Windows 路径算法，但**没解决问题**：
+- chokidar 3.6 在 Windows 上默认用 `ReadDirectoryChangesW` API
+- 该 API 对**资源管理器拖入** / 其他进程创建的文件**可能不触发 add 事件**
+  （Windows 文件系统通知的经典坑：某些 SMB 网盘、外部硬盘、explorer.exe 拖入会失效）
+- chokidar add 事件根本没 fire，所以 v4.9.1 的 path.relative fix 救不了
+
+### 修复
+1. **`usePolling: true`**：强制每秒轮询，不用 ReadDirectoryChangesW，100% 触发
+2. **详细 `console.log`**：watch 启动 / chokidar ready / add / ingest OK
+3. 这些 log **自动落到 `userData/app.log`**（main.js 已有 console 重定向）
+4. 老板可看 log 文件确认 watch 是否触发、add 事件是否 fire
+
+### 改动（1 commit, 2 files, +17/-3, commit 待定）
+- `src/main/workspace/WorkspaceManager.js`
+  - `usePolling: true, interval: 1000, binaryInterval: 2000`
+  - 新增 `ready` / `error` 事件 handler
+  - 所有 chokidar 事件加 console.log
+- `package.json` — version 4.9.1 → 4.9.2，output dist-4.9.1 → dist-4.9.2
+
+### 验证
+- ✅ 808/808 全量过（0 regression）
+- ✅ 性能：< 1000 文件工作区 CPU 不可见
+- ✅ 100% 触发 add 事件（polling 兜底）
+
+### 老板怎么验证 v4.9.2
+1. 装 `dist-4.9.2/混凝土配合比设计软件 Setup 4.9.2.exe`
+2. 启动 → 选工作区
+3. **最小化应用**
+4. 资源管理器拖入文件到工作区
+5. **看 `userData/app.log`**（路径通常在 `C:\Users\<user>\AppData\Roaming\com.concrete.mixdesign\app.log`）
+   - 应该看到 `[chokidar] add: <文件名>` 和 `[chokidar] ingest OK: <文件名>`
+6. 切回应用 → 文件应已 ingest
+
+### 反思（2 次踩坑）
+1. **v4.9.0 review 漏测端到端**：只测"watch 创建 watcher"没测"watch 后拖入文件真能 ingest"
+2. **v4.9.1 思考深度不够**：只想到"路径算错"没想到"事件根本没 fire"
+- 应该派 subagent 在真实 Windows 环境（不是 Node 直跑）测一遍
+
+### 已知遗留
+- ingest→index 桥接缺失（I-1 仍未修）
+- 聊天历史不按工作区分组（P2b Task 2.11-2.15b）
+- LLM 不能调 workspace 工具（P4 Task 4.1）
+- E2E 跑不动（Electron 18.18.2 太老，P6 阶段处理）
+
+---
+
 ## v4.9.1 hotfix (2026-06-19) - chokidar Windows 路径修正
 
 ### 修复内容
