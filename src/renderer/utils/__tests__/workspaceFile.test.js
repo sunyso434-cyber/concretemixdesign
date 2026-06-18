@@ -32,13 +32,14 @@ describe('toSlug', () => {
     expect(toSlug('  spaced  out.md')).toBe('-spaced-out')
   })
 
-  test('中文文件名保留', () => {
-    expect(toSlug('我的文档.md')).toBe('我的文档')
-    expect(toSlug('混凝土配合比说明.pdf')).toBe('混凝土配合比说明')
+  test('中文文件名保留 + FNV-1a 短后缀', () => {
+    // Task 2.1 (spec §4.10): 含中文文件名追加 FNV-1a(filename) 前 6 位 hex
+    expect(toSlug('我的文档.md')).toBe('我的文档-9d2173')
+    expect(toSlug('混凝土配合比说明.pdf')).toBe('混凝土配合比说明-5b91e1')
   })
 
   test('中英混合', () => {
-    expect(toSlug('C30配合比设计.md')).toBe('c30配合比设计')
+    expect(toSlug('C30配合比设计.md')).toBe('c30配合比设计-c7a95f')
   })
 
   test('特殊字符剥离（保留 - 和 _ 和 .）', () => {
@@ -87,11 +88,12 @@ describe('getImportedSlugs', () => {
   test('从 listFiles 返回值中提取 slug（去掉 .md）', () => {
     const listResult = [
       { name: 'spec.md', path: 'wiki/sources/spec.md' },
-      { name: '混凝土说明.md', path: 'wiki/sources/混凝土说明.md' },
+      { name: '混凝土说明-33d690.md', path: 'wiki/sources/混凝土说明-33d690.md' },
       { name: 'README.md', path: 'wiki/sources/README.md' }
     ]
     const slugs = getImportedSlugs(listResult)
-    expect(slugs).toEqual(new Set(['spec', '混凝土说明', 'readme']))
+    // 已生成的 wiki 文件名 hex 部分是 word 字符，toSlug 不会重新加 hash 后缀
+    expect(slugs).toEqual(new Set(['spec', '混凝土说明-33d690', 'readme']))
   })
 
   test('空数组返回空 Set', () => {

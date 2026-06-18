@@ -24,7 +24,12 @@ class WikiEngine {
     this.workspace = workspace
   }
 
-  // P1 简化版：直接写，不原子性。P2 Task 2.1 升级。
+  // Task 2.1: 原子性 ingest (P2a 升级)
+  // - 所有目标文件先在 .tmp/ingest-<uuid>/ 下准备
+  // - 校验后通过 fs.rename 一次性提交（POSIX 原子操作）
+  // - 任一阶段失败 → 清理 .tmp/，wiki/ 不动
+  // - 中文文件名加 sha1(filename) 前 6 位短后缀（spec §4.10）
+  // - IngestResult.bm25TokensAdded 占位 0（Task 2.5 接 BM25 后填实际值）
   async ingest({ filename }) {
     const current = this.workspace.current()
     if (!current || current.status !== 'ready') {
@@ -32,47 +37,119 @@ class WikiEngine {
     }
 
     const sourcePath = path.posix.join(current.path, filename)
-    try {
-      await fs.access(sourcePath)
-    } catch {
-      throw new WorkspaceError('FILE_NOT_FOUND', `${filename} 不存在`, false)
+    const crypto = require('crypto')
+    const uuid = crypto.randomUUID()
+    const tmpDir = path.join(current.path, 'wiki', '.tmp', `ingest-${uuid}`)
+    // FNV-1a 32-bit（与前端 src/renderer/utils/workspaceFile.js toSlug 保持完全一致）
+    // 原因：跨平台同步实现，避免 SHA-1 Web Crypto 异步 API 问题
+    function fnv1a32(str) {
+      const bytes = Buffer.from(str, 'utf-8')
+      let h = 0x811c9dc5
+      for (const b of bytes) {
+        h = h ^ b
+        h = Math.imul(h, 0x01000193)
+      }
+      return h >>> 0
     }
 
-    // 1. 读
-    let content, metadata
     try {
-      const result = await reader.read(sourcePath)
-      content = result.content
-      metadata = result.metadata
+      // ===== 1. 准备阶段：在 .tmp/ 下生成所有目标文件 =====
+      await fs.mkdir(tmpDir, { recursive: true })
+
+      // 1a. 校验源文件存在
+      try {
+        await fs.access(sourcePath)
+      } catch {
+        throw new WorkspaceError('FILE_NOT_FOUND', `${filename} 不存在`, false)
+      }
+
+      // 1b. 读全文
+      let content, metadata
+      try {
+        const result = await reader.read(sourcePath)
+        content = result.content
+        metadata = result.metadata
+      } catch (err) {
+        if (err instanceof WorkspaceError) throw err
+        // reader 调度层抛的普通 Error（Unsupported file type） → 包装为 READ_FAIL
+        throw new WorkspaceError('READ_FAIL', err.message, false, err)
+      }
+
+      // 1c. slug 化（spec §4.10：含中文的文件名 → 追加 FNV-1a(filename) 前 6 位 hex）
+      const baseName = path.parse(filename).name
+      const slugBase = baseName
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^\w一-龥-]/g, '')
+      const hasChinese = /[一-龥]/.test(baseName)
+      const slug = hasChinese
+        ? `${slugBase}-${fnv1a32(filename).toString(16).padStart(8, '0').substring(0, 6)}`
+        : slugBase
+
+      // 1d. 生成 sources/<slug>.md（含 frontmatter：必填 4 + 选填 4 占位）
+      const sourcesDir = path.join(tmpDir, 'sources')
+      await fs.mkdir(sourcesDir, { recursive: true })
+      const targetRel = `sources/${slug}.md`
+      const targetAbs = path.join(tmpDir, targetRel)
+      const nowIso = new Date().toISOString()
+      const md = `---
+title: "${slug}"
+source: "${filename}"
+ingested_at: "${nowIso}"
+updated_at: "${nowIso}"
+quality: "high"
+tags: []
+entities: []
+concepts: []
+---
+
+# ${slug}
+
+${content}
+`
+      await fs.writeFile(targetAbs, md, 'utf-8')
+
+      // 1e. P2a 暂不更新 index.md / log.md（Task 2.2 引入 schema 后做）
+      // 1f. P2a 暂不更新 .workspace-index.json（Task 2.3 引入）
+
+      // ===== 2. 校验阶段：目标文件必须非空 =====
+      const stat = await fs.stat(targetAbs)
+      if (stat.size === 0) {
+        throw new WorkspaceError('ATOMIC_FAIL', '目标文件大小为 0', true)
+      }
+
+      // ===== 3. 提交阶段：原子 rename =====
+      const finalDir = path.join(current.path, 'wiki', 'sources')
+      await fs.mkdir(finalDir, { recursive: true })
+      await fs.rename(targetAbs, path.join(finalDir, `${slug}.md`))
+
+      // ===== 4. 清理 .tmp/ =====
+      await fs.rm(tmpDir, { recursive: true, force: true })
+
+      return {
+        status: 'ok',
+        pagesCreated: [targetRel],
+        pagesUpdated: [],
+        refsUpdated: 0,
+        // v1.5.3 修订（P2a）：先加占位 0，Task 2.5 接 BM25 后填实际值
+        bm25TokensAdded: 0,
+        durationMs: 0
+      }
     } catch (err) {
+      // 任何失败：清理 .tmp/ingest-<uuid>/，并尝试清理空 .tmp/ 父目录（保持原子性测试不变量）
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      // 尝试删空 .tmp/ 父目录（不报错，因其他 ingest 可能正在用）
+      const tmpParent = path.join(current.path, 'wiki', '.tmp')
+      try {
+        const entries = await fs.readdir(tmpParent)
+        if (entries.length === 0) {
+          await fs.rmdir(tmpParent)
+        }
+      } catch {
+        // .tmp/ 不存在或不可读 → 忽略
+      }
       if (err instanceof WorkspaceError) throw err
-      // reader 调度层抛的普通 Error（Unsupported file type） → 包装为 READ_FAIL
-      throw new WorkspaceError('READ_FAIL', err.message, false, err)
-    }
-
-    // 2. slug 化文件名（v1.5.1 原始设计：P1 简化版不处理中文 sha1 后缀；Task 2.1 升级时加）
-    const slug = path.parse(filename).name
-      .toLowerCase()
-      .replace(/\s+/g, '-')
-      .replace(/[^\w一-龥-]/g, '')
-
-    // 3. 写 wiki/sources/<slug>.md（P1 简化版，无 frontmatter / 原子性）
-    const targetDir = path.join(current.path, 'wiki', 'sources')
-    try {
-      await fs.mkdir(targetDir, { recursive: true })
-      const targetPath = path.join(targetDir, `${slug}.md`)
-      const md = `# ${slug}\n\n${content}\n`
-      await fs.writeFile(targetPath, md, 'utf-8')
-    } catch (err) {
-      throw new WorkspaceError('WRITE_FAIL', `写入 wiki/sources/${slug}.md 失败: ${err.message}`, true, err)
-    }
-
-    return {
-      status: 'ok',
-      pagesCreated: [`sources/${slug}.md`],
-      pagesUpdated: [],
-      refsUpdated: 0,
-      durationMs: 0
+      throw new WorkspaceError('ATOMIC_FAIL', err.message, true, err)
     }
   }
 
