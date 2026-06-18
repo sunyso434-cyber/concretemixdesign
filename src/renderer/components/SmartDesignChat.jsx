@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip } from 'antd'
-import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined } from '@ant-design/icons'
+import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, ProfileOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
@@ -18,6 +18,7 @@ import AgentRulesModal from './AgentRulesModal'
 import DecisionGate from './DecisionGate'
 import MemorySidebar from './MemorySidebar'
 import SlashCommandMenu from './SlashCommandMenu'
+import WorkspaceFilePopover from './WorkspaceFilePopover'
 import useChatState from '../hooks/useChatState'
 import { AgentStoreProvider, useAgentStore } from './AgentStore'
 import useAgentMode from './AgentMode'
@@ -1431,7 +1432,7 @@ const SmartDesignChat = () => {
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
           <Space size={0}>
-            {/* 工作区指示器（左侧） */}
+            {/* 工作区指示器（左侧）- 选择/切换工作区 */}
             <Button
               type="text"
               size="small"
@@ -1442,6 +1443,17 @@ const SmartDesignChat = () => {
             >
               {workspaceBasename ? `📁 ${workspaceBasename}` : '📁 打开工作区'}
             </Button>
+            {/* 工作区文件列表（已选工作区才显示）- P1 补全 v4.8.3 */}
+            {workspacePath && (
+              <WorkspaceFilePopover workspacePath={workspacePath}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<ProfileOutlined />}
+                  title="工作区文件（手动导入到知识库）"
+                />
+              </WorkspaceFilePopover>
+            )}
             <Upload
               showUploadList={false}
               beforeUpload={(file) => {

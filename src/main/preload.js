@@ -68,8 +68,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     current: () => ipcRenderer.invoke('workspace:current'),
     listFiles: (subdir) => ipcRenderer.invoke('workspace:listFiles', { subdir }),
     readPage: (wikiPath) => ipcRenderer.invoke('workspace:readPage', { wikiPath }),
-    pickFolder: () => ipcRenderer.invoke('workspace:pickFolder')
-    // 后续 task 加：ingest / search / writeFile / lint / searchGraph
+    pickFolder: () => ipcRenderer.invoke('workspace:pickFolder'),
+    // P1 补全：源文件→wiki 入库（v4.8.3）
+    ingest: (filename) => ipcRenderer.invoke('workspace:ingest', { filename })
+    // 后续 task 加：search / writeFile / lint / searchGraph
   }
 })
 
