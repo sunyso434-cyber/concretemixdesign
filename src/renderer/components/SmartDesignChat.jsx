@@ -90,6 +90,7 @@ const CHAT_STREAM_EVENT = 'aiAnalysis:chatStream:event'
 
 // 从错误对象中提取消息字符串（共享工具函数）
 import extractErrorMessage from '../utils/extractErrorMessage'
+import WorkspaceDrawer from './WorkspaceDrawer'
 
 function createToolSummary(toolName, args = {}) {
   if (toolName === 'list_available_materials') {
@@ -238,6 +239,9 @@ const SmartDesignChat = () => {
 
   // ===== 智能助手规则 Modal =====
   const [rulesModalOpen, setRulesModalOpen] = useState(false)
+
+  // ===== 工作区抽屉 =====
+  const [drawerVisible, setDrawerVisible] = useState(false)
 
   // 加载可用技能
   const loadSkills = useCallback(async () => {
@@ -1107,6 +1111,12 @@ const SmartDesignChat = () => {
                   onClick={() => setRulesModalOpen(true)}
                 />
               </Tooltip>
+              <Button
+                size="small"
+                onClick={() => setDrawerVisible(true)}
+              >
+                📁 工作区
+              </Button>
             </Space>
           </div>
 
@@ -1439,6 +1449,10 @@ const SmartDesignChat = () => {
       <AgentRulesModal
         visible={rulesModalOpen}
         onClose={() => setRulesModalOpen(false)}
+      />
+      <WorkspaceDrawer
+        visible={drawerVisible}
+        onClose={() => setDrawerVisible(false)}
       />
     </div>
     </Content>
