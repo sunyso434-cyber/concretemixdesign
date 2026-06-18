@@ -409,6 +409,83 @@ ${content}
       scannedAt: new Date().toISOString()
     }
   }
+
+  // Task 2.9: recordAnswer - 把重要问答回填到 wiki（spec §4.2）
+  // - 工作区未打开 → NOT_OPEN（不 retry）
+  // - 写到 wiki/answers/<timestamp>.md（frontmatter 含 question/answered_at/refs）
+  // - 更新 wiki/index.md（追加「## 问答」节的链接）
+  // - 加 log（写到 wiki/log.md，schema §4 格式 `## [YYYY-MM-DD HH:mm] answer | <subject>`）
+  // - 不重建 BM25（answer 文档不入索引，符合 spec）
+  async recordAnswer(q, a, refs) {
+    const current = this.workspace.current()
+    if (!current || current.status !== 'ready') {
+      throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
+    }
+
+    const wikiDir = path.join(current.path, 'wiki')
+    const now = new Date()
+    const tsFile = now.toISOString().replace(/[:.]/g, '-')  // 文件名安全
+    const tsLog = now.toISOString().slice(0, 16).replace('T', ' ')  // log 行用 YYYY-MM-DD HH:mm
+
+    // 1. 写 wiki/answers/<timestamp>.md（frontmatter + 正文）
+    const answersDir = path.join(wikiDir, 'answers')
+    await fs.mkdir(answersDir, { recursive: true })
+    const answerRel = `answers/${tsFile}.md`
+    const answerAbs = path.join(answersDir, `${tsFile}.md`)
+    const refsYaml = (refs || []).map(r => `  - "${r.replace(/"/g, '\\"')}"`).join('\n')
+    const md = `---
+question: "${String(q).replace(/"/g, '\\"')}"
+answered_at: "${now.toISOString()}"
+refs:
+${refsYaml || '  []'}
+---
+
+# ${String(q)}
+
+${String(a)}
+`
+    await fs.writeFile(answerAbs, md, 'utf-8')
+
+    // 2. 更新 wiki/index.md（追加「## 问答」节 + 链接）
+    const indexAbs = path.join(wikiDir, 'index.md')
+    const indexLink = `- [${q}](${answerRel})\n`
+    let indexExists = true
+    try {
+      await fs.access(indexAbs)
+    } catch {
+      indexExists = false
+    }
+    if (!indexExists) {
+      const init = `# Wiki Index\n\n## 问答\n\n${indexLink}`
+      await fs.writeFile(indexAbs, init, 'utf-8')
+    } else {
+      // 已有 index.md：在「## 问答」节后追加（无该节则创建并追加）
+      const raw = await fs.readFile(indexAbs, 'utf-8')
+      if (/## 问答/.test(raw)) {
+        // 在「## 问答」段尾追加（找到下一个 ## 或文件末尾）
+        const appended = raw.replace(/(## 问答\n[\s\S]*?)(?=\n## |\n*$)/, `$1${indexLink}`)
+        await fs.writeFile(indexAbs, appended, 'utf-8')
+      } else {
+        // 没「## 问答」节 → 追加新节
+        await fs.appendFile(indexAbs, `\n## 问答\n\n${indexLink}`, 'utf-8')
+      }
+    }
+
+    // 3. 加 log（schema §4 格式）
+    const logAbs = path.join(wikiDir, 'log.md')
+    const subject = String(q).slice(0, 30)
+    const logLine = `## [${tsLog}] answer | ${subject}\n`
+    try {
+      await fs.access(logAbs)
+      await fs.appendFile(logAbs, logLine, 'utf-8')
+    } catch {
+      await fs.writeFile(logAbs, logLine, 'utf-8')
+    }
+
+    // 4. 不重建 BM25（answer 文档不入索引）
+
+    return { status: 'ok', answerPath: answerRel }
+  }
 }
 
 module.exports = { WikiEngine }
