@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Drawer, List, Spin, Alert, Typography, Button } from 'antd'
+import { FolderOpenOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -11,6 +12,18 @@ export default function WorkspaceDrawer({ visible, onClose }) {
   const [selected, setSelected] = useState(null)
   const [content, setContent] = useState('')
   const [error, setError] = useState(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  const pickWorkspace = async () => {
+    try {
+      const result = await window.electronAPI.workspace.pickFolder()
+      if (result.canceled) return
+      // 重新触发 listFiles effect，刷新文件列表
+      setRefreshKey(k => k + 1)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
 
   useEffect(() => {
     if (!visible) return
@@ -22,7 +35,7 @@ export default function WorkspaceDrawer({ visible, onClose }) {
       .then(({ files }) => setFiles(files))
       .catch(err => setError(err.message))
       .finally(() => setLoading(false))
-  }, [visible])
+  }, [visible, refreshKey])
 
   async function openFile(file) {
     setSelected(file)
@@ -60,6 +73,15 @@ export default function WorkspaceDrawer({ visible, onClose }) {
       onClose={onClose}
       open={visible}
     >
+      <div style={{ marginBottom: 16 }}>
+        <Button
+          type="primary"
+          icon={<FolderOpenOutlined />}
+          onClick={pickWorkspace}
+        >
+          📂 打开工作区
+        </Button>
+      </div>
       {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} />}
       <Spin spinning={loading}>
         {!selected ? (

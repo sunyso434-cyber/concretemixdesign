@@ -67,7 +67,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     close: () => ipcRenderer.invoke('workspace:close'),
     current: () => ipcRenderer.invoke('workspace:current'),
     listFiles: (subdir) => ipcRenderer.invoke('workspace:listFiles', { subdir }),
-    readPage: (wikiPath) => ipcRenderer.invoke('workspace:readPage', { wikiPath })
+    readPage: (wikiPath) => ipcRenderer.invoke('workspace:readPage', { wikiPath }),
+    pickFolder: () => ipcRenderer.invoke('workspace:pickFolder')
     // 后续 task 加：ingest / search / writeFile / lint / searchGraph
   }
 })

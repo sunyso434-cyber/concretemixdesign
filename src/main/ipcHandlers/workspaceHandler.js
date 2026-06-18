@@ -1,4 +1,4 @@
-const { ipcMain } = require('electron')
+const { ipcMain, dialog } = require('electron')
 const { wrapWorkspaceCall } = require('../workspace/error-bridge')
 const { WorkspaceError } = require('../workspace/WorkspaceError')
 
@@ -48,6 +48,20 @@ function register(refs) {
       throw new WorkspaceError('NOT_OPEN', 'WikiEngine 未初始化（请重启应用）', false)
     }
     return await refs.wikiEngine.readPage(wikiPath)
+  }))
+
+  // Task P1.13: workspace:pickFolder - 弹出原生文件夹选择器并打开工作区
+  ipcMain.handle('workspace:pickFolder', wrapWorkspaceCall(async () => {
+    const result = await dialog.showOpenDialog({
+      title: '选择工作区文件夹',
+      properties: ['openDirectory', 'createDirectory']
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return { canceled: true, path: null }
+    }
+    const selectedPath = result.filePaths[0]
+    await refs.workspaceManager.open(selectedPath)
+    return { canceled: false, path: refs.workspaceManager.current().path }
   }))
 
   // 后续 task 加：workspace:search / workspace:writeFile / workspace:lint / workspace:searchGraph
