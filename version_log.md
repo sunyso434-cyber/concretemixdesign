@@ -1,3 +1,66 @@
+## v4.9.0 (2026-06-19) - P2a 阶段完工：Wiki 引擎核心（11 task 全部 review PASS）
+
+### 阶段总览
+P2a 11 个 task（Task 2.1-2.10 + 2.10.1）全部完成 + per-task review PASS + whole-branch review READY_TO_MERGE。
+
+### 11 个 task 一览
+| Task | 内容 | Commit | Review |
+|------|------|--------|--------|
+| 2.1 | WikiEngine.ingest 原子性 + FNV-1a slug + bm25TokensAdded | 5e28759 | PASS (1 I + 4 M) |
+| 2.2 | schema/default.md（wiki 维护规约 5 章节） | 53fdb74 | PASS (0) |
+| 2.3 | index-store（.workspace-index.json 读写 + 损坏降级） | f6a7094 | PASS (0) |
+| 2.4 | TwoGramTokenizer（中文 2-gram + 停用词，brief regex typo 修复） | 870d27f | PASS (0) |
+| 2.5 | BM25 索引（5 test + 779 全量） | e10827f + 2b042cf | PASS (0) |
+| 2.6 | WikiEngine.search（7 test + 786 全量） | d1a1e91 | PASS (Important: ingest→index 桥接缺失) |
+| 2.7 | readPage 加固（SIZE_EXCEEDED + 791 全量） | 1e3a142 | PASS (0) |
+| 2.8 | WikiEngine.lint（5 类检查 + workspace:lint IPC，6 test + 800 全量） | fa85e0c | PASS (0) |
+| 2.9 | WikiEngine.recordAnswer（answers/index.md/log.md，4 test + 802 全量） | 5d199bf | PASS (0) |
+| 2.10 | WorkspaceManager.watch（chokidar + 5 种扩展名自动 ingest，2 test） | b6d6737 | PASS (0) |
+| 2.10.1 | 补全 workspace/index.js 真实导出（替换 Task 1.2 占位） | d76a0e4 | PASS (0) |
+
+### 验证
+- ✅ 806/806 单测全部 PASS（121 suites）
+- ✅ 0 Critical + 1 Important（桥接缺口有 fallback 兜底） + 10 Minor（不阻塞）
+- ✅ 跨 task 一致性 OK（FNV-1a slug 前后端 byte-for-byte 一致）
+- ✅ 全部 7 个 IPC handler 用 wrapWorkspaceCall 风格统一
+
+### 重要发现
+**I-1 ingest→index 桥接缺失**（不阻塞 P2a 末）：
+- `WikiEngine.ingest` 不写 `.workspace-index.json`
+- `search` 通过 fallback 路径（动态 rebuild BM25）兜底
+- 性能债：每次 search 都 rebuild，不是 O(1) 索引
+- 列入 P2a follow-up 或 P2b 第一个 task 处理
+
+### Brief 修订
+- Task 2.1 slug 算法：brief 写 SHA-1，实际用 FNV-1a（前端 Web Crypto 异步限制）
+- Task 2.4 tokenizer：brief regex `/[a-z0-9\s\W]/g` 有 typo（\W 匹配汉字），改为 `/[a-z0-9\s]/g`
+- Task 2.5 BM25 test：brief 期望 `vocabulary['水胶比']`（3 字），改为 2-gram 期望（匹配 Task 2.4 行为）
+
+### Follow-up（10 Minor，不阻塞 v4.9.0 release）
+- M-1 `durationMs` 始终 0（占位）
+- M-2 WikiEngine.js 多处注释写「sha1」实际 FNV-1a
+- M-3 ingest 错误全包成 ATOMIC_FAIL 语义不准
+- M-8 ingest 写 5 字段 frontmatter，lint 检 4 必填（漏 updated_at）
+- M-9 wiki/chat-history/ 排除规则没在 ignored 数组
+- M-10 缺 trailing newline
+- M-4/5/6/7 低风险
+- **Task 2.9 schema §4 需补 `answer` action**（reviewer 标 Minor）
+
+### 重要功能
+- 📁 Wiki 全文搜索（BM25，2-gram 中文分词，K1=1.5 B=0.75）
+- 🔍 5 类 wiki 健康检查（missingFrontmatter / orphans / missingCrossRefs / staleSummaries / contradictions）
+- 💬 问答回填（answers/index.md/log.md）
+- 👀 工作区自动监听（chokidar，新文件自动 ingest）
+- 📦 原子性 ingest（.tmp/ + atomic rename，失败不污染 wiki/）
+
+### 已知遗留
+- ingest→index 桥接缺失（I-1）
+- 聊天历史不按工作区分组（P2b Task 2.11-2.15b）
+- LLM 不能调 workspace 工具（P4 Task 4.1）
+- E2E 跑不动（Electron 18.18.2 太老，P6 阶段处理）
+
+---
+
 ## v4.8.5 hotfix (2026-06-19) - DOMMatrix polyfill 修复 PDF 在 Node 16 解析失败
 
 ### 修复内容
