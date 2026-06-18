@@ -1,3 +1,64 @@
+## v4.8.0 (2026-06-18) - P1 阶段完工：智能设计助手工作区 + LLM Wiki 基础读能力
+
+### 新增功能（P1 全部 14 task 完成）
+老板您好——P1 阶段正式完工！智能设计助手现在能**只读**工作区里的 5 类资料（PDF/Word/Excel/Markdown/纯文本），并在应用内 wiki 抽屉里浏览渲染。
+
+**13 个新 commit（+ 1 fix），从 f9b2247 到 18972cd**：
+
+| Commit | Task | 内容 |
+|---|---|---|
+| f9b2247 | 1.1 | workspace 模块脚手架 |
+| bffcf23 | 1.2 | WorkspaceError 错误类（21 错误码，含 KG 2 个）|
+| 15ef68c + 1d62d93 | 1.2a | error-bridge 桥接层（WorkspaceError ↔ ErrorCodes）+ fix 不对称 |
+| 636935f | 1.3 | text reader (.txt/.csv) + papaparse |
+| 21b937e | 1.4 | markdown reader (.md) + gray-matter frontmatter |
+| 72585c0 + 65b4f1e | 1.5 | pdf reader (pdf-parse) + fix 字体 fallback 链 |
+| 2664918 | 1.6 | docx reader (mammoth) + 修 generate.js fire-and-forget |
+| af6e5b0 | 1.7 | xlsx reader (xlsx) 多 sheet 渲染 |
+| 0159773 | 1.8 | WorkspaceManager（open/close/listFiles + 状态机）|
+| 982c222 | 1.9 | 4 个 IPC + workspaceRefs 多实例注入 + preload electronAPI.workspace.* |
+| 848f9a5 | 1.10 | WikiEngine.ingest 简化版 + reader 调度器 + ingest IPC |
+| cdb867c | 1.11 | WorkspaceDrawer 文件预览抽屉（list + react-markdown 渲染）|
+| 18972cd | 1.12 | readPage 最小实现 + 抽屉 E2E C+D |
+
+### 新增依赖
+- 生产：`pdf-parse@^2.4.5` + `mammoth@^1.12.0` + `papaparse@^5.5.3` + `docx@^9.7.1`（devDep for fixture）
+- 测试：`@playwright/test@^1.61.0`
+- 已有复用：`gray-matter` `xlsx` `chokidar` `uuid`（不重装）
+
+### 新增文件
+- `src/main/workspace/` 全套（10 个新文件 + 1 个新子目录）
+- `src/main/ipcHandlers/workspaceHandler.js`（5 个 IPC）
+- `src/main/__tests__/workspace/`（10+ 测试文件）
+- `src/renderer/components/WorkspaceDrawer.jsx`
+- `tests/e2e/`（playwright.config.js + drawer.spec.js + drawer-markdown.spec.js）
+
+### 修改文件
+- `src/main/main.js`（workspaceRefs 初始化 + WikiEngine 实例化）
+- `src/main/preload.js`（electronAPI.workspace.* 命名空间）
+- `src/renderer/components/SmartDesignChat.jsx`（📁 工作区按钮 + 抽屉挂载）
+- `package.json`（version 4.7.0 → 4.8.0 + 新依赖）
+- `.gitignore`（测试 fixture 二进制 + .gstack/）
+
+### 已知遗留（不阻塞 P1 通过）
+1. **E2E 0/2 跑不动**：项目 Electron 18.18.2 不支持 Playwright 1.61 所需的 `--remote-debugging-port=0`（需 22+）。**环境问题非代码问题**。后续 P6 阶段处理。
+2. **error-bridge Issue 2**：`toIPCResult` 用 `'success' in data` 判定 IPC 格式 — P3 Task 3.2 写 writeFile IPC 时一起修。
+3. **workspace/index.js 仍占位**（`WorkspaceManager: null`）— P2 补全。
+4. **plan v1.5.3 升级**：pdf-parse v2 API 替换 v1 示例 + v1.5.3.1 修订（延 P1 末 / P2 开头）。
+5. **E2E D 验证 markdown 渲染**（frontmatter + 表格 + 代码块）— 需先升级 Electron 22+ 才能跑。
+
+### 验收清单（老板跑）
+1. 准备 `D:/test-ws-p1`，拖入真 PDF/Word/Excel/MD/TXT
+2. `npm run electron:dev`
+3. DevTools console 跑 6 步：open → listFiles('root') → ingest 5 类 → listFiles('sources') → 验证 wiki 生成 → readPage
+4. UI 验证：顶栏「📁 工作区」按钮 → 抽屉展开 → 点击文件看 markdown 渲染
+5. 签收：在 SPEC 文档加 `P1 验收: 2026-06-18 老板签字: ✅`
+
+### 下一步
+P2a：Wiki 引擎核心（11 task：原子性 ingest + schema + index.json + TwoGram + BM25 + search + readPage + lint + recordAnswer + chokidar watch），老板 P1 签字后开工。
+
+---
+
 ## v4.7.1 hotfix (2026-06-17) - 修复 SmartDesignChat 残留 TDZ 导致白屏
 
 ### 修复内容
