@@ -6,6 +6,12 @@
 // 所有失败抛 WorkspaceError（带 code + retryable）。
 // size 限制：200 MB（> 200MB 触发 SIZE_EXCEEDED，retryable=false）
 const fs = require('fs').promises
+// P1 补全 v4.8.5: pdf-parse v2 基于 pdf.js，依赖 DOMMatrix
+//   - Node 16.13.2（Electron 18.18.2 内嵌）无 DOMMatrix → "DOMMatrix is not defined"
+//   - Node 20+ 有原生，自动跳过
+// 在 require('pdf-parse') 之前注入 polyfill
+const { installDOMMatrix } = require('./domMatrixPolyfill')
+installDOMMatrix()
 const { PDFParse } = require('pdf-parse')
 const { WorkspaceError } = require('../WorkspaceError')
 
