@@ -17,5 +17,7 @@ module.exports = {
   // 单进程跑（避免 EventBus 单例跨文件污染）
   maxWorkers: 1,
   // 显式隔离每个 test 的环境
-  resetModules: false
+  resetModules: false,
+  // 所有 reader 测试共享的 fixture 生成器（Task 1.3-1.7 共用）
+  globalSetup: '<rootDir>/src/main/__tests__/workspace/readers/fixtures/generate-wrapper.js'
 }
