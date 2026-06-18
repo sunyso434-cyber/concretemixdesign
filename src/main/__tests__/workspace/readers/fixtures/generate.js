@@ -31,20 +31,18 @@ function generate() {
     )
   }
 
-  // ---------- 3. sample.pdf（Task 1.5 负责，LAZY require） ----------
+  // ---------- 3. sample.pdf（Task 1.5 负责，pdfkit 已安装，直接生成） ----------
   const pdfPath = path.join(FIXTURE_DIR, 'sample.pdf')
   if (!fs.existsSync(pdfPath)) {
-    try {
-      const PDFDocument = require('pdfkit')
-      const doc = new PDFDocument()
-      doc.pipe(fs.createWriteStream(pdfPath))
-      doc.text('混凝土配合比设计规范 JGJ 55-2011').fontSize(20)
-      doc.addPage().text('水胶比是决定混凝土强度的主要因素').fontSize(14)
-      doc.addPage().text('砂率影响混凝土的工作性和强度').fontSize(14)
-      doc.end()
-    } catch (err) {
-      console.log('[generate] skip pdf fixture, library not installed yet:', err.message)
-    }
+    const PDFDocument = require('pdfkit')
+    const doc = new PDFDocument()
+    doc.pipe(fs.createWriteStream(pdfPath))
+    // pdfkit 默认字体不支持中文，切换到 Windows 自带的 Noto Sans SC
+    doc.font('C:/Windows/Fonts/Noto Sans SC (TrueType).otf')
+    doc.text('混凝土配合比设计规范 JGJ 55-2011').fontSize(20)
+    doc.addPage().text('水胶比是决定混凝土强度的主要因素').fontSize(14)
+    doc.addPage().text('砂率影响混凝土的工作性和强度').fontSize(14)
+    doc.end()
   }
 
   // ---------- 4. sample.docx（Task 1.6 负责，LAZY require） ----------
