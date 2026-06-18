@@ -1,3 +1,25 @@
+## v4.8.1 hotfix (2026-06-18) - 用户无法自主选择工作区文件夹
+
+### 修复内容
+老板报告：v4.8.0 抽屉只能看文件列表，**用户必须在 DevTools console 手敲 `await window.electronAPI.workspace.open('D:/path')`** 才能打开工作区，违反端到端可用性。
+
+### 改动（1 commit, 3 files, +40/-3）
+- `src/main/ipcHandlers/workspaceHandler.js` — 加 `workspace:pickFolder` IPC（`dialog.showOpenDialog` 弹原生文件夹选择器，调 `workspace:open`）
+- `src/main/preload.js` — 暴露 `electronAPI.workspace.pickFolder()`
+- `src/renderer/components/WorkspaceDrawer.jsx` — 顶部加「📂 打开工作区」按钮 + refreshKey 触发重新 listFiles
+
+### 用户流程（修复后）
+1. 点「📁 工作区」→ 抽屉展开
+2. 看到顶部「📂 打开工作区」按钮
+3. 点击 → 弹原生文件夹选择对话框
+4. 选中 → 自动 `workspace:open` + 文件列表刷新
+5. 看到刚选的工作区文件列表
+
+### 打包
+`dist-4.8.1/` 重新跑 `electron-builder` 完整打包，含此修复。
+
+---
+
 ## v4.8.0 (2026-06-18) - P1 阶段完工：智能设计助手工作区 + LLM Wiki 基础读能力
 
 ### 新增功能（P1 全部 14 task 完成）
