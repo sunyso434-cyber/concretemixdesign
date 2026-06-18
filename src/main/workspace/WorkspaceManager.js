@@ -55,7 +55,13 @@ class WorkspaceManager {
       awaitWriteFinish: { stabilityThreshold: 1000, pollInterval: 100 }  // 1 秒去抖
     })
     this._watcher.on('add', async (fp) => {
-      const rel = path.posix.relative(watchPath, fp)
+      // v2026-06-19 hotfix (v4.9.1)：Windows 路径修正
+      // 老板报告"chokidar 拖入文件不自动 ingest"，根因：path.posix.relative()
+      // 在 Windows 上对含 drive letter 的路径（如 C:\Users\...）算错，POSIX
+      // 算法不识别 `C:`，会输出 `../C:\...\test.md` 这种错误相对路径，
+      // WikiEngine 找不到文件 → FILE_NOT_FOUND → 静默 catch
+      // 修复：先 path.relative() 算平台原生相对路径，再 replace 反斜杠
+      const rel = path.relative(watchPath, fp).replace(/\\/g, '/')
       if (/\.(pdf|md|docx|xlsx|xls|txt|csv)$/i.test(rel)) {
         try { await wikiEngine.ingest({ filename: rel }) }
         catch (err) { console.error('Auto-ingest failed:', err.message) }
