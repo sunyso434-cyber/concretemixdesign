@@ -18,6 +18,9 @@ const fs = require('fs').promises
 const path = require('path')
 const { WorkspaceError } = require('./WorkspaceError')
 const reader = require('./readers')
+const { loadIndex } = require('./index-store')
+const { queryBM25, buildBM25 } = require('./bm25')
+const { tokenize } = require('./tokenizer')
 
 class WikiEngine {
   constructor({ workspace }) {
@@ -173,6 +176,84 @@ ${content}
     const { data: frontmatter, content } = matter(raw)
     const stat = await fs.stat(absPath)
     return { content, frontmatter, mtime: stat.mtimeMs, size: stat.size }
+  }
+
+  // Task 2.6: search - BM25 全文搜索 + snippet 生成（spec §4.5/§4.7）
+  // - 返回 SearchHit[]：{ path, title, snippet, score, sourceType: 'wiki' }
+  // - snippet 规则：找第一个匹配位置，前后各取 50/150 字符，前后加 … 省略号
+  // - 空 query → []，NOT_OPEN → WorkspaceError(NOT_OPEN)
+  async search(query, topK = 5) {
+    const current = this.workspace.current()
+    if (!current || current.status !== 'ready') {
+      throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
+    }
+
+    if (!query || !query.trim()) return []
+
+    const index = await loadIndex(current.path)
+    let bm25Index = index.bm25Index
+    // 桥接 fallback：若 .workspace-index.json 还没建立（Task 2.5 ingest→index 桥接未完成），
+    // 动态扫 wiki/sources/*.md 重建临时 BM25 索引。Task 2.5 完成后此分支可删。
+    if (!bm25Index || (bm25Index.totalDocs || 0) === 0) {
+      const sourcesDir = path.posix.join(current.path, 'wiki', 'sources')
+      let entries = []
+      try {
+        entries = await fs.readdir(sourcesDir)
+      } catch { entries = [] }
+      const docs = []
+      for (const name of entries) {
+        if (!name.endsWith('.md')) continue
+        const relPath = `sources/${name}`
+        const abs = path.posix.join(current.path, 'wiki', relPath)
+        try {
+          const raw = await fs.readFile(abs, 'utf-8')
+          const m = raw.match(/^---\n[\s\S]+?\n---\n([\s\S]*)$/)
+          docs.push({ path: relPath, content: m ? m[1] : raw })
+        } catch { /* skip */ }
+      }
+      bm25Index = buildBM25(docs)
+    }
+    const hits = queryBM25(bm25Index, query, topK)
+
+    // 生成 snippet
+    const queryTokens = new Set(tokenize(query))
+
+    const enriched = []
+    for (const hit of hits) {
+      const absPath = path.posix.join(current.path, 'wiki', hit.path)
+      let content = ''
+      try {
+        const raw = await fs.readFile(absPath, 'utf-8')
+        // 去掉 frontmatter
+        const m = raw.match(/^---\n[\s\S]+?\n---\n([\s\S]*)$/)
+        content = m ? m[1] : raw
+      } catch { continue }
+
+      // 找第一个匹配位置
+      let matchPos = -1
+      for (let i = 0; i < content.length - 1; i++) {
+        const sub = content.substr(i, 50).toLowerCase()
+        for (const t of queryTokens) {
+          if (sub.includes(t)) { matchPos = i; break }
+        }
+        if (matchPos >= 0) break
+      }
+
+      let snippet
+      if (matchPos < 0) {
+        snippet = content.substring(0, 100) + (content.length > 100 ? '…' : '')
+      } else {
+        const start = Math.max(0, matchPos - 50)
+        const end = Math.min(content.length, matchPos + 150)
+        const prefix = start > 0 ? '…' : ''
+        const suffix = end < content.length ? '…' : ''
+        snippet = prefix + content.substring(start, end) + suffix
+      }
+
+      enriched.push({ ...hit, title: hit.path, snippet, sourceType: 'wiki' })
+    }
+
+    return enriched
   }
 }
 
