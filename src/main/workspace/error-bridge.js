@@ -35,7 +35,8 @@ async function toIPCResult(promise) {
     if (err instanceof WorkspaceError) {
       return ErrorCodes.createError(err.code, err.message, _hintFor(err), { retryable: err.retryable })
     }
-    return ErrorCodes.createError(ErrorCodes.UNKNOWN, err.message)
+    console.error('[error-bridge] toIPCResult 未捕获错误:', err)
+    return ErrorCodes.createError(ErrorCodes.UNKNOWN, err.message, '请稍后重试', { stack: err.stack })
   }
 }
 

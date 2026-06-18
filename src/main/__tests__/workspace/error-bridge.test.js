@@ -39,4 +39,15 @@ describe('error-bridge', () => {
     const r2 = await toIPCResult(Promise.reject(new WorkspaceError('PATH_INVALID', 'x', false)))
     expect(r2).toMatchObject({ success: false, errorCode: 'PATH_INVALID' })
   })
+
+  test('toIPCResult 抛普通 Error → 包装为 UNKNOWN + 含 stack', async () => {
+    const r3 = await toIPCResult(Promise.reject(new Error('plain boom')))
+    expect(r3).toMatchObject({
+      success: false,
+      error: 'plain boom',
+      errorCode: 'UNKNOWN',
+      details: { stack: expect.any(String) }  // stack 应该存在
+    })
+    expect(r3.details.stack).toContain('plain boom')  // stack 含原始消息
+  })
 })
