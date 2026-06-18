@@ -44,6 +44,7 @@ class WorkspaceManager {
   watch(wikiEngine) {
     if (this._watcher) this._watcher.close()
     const watchPath = this._state.path
+    console.log('[WorkspaceManager.watch] starting chokidar on:', watchPath)
     this._watcher = chokidar.watch(watchPath, {
       ignored: [
         /(^|[\/\\])wiki\//, /(^|[\/\\])reports\//, /(^|[\/\\])chat-history\//,
@@ -52,20 +53,33 @@ class WorkspaceManager {
         /(^|[\/\\])\..+/  // 隐藏文件
       ],
       persistent: true,
+      // v2026-06-19 hotfix (v4.9.2)：Windows 上用 polling 而非 ReadDirectoryChangesW
+      // 老板报告"v4.9.1 仍不自动 ingest"：chokidar 默认 ReadDirectoryChangesW
+      // 对资源管理器拖入 / 其他进程创建的文件可能不触发 add 事件
+      // 改 polling（1 秒轮询）虽然耗 CPU 但 100% 触发
+      usePolling: true,
+      interval: 1000,
+      binaryInterval: 2000,
       awaitWriteFinish: { stabilityThreshold: 1000, pollInterval: 100 }  // 1 秒去抖
+    })
+    this._watcher.on('ready', () => {
+      console.log('[chokidar] ready, watching:', watchPath)
     })
     this._watcher.on('add', async (fp) => {
       // v2026-06-19 hotfix (v4.9.1)：Windows 路径修正
-      // 老板报告"chokidar 拖入文件不自动 ingest"，根因：path.posix.relative()
-      // 在 Windows 上对含 drive letter 的路径（如 C:\Users\...）算错，POSIX
-      // 算法不识别 `C:`，会输出 `../C:\...\test.md` 这种错误相对路径，
-      // WikiEngine 找不到文件 → FILE_NOT_FOUND → 静默 catch
-      // 修复：先 path.relative() 算平台原生相对路径，再 replace 反斜杠
       const rel = path.relative(watchPath, fp).replace(/\\/g, '/')
+      console.log('[chokidar] add:', rel)
       if (/\.(pdf|md|docx|xlsx|xls|txt|csv)$/i.test(rel)) {
-        try { await wikiEngine.ingest({ filename: rel }) }
-        catch (err) { console.error('Auto-ingest failed:', err.message) }
+        try {
+          const result = await wikiEngine.ingest({ filename: rel })
+          console.log('[chokidar] ingest OK:', rel, '→', result.pagesCreated)
+        } catch (err) {
+          console.error('[chokidar] Auto-ingest failed:', rel, err.message)
+        }
       }
+    })
+    this._watcher.on('error', (err) => {
+      console.error('[chokidar] error:', err.message)
     })
   }
 
