@@ -50,6 +50,15 @@ function register(refs) {
     return await refs.wikiEngine.readPage(wikiPath)
   }))
 
+  // Task 2.8: workspace:lint - 扫 wiki 健康检查（spec §4.2）
+  // 返回 LintReport：{ missingFrontmatter, orphans, missingCrossRefs, staleSummaries, contradictions, scannedAt }
+  ipcMain.handle('workspace:lint', wrapWorkspaceCall(async () => {
+    if (!refs.wikiEngine) {
+      throw new WorkspaceError('NOT_OPEN', 'WikiEngine 未初始化（请重启应用）', false)
+    }
+    return await refs.wikiEngine.lint()
+  }))
+
   // Task P1.13: workspace:pickFolder - 弹出原生文件夹选择器并打开工作区
   ipcMain.handle('workspace:pickFolder', wrapWorkspaceCall(async () => {
     const result = await dialog.showOpenDialog({

@@ -264,6 +264,151 @@ ${content}
 
     return enriched
   }
+
+  // Task 2.8: lint - 扫 4 类健康检查 + contradictions 占位（spec §4.2 / §4.5）
+  // - missingFrontmatter：frontmatter 缺 4 必填（title/source/ingested_at/quality）
+  // - orphans：无任何 [[wiki/path]] 引用入链的页
+  // - missingCrossRefs：正文含 [[xxx]] 但 xxx 不存在
+  // - staleSummaries：源文件 mtime > wiki 页 mtime（原始设计：优先 updated_at，缺失 fallback ingested_at）
+  // - contradictions：V1.5 可选，本任务始终返回空数组
+  // - 工作区未打开 → NOT_OPEN（不 retry）
+  async lint() {
+    const current = this.workspace.current()
+    if (!current || current.status !== 'ready') {
+      throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
+    }
+
+    const REQUIRED_FM = ['title', 'source', 'ingested_at', 'quality']
+    const wikiRoot = path.posix.join(current.path, 'wiki')
+    const sourcesDir = path.join(wikiRoot, 'sources')
+
+    const missingFrontmatter = []
+    const orphans = []
+    const missingCrossRefs = []
+    const staleSummaries = []
+
+    // 1. 枚举 wiki/sources/*.md
+    let entries = []
+    try {
+      entries = await fs.readdir(sourcesDir)
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err
+    }
+    const mdFiles = entries.filter(name => name.endsWith('.md')).sort()
+
+    // 2. 解析每个 wiki 页：frontmatter 完整性 + 正文 [[ref]] 抽取
+    const pageInfos = []  // { relPath, frontmatter, content, wikiMtime }
+    const allPages = new Set()  // 用于 cross-ref 检查
+    for (const name of mdFiles) {
+      const relPath = `sources/${name}`
+      allPages.add(relPath)
+      const abs = path.join(sourcesDir, name)
+      let raw, stat
+      try {
+        raw = await fs.readFile(abs, 'utf-8')
+        stat = await fs.stat(abs)
+      } catch {
+        continue
+      }
+      const { data: frontmatter, content } = require('gray-matter')(raw)
+      const presentKeys = Object.keys(frontmatter || {})
+      const missing = REQUIRED_FM.filter(k => !presentKeys.includes(k))
+      if (missing.length > 0) {
+        missingFrontmatter.push({ path: relPath, missing })
+      }
+      pageInfos.push({ relPath, frontmatter, content, wikiMtime: stat.mtimeMs })
+    }
+
+    // 3. orphans / missingCrossRefs：扫每个页正文的 [[ref]]
+    const WIKI_LINK_RE = /\[\[([^\]]+)\]\]/g
+    const referencedBy = new Map()  // ref → Set<relPath>
+    for (const info of pageInfos) {
+      const links = new Set()
+      let m
+      const re = new RegExp(WIKI_LINK_RE.source, 'g')
+      while ((m = re.exec(info.content)) !== null) {
+        links.add(m[1].trim())
+      }
+      for (const ref of links) {
+        if (!referencedBy.has(ref)) referencedBy.set(ref, new Set())
+        referencedBy.get(ref).add(info.relPath)
+      }
+    }
+    // orphans：pageInfos 中没有任何 [[ref]] 入链的页
+    for (const info of pageInfos) {
+      const inLinks = referencedBy.get(info.relPath)
+      if (!inLinks || inLinks.size === 0) {
+        orphans.push({ path: info.relPath })
+      }
+    }
+    // missingCrossRefs：[[xxx]] 但 xxx 不存在
+    // ref 解析规则（覆盖常见写法）：
+    //   - "sources/b.md"   → 比对 allPages
+    //   - "sources/b"      → 比对 "sources/b.md"
+    //   - "b"              → 比对 "sources/b.md"
+    //   - "concepts/x"     → 不在 sources/ 下，作为缺失
+    function refExists(ref) {
+      if (allPages.has(ref)) return true
+      const noExt = ref.replace(/\.md$/, '')
+      if (allPages.has(noExt)) return true
+      // 裸名（如 "b"）→ "sources/b.md"
+      if (allPages.has(`sources/${noExt}.md`)) return true
+      // 带 sources/ 但无后缀（如 "sources/b"）→ "sources/b.md"
+      if (noExt.startsWith('sources/') && allPages.has(`${noExt}.md`)) return true
+      return false
+    }
+    for (const info of pageInfos) {
+      const re = new RegExp(WIKI_LINK_RE.source, 'g')
+      let m
+      while ((m = re.exec(info.content)) !== null) {
+        const ref = m[1].trim()
+        if (!refExists(ref)) {
+          missingCrossRefs.push({ path: info.relPath, ref })
+        }
+      }
+    }
+
+    // 4. staleSummaries：源文件 mtime > wiki 页 mtime
+    // 原始设计（v1.5.3 沿用）：优先 frontmatter.updated_at，缺失 fallback ingested_at
+    // 若 frontmatter 都缺失 → 用 wiki 文件自身 mtime 与源文件比
+    for (const info of pageInfos) {
+      const sourceRel = info.frontmatter && info.frontmatter.source
+      if (!sourceRel || typeof sourceRel !== 'string') continue
+      const sourceAbs = path.posix.join(current.path, sourceRel)
+      let sourceStat
+      try {
+        sourceStat = await fs.stat(sourceAbs)
+      } catch {
+        continue  // 源文件不存在 → 跳过
+      }
+      // 优先 updated_at，没有则 fallback ingested_at，都没有则用 wiki 文件 mtime
+      let wikiTs
+      const fmTs = (info.frontmatter && (info.frontmatter.updated_at || info.frontmatter.ingested_at)) || null
+      if (fmTs) {
+        const t = Date.parse(fmTs)
+        wikiTs = Number.isFinite(t) ? t : info.wikiMtime
+      } else {
+        wikiTs = info.wikiMtime
+      }
+      if (sourceStat.mtimeMs > wikiTs) {
+        staleSummaries.push({
+          path: info.relPath,
+          sourceFile: sourceRel,
+          sourceMtime: sourceStat.mtimeMs,
+          wikiMtime: wikiTs
+        })
+      }
+    }
+
+    return {
+      missingFrontmatter,
+      orphans,
+      missingCrossRefs,
+      staleSummaries,
+      contradictions: [],  // V1.5 可选，本任务留空
+      scannedAt: new Date().toISOString()
+    }
+  }
 }
 
 module.exports = { WikiEngine }

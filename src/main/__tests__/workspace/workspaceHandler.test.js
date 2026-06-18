@@ -32,7 +32,7 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
   })
 
   describe('register() 注册阶段', () => {
-    test('注册 4 个 IPC handler（channel 名正确）', () => {
+    test('注册 7 个 IPC handler（channel 名正确）', () => {
       workspaceHandler.register({
         workspaceManager: mockManager,
         wikiEngine: null,
@@ -43,6 +43,9 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
       expect(handlers['workspace:close']).toBeDefined()
       expect(handlers['workspace:current']).toBeDefined()
       expect(handlers['workspace:listFiles']).toBeDefined()
+      expect(handlers['workspace:ingest']).toBeDefined()
+      expect(handlers['workspace:readPage']).toBeDefined()
+      expect(handlers['workspace:lint']).toBeDefined()
     })
 
     test('register 接受 wikiEngine/kgExtractor null（v1.5.3 多实例契约）', () => {
@@ -143,6 +146,52 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
 
       const result = await handlers['workspace:listFiles']({}, { subdir: 'root' })
 
+      expect(result.success).toBe(false)
+      expect(result.errorCode).toBe('NOT_OPEN')
+    })
+  })
+
+  describe('workspace:lint (Task 2.8)', () => {
+    beforeEach(() => {
+      workspaceHandler.register({ workspaceManager: mockManager })
+    })
+
+    test('成功 → 调 wikiEngine.lint() 并返回 LintReport', async () => {
+      const fakeReport = {
+        missingFrontmatter: [],
+        orphans: [{ path: 'sources/a.md' }],
+        missingCrossRefs: [],
+        staleSummaries: [],
+        contradictions: [],
+        scannedAt: '2026-06-19T10:00:00.000Z'
+      }
+      const refs = require('../../ipcHandlers/workspaceHandler')  // 不实际需要
+      // 注入 mock wikiEngine
+      const _refs = { workspaceManager: mockManager, wikiEngine: { lint: jest.fn().mockResolvedValue(fakeReport) } }
+      // 重新注册覆盖
+      Object.keys(handlers).forEach(k => delete handlers[k])
+      workspaceHandler.register(_refs)
+
+      const result = await handlers['workspace:lint']({})
+
+      expect(_refs.wikiEngine.lint).toHaveBeenCalledTimes(1)
+      expect(result).toEqual(fakeReport)
+    })
+
+    test('wikiEngine 未初始化 → 返回 NOT_OPEN 错误', async () => {
+      // 默认 wikiEngine=null
+      const result = await handlers['workspace:lint']({})
+      expect(result.success).toBe(false)
+      expect(result.errorCode).toBe('NOT_OPEN')
+    })
+
+    test('workspace:lint 抛 WorkspaceError → 转 ErrorCodes 格式', async () => {
+      const { WorkspaceError } = require('../../workspace/WorkspaceError')
+      const refs = { workspaceManager: mockManager, wikiEngine: { lint: jest.fn().mockRejectedValue(new WorkspaceError('NOT_OPEN', '工作区未打开', false)) } }
+      Object.keys(handlers).forEach(k => delete handlers[k])
+      workspaceHandler.register(refs)
+
+      const result = await handlers['workspace:lint']({})
       expect(result.success).toBe(false)
       expect(result.errorCode).toBe('NOT_OPEN')
     })
