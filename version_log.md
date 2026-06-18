@@ -2303,3 +2303,44 @@ v1.5.2 标 57 → v1.5.3 实际 **55**（拆 ChatHistoryExporter 后从 8 task �
 ### 后续
 - 本 plan 校对修补 commit 后，等待老板 P1 开工批准
 - P1 实施时严格遵守 v1.5.3 commit scope 约定 + 软约束编排 + workspaceRefs 注入模式
+
+---
+
+## plan v1.5.3 第二轮审查修补 (2026-06-18) - 0 阻塞 + 3 高优 + 4 中优
+
+### 背景
+老板 2026-06-18 第二轮严格审查 v1.5.3 plan，发现 7 个新问题（0 阻塞 + 3 高优 + 4 中优），本轮全部修复。
+
+### 第二轮问题修复
+
+#### 🟠 高优 3 项
+
+| # | 问题 | 修复要点 | 涉及章节 |
+|---|------|---------|----------|
+| 1 | `workspaceTools.js` 未列文件结构总览（4311 行起有引用但 98 行总览漏列） | 文件结构总览增 `src/main/agent/workspaceTools.js 🆕 v1.5.3 新增：7 个 workspace 工具作为伪 Skill 定义` | 文件结构总览 |
+| 2 | `SkillRegistry.unregister()` 存在性未确认 | 核实 `src/main/agent/SkillRegistry.js:317-319` 已存在；Task 4.1 Step 2 加注释"v1.5.3 关键决策（高优 #2 验证）：unregister 已存在" | Task 4.1 Step 2 |
+| 3 | SkillContext 注入边界模糊 | Task 4.2 加"SkillContext 注入边界澄清"表格：实际只改 1 个文件（agentHandler.js），不改 18 Skill / SkillExecutor / DynamicContextProvider | Task 4.2 |
+
+#### 🟡 中优 4 项
+
+| # | 问题 | 修复要点 | 涉及章节 |
+|---|------|---------|----------|
+| 4 | 版本号 `v1.5.1` 混用 30 处 | 全部统一为 `v1.5.1 原始设计（v1.5.3 沿用）` 或 `v1.5.3 沿用` | 全文 30 处 |
+| 5 | Task 5.4 commit message scope 违规 | Step 8 拆 3 commit：commit 1 `feat(workspace)`（KGExtractor.searchGraph）+ commit 2 `feat(ipc)`（IPC + workspaceTools 重注册）+ commit 3 `test(workspace)`（E2E O） | Task 5.4 Step 8 |
+| 6 | 附录 A 缺失（仅 P5 章节内部） | Plan 末尾加独立"附录 A：kg-schema.json 模板"节（与 P5 章节内容完全一致，独立查阅） | Plan 末尾 |
+| 7 | E2E M/N/O 被计为 1 task 过载 | 拆为 5.5a（论文级提取）/ 5.5b（冲突检测）/ 5.5c（查询验证）3 个独立 task | 任务依赖图 + P5 清单 + Task 2.16 Step 5.5/5.6 + Task 5.4 Step 6 |
+
+### 同步修订
+- **总任务数统一**：3 处表述统一为 v1.5.3 实际 **60** task（v1.5.2 标 57 + 1 E2E D + 2 拆 5.5a/b/c）
+- **Task 2.16 Step 5.5/5.6 标注**："本 Step 内容**等同于** P5 阶段 Task 5.5a/5.5b，直接复用"
+
+### 验证方法
+- `grep -n workspaceTools` 确认文件结构总览有 1 处
+- `grep -n v1.5.1` 仅剩统一后的"v1.5.1 原始设计"标注
+- `grep -nE "5\.5[abc]?"` 确认所有引用已拆分
+
+### Plan 自我反思
+**第二轮新错误**：第一轮 v1.5.3 提交时漏了 7 个二阶问题。**改进计划**：
+- 提交前用 `grep` 反查所有新引入的文件名是否在文件结构总览
+- 用 `grep` 反查所有版本号是否被新版本覆盖
+- 提交前用 `wc -l` 对比章节行数突变
