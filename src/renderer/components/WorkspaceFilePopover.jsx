@@ -98,8 +98,12 @@ const WorkspaceFilePopover = ({ workspacePath, children }) => {
     })
     try {
       const result = await window.electronAPI.workspace.ingest(filename)
+      // P1 补全 hotfix (v4.8.4): 后端 ErrorCodes.createError 返回的错误格式
+      // 实际字段是 `error`（不是 `message`），且带 errorCode/hint/recovery。
+      // 修复：把整包错误对象透传，让 toast 显示具体错误码 + 错误消息
       if (result?.success === false) {
-        throw new Error(result.message || '导入失败')
+        const errDetail = `[${result.errorCode || 'UNKNOWN'}] ${result.error || '导入失败'}${result.hint ? ` (${result.hint})` : ''}`
+        throw new Error(errDetail)
       }
       message.success(`已导入 ${filename}`)
       // 刷新 slug 状态
@@ -118,20 +122,14 @@ const WorkspaceFilePopover = ({ workspacePath, children }) => {
   }, [])
 
   // 批量导入（串行避免并发写）
+  // v4.8.4 P1 补全 hotfix：清理死代码（success/failed 计数器无用）
+  // handleImport 内部已 toast 每次结果，依赖用户视觉反馈
   const handleImportAll = useCallback(async () => {
-    // 按文件名字母序排序（稳定顺序）
     const filenames = [...selected].sort()
-    let success = 0
-    let failed = 0
     for (const filename of filenames) {
-      if (!isSupportedExt(filename)) continue // 跳过不支持的
+      if (!isSupportedExt(filename)) continue
       await handleImport(filename)
-      // 检查该文件是否失败（handleImport 会更新 failedFiles）
-      // 注：此处有点 race（状态更新异步），但 handleImport 同步设置失败
-      // 简单做法：检查当前 importingIds 是否还在
     }
-    // 因为 handleImport 内部已 toast 每次结果，这里只做汇总
-    // 简化：依赖用户的视觉反馈，不做二次汇总
   }, [selected, handleImport])
 
   // 切换 checkbox
