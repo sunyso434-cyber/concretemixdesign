@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip } from 'antd'
-import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined } from '@ant-design/icons'
+import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
@@ -90,7 +90,6 @@ const CHAT_STREAM_EVENT = 'aiAnalysis:chatStream:event'
 
 // 从错误对象中提取消息字符串（共享工具函数）
 import extractErrorMessage from '../utils/extractErrorMessage'
-import WorkspaceDrawer from './WorkspaceDrawer'
 
 function createToolSummary(toolName, args = {}) {
   if (toolName === 'list_available_materials') {
@@ -241,7 +240,37 @@ const SmartDesignChat = () => {
   const [rulesModalOpen, setRulesModalOpen] = useState(false)
 
   // ===== 工作区抽屉 =====
-  const [drawerVisible, setDrawerVisible] = useState(false)
+  const [workspacePath, setWorkspacePath] = useState(null)
+
+  // 加载当前工作区状态
+  useEffect(() => {
+    const loadWorkspace = async () => {
+      try {
+        const current = await window.electronAPI.workspace.current()
+        if (current && current.path) {
+          setWorkspacePath(current.path)
+        }
+      } catch (err) {
+        console.warn('[WorkspaceIndicator] 加载工作区状态失败:', err)
+      }
+    }
+    loadWorkspace()
+  }, [])
+
+  const handleWorkspaceClick = async () => {
+    try {
+      const result = await window.electronAPI.workspace.pickFolder()
+      if (result.canceled) return
+      setWorkspacePath(result.path)
+    } catch (err) {
+      console.error('[WorkspaceIndicator] 选择工作区失败:', err)
+    }
+  }
+
+  // 提取文件夹名（basename）
+  const workspaceBasename = workspacePath
+    ? workspacePath.split(/[\\/]/).filter(Boolean).pop()
+    : null
 
   // 加载可用技能
   const loadSkills = useCallback(async () => {
@@ -1111,12 +1140,6 @@ const SmartDesignChat = () => {
                   onClick={() => setRulesModalOpen(true)}
                 />
               </Tooltip>
-              <Button
-                size="small"
-                onClick={() => setDrawerVisible(true)}
-              >
-                📁 工作区
-              </Button>
             </Space>
           </div>
 
@@ -1408,6 +1431,17 @@ const SmartDesignChat = () => {
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
           <Space size={0}>
+            {/* 工作区指示器（左侧） */}
+            <Button
+              type="text"
+              size="small"
+              icon={<FolderOpenOutlined />}
+              onClick={handleWorkspaceClick}
+              style={{ color: workspacePath ? 'var(--color-primary)' : undefined }}
+              title={workspacePath || '点击选择工作区'}
+            >
+              {workspaceBasename ? `📁 ${workspaceBasename}` : '📁 打开工作区'}
+            </Button>
             <Upload
               showUploadList={false}
               beforeUpload={(file) => {
@@ -1449,10 +1483,6 @@ const SmartDesignChat = () => {
       <AgentRulesModal
         visible={rulesModalOpen}
         onClose={() => setRulesModalOpen(false)}
-      />
-      <WorkspaceDrawer
-        visible={drawerVisible}
-        onClose={() => setDrawerVisible(false)}
       />
     </div>
     </Content>
