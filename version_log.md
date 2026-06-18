@@ -2236,3 +2236,70 @@ ad50a90 chore(agent): 删 ContextProvider.js + 清理 agentHandler fallback（�
 - **AI 建议功能砍掉**（数据库不支持水泥统计 + 投入产出比低）
 - electron-updater 依赖移除
 - 国产杀毒误报 v1 不处理
+
+---
+
+## plan 校对修补 v1.5.3 (2026-06-18) - 智能设计助手工作区+LLM Wiki 实施 Plan 第五次修订
+
+### 背景
+老板 2026-06-18 用 Codex agent 严格审核 `docs/superpowers/plans/2026-06-17-smart-assistant-workspace-wiki-plan.md`（v1.5.2），发现 **18 个问题（7 阻塞 + 5 高优 + 6 中优）**。本轮对照 codebase 全部核实属实，逐项修复并升 plan 至 v1.5.3。
+
+### 18 个问题修复汇总
+
+#### 🔴 阻塞 7 项
+
+| # | 问题 | 修复要点 | 涉及 Plan 章节 |
+|---|------|---------|----------------|
+| 1 | `registerTool` 不存在（Orchestrator.js:18-39 确认） | 7 个 workspace 工具改为**伪 Skill 走 SkillRegistry**；新文件 `src/main/agent/workspaceTools.js` | Task 4.1 全文重写 |
+| 2 | ErrorCodes 范式冲突（`createError` 返回 vs `WorkspaceError` 抛） | 新增 `src/main/workspace/error-bridge.js`，IPC handler 用 `wrapWorkspaceCall()` 包裹 | Task 1.2a 详细化 |
+| 3 | `bm25.js` 位置模糊 | Task 2.5 标题显式化"创建 workspace/bm25.js" | Task 2.5 |
+| 4 | ChatHistoryExporter 过胖 | 拆为 `ChatHistoryExporter.js`（仅格式转换）+ `ChatHistorySync.js`（同步+守卫） | Tasks 2.12-2.15 重命名 + 拆分 |
+| 5 | preload 暴露层冲突（`window.workspace.*` vs `window.electronAPI.workspace.*`） | 全文统一为 `window.electronAPI.workspace.*` | Task 1.9/1.11 修订 |
+| 6 | chokidar 已存在（package.json:31 确认） | Global Constraints "5 个新包" → "4 个新包"（pdf-parse/mammoth/papaparse/docx） | Global Constraints |
+| 7 | P2 过载 | P2 拆 P2a（Wiki 引擎核心 11 task）+ P2b（聊天历史 5 task），KG 提取 2.15a/b/c 标废弃 | 任务依赖图 |
+
+#### 🟠 高优 5 项
+
+| # | 问题 | 修复要点 | 涉及 Plan 章节 |
+|---|------|---------|----------------|
+| 8 | SkillContext 注入空白 | 走 `DynamicContextProvider.allServices` 注入 wiki/workspace/chatHistory，**不改 18 个 Skill 业务逻辑** | Task 4.2 全文重写 |
+| 9 | 三阶段流程不清 | 明确"软约束"——system prompt 注入 5 类报告 → 必调 Skill 矩阵；加 §"流程编排：软约束 vs 硬约束说明"小节 | Task 4.3 + 新增小节 |
+| 10 | 增量导出触发点矛盾 | `AgentMemoryService.saveMessage` 末尾自动调 `global.chatHistorySync.markPending(sessionId)` | Task 2.11 Step 4 |
+| 11 | IPC-KG 生命周期不一致 | `workspaceHandler.register(workspaceRefs)` 接收 mutable 引用对象；P5 阶段 `workspaceRefs.kgExtractor = kgExtractor` | Task 1.9/5.4 |
+| 12 | fixture 二进制文件 | `__tests__/workspace/readers/fixtures/generate.js` 用 pdfkit/mammoth/xlsx 代码生成，jest globalSetup 触发，**不入 git** | Tasks 1.3-1.7 Step 1-4 重写 |
+
+#### 🟡 中优 6 项
+
+| # | 问题 | 修复要点 | 涉及 Plan 章节 |
+|---|------|---------|----------------|
+| 13 | commit scope 不统一 | 加 §"Commit Message 约定"小节：scope 统一为 workspace/agent/skills/db/ui/ipc/test/docs/perf/chore | Plan 头部 |
+| 14 | 编号冗余（P2.15a/b/c = P5.1/5.2/5.3） | P2 段 2.15a/b/c 标题加"v1.5.3 决策：已废弃"提示，**只**用 P5.1/5.2/5.3 | Tasks 2.15a/b/c 标题 |
+| 15 | kg-schema.json 未定义 | kg-schema.json 模板**前置**到 P5 章节"附录 A"，P5.1 Step 0 包含"复制 schema 模板" | P5 章节头部 |
+| 16 | Tokenizer 调度器闲置 | 文件结构总览标注 "⚠️ V1 不实现，仅占位；V1.5 切 jieba 时启用" | 文件结构总览 |
+| 17 | Sequelize 迁移路径错 | 路径改为 `migrations/2026-06-17-add-workspace-path.js`（sequelize-cli 标准，根目录非 `src/main/db/migrations/`）；加 `npx sequelize-cli db:migrate` 命令 | Task 2.11 全文重写 |
+| 18 | 缺 E2E D | Task 1.12 末尾追加 E2E D（markdown 渲染验证 h1/table/pre/2 行数据） | Task 1.12 Step 4 |
+
+### 关键技术决策（老板 4 个决策点）
+
+1. **工具注册**：伪 Skill 走 SkillRegistry（不引 registerTool）
+2. **ChatHistoryExporter 拆文件**：拆 2 个文件（Exporter 格式 + Sync 同步）
+3. **三阶段流程**：软约束（system prompt 提示，不改 UnifiedStrategy 循环）
+4. **PDF/DOCX/XLSX fixture**：代码生成（pdfkit/mammoth/xlsx），不入 git
+
+### 总任务数变化
+
+v1.5.2 标 57 → v1.5.3 实际 **55**（拆 ChatHistoryExporter 后从 8 task 减到 5 task；-2 抵消 +1 E2E D + 0 编号统一 = 净 -1）
+
+### 验证方法
+- 全部 18 个问题对照 codebase 验证存在（grep + Read 实际代码）
+- 修复后 Plan 行数 4527 → 5481（+954 行，新增 error-bridge.js 详细化 + workspaceTools.js 伪 Skill + Soft 流程小节 + Commit 约定 + Appendix A kg-schema）
+- 任务编号唯一性核查：P5.1/5.2/5.3 唯一引用，无 2.15a/b/c 别名
+- 关键架构改动（伪 Skill 替代 registerTool）有完整代码示例 + 测试示例
+
+### 不修复的内容
+- spec 文件未升级到 v1.5.3（仅有 1 处说明文字微调，spec 整体不变；老板决定时再升 spec）
+- 代码层未做任何修改（仅 plan 文档修订；老板批准后再开工 P1）
+
+### 后续
+- 本 plan 校对修补 commit 后，等待老板 P1 开工批准
+- P1 实施时严格遵守 v1.5.3 commit scope 约定 + 软约束编排 + workspaceRefs 注入模式
