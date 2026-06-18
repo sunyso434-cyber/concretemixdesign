@@ -75,6 +75,28 @@ class WikiEngine {
       durationMs: 0
     }
   }
+
+  // Task 1.12: readPage - 读 wiki 页面（解析 frontmatter）
+  async readPage(wikiPath) {
+    const current = this.workspace.current()
+    if (!current || current.status !== 'ready') {
+      throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
+    }
+    if (wikiPath.includes('..')) {
+      throw new WorkspaceError('PATH_INVALID', '路径不合法', false)
+    }
+    const absPath = path.posix.join(current.path, 'wiki', wikiPath)
+    let raw
+    try {
+      raw = await fs.readFile(absPath, 'utf-8')
+    } catch (err) {
+      throw new WorkspaceError('PAGE_NOT_FOUND', `${wikiPath} 不存在`, false, err)
+    }
+    const matter = require('gray-matter')
+    const { data: frontmatter, content } = matter(raw)
+    const stat = await fs.stat(absPath)
+    return { content, frontmatter, mtime: stat.mtimeMs, size: stat.size }
+  }
 }
 
 module.exports = { WikiEngine }

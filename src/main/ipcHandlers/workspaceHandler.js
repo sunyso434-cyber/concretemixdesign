@@ -42,9 +42,15 @@ function register(refs) {
     return await refs.wikiEngine.ingest({ filename })
   }))
 
-  // 后续 task 加：workspace:readPage / workspace:search
-  //                  / workspace:writeFile / workspace:lint / workspace:searchGraph
-  // 这些 handler 会读 refs.wikiEngine / refs.kgExtractor
+  // Task 1.12: workspace:readPage - 读 wiki 页面（解析 frontmatter）
+  ipcMain.handle('workspace:readPage', wrapWorkspaceCall(async (event, { wikiPath }) => {
+    if (!refs.wikiEngine) {
+      throw new WorkspaceError('NOT_OPEN', 'WikiEngine 未初始化（请重启应用）', false)
+    }
+    return await refs.wikiEngine.readPage(wikiPath)
+  }))
+
+  // 后续 task 加：workspace:search / workspace:writeFile / workspace:lint / workspace:searchGraph
 }
 
 module.exports = { register }
