@@ -58,6 +58,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   shell: {
     openAgentMd: () => ipcRenderer.invoke('shell:openAgentMd')
+  },
+  // === v1.5.3 新增：workspace 模块（Task 1.9）===
+  // 命名统一：所有 workspace IPC 都通过 electronAPI.workspace.* 访问
+  // 与未来 skill.*/agentMd.* 命名风格一致
+  workspace: {
+    open: (path) => ipcRenderer.invoke('workspace:open', { path }),
+    close: () => ipcRenderer.invoke('workspace:close'),
+    current: () => ipcRenderer.invoke('workspace:current'),
+    listFiles: (subdir) => ipcRenderer.invoke('workspace:listFiles', { subdir })
+    // 后续 task 加：ingest / readPage / search / writeFile / lint / searchGraph
   }
 })
 

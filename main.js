@@ -269,6 +269,19 @@ app.whenReady().then(async () => {
   await createWindow()
   console.log('窗口创建完成')
 
+  // === Task 1.9：workspace 初始化 + IPC 注册 ===
+  // v1.5.3：用 mutable 引用对象 workspaceRefs，后续 task（P1.10 wiki、P5 kg）
+  // 注入新实例时只需修改 workspaceRefs.inner 引用，无需重新 register IPC。
+  const { WorkspaceManager } = require('./src/main/workspace/WorkspaceManager')
+  const workspaceHandler = require('./src/main/ipcHandlers/workspaceHandler')
+
+  const workspaceRefs = { workspaceManager: null, wikiEngine: null, kgExtractor: null }
+  workspaceRefs.workspaceManager = new WorkspaceManager()
+  workspaceHandler.register(workspaceRefs)
+  // 暴露到全局供其他模块（如未来的 BackgroundTaskService / RAG 服务）使用
+  global.workspaceManager = workspaceRefs.workspaceManager
+  console.log('workspace IPC 已注册（4 个 handler）')
+
   // 初始化 agent.md 服务（加载 + 监听用户自定义规则文件）
   initAgentMd()
 
