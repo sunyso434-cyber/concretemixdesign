@@ -1,3 +1,33 @@
+## v4.8.2 hotfix (2026-06-18) - 工作区指示器移至输入框底部
+
+### 修复内容
+老板需求（参考样例1.png）：把工作区指示器从顶栏按钮移到输入框底部，**左对齐**于 [+] 和 [清扫] 按钮；选择工作区后**显示文件夹名（basename）**而非完整路径。
+
+### 改动（1 commit, 1 file, +27/-9）
+- `src/renderer/components/SmartDesignChat.jsx`
+  - 删除顶栏「📁 工作区」按钮
+  - 删除 WorkspaceDrawer import + mount + drawerVisible state（dead code 清理）
+  - 在底部 `<Space>` 左侧新增工作区指示器 Button
+  - 加 `workspacePath` state + `loadWorkspace` useEffect 初始化加载当前状态
+  - 加 `handleWorkspaceClick` 调 `pickFolder` → 选中后更新 state
+  - 加 `workspaceBasename` 派生：`.split(/[\\/]/).filter(Boolean).pop()`
+  - 导入 `FolderOpenOutlined` 图标
+
+### 用户流程
+- 未选择：「📁 打开工作区」（灰色提示）
+- 已选择：「📁 NEWConcrete-mixdesign」（蓝色高亮 + 显示文件夹名）
+- 点击：弹原生文件夹选择器，选完自动刷新
+
+### 打包
+`dist-4.8.2/` 重新跑 `electron-builder`。
+
+### 已知遗留（未解决）
+- LLM 不能调 workspace 工具（P4 Task 4.1 未做）
+- 聊天历史不按工作区分组（P2b Task 2.11-2.15b 未做）
+- E2E 跑不动（Electron 18.18.2 太老，P6 阶段处理）
+
+---
+
 ## v4.8.1 hotfix (2026-06-18) - 用户无法自主选择工作区文件夹
 
 ### 修复内容
