@@ -18,10 +18,16 @@ function register(refs) {
   const { workspaceManager, wikiEngine = null, kgExtractor = null } = refs
 
   ipcMain.handle('workspace:open', wrapWorkspaceCall(async (event, { path }) => {
-    return await refs.workspaceManager.open(path)
+    const result = await refs.workspaceManager.open(path)
+    // v2026-06-19 修订：open 成功后立即启动 watch（只在当前工作区生效）
+    if (refs.wikiEngine) {
+      refs.workspaceManager.watch(refs.wikiEngine)
+    }
+    return result
   }))
 
   ipcMain.handle('workspace:close', wrapWorkspaceCall(async () => {
+    refs.workspaceManager.unwatch()
     refs.workspaceManager.close()
     return { ok: true }
   }))

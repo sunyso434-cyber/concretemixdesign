@@ -1,5 +1,6 @@
 const fs = require('fs').promises
 const path = require('path')
+const chokidar = require('chokidar')
 const { WorkspaceError } = require('./WorkspaceError')
 
 class WorkspaceManager {
@@ -36,7 +37,37 @@ class WorkspaceManager {
   }
 
   close() {
+    this.unwatch()
     this._state = { path: null, status: 'idle', lastError: null }
+  }
+
+  watch(wikiEngine) {
+    if (this._watcher) this._watcher.close()
+    const watchPath = this._state.path
+    this._watcher = chokidar.watch(watchPath, {
+      ignored: [
+        /(^|[\/\\])wiki\//, /(^|[\/\\])reports\//, /(^|[\/\\])chat-history\//,
+        /(^|[\/\\])\.tmp\//, /^~\$/, /\.crdownload$/, /\.part$/,
+        /(^|[\/\\])\.DS_Store$/, /(^|[\/\\])Thumbs\.db$/, /(^|[\/\\])desktop\.ini$/,
+        /(^|[\/\\])\..+/  // 隐藏文件
+      ],
+      persistent: true,
+      awaitWriteFinish: { stabilityThreshold: 1000, pollInterval: 100 }  // 1 秒去抖
+    })
+    this._watcher.on('add', async (fp) => {
+      const rel = path.posix.relative(watchPath, fp)
+      if (/\.(pdf|md|docx|xlsx|xls|txt|csv)$/i.test(rel)) {
+        try { await wikiEngine.ingest({ filename: rel }) }
+        catch (err) { console.error('Auto-ingest failed:', err.message) }
+      }
+    })
+  }
+
+  unwatch() {
+    if (this._watcher) {
+      this._watcher.close()
+      this._watcher = null
+    }
   }
 
   current() {

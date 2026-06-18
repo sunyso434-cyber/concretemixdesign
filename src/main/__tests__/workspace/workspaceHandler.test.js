@@ -13,7 +13,9 @@ const mockManager = {
   open: jest.fn(),
   close: jest.fn(),
   current: jest.fn(),
-  listFiles: jest.fn()
+  listFiles: jest.fn(),
+  watch: jest.fn(),
+  unwatch: jest.fn()
 }
 jest.mock('../../workspace/WorkspaceManager', () => ({
   WorkspaceManager: jest.fn().mockImplementation(() => mockManager)
@@ -29,6 +31,8 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
     mockManager.close.mockReset()
     mockManager.current.mockReset()
     mockManager.listFiles.mockReset()
+    mockManager.watch.mockReset()
+    mockManager.unwatch.mockReset()
   })
 
   describe('register() 注册阶段', () => {
@@ -214,7 +218,8 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
       // 替换：注入新实例
       const newManager = {
         open: jest.fn().mockResolvedValue({ path: '/new', status: 'ready' }),
-        close: jest.fn(), current: jest.fn(), listFiles: jest.fn()
+        close: jest.fn(), current: jest.fn(), listFiles: jest.fn(),
+        watch: jest.fn(), unwatch: jest.fn()
       }
       refs.workspaceManager = newManager
 
