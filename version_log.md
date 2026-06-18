@@ -1,3 +1,56 @@
+## v4.8.4 hotfix (2026-06-19) - 透传后端错误信息
+
+### 修复内容
+老板报告：v4.8.3 导入 PDF 时 Toast 只显示「导入失败: 导入失败」这种**通用**消息，看不到后端的真实错误原因（如 `PARSE_FAIL`/`FILE_NOT_FOUND`）。
+
+### 根因
+后端 [ErrorCodes.createError](src/main/agent/ErrorCodes.js#L42) 返回的标准错误格式：
+```js
+{
+  success: false,
+  error: "PDF 解析失败: xxx",      // ← 真实错误信息在这
+  errorCode: "PARSE_FAIL",
+  hint: "文件解析失败（可能损坏或格式不支持）",
+  recovery: "retry"
+}
+```
+
+但前端 [WorkspaceFilePopover.jsx handleImport](src/renderer/components/WorkspaceFilePopover.jsx) 误用 `result.message`（undefined）：
+```js
+if (result?.success === false) {
+  throw new Error(result.message || '导入失败')  // ❌ result.message 永远 undefined
+}
+```
+
+→ 老板看到的是「导入失败: 导入失败」双重通用消息
+
+### 改动（1 commit, 2 files, +10/-12, commit 5722a5f）
+- `package.json` — version 4.8.3 → 4.8.4，output dist-4.8.3 → dist-4.8.4
+- `src/renderer/components/WorkspaceFilePopover.jsx`
+  - handleImport 改读 `result.error` + `result.errorCode` + `result.hint`
+  - Toast 现在显示格式：`[ERROR_CODE] 错误消息 (hint)`
+  - 示例：`导入 paper.pdf 失败: [FILE_NOT_FOUND] paper.pdf 不存在 (文件不存在)`
+  - 示例：`导入 paper.pdf 失败: [PARSE_FAIL] PDF 解析失败: xxx (文件解析失败（可能损坏或格式不支持）)`
+  - 清理 handleImportAll 死代码（success/failed 计数器无意义）
+
+### 验证
+- ✅ 全部 748 单测通过（0 regression）
+- ✅ vite build 成功
+- ✅ electron-builder 打包成功（exit 0）
+- ✅ 老板的 13MB PDF 论文本地 Node 跑通，63252 字符正确提取
+
+### 重要备注
+⚠️ 老板的真实 PDF（13MB 学术论文，本地 Node 跑成功）应该不需要这个 hotfix。
+如果 v4.8.4 仍报「具体错误码/消息」，请把 Toast 完整文本发我——
+v4.8.4 已能透传 `errorCode`，下一次报告就能精准定位问题。
+
+### 已知遗留
+- LLM 不能调 workspace 工具（P4 Task 4.1）
+- 聊天历史不按工作区分组（P2b Task 2.11-2.15b）
+- E2E 跑不动（Electron 18.18.2 太老，P6 阶段处理）
+
+---
+
 ## v4.8.3 hotfix (2026-06-19) - 工作区文件列表 Popover + ingest 手动触发
 
 ### 修复内容
