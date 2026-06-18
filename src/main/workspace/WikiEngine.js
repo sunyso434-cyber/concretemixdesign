@@ -156,25 +156,34 @@ ${content}
     }
   }
 
-  // Task 1.12: readPage - 读 wiki 页面（解析 frontmatter）
+  // Task 2.7: readPage 加固 - 加 SIZE_EXCEEDED 检查（> 5MB 抛错，避免内存爆）
+  // - 工作区未打开 → NOT_OPEN（不 retry）
+  // - 路径穿越防护 → PATH_INVALID
+  // - 文件不存在 → PAGE_NOT_FOUND
+  // - 文件 > 5MB → SIZE_EXCEEDED（保护内存）
+  // - 成功返回 { content, frontmatter, mtime, size }（mtime/size 是数字）
   async readPage(wikiPath) {
     const current = this.workspace.current()
     if (!current || current.status !== 'ready') {
       throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
     }
+    // 路径穿越防护
     if (wikiPath.includes('..')) {
-      throw new WorkspaceError('PATH_INVALID', '路径不合法', false)
+      throw new WorkspaceError('PATH_INVALID', `wikiPath 非法: ${wikiPath}`, false)
     }
     const absPath = path.posix.join(current.path, 'wiki', wikiPath)
-    let raw
+    let stat, raw
     try {
-      raw = await fs.readFile(absPath, 'utf-8')
-    } catch (err) {
-      throw new WorkspaceError('PAGE_NOT_FOUND', `${wikiPath} 不存在`, false, err)
+      stat = await fs.stat(absPath)
+    } catch {
+      throw new WorkspaceError('PAGE_NOT_FOUND', `wiki 页不存在: ${wikiPath}`, false)
     }
-    const matter = require('gray-matter')
-    const { data: frontmatter, content } = matter(raw)
-    const stat = await fs.stat(absPath)
+    // v2026-06-19 修订：加 SIZE_EXCEEDED 检查（避免内存爆）
+    if (stat.size > 5 * 1024 * 1024) {
+      throw new WorkspaceError('SIZE_EXCEEDED', `wiki 页 > 5MB (${stat.size} bytes)`, false)
+    }
+    raw = await fs.readFile(absPath, 'utf-8')
+    const { data: frontmatter, content } = require('gray-matter')(raw)
     return { content, frontmatter, mtime: stat.mtimeMs, size: stat.size }
   }
 

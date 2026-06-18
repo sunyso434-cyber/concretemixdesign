@@ -65,7 +65,7 @@ describe('WikiEngine.readPage (Task 1.12)', () => {
   })
 
   test('readPage 路径含 .. 抛 PATH_INVALID', async () => {
-    await expect(wiki.readPage('sources/../../etc/passwd')).rejects.toThrow(/不合法/)
+    await expect(wiki.readPage('sources/../../etc/passwd')).rejects.toThrow(/非法/)
   })
 
   test('readPage 文件不存在抛 PAGE_NOT_FOUND', async () => {
