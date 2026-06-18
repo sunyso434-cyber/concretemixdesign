@@ -10,8 +10,11 @@ describe('BM25', () => {
   test('buildBM25 返回完整索引', () => {
     const idx = buildBM25(docs)
     expect(idx.totalDocs).toBe(3)
+    // Task 2.4 TwoGramTokenizer 按 2-gram 切分，「水胶比」→ ['水胶', '胶比']
+    // 「抗渗混凝土」→ ['抗渗', '渗混', '混凝', '凝土']
     expect(idx.vocabulary['抗渗']).toBeDefined()
-    expect(idx.vocabulary['水胶比']).toBeDefined()
+    expect(idx.vocabulary['水胶']).toBeDefined()
+    expect(idx.vocabulary['胶比']).toBeDefined()
   })
 
   test('query 抗渗 + 水胶比 → a.md 排第一', () => {
