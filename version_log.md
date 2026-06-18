@@ -1,3 +1,56 @@
+## v4.9.1 hotfix (2026-06-19) - chokidar Windows 路径修正
+
+### 修复内容
+老板报告：v4.9.0 拖入工作区文件**不自动 ingest**。
+
+### 根因（手测复现）
+`WorkspaceManager.watch` line 58 用 `path.posix.relative(watchPath, fp)`：
+- Windows 上 `watchPath` 含 drive letter（`C:\Users\...`）
+- POSIX relative 算法**不识别 `C:`**，输出错误路径 `../C:\...\test.md`
+- WikiEngine 找不到文件 → `FILE_NOT_FOUND` → 错误被 `console.error` 静默 catch
+- chokidar 'add' 事件实际触发了，但 ingest 全失败
+- 老板看 console 看不到任何输出（console.error 没重定向到 main 进程外）
+
+```
+[chokidar] add: ../C:\Users\sunys\...\test.md
+[ingest] FAIL: FILE_NOT_FOUND ../C:\Users\sunys\...\test.md 不存在
+```
+
+### 修复（1 行）
+```diff
+- const rel = path.posix.relative(watchPath, fp)
++ // v2026-06-19 hotfix (v4.9.1)：Windows 路径修正
++ // 用 path.relative() 算平台原生相对路径，再 replace 反斜杠
++ const rel = path.relative(watchPath, fp).replace(/\\/g, '/')
+```
+
+### 改动（1 commit, 3 files, +71/-3, commit c29a16a）
+- `src/main/workspace/WorkspaceManager.js` — 1 行修改 + 注释
+- `src/main/__tests__/workspace/WorkspaceManager.watch.pathfix.test.js`（**新文件**）— 2 个回归测试
+  - 顶层 .md 拖入 → wiki/sources/test.md 5s 内生成
+  - 子目录 .txt 拖入 → wiki/sources/note.md 5s 内生成
+- `package.json` — version 4.9.0 → 4.9.1，output dist-4.9.0 → dist-4.9.1
+
+### 验证
+- ✅ 2 个新 path fix test 全过（手测 chokidar 拖入 → 5s 内 ingest 完成）
+- ✅ 全部 808 测试通过（基线 806 + 2 新增，0 regression）
+- ✅ chokidar 'add' 事件正常触发，路径正确计算为 `test.md` / `docs/note.txt`
+
+### 反思（关键）
+之前 Task 2.10 reviewer 只测了「watch 创建 watcher」+「重复调用关闭旧 watcher」**2 个 mock 测试**，没测真实 chokidar 在 Windows 上的端到端行为。
+**这是 reviewer 的盲点**：
+- 业务测试只验"方法被调用"，没验"调用后真的工作"
+- Windows 特定行为（drive letter）需要真实环境才能暴露
+- 应该加 1 个端到端测试：写文件 → 等 chokidar → 验证 wiki 页生成
+
+### 已知遗留
+- ingest→index 桥接缺失（I-1 仍未修）
+- 聊天历史不按工作区分组（P2b Task 2.11-2.15b）
+- LLM 不能调 workspace 工具（P4 Task 4.1）
+- E2E 跑不动（Electron 18.18.2 太老，P6 阶段处理）
+
+---
+
 ## v4.9.0 (2026-06-19) - P2a 阶段完工：Wiki 引擎核心（11 task 全部 review PASS）
 
 ### 阶段总览
