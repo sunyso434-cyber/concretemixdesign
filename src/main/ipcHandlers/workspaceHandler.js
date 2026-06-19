@@ -26,6 +26,20 @@ function register(refs) {
     return result
   }))
 
+  // v2026-06-19 hotfix (v4.9.3)：openAndWatch 抽出复用
+  // 老板报告"v4.9.2 拖入文件仍不自动 ingest" — log 显示 workspace IPC
+  // 注册了但 watch 从未启动。原因：pickFolder handler 直接调
+  // workspaceManager.open()，**绕过了 workspace:open IPC**，所以
+  // workspace:open 里的 watch 启动逻辑（line 23-25）从未执行。
+  // 修复：抽 openAndWatch 公共方法，open + pickFolder 都调它
+  async function openAndWatch(selectedPath) {
+    await refs.workspaceManager.open(selectedPath)
+    if (refs.wikiEngine) {
+      refs.workspaceManager.watch(refs.wikiEngine)
+    }
+    return refs.workspaceManager.current().path
+  }
+
   ipcMain.handle('workspace:close', wrapWorkspaceCall(async () => {
     refs.workspaceManager.unwatch()
     refs.workspaceManager.close()
@@ -75,8 +89,9 @@ function register(refs) {
       return { canceled: true, path: null }
     }
     const selectedPath = result.filePaths[0]
-    await refs.workspaceManager.open(selectedPath)
-    return { canceled: false, path: refs.workspaceManager.current().path }
+    // v2026-06-19 hotfix (v4.9.3)：用 openAndWatch（不绕过 watch 启动）
+    const openedPath = await openAndWatch(selectedPath)
+    return { canceled: false, path: openedPath }
   }))
 
   // 后续 task 加：workspace:search / workspace:writeFile / workspace:lint / workspace:searchGraph
