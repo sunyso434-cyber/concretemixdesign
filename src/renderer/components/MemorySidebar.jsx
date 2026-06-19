@@ -76,7 +76,7 @@ const MemorySidebar = ({ onToggle }) => {
     }
   }
 
-  const { workspaces } = groupedData
+  const { workspaces, unclassified } = groupedData
 
   return (
     <Sider width="28%" style={{
@@ -103,7 +103,7 @@ const MemorySidebar = ({ onToggle }) => {
           {
             key: 'history',
             label: '对话',
-            children: workspaces.length === 0 ? (
+            children: (workspaces.length === 0 && unclassified.length === 0) ? (
               <div style={{ textAlign: 'center', padding: 20 }}>
                 <Text type="secondary">暂无对话记录</Text>
               </div>
@@ -174,6 +174,56 @@ const MemorySidebar = ({ onToggle }) => {
                     ))}
                   </div>
                 ))}
+
+                {/* v4.10.0.1 (fix): 渲染 unclassified — workspacePath=null 的旧 session（v4.9.x 时代） */}
+                {unclassified.length > 0 && (
+                  <div key="__unclassified" style={{ marginBottom: 12 }}>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '4px 4px 6px 4px',
+                      color: 'var(--color-text-tertiary, #999)',
+                      fontWeight: 600,
+                      fontSize: 13
+                    }}>
+                      <FolderOpenOutlined style={{ marginRight: 6 }} />
+                      <Text ellipsis style={{ fontSize: 13, fontWeight: 600 }}>未分类（v4.9.x 旧数据）</Text>
+                    </div>
+                    {unclassified.map(s => (
+                      <List.Item
+                        key={s.sessionId || `unclassified-${Math.random()}`}
+                        style={{
+                          cursor: 'pointer',
+                          background: s.sessionId === currentSessionId ? 'var(--color-border)' : 'transparent',
+                          padding: '4px 8px 4px 24px',
+                          borderRadius: 4,
+                          border: 'none'
+                        }}
+                        onClick={() => handleLoadSession(s.sessionId)}
+                        actions={[
+                          <Popconfirm key="del" title="删除此对话？" onConfirm={async (e) => {
+                            e?.stopPropagation?.()
+                            await handleDeleteSession(s.sessionId)
+                          }}>
+                            <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={e => e.stopPropagation()} />
+                          </Popconfirm>
+                        ]}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                          <Space size={6}>
+                            <RobotOutlined style={{ fontSize: 11, color: 'var(--color-text-secondary)' }} />
+                            <Text style={{ fontSize: 12, maxWidth: 160 }} ellipsis={{ tooltip: s.title || s.sessionId }}>
+                              {s.title || (s.sessionId ? s.sessionId.substring(0, 8) : '未命名')}
+                            </Text>
+                          </Space>
+                          <Text type="secondary" style={{ fontSize: 11, flexShrink: 0, marginLeft: 8 }}>
+                            {relativeTime(s.lastActivity)}
+                          </Text>
+                        </div>
+                      </List.Item>
+                    ))}
+                  </div>
+                )}
               </div>
             )
           }

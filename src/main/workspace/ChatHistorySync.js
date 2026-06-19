@@ -231,6 +231,8 @@ class ChatHistorySync {
 
     // 收集所有已知 workspacePath
     const pathSet = new Set()
+    // 收集 workspacePath = null 的旧 session（v4.10.0 之前创建，迁移未填）
+    const unclassified = []
 
     // 源 1: SQLite ChatSession 表中所有不同 workspacePath
     try {
@@ -240,7 +242,9 @@ class ChatHistorySync {
         raw: true
       })
       for (const r of rows) {
-        if (r.workspacePath) pathSet.add(r.workspacePath.replace(/\\/g, '/'))
+        if (r.workspacePath) {
+          pathSet.add(r.workspacePath.replace(/\\/g, '/'))
+        }
       }
     } catch { /* ChatSession 表可能不存在（首次运行） */ }
 
@@ -273,10 +277,30 @@ class ChatHistorySync {
       } catch { /* 跳过无法访问的路径 */ }
     }
 
+    // v4.10.0.1 (fix): 源 3 - 收集 workspacePath = null 的旧 session（v4.9.x 时代）
+    // 之前会漏掉：pathSet 只放非 null，null 的 session 永远进不去 workspaces
+    // 这些 session 应进 unclassified 数组（MemorySidebar 单独显示）
+    try {
+      const nullRows = await ChatSession.findAll({
+        where: { workspacePath: null },
+        raw: true
+      })
+      for (const r of nullRows) {
+        unclassified.push({
+          sessionId: r.sessionId,
+          title: r.sessionName,
+          lastActivity: r.lastActivity,
+          workspacePath: null,
+          source: 'sqlite',
+          pending: false
+        })
+      }
+    } catch { /* ChatSession 表可能不存在（首次运行） */ }
+
     // 按 basename 排序
     workspaces.sort((a, b) => a.basename.localeCompare(b.basename, 'zh-CN'))
 
-    return { workspaces, unclassified: [] }
+    return { workspaces, unclassified }
   }
 
   /**
