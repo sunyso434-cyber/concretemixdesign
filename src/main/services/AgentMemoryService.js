@@ -33,15 +33,33 @@ class AgentMemoryService {
    * - `stopReason` 当前仅支持 `'aborted'`，其他取值会被当作 null（视为无停止原因）。
    */
   async saveMessage({ sessionId, role, content, toolCallId, toolCalls, metadata, stopReason }) {
-    return ChatHistory.create({
+    // v1.5.3 关键：自动绑当前工作区
+    const workspacePath = global.workspaceManager?.current()?.path?.replace(/\\/g, '/') || null
+
+    const msg = await ChatHistory.create({
       sessionId,
       role,
       content: typeof content === 'string' ? content : JSON.stringify(content),
       toolCallId: toolCallId || null,
       toolCalls: toolCalls || null,
       metadata: metadata || null,
-      stopReason: stopReason || null
+      stopReason: stopReason || null,
+      workspacePath  // v1.5.3 新增
     })
+
+    // v1.5.3 新增：通知 ChatHistorySync 加入 pending 队列（5 秒 debounce 后批量导出）
+    // ChatHistorySync 实例在 main.js 启动时挂 global
+    // TODO: Task 2.12 创建 ChatHistorySync 后自动生效
+    const exporter = global.chatHistorySync
+    if (exporter && workspacePath) {
+      try {
+        exporter.markPending(sessionId)
+      } catch (err) {
+        console.warn('[AgentMemoryService] markPending failed:', err.message)
+      }
+    }
+
+    return msg
   }
 
   async getHistory(sessionId, { limit = DEFAULT_WINDOW_SIZE, before } = {}) {

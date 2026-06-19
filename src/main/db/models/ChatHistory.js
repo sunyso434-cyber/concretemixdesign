@@ -11,7 +11,9 @@ const ChatHistory = sequelize.define('ChatHistory', {
   metadata: { type: DataTypes.JSON },
   // 新增：'aborted' 表示用户主动中止（区别于 error）
   // 注意：不加索引 — 只有 null 和 'aborted' 两个值，区分度太低
-  stopReason: { type: DataTypes.STRING(32), allowNull: true }
+  stopReason: { type: DataTypes.STRING(32), allowNull: true },
+  // v1.5.3 工作区路径（用于多工作区会话隔离 + 索引导出）
+  workspacePath: { type: DataTypes.STRING(1000), allowNull: true }
 }, {
   tableName: 'chat_history',
   timestamps: true,
