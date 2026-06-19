@@ -10,31 +10,26 @@ class WorkspaceManager {
 
   async open(p) {
     this._state.status = 'opening'
+    // v4.10.0 (P2b final review fix I-1)：先捕获旧路径切出，再覆盖 _state
+    const oldPath = this._state.path
     try {
-      // 1. 校验路径
       const stat = await fs.stat(p)
       if (!stat.isDirectory()) {
         throw new WorkspaceError('PATH_INVALID', `${p} 不是目录`, false)
       }
-      // 2. 校验可写
       await fs.access(p, fs.constants.W_OK)
-      // 3. 建子目录
       for (const sub of ['wiki', 'reports', 'chat-history']) {
         await fs.mkdir(path.join(p, sub), { recursive: true })
       }
-      // 4. 切状态
-      this._state = {
-        path: p.replace(/\\/g, '/'),  // 统一正斜杠
-        status: 'ready',
-        lastError: null
-      }
-
-      // 5. v1.5.3 Task 2.15：通知 Sync 切入了新工作区
-      if (this._sync) {
-        await this._sync.onWorkspaceChange(null, this._state.path).catch(err =>
-          console.error('[WorkspaceManager.open] onWorkspaceChange 失败:', err.message)
+      const newPath = p.replace(/\\/g, '/')
+      // 先切出新工作区（flush pending exports）
+      if (this._sync && oldPath) {
+        await this._sync.onWorkspaceChange(oldPath, newPath).catch(err =>
+          console.error('[WorkspaceManager.open] onWorkspaceChange(flush) 失败:', err.message)
         )
       }
+      // 再覆盖 _state 切入新工作区
+      this._state = { path: newPath, status: 'ready', lastError: null }
     } catch (err) {
       this._state.status = 'error'
       this._state.lastError = err.message
@@ -43,10 +38,12 @@ class WorkspaceManager {
     }
   }
 
-  close() {
-    // v1.5.3 Task 2.15：调 Sync.onWorkspaceChange 通知切出工作区
-    if (this._sync) {
-      this._sync.onWorkspaceChange(this._state.path, null).catch(err =>
+  async close() {
+    const oldPath = this._state.path
+    // v4.10.0 (P2b final review fix I-2)：await onWorkspaceChange 保证
+    // exportAllPending 拿到旧路径，再重置状态
+    if (this._sync && oldPath) {
+      await this._sync.onWorkspaceChange(oldPath, null).catch(err =>
         console.error('[WorkspaceManager.close] onWorkspaceChange 失败:', err.message)
       )
     }
