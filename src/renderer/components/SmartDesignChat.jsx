@@ -22,7 +22,7 @@ import WorkspaceFilePopover from './WorkspaceFilePopover'
 import useChatState from '../hooks/useChatState'
 import { AgentStoreProvider, useAgentStore } from './AgentStore'
 import useAgentMode from './AgentMode'
-import { sendMessage, abortAgent, loadSessionList, switchSession, useAssistantPersistence } from './agentActions'
+import { sendMessage, abortAgent, createSession, loadSessionList, switchSession, useAssistantPersistence } from './agentActions'
 import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
 import { AnalysisReport } from '../pages/AIAnalysisPage_Results'
 import { getAllMaterials } from '../services/MaterialService'
@@ -263,6 +263,10 @@ const SmartDesignChat = () => {
       const result = await window.electronAPI.workspace.pickFolder()
       if (result.canceled) return
       setWorkspacePath(result.path)
+      // Task 2.15b：切工作区后自动新建会话（旧会话的 pending 在切之前由 WorkspaceManager.close 触发导出）
+      createSession({ dispatch })
+      // 刷新侧栏分组列表
+      await loadSessionList({ dispatch })
     } catch (err) {
       console.error('[WorkspaceIndicator] 选择工作区失败:', err)
     }

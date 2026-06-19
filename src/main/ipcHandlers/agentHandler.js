@@ -267,6 +267,14 @@ function registerAgentHandlers() {
     }
   })
 
+  // Task 2.15b: 按工作区分组列出所有会话
+  ipcMain.handle('agent:listSessionsGrouped', async () => {
+    if (!global.chatHistorySync) {
+      return { workspaces: [], unclassified: [] }
+    }
+    return await global.chatHistorySync.listSessionsGrouped()
+  })
+
   ipcMain.handle('agent:getSessionMessages', async (_event, { sessionId }) => {
     const messages = await agentMemoryService.getHistory(sessionId, { limit: 100 })
     return { success: true, messages }

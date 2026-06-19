@@ -221,6 +221,65 @@ class ChatHistorySync {
   }
 
   /**
+   * Task 2.15b：按工作区分组列出所有会话。
+   * 查询 SQLite 中所有已知 workspacePath + 当前打开的工作区，
+   * 对每个路径调 listSessions 合并文件+SQLite 双源。
+   * @returns {Promise<{workspaces: Array<{path, basename, sessionCount, sessions}>, unclassified: Array}>}
+   */
+  async listSessionsGrouped() {
+    const { ChatSession } = require('../db/database')
+
+    // 收集所有已知 workspacePath
+    const pathSet = new Set()
+
+    // 源 1: SQLite ChatSession 表中所有不同 workspacePath
+    try {
+      const rows = await ChatSession.findAll({
+        attributes: ['workspacePath'],
+        group: ['workspacePath'],
+        raw: true
+      })
+      for (const r of rows) {
+        if (r.workspacePath) pathSet.add(r.workspacePath.replace(/\\/g, '/'))
+      }
+    } catch { /* ChatSession 表可能不存在（首次运行） */ }
+
+    // 源 2: 当前打开的工作区
+    const current = this.workspace.current()
+    if (current && current.path) {
+      pathSet.add(current.path.replace(/\\/g, '/'))
+    }
+
+    const workspaces = []
+    for (const wsPath of pathSet) {
+      try {
+        const sessions = await this.listSessions(wsPath)
+        if (sessions.length > 0) {
+          const basename = wsPath.split('/').filter(Boolean).pop() || wsPath
+          workspaces.push({
+            path: wsPath,
+            basename,
+            sessionCount: sessions.length,
+            sessions: sessions.map(s => ({
+              sessionId: s.sessionId,
+              title: s.title || s.sessionName || null,
+              lastActivity: s.lastActivity,
+              workspacePath: s.workspacePath || wsPath,
+              source: s.source || 'unknown',
+              pending: s.pending || false
+            }))
+          })
+        }
+      } catch { /* 跳过无法访问的路径 */ }
+    }
+
+    // 按 basename 排序
+    workspaces.sort((a, b) => a.basename.localeCompare(b.basename, 'zh-CN'))
+
+    return { workspaces, unclassified: [] }
+  }
+
+  /**
    * 加载指定 session 的消息列表（委托 ChatHistoryExporter.loadSession）。
    * @param {string} sessionId
    * @param {string} workspacePath
