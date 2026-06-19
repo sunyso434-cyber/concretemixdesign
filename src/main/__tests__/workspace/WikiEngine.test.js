@@ -113,8 +113,14 @@ describe('WikiEngine.ingest (Task 2.1 原子性)', () => {
   test('正常 ingest 原子提交：wiki/sources/<slug>.md + .tmp/ 清空', async () => {
     const result = await wiki.ingest({ filename: 'sample.md' })
 
-    // v1.5.3 修订：IngestResult 必须含 bm25TokensAdded 字段（Task 2.5 占位）
-    expect(result).toHaveProperty('bm25TokensAdded', 0)
+    // v4.9.4 (P2a follow-up I-1)：bm25TokensAdded 不再是占位 0，实际计数各 test 不同
+    // 用 type check + gt 验证字段存在且合理
+    expect(result).toHaveProperty('bm25TokensAdded')
+    expect(typeof result.bm25TokensAdded).toBe('number')
+    expect(result.bm25TokensAdded).toBeGreaterThanOrEqual(0)
+    expect(result).toHaveProperty('durationMs')
+    expect(typeof result.durationMs).toBe('number')
+    expect(result.durationMs).toBeGreaterThanOrEqual(0)
     expect(result.status).toBe('ok')
     expect(result.pagesCreated).toEqual(['sources/sample.md'])
 

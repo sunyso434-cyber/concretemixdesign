@@ -18,7 +18,7 @@ const fs = require('fs').promises
 const path = require('path')
 const { WorkspaceError } = require('./WorkspaceError')
 const reader = require('./readers')
-const { loadIndex } = require('./index-store')
+const { loadIndex, saveIndex } = require('./index-store')
 const { queryBM25, buildBM25 } = require('./bm25')
 const { tokenize } = require('./tokenizer')
 
@@ -31,13 +31,14 @@ class WikiEngine {
   // - 所有目标文件先在 .tmp/ingest-<uuid>/ 下准备
   // - 校验后通过 fs.rename 一次性提交（POSIX 原子操作）
   // - 任一阶段失败 → 清理 .tmp/，wiki/ 不动
-  // - 中文文件名加 sha1(filename) 前 6 位短后缀（spec §4.10）
+  // - 中文文件名加 FNV-1a(filename) 前 6 位短后缀（spec §4.10）
   // - IngestResult.bm25TokensAdded 占位 0（Task 2.5 接 BM25 后填实际值）
   async ingest({ filename }) {
     const current = this.workspace.current()
     if (!current || current.status !== 'ready') {
       throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
     }
+    const startTime = Date.now()
 
     const sourcePath = path.posix.join(current.path, filename)
     const crypto = require('crypto')
@@ -113,7 +114,9 @@ ${content}
       await fs.writeFile(targetAbs, md, 'utf-8')
 
       // 1e. P2a 暂不更新 index.md / log.md（Task 2.2 引入 schema 后做）
-      // 1f. P2a 暂不更新 .workspace-index.json（Task 2.3 引入）
+      // 1f. v4.9.4 (P2a follow-up I-1)：ingest→index 桥接完成
+      //     提交阶段后立即 buildBM25 + saveIndex，下次 search 走持久化索引
+      //     干掉 Task 2.6 search 内的 fallback 临时方案
 
       // ===== 2. 校验阶段：目标文件必须非空 =====
       const stat = await fs.stat(targetAbs)
@@ -129,14 +132,50 @@ ${content}
       // ===== 4. 清理 .tmp/ =====
       await fs.rm(tmpDir, { recursive: true, force: true })
 
+      // ===== 5. v4.9.4 (P2a follow-up I-1)：更新 .workspace-index.json =====
+      // 5a. 读旧 index
+      const index = await loadIndex(current.path)
+      // 5b. 更新 files 记录（hash / mtime / size / wikiPage / lastIngestAt / quality / ingestVersion）
+      const sourceStat = await fs.stat(sourcePath)
+      const sourceHash = require('crypto')
+        .createHash('sha256').update(await fs.readFile(sourcePath)).digest('hex')
+      index.files[filename] = {
+        hash: `sha256:${sourceHash}`,
+        mtime: Math.floor(sourceStat.mtimeMs),
+        size: sourceStat.size,
+        wikiPage: targetRel,
+        lastIngestAt: Date.now(),
+        quality: 'high',
+        ingestVersion: 2
+      }
+      index.updatedAt = new Date().toISOString()
+      // 5c. 重新构建 BM25 索引（v1 简单实现：全量 rebuild + add new doc）
+      const allDocs = []
+      for (const [name, info] of Object.entries(index.files)) {
+        const absSrc = path.posix.join(current.path, name)
+        try {
+          const c = await fs.readFile(absSrc, 'utf-8')
+          allDocs.push({ path: info.wikiPage, content: c })
+        } catch {
+          // 源文件不存在（已删除？）跳过，不影响其他 doc
+        }
+      }
+      const tokensAdded = tokenize(content).length
+      index.bm25Index = buildBM25(allDocs)
+      // 5d. 写回 .workspace-index.json（v4.9.4 M-3：saveIndex 失败 → WRITE_FAIL 而非 ATOMIC_FAIL）
+      try {
+        await saveIndex(current.path, index)
+      } catch (err) {
+        throw new WorkspaceError('WRITE_FAIL', `保存 .workspace-index.json 失败: ${err.message}`, true, err)
+      }
+
       return {
         status: 'ok',
         pagesCreated: [targetRel],
         pagesUpdated: [],
         refsUpdated: 0,
-        // v1.5.3 修订（P2a）：先加占位 0，Task 2.5 接 BM25 后填实际值
-        bm25TokensAdded: 0,
-        durationMs: 0
+        bm25TokensAdded: tokensAdded,
+        durationMs: Date.now() - startTime
       }
     } catch (err) {
       // 任何失败：清理 .tmp/ingest-<uuid>/，并尝试清理空 .tmp/ 父目录（保持原子性测试不变量）
@@ -199,30 +238,11 @@ ${content}
 
     if (!query || !query.trim()) return []
 
+    // v4.9.4 (P2a follow-up I-1)：删 fallback 桥接，直接用持久化 .workspace-index.json
+    // 之前 fallback 是因为 ingest→index 桥接缺失，search 每次 rebuild BM25
+    // 现在 ingest 已写 index（line ~135），search 直接读持久化索引
     const index = await loadIndex(current.path)
-    let bm25Index = index.bm25Index
-    // 桥接 fallback：若 .workspace-index.json 还没建立（Task 2.5 ingest→index 桥接未完成），
-    // 动态扫 wiki/sources/*.md 重建临时 BM25 索引。Task 2.5 完成后此分支可删。
-    if (!bm25Index || (bm25Index.totalDocs || 0) === 0) {
-      const sourcesDir = path.posix.join(current.path, 'wiki', 'sources')
-      let entries = []
-      try {
-        entries = await fs.readdir(sourcesDir)
-      } catch { entries = [] }
-      const docs = []
-      for (const name of entries) {
-        if (!name.endsWith('.md')) continue
-        const relPath = `sources/${name}`
-        const abs = path.posix.join(current.path, 'wiki', relPath)
-        try {
-          const raw = await fs.readFile(abs, 'utf-8')
-          const m = raw.match(/^---\n[\s\S]+?\n---\n([\s\S]*)$/)
-          docs.push({ path: relPath, content: m ? m[1] : raw })
-        } catch { /* skip */ }
-      }
-      bm25Index = buildBM25(docs)
-    }
-    const hits = queryBM25(bm25Index, query, topK)
+    const hits = queryBM25(index.bm25Index, query, topK)
 
     // 生成 snippet
     const queryTokens = new Set(tokenize(query))
@@ -266,7 +286,7 @@ ${content}
   }
 
   // Task 2.8: lint - 扫 4 类健康检查 + contradictions 占位（spec §4.2 / §4.5）
-  // - missingFrontmatter：frontmatter 缺 4 必填（title/source/ingested_at/quality）
+  // - missingFrontmatter：frontmatter 缺 5 必填（title/source/ingested_at/updated_at/quality）
   // - orphans：无任何 [[wiki/path]] 引用入链的页
   // - missingCrossRefs：正文含 [[xxx]] 但 xxx 不存在
   // - staleSummaries：源文件 mtime > wiki 页 mtime（原始设计：优先 updated_at，缺失 fallback ingested_at）
@@ -278,7 +298,10 @@ ${content}
       throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
     }
 
-    const REQUIRED_FM = ['title', 'source', 'ingested_at', 'quality']
+    // v4.9.4 (P2a follow-up M-8)：5 必填（含 updated_at）
+    // 之前 4 必填（title/source/ingested_at/quality）漏 updated_at
+    // 但 ingest 写 5 字段，lint 不检会漏报过期/缺失
+    const REQUIRED_FM = ['title', 'source', 'ingested_at', 'updated_at', 'quality']
     const wikiRoot = path.posix.join(current.path, 'wiki')
     const sourcesDir = path.join(wikiRoot, 'sources')
 

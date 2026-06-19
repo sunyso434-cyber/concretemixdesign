@@ -20,7 +20,7 @@
 
 ## 4. log 格式
 - 每行：`## [YYYY-MM-DD HH:mm] <action> | <subject>`
-- action ∈ {ingest, query, lint, write, chat-export}
+- action ∈ {ingest, query, lint, write, chat-export, answer}
 - 例：`## [2026-06-17 10:30] ingest | JTG 3420-2020.pdf`
 
 ## 5. 概念页（concepts/）
