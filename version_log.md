@@ -1,3 +1,41 @@
+## v4.10.1 hotfix (2026-06-19) - 历史会话按工作区归纳（unclassified 兜底）
+
+### 修复内容
+老板报告 v4.10.0 装上后**历史会话没按工作区归纳**，侧栏显示"暂无对话"。
+
+### 根因
+`ChatHistorySync.listSessionsGrouped` 只收集 `workspacePath` **非 null** 的会话。老板的 1 个会话是 **v4.9.x 时代创建**（Task 2.11 才加 workspacePath 字段），数据库里 `workspacePath = null` → 进不了 workspaces 数组 → 前端显示"暂无对话"。
+
+### 修复（前后端协同）
+- **后端 `ChatHistorySync.listSessionsGrouped`**：增 `unclassified` 数组
+  - 源 3：`ChatSession.findAll({ where: { workspacePath: null } })`
+  - 旧 session 进 unclassified 数组
+- **前端 `MemorySidebar`**：读 unclassified + 渲染
+  - 空判断：`workspaces.length === 0 && unclassified.length === 0`
+  - unclassified 列表样式与 workspaces 一致，灰色"未分类（v4.9.x 旧数据）"组头
+  - 可正常点击/删除/加载这些 session
+
+### 改动（1 commit, 3 files, +80/-6, commit a115626）
+- `src/main/workspace/ChatHistorySync.js` — listSessionsGrouped 增源 3 + unclassified 返回
+- `src/renderer/components/MemorySidebar.jsx` — 读 unclassified + 渲染 + 空判断
+- `package.json` — version 4.10.0 → 4.10.0.1，output dist-4.10.0 → dist-4.10.0.1
+
+### 验证
+- ✅ 904/904 全量过（126 suites, 0 regression）
+- ✅ 老板的旧 session 现在进"未分类（v4.9.x 旧数据）"组可见
+- ✅ 新 session 自动进对应工作区组（已有逻辑）
+
+### 反思
+- v4.10.0 P2b 完工时没考虑到**老数据兼容**：v4.9.x 时代创建的 session 没 workspacePath
+- 类似数据迁移场景应**优先扫描 null/缺失字段**，避免新功能看不到旧数据
+- 后续 P3+ 改造 schema 时也要 review 旧数据兼容
+
+### 已知遗留
+- LLM 不能调 workspace 工具（P4）
+- E2E 跑不动（P6）
+
+---
+
 ## v4.10.0 (2026-06-19) - P2b 阶段完工：聊天历史按工作区分组
 
 ### 阶段总览
