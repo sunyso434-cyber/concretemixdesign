@@ -1,13 +1,20 @@
 /**
  * ChatHistorySync — 聊天历史同步器（v1.5.3 拆为独立文件）
  *
- * 职责：markPending + 5s debounce 批量导出队列。
+ * 职责：markPending + 5s debounce 批量导出队列 + IO 编排。
  * 触发点：AgentMemoryService.saveMessage 调用 global.chatHistorySync.markPending(sessionId)。
  *
  * 依赖注入：
  *   - workspace: WorkspaceManager 实例
  *   - exporter:  ChatHistoryExporter 实例（格式转换器，P1 创建）
  */
+
+const path = require('path')
+const fs = require('fs').promises
+const crypto = require('crypto')
+const { ChatHistory, ChatSession } = require('../db/database')
+const { WorkspaceError } = require('./WorkspaceError')
+const { Op } = require('sequelize')
 
 class ChatHistorySync {
   constructor({ workspace, exporter }) {
@@ -39,21 +46,127 @@ class ChatHistorySync {
   }
 
   /**
+   * v1.5.3 关键：exportSession 是 IO 编排，调用 exporter 做格式转换
+   * @param {string} sessionId
+   * @param {string} workspacePath
+   * @returns {Promise<{status: string, filesWritten: string[], messageCount: number, isFullExport: boolean}>}
+   */
+  async exportSession(sessionId, workspacePath) {
+    // 1. 从 SQLite 读消息
+    const messages = await ChatHistory.findAll({
+      where: { sessionId },
+      order: [['id', 'ASC']]
+    })
+
+    const slug = sessionId.substring(0, 8)
+    const sessionDir = path.join(workspacePath, 'wiki', 'chat-history', slug)
+    const jsonlPath = path.join(sessionDir, 'session.jsonl')
+    const mdPath = path.join(sessionDir, 'session.md')
+    const tmpUuid = crypto.randomUUID()
+    const tmpJsonl = path.join(sessionDir, `.tmp.${tmpUuid}.jsonl`)
+
+    try {
+      await fs.mkdir(sessionDir, { recursive: true })
+
+      // 2. 判断是否首次
+      let isFullExport = true
+      let existingLastId = 0
+      try {
+        const stat = await fs.stat(jsonlPath)
+        if (stat.size > 0) {
+          isFullExport = false
+          const content = await fs.readFile(jsonlPath, 'utf-8')
+          const lines = content.trim().split('\n')
+          if (lines.length > 0) {
+            const parsed = this.exporter.parseJSONL(content)
+            const last = parsed[parsed.length - 1]
+            existingLastId = last.id || 0
+          }
+        }
+      } catch { /* 首次 */ }
+
+      // 3. 写 JSONL（v1.5.3 关键：调 exporter.formatJSONL）
+      const newMessages = isFullExport
+        ? messages
+        : messages.filter(m => m.id > existingLastId)
+
+      if (isFullExport) {
+        await fs.writeFile(tmpJsonl, this.exporter.formatJSONL(messages), 'utf-8')
+      } else if (newMessages.length > 0) {
+        // 增量：先复制已有内容，再追加新行
+        const existingContent = await fs.readFile(jsonlPath, 'utf-8')
+        await fs.writeFile(tmpJsonl, existingContent, 'utf-8')
+        await fs.appendFile(tmpJsonl, this.exporter.formatJSONL(newMessages), 'utf-8')
+      }
+
+      // 4. 原子 rename
+      if (newMessages.length > 0 || isFullExport) {
+        await fs.rename(tmpJsonl, jsonlPath)
+      }
+
+      // 5. 重生成 MD（v1.5.3 关键：调 exporter.formatMD）
+      const mdContent = this.exporter.formatMD(sessionId, messages, workspacePath)
+      await fs.writeFile(mdPath, mdContent, 'utf-8')
+
+      return { status: 'ok', filesWritten: [jsonlPath, mdPath], messageCount: messages.length, isFullExport }
+    } catch (err) {
+      await fs.rm(tmpJsonl, { force: true }).catch(() => {})
+      throw new WorkspaceError('CHAT_HISTORY_EXPORT_FAIL', err.message, true, err)
+    }
+  }
+
+  /**
    * 批量导出 pendingQueue 中所有 session。
-   * Task 2.13 实现：遍历 pendingQueue，调 this.exporter.exportSession(sessionId)。
    * @returns {Promise<{exported: string[], errors: Array<{sessionId: string, error: Error}>}>}
    */
   async exportAllPending() {
-    // TODO: Task 2.13 实现
+    const current = this.workspace.current()
+    if (!current) return { exported: [], errors: [] }
+
+    const exported = []
+    const errors = []
+    const toExport = [...this.pendingQueue]
+    this.pendingQueue.clear()
+
+    for (const sessionId of toExport) {
+      try {
+        await this.exportSession(sessionId, current.path)
+        exported.push(sessionId)
+      } catch (err) {
+        errors.push({ sessionId, error: err })
+      }
+    }
+
+    // 兜底：SQLite 查最近 60s 活跃的 ChatSession
+    try {
+      const cutoff = new Date(Date.now() - 60000)
+      const recent = await ChatSession.findAll({
+        where: { workspacePath: current.path, lastActivity: { [Op.gt]: cutoff } }
+      })
+      for (const sess of recent) {
+        if (!exported.includes(sess.sessionId)) {
+          try {
+            await this.exportSession(sess.sessionId, current.path)
+            exported.push(sess.sessionId)
+          } catch (err) {
+            errors.push({ sessionId: sess.sessionId, error: err })
+          }
+        }
+      }
+    } catch (err) {
+      // ChatSession 表可能不存在（首次运行），忽略
+    }
+
+    return { exported, errors }
   }
 
   /**
    * 同步刷新：立即导出 pendingQueue 中所有 session，不等待 debounce。
-   * Task 2.13 实现。
    * @returns {Promise<{exported: string[], errors: Array<{sessionId: string, error: Error}>}>}
    */
   async flushPendingExports() {
-    // TODO: Task 2.13 实现
+    if (this.debounceTimer) clearTimeout(this.debounceTimer)
+    return await this.exportAllPending()
   }
 
   /**
