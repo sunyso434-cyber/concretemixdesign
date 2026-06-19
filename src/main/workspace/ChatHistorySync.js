@@ -109,6 +109,12 @@ class ChatHistorySync {
       const mdContent = this.exporter.formatMD(sessionId, messages, workspacePath)
       await fs.writeFile(mdPath, mdContent, 'utf-8')
 
+      // 6. Task 3.4 (P3)：exportSession 成功后 → 增量更新 chatBM25Index
+      // 失败不阻塞主流程（exporter 内部 catch + log）
+      if (typeof this.exporter.updateChatBM25Index === 'function') {
+        await this.exporter.updateChatBM25Index(sessionId, workspacePath)
+      }
+
       return { status: 'ok', filesWritten: [jsonlPath, mdPath], messageCount: messages.length, isFullExport }
     } catch (err) {
       await fs.rm(tmpJsonl, { force: true }).catch(() => {})

@@ -226,8 +226,9 @@ ${content}
     return { content, frontmatter, mtime: stat.mtimeMs, size: stat.size }
   }
 
-  // Task 2.6: search - BM25 全文搜索 + snippet 生成（spec §4.5/§4.7）
-  // - 返回 SearchHit[]：{ path, title, snippet, score, sourceType: 'wiki' }
+  // Task 2.6 + Task 3.4: search - BM25 全文搜索 + snippet 生成（spec §4.5/§4.7 + §4.12）
+  // - 返回 SearchHit[]：{ path, title, snippet, score, sourceType: 'wiki' | 'chatHistory' }
+  // - Task 3.4 (P3)：合并 wiki + chat-history 两个 BM25 索引，统一排序截 topK
   // - snippet 规则：找第一个匹配位置，前后各取 50/150 字符，前后加 … 省略号
   // - 空 query → []，NOT_OPEN → WorkspaceError(NOT_OPEN)
   async search(query, topK = 5) {
@@ -242,13 +243,25 @@ ${content}
     // 之前 fallback 是因为 ingest→index 桥接缺失，search 每次 rebuild BM25
     // 现在 ingest 已写 index（line ~135），search 直接读持久化索引
     const index = await loadIndex(current.path)
-    const hits = queryBM25(index.bm25Index, query, topK)
+    const wikiIndex = index.bm25Index || { vocabulary: {}, postings: {}, docLengths: {}, avgDocLength: 0, totalDocs: 0 }
+    const chatIndex = index.chatBM25Index || { vocabulary: {}, postings: {}, docLengths: {}, avgDocLength: 0, totalDocs: 0 }
+
+    // Task 3.4 (P3)：两边分别查，合并排序后截 topK
+    const wikiHits = queryBM25(wikiIndex, query, topK)
+    const chatHits = queryBM25(chatIndex, query, topK)
+
+    const wikiTagged = wikiHits.map(h => ({ ...h, sourceType: 'wiki' }))
+    const chatTagged = chatHits.map(h => ({ ...h, sourceType: 'chatHistory' }))
+
+    const merged = wikiTagged.concat(chatTagged)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK)
 
     // 生成 snippet
     const queryTokens = new Set(tokenize(query))
 
     const enriched = []
-    for (const hit of hits) {
+    for (const hit of merged) {
       const absPath = path.posix.join(current.path, 'wiki', hit.path)
       let content = ''
       try {
@@ -279,7 +292,7 @@ ${content}
         snippet = prefix + content.substring(start, end) + suffix
       }
 
-      enriched.push({ ...hit, title: hit.path, snippet, sourceType: 'wiki' })
+      enriched.push({ ...hit, title: hit.path, snippet })
     }
 
     return enriched

@@ -5,6 +5,7 @@ const INDEX_FILENAME = '.workspace-index.json'
 
 function defaultIndex(workspacePath) {
   const now = new Date().toISOString()
+  const emptyBM25 = { vocabulary: {}, postings: {}, docLengths: {}, avgDocLength: 0, totalDocs: 0 }
   return {
     version: 1,
     workspacePath: workspacePath.replace(/\\/g, '/'),
@@ -12,7 +13,9 @@ function defaultIndex(workspacePath) {
     updatedAt: now,
     lastFullRebuild: now,
     files: {},
-    bm25Index: { vocabulary: {}, postings: {}, docLengths: {}, avgDocLength: 0, totalDocs: 0 }
+    bm25Index: emptyBM25,
+    // Task 3.4 (P3)：chat-history 独立索引
+    chatBM25Index: emptyBM25
   }
 }
 

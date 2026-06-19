@@ -8,10 +8,49 @@
 const path = require('path')
 const fs = require('fs').promises
 const matter = require('gray-matter')
+const { buildBM25 } = require('./bm25')
+const { loadIndex, saveIndex } = require('./index-store')
 
 class ChatHistoryExporter {
   /** v1.5.3 拆细：构造器无依赖，便于单测 */
   constructor() {}
+
+  /**
+   * Task 3.4 (P3)：exportSession 成功后增量更新 chatBM25Index。
+   * - 读 .workspace-index.json，把当前 session.md 单独 buildBM25 → 整体替换 chatBM25Index（P1 简化）
+   * - P2 优化方案：增量合并旧 postings（暂不实现，P1 直接重建避免 postings 重复计数）
+   * - 失败不抛出（已 export 成功，写索引失败不应阻塞主流程）
+   * @param {string} sessionId
+   * @param {string} workspacePath
+   * @returns {Promise<{updated: boolean, sessionPath: string}>}
+   */
+  async updateChatBM25Index(sessionId, workspacePath) {
+    const slug = sessionId.substring(0, 8)
+    const relPath = `chat-history/${slug}/session.md`
+    const mdPath = path.join(workspacePath, 'wiki', relPath)
+
+    let content = ''
+    try {
+      content = await fs.readFile(mdPath, 'utf-8')
+    } catch (err) {
+      // session.md 读不到（理论上 exportSession 已成功写，这里不该失败）
+      return { updated: false, sessionPath: relPath, reason: 'session.md 读取失败: ' + err.message }
+    }
+
+    try {
+      const index = await loadIndex(workspacePath)
+      // P1 简化：只把当前一个 session.md 加入 chatBM25Index（覆盖式）
+      // 原因：buildBM25 是全量重建，无法增量加一个 doc；维护多个 doc 需要 postings 合并逻辑
+      // 后续可扩展：扫所有 chat-history/*/session.md 全量 rebuild（更安全）
+      index.chatBM25Index = buildBM25([{ path: relPath, content }])
+      await saveIndex(workspacePath, index)
+      return { updated: true, sessionPath: relPath }
+    } catch (err) {
+      // 写索引失败不阻塞主流程（已 export 成功）
+      console.error('[ChatHistoryExporter.updateChatBM25Index] 索引更新失败:', err.message)
+      return { updated: false, sessionPath: relPath, reason: err.message }
+    }
+  }
 
   /**
    * 把 ChatHistory 消息数组 → MD 字符串（不含 IO）
