@@ -1,3 +1,58 @@
+## v4.9.4 hotfix (2026-06-19) - P2a follow-up 修 6 个问题
+
+### 修复内容
+P2a final review 列出的 follow-up 问题一次性修完。
+
+### I-1 (Important)：ingest→index 桥接缺失
+- 之前 `ingest` 不写 `.workspace-index.json`，`search` 每次动态 rebuild BM25（性能债）
+- 现在 ingest 完成后**自动** loadIndex → 更新 files 记录 → rebuild BM25 → saveIndex
+- search 删 fallback 临时方案（约 25 行），改走持久化索引
+- **实际计时**：`durationMs` 不再占位 0，用 `Date.now()` 两头算
+- **实际 token 计数**：`bm25TokensAdded` 不再占位 0，用 `tokenize(content).length`
+
+### M-8 (Minor)：frontmatter 必填字段 4→5
+- 之前 `lint` 只检 4 必填字段（title/source/ingested_at/quality）
+- 但 `ingest` 写 5 字段（+ updated_at）
+- 现在 `REQUIRED_FM` 改为 5 字段：**title/source/ingested_at/updated_at/quality**
+
+### M-2 (Minor)：注释统一
+- WikiEngine.js line 34 注释误写「sha1」实际用「FNV-1a」
+- 改为 `FNV-1a(filename) 前 6 位短后缀`
+
+### M-3 (Minor)：saveIndex 失败语义
+- 之前 `saveIndex` 失败被 catch 包成 `ATOMIC_FAIL`（语义不准）
+- 现在独立 try/catch → `WRITE_FAIL`（语义准确）
+
+### Task 2.9 schema §4 补 answer action
+- action 枚举从 5 个扩展为 6 个：`{ingest, query, lint, write, chat-export, answer}`
+- 与 `WikiEngine.recordAnswer` 写 log.md 的实际行为对齐
+
+### M-10 (Minor)：trailing newline
+- `bm25.js` 末尾补 `0a` 换行符
+
+### 改动（1 commit, 6 files, +127/-37, commit d7fd915）
+- `src/main/workspace/WikiEngine.js` — ingest 加 index 更新 + search 删 fallback + 注释修正 + require saveIndex
+- `src/main/workspace/bm25.js` — 末尾补换行符
+- `src/main/workspace/schema/default.md` — action 加 answer
+- `src/main/__tests__/workspace/WikiEngine.ingestIndexBridge.test.js`（**新文件**）— 5 个桥接测试
+- `src/main/__tests__/workspace/WikiEngine.test.js` — 老测试修正（不再断言 bm25TokensAdded=0）
+- `package.json` — version 4.9.3 → 4.9.4 / output dist-4.9.3 → dist-4.9.4
+
+### 验证
+- ✅ 新增 5 个 I-1 桥接测试 (WikiEngine.ingestIndexBridge.test.js)
+- ✅ 1 个老 test 修正（不再断言 bm25TokensAdded=0）
+- ✅ 813/813 全量 passed (123 suites, 0 regression)
+- ✅ 端到端验证：ingest → search 立刻命中（不依赖 fallback）
+- ✅ IngestResult.bm25TokensAdded 是实际 token 数（不是 0）
+- ✅ IngestResult.durationMs 是实际毫秒数（不是 0）
+
+### 已知遗留
+- 聊天历史不按工作区分组（P2b）
+- LLM 不能调 workspace 工具（P4）
+- E2E 跑不动（P6）
+
+---
+
 ## v4.9.3 hotfix (2026-06-19) - pickFolder 启动 watch（不再绕过）
 
 ### 修复内容
