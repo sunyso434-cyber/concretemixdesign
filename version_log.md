@@ -1,3 +1,37 @@
+## v5.0.0 (2026-06-19) - P3 阶段完工：写能力（6 task 全部 review PASS）
+
+### 阶段总览
+P3 6 个 task（3.1-3.4 + 3.5-3.6）全部完成 + final review READY_TO_MERGE。
+
+### 6 个 task 一览
+| Task | 内容 | Commit | Review |
+|------|------|--------|--------|
+| 3.1 | writers/{docx,xlsx,markdown}.js + dispatcher | 1eece29 | APPROVED |
+| 3.2 | workspace:writeFile IPC + write-handler | 6626ec2 | (final 覆盖) |
+| 3.3 | FileMessageCard 聊天文件卡片 UI | 0aec187 | (final 覆盖) |
+| 3.4 | search 范围扩展含 chat-history | 42573fb | (final 覆盖) |
+| 3.5-3.6 | P3 集成测试（5 e2e + 1 完整闭环）| 129a054 | READY_TO_MERGE |
+
+### 核心功能
+- **3 个 writer**：docx（docx 库）/ xlsx（SheetJS）/ markdown（gray-matter）+ dispatcher
+- **workspace:writeFile IPC**：写 docx/xlsx/md 到 reports/ 目录
+- **FileMessageCard UI**：聊天消息里渲染文件卡片（5 类型 icon + 3 按钮：打开/打开文件夹/复制路径）
+- **search 范围扩展**：合并 wiki + chat-history 双 BM25 索引，hit.sourceType 区分
+- **集成测试**：5 个 e2e + 1 完整闭环（ingest→search→writeFile→chat-history→search）
+
+### 验证
+- ✅ 967/969 全量通过（9 套件/65 用例）
+- ✅ 2 个失败属 pre-existing pdfjs-dist 环境问题，非 P3 引入
+- ✅ 跨 task 一致性 OK，IPC 风格统一
+- ✅ Final review READY_TO_MERGE（0 Critical, 0 Important, 3 Minor）
+
+### 已知遗留
+- LLM 不能调 workspace 工具（P4）
+- E2E 跑不动（P6）
+- domMatrixPolyfill.test.js pre-existing 失败（P2 阶段遗留）
+
+---
+
 ## v4.10.1 hotfix (2026-06-19) - 历史会话按工作区归纳（unclassified 兜底）
 
 ### 修复内容
