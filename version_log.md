@@ -1,3 +1,44 @@
+## v4.10.0 (2026-06-19) - P2b 阶段完工：聊天历史按工作区分组
+
+### 阶段总览
+P2b 6 个 task（Task 2.11-2.15 + 2.15b）全部完成 + final review NEEDS_FIXES（2 Important 已修）+ READY_TO_MERGE。
+
+### 核心功能
+- **saveMessage 自动绑 workspacePath**：每次保存消息自动从 global.workspaceManager 获取当前工作区路径
+- **5s debounce 批量导出**：消息保存后 5 秒内收集同 session 的所有消息，delayed batch 导出
+- **导出到磁盘**：每个会话导出为 `chat-history/<slug>/session.jsonl` + `session.md`（MD 可读格式）
+- **双源合并**：listSessions SQLite + 磁盘文件扫描，合并去重
+- **切工作区自动 flush**：切换/关闭工作区时自动 flush 所有 pending 导出
+- **迁移会话**：migrateSession 支持跨工作区移动历史会话
+- **MemorySidebar 按工作区分组**：左侧面板历史列表按工作区文件夹名分组，参考样例2.png
+
+### 6 个 task 一览
+| Task | 内容 | Commit | Review |
+|------|------|--------|--------|
+| 2.11 | SQLite 字段扩展 + saveMessage | 567f657 | PASS |
+| 2.12 | ChatHistorySync.markPending + 5s debounce | 3047342 | PASS |
+| 2.13 | ChatHistoryExporter + exportSession/exportAllPending | 68e4e21 | (final review 覆盖) |
+| 2.14 | listSessions 双源合并 + loadSession | 72e8c3c | (final review 覆盖) |
+| 2.15 | migrateSession + onWorkspaceChange + attachSync + IPC | 203437e | PASS |
+| 2.15b | MemorySidebar 按工作区分组 UI | b5798c0 | (final review 覆盖) |
+| fix | WsMgr open/close (2 Important) | 31036ba | - |
+
+### Final review: 2 Important 已修
+1. **WorkspaceManager.open()**：先捕获 oldPath，调 onWorkspaceChange(oldPath, newPath) 后再覆盖 _state
+2. **WorkspaceManager.close()**：改为 async，await onWorkspaceChange 完成后再重置状态
+
+### 验证
+- ✅ **904/904 全量测试通过**（126 suites, 0 regression）
+- ✅ IPC 风格统一（全部用 wrapWorkspaceCall）
+- ✅ 不破坏 P2a 已有功能
+
+### 已知遗留
+- LLM 不能调 workspace 工具（P4）
+- E2E 跑不动（P6）
+- ChatSession 表名复数不一致（预存问题，不影响功能）
+
+---
+
 ## v4.9.4 hotfix (2026-06-19) - P2a follow-up 修 6 个问题
 
 ### 修复内容
