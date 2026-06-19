@@ -28,6 +28,13 @@ class WorkspaceManager {
         status: 'ready',
         lastError: null
       }
+
+      // 5. v1.5.3 Task 2.15：通知 Sync 切入了新工作区
+      if (this._sync) {
+        await this._sync.onWorkspaceChange(null, this._state.path).catch(err =>
+          console.error('[WorkspaceManager.open] onWorkspaceChange 失败:', err.message)
+        )
+      }
     } catch (err) {
       this._state.status = 'error'
       this._state.lastError = err.message
@@ -37,9 +44,21 @@ class WorkspaceManager {
   }
 
   close() {
+    // v1.5.3 Task 2.15：调 Sync.onWorkspaceChange 通知切出工作区
+    if (this._sync) {
+      this._sync.onWorkspaceChange(this._state.path, null).catch(err =>
+        console.error('[WorkspaceManager.close] onWorkspaceChange 失败:', err.message)
+      )
+    }
     this.unwatch()
     this._state = { path: null, status: 'idle', lastError: null }
   }
+
+  /**
+   * v1.5.3 Task 2.15：绑定 ChatHistorySync 实例
+   * @param {Object} sync - ChatHistorySync 实例
+   */
+  attachSync(sync) { this._sync = sync }
 
   watch(wikiEngine) {
     if (this._watcher) this._watcher.close()

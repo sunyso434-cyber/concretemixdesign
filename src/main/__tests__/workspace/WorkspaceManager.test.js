@@ -46,4 +46,47 @@ describe('WorkspaceManager', () => {
     const files = await mgr.listFiles('root')
     expect(files.find(f => f.name === 'test.pdf')).toBeTruthy()
   })
+
+  // ==================== attachSync (Task 2.15) ====================
+
+  describe('attachSync', () => {
+    let mockSync
+
+    beforeEach(() => {
+      mockSync = {
+        onWorkspaceChange: jest.fn().mockResolvedValue(undefined)
+      }
+    })
+
+    test('attachSync 绑定 sync 实例后 open 调 onWorkspaceChange(null, newPath)', async () => {
+      mgr.attachSync(mockSync)
+      await mgr.open(testPath)
+
+      expect(mockSync.onWorkspaceChange).toHaveBeenCalledWith(null, testPath.replace(/\\/g, '/'))
+    })
+
+    test('attachSync 绑定后 close 调 onWorkspaceChange(oldPath, null)', async () => {
+      await mgr.open(testPath)
+      mgr.attachSync(mockSync)
+      const oldPath = mgr.current().path
+
+      mgr.close()
+
+      expect(mockSync.onWorkspaceChange).toHaveBeenCalledWith(oldPath, null)
+    })
+
+    test('未 attachSync 时 open/close 不抛错', async () => {
+      await mgr.open(testPath)
+      expect(() => mgr.close()).not.toThrow()
+    })
+
+    test('onWorkspaceChange 失败时不阻塞 open', async () => {
+      mockSync.onWorkspaceChange.mockRejectedValue(new Error('sync failed'))
+      mgr.attachSync(mockSync)
+
+      // open 应该仍成功
+      await mgr.open(testPath)
+      expect(mgr.current().status).toBe('ready')
+    })
+  })
 })

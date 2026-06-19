@@ -94,7 +94,23 @@ function register(refs) {
     return { canceled: false, path: openedPath }
   }))
 
-  // 后续 task 加：workspace:search / workspace:writeFile / workspace:lint / workspace:searchGraph
+  // Task 2.15: workspace:migrateSession - 迁移会话到新工作区
+  ipcMain.handle('workspace:migrateSession', wrapWorkspaceCall(async (event, { sessionId, from, to }) => {
+    if (!refs.chatHistorySync) {
+      throw new WorkspaceError('CHAT_HISTORY_CROSS_WORKSPACE', 'ChatHistorySync 未初始化（请重启应用）', false)
+    }
+    return await refs.chatHistorySync.migrateSession(sessionId, from, to)
+  }))
+
+  // Task 2.15: workspace:exportSession - 手动导出指定 session
+  ipcMain.handle('workspace:exportSession', wrapWorkspaceCall(async (event, { sessionId, workspacePath }) => {
+    if (!refs.chatHistorySync) {
+      throw new WorkspaceError('NOT_OPEN', 'ChatHistorySync 未初始化（请重启应用）', false)
+    }
+    return await refs.chatHistorySync.exportSession(sessionId, workspacePath)
+  }))
+
+  // 后续 task 加：workspace:search / workspace:writeFile / workspace:searchGraph
 }
 
 module.exports = { register }

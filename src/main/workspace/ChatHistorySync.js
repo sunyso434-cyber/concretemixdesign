@@ -236,10 +236,56 @@ class ChatHistorySync {
    * @param {string} sessionId
    * @param {string} from - 源 workspace 路径
    * @param {string} to   - 目标 workspace 路径
-   * @returns {Promise<void>}
+   * @returns {Promise<{updated: boolean}>}
    */
   async migrateSession(sessionId, from, to) {
-    // TODO: Task 2.15 实现
+    // 1. 更新 SQLite（ChatHistory + ChatSession 的 workspacePath）
+    await ChatHistory.update({ workspacePath: to }, { where: { sessionId } })
+    await ChatSession.update({ workspacePath: to }, { where: { sessionId } })
+
+    // 2. 旧文件加 supersededBy（不删）
+    const slug = sessionId.substring(0, 8)
+    const oldMd = path.join(from, 'wiki', 'chat-history', slug, 'session.md')
+
+    let oldExists = false
+    try { await fs.stat(oldMd); oldExists = true } catch { /* 文件不存在 */ }
+
+    if (oldExists) {
+      try {
+        const raw = await fs.readFile(oldMd, 'utf-8')
+        const { data: fm, content } = matter(raw)
+        fm.supersededBy = to
+        fm.supersededAt = new Date().toISOString()
+        await fs.writeFile(oldMd, matter.stringify(content, fm))
+      } catch (err) {
+        // 文件操作失败不阻塞迁移（DB 已更新）
+        console.error('[ChatHistorySync.migrateSession] 旧文件标记失败:', err.message)
+      }
+    }
+
+    // 3. 触发 markPending 让 5 秒内自动 exportAllPending
+    this.markPending(sessionId)
+
+    return { updated: true }
+  }
+
+  /**
+   * 工作区切换回调。Task 2.15 实现。
+   * WorkspaceManager.open/close 自动调用，确保切工作区时：
+   * - 旧工作区所有 pending 会话先 flush 导出
+   * - 清空内存中的 pendingQueue
+   * - 新工作区自动 scheduleExport
+   * @param {string|null} from - 旧工作区路径（null 表示无旧工作区）
+   * @param {string|null} to   - 新工作区路径（null 表示关闭）
+   */
+  async onWorkspaceChange(from, to) {
+    if (from) {
+      try { await this.flushPendingExports() } catch (err) {
+        console.error('[ChatHistorySync.onWorkspaceChange] flush 失败:', err.message)
+      }
+    }
+    this.pendingQueue.clear()
+    if (to) this.scheduleExport()
   }
 }
 

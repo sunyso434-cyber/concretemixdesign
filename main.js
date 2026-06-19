@@ -274,17 +274,27 @@ app.whenReady().then(async () => {
   // 注入新实例时只需修改 workspaceRefs.inner 引用，无需重新 register IPC。
   const { WorkspaceManager } = require('./src/main/workspace/WorkspaceManager')
   const { WikiEngine } = require('./src/main/workspace/WikiEngine')
+  const { ChatHistoryExporter } = require('./src/main/workspace/ChatHistoryExporter')
+  const { ChatHistorySync } = require('./src/main/workspace/ChatHistorySync')
   const workspaceHandler = require('./src/main/ipcHandlers/workspaceHandler')
 
-  const workspaceRefs = { workspaceManager: null, wikiEngine: null, kgExtractor: null }
+  const workspaceRefs = { workspaceManager: null, wikiEngine: null, kgExtractor: null, chatHistorySync: null }
   workspaceRefs.workspaceManager = new WorkspaceManager()
   // Task 1.10：实例化 WikiEngine，注入到 workspaceRefs（handler 通过 refs.wikiEngine 读最新值）
   workspaceRefs.wikiEngine = new WikiEngine({ workspace: workspaceRefs.workspaceManager })
+  // Task 2.12-2.15：实例化 ChatHistorySync + ChatHistoryExporter，绑定到 WorkspaceManager
+  const chatHistoryExporter = new ChatHistoryExporter()
+  workspaceRefs.chatHistorySync = new ChatHistorySync({
+    workspace: workspaceRefs.workspaceManager,
+    exporter: chatHistoryExporter
+  })
+  workspaceRefs.workspaceManager.attachSync(workspaceRefs.chatHistorySync)
   workspaceHandler.register(workspaceRefs)
-  // 暴露到全局供其他模块（如未来的 BackgroundTaskService / RAG 服务）使用
+  // 暴露到全局供其他模块（如 AgentMemoryService / BackgroundTaskService）使用
   global.workspaceManager = workspaceRefs.workspaceManager
   global.wikiEngine = workspaceRefs.wikiEngine
-  console.log('workspace IPC 已注册（5 个 handler，含 workspace:ingest）')
+  global.chatHistorySync = workspaceRefs.chatHistorySync
+  console.log('workspace IPC 已注册（9 个 handler，含 workspace:ingest/migrateSession/exportSession）')
 
   // 初始化 agent.md 服务（加载 + 监听用户自定义规则文件）
   initAgentMd()

@@ -3,8 +3,8 @@
  */
 
 // Mock 数据库模块（exportSession / exportAllPending 依赖）
-const mockChatHistory = { findAll: jest.fn() }
-const mockChatSession = { findAll: jest.fn() }
+const mockChatHistory = { findAll: jest.fn(), update: jest.fn() }
+const mockChatSession = { findAll: jest.fn(), update: jest.fn() }
 jest.mock('../../db/database', () => ({
   ChatHistory: mockChatHistory,
   ChatSession: mockChatSession
@@ -594,6 +594,151 @@ describe('ChatHistorySync', () => {
       const sessions = await sync.listSessions(workspacePath)
       expect(sessions).toHaveLength(1)
       expect(sessions[0].sessionId).toBe('sess-legacy')
+    })
+  })
+
+  // ==================== migrateSession (Task 2.15) ====================
+
+  describe('migrateSession', () => {
+    const fromWs = '/old/workspace'
+    const toWs = '/new/workspace'
+
+    beforeEach(() => {
+      mockChatHistory.update.mockResolvedValue([1])
+      mockChatSession.update.mockResolvedValue([1])
+      // fs.stat: 存在旧文件
+      mockFs.stat.mockResolvedValue({ size: 100 })
+      mockFs.readFile.mockResolvedValue([
+        '---',
+        'sessionId: sess-mig',
+        'workspacePath: /old/workspace',
+        '---',
+        '# Hello'
+      ].join('\n'))
+      mockFs.writeFile.mockResolvedValue(undefined)
+      // Reset markPending spy
+      jest.spyOn(sync, 'markPending')
+    })
+
+    test('更新 SQLite 中 ChatHistory 和 ChatSession 的 workspacePath', async () => {
+      await sync.migrateSession('sess-mig', fromWs, toWs)
+
+      expect(mockChatHistory.update).toHaveBeenCalledWith(
+        { workspacePath: toWs },
+        { where: { sessionId: 'sess-mig' } }
+      )
+      expect(mockChatSession.update).toHaveBeenCalledWith(
+        { workspacePath: toWs },
+        { where: { sessionId: 'sess-mig' } }
+      )
+    })
+
+    test('旧文件存在时读取并写入 supersededBy 信息', async () => {
+      await sync.migrateSession('sess-mig', fromWs, toWs)
+
+      // 检查旧文件被读取
+      const slug = 'sess-mig'.substring(0, 8)
+      expect(mockFs.readFile).toHaveBeenCalledWith(
+        expect.stringContaining(slug),
+        'utf-8'
+      )
+      // 检查旧文件被重写
+      expect(mockFs.writeFile).toHaveBeenCalled()
+    })
+
+    test('旧文件不存在时只更新 DB，不报错', async () => {
+      mockFs.stat.mockRejectedValue(new Error('ENOENT'))
+
+      await expect(sync.migrateSession('sess-mig', fromWs, toWs)).resolves.toEqual({ updated: true })
+
+      expect(mockChatHistory.update).toHaveBeenCalled()
+      expect(mockChatSession.update).toHaveBeenCalled()
+      expect(mockFs.readFile).not.toHaveBeenCalled()
+    })
+
+    test('迁移后调 markPending 触发重新导出', async () => {
+      await sync.migrateSession('sess-mig', fromWs, toWs)
+
+      expect(sync.markPending).toHaveBeenCalledWith('sess-mig')
+    })
+
+    test('返回 { updated: true }', async () => {
+      const result = await sync.migrateSession('sess-mig', fromWs, toWs)
+
+      expect(result).toEqual({ updated: true })
+    })
+
+    test('ChatHistory.update 失败时抛错（不回滚文件操作）', async () => {
+      mockChatHistory.update.mockRejectedValue(new Error('DB locked'))
+
+      await expect(sync.migrateSession('sess-mig', fromWs, toWs)).rejects.toThrow('DB locked')
+    })
+
+    test('文件读取失败时继续执行（不阻塞 markPending）', async () => {
+      mockFs.readFile.mockRejectedValue(new Error('EPERM'))
+
+      const result = await sync.migrateSession('sess-mig', fromWs, toWs)
+
+      expect(result).toEqual({ updated: true })
+      expect(sync.markPending).toHaveBeenCalledWith('sess-mig')
+    })
+  })
+
+  // ==================== onWorkspaceChange (Task 2.15) ====================
+
+  describe('onWorkspaceChange', () => {
+    let flushSpy
+    let scheduleSpy
+
+    beforeEach(() => {
+      flushSpy = jest.spyOn(sync, 'flushPendingExports').mockResolvedValue({ exported: [], errors: [] })
+      scheduleSpy = jest.spyOn(sync, 'scheduleExport').mockImplementation(() => {})
+    })
+
+    test('from=null, to=path: 只调 scheduleExport', async () => {
+      await sync.onWorkspaceChange(null, '/new/ws')
+
+      expect(flushSpy).not.toHaveBeenCalled()
+      expect(scheduleSpy).toHaveBeenCalledTimes(1)
+      expect(sync.pendingQueue.size).toBe(0)
+    })
+
+    test('from=path, to=null: flushPendingExports + clear queue', async () => {
+      sync.pendingQueue.add('sess-1')
+      sync.pendingQueue.add('sess-2')
+
+      await sync.onWorkspaceChange('/old/ws', null)
+
+      expect(flushSpy).toHaveBeenCalledTimes(1)
+      expect(scheduleSpy).not.toHaveBeenCalled()
+      expect(sync.pendingQueue.size).toBe(0)
+    })
+
+    test('from=path, to=path: flush + clear + scheduleExport', async () => {
+      sync.pendingQueue.add('sess-1')
+
+      await sync.onWorkspaceChange('/old/ws', '/new/ws')
+
+      expect(flushSpy).toHaveBeenCalledTimes(1)
+      expect(scheduleSpy).toHaveBeenCalledTimes(1)
+      expect(sync.pendingQueue.size).toBe(0)
+    })
+
+    test('from=null, to=null: 无操作', async () => {
+      await sync.onWorkspaceChange(null, null)
+
+      expect(flushSpy).not.toHaveBeenCalled()
+      expect(scheduleSpy).not.toHaveBeenCalled()
+    })
+
+    test('flushPendingExports 失败不影响队列清空', async () => {
+      flushSpy.mockRejectedValue(new Error('flush failed'))
+      sync.pendingQueue.add('sess-1')
+
+      await expect(sync.onWorkspaceChange('/old/ws', null)).resolves.toBeUndefined()
+
+      // 队列仍被清空
+      expect(sync.pendingQueue.size).toBe(0)
     })
   })
 

@@ -229,4 +229,123 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
       expect(r2).toEqual({ path: '/new', status: 'ready' })
     })
   })
+
+  // ==================== workspace:migrateSession + workspace:exportSession (Task 2.15) ====================
+
+  describe('Task 2.15 ChatHistorySync IPC', () => {
+    let mockSync
+
+    beforeEach(() => {
+      mockSync = {
+        migrateSession: jest.fn().mockResolvedValue({ updated: true }),
+        exportSession: jest.fn().mockResolvedValue({ status: 'ok', filesWritten: [], messageCount: 0, isFullExport: true })
+      }
+      Object.keys(handlers).forEach(k => delete handlers[k])
+      workspaceHandler.register({
+        workspaceManager: mockManager,
+        chatHistorySync: mockSync
+      })
+    })
+
+    test('注册 workspace:migrateSession 和 workspace:exportSession 两个新 channel', () => {
+      expect(handlers['workspace:migrateSession']).toBeDefined()
+      expect(handlers['workspace:exportSession']).toBeDefined()
+    })
+
+    describe('workspace:migrateSession', () => {
+      test('成功 → 调 chatHistorySync.migrateSession 并返回结果', async () => {
+        const result = await handlers['workspace:migrateSession']({}, {
+          sessionId: 'sess-1',
+          from: '/old/ws',
+          to: '/new/ws'
+        })
+
+        expect(mockSync.migrateSession).toHaveBeenCalledWith('sess-1', '/old/ws', '/new/ws')
+        expect(result).toEqual({ updated: true })
+      })
+
+      test('chatHistorySync 未注入时抛 CHAT_HISTORY_CROSS_WORKSPACE', async () => {
+        Object.keys(handlers).forEach(k => delete handlers[k])
+        workspaceHandler.register({
+          workspaceManager: mockManager
+          // 不传 chatHistorySync
+        })
+
+        const result = await handlers['workspace:migrateSession']({}, {
+          sessionId: 'sess-1',
+          from: '/old/ws',
+          to: '/new/ws'
+        })
+
+        expect(result.success).toBe(false)
+        expect(result.errorCode).toBe('CHAT_HISTORY_CROSS_WORKSPACE')
+      })
+
+      test('migrateSession 抛 WorkspaceError → 转 ErrorCodes 格式', async () => {
+        const { WorkspaceError } = require('../../workspace/WorkspaceError')
+        mockSync.migrateSession.mockRejectedValue(
+          new WorkspaceError('CHAT_HISTORY_CROSS_WORKSPACE', '跨工作区操作被拒绝', false)
+        )
+
+        const result = await handlers['workspace:migrateSession']({}, {
+          sessionId: 'sess-1',
+          from: '/old/ws',
+          to: '/new/ws'
+        })
+
+        expect(result.success).toBe(false)
+        expect(result.errorCode).toBe('CHAT_HISTORY_CROSS_WORKSPACE')
+      })
+    })
+
+    describe('workspace:exportSession', () => {
+      test('成功 → 调 chatHistorySync.exportSession 并返回结果', async () => {
+        mockSync.exportSession.mockResolvedValue({
+          status: 'ok',
+          filesWritten: ['/ws/wiki/chat-history/abc/session.md'],
+          messageCount: 5,
+          isFullExport: true
+        })
+
+        const result = await handlers['workspace:exportSession']({}, {
+          sessionId: 'sess-1',
+          workspacePath: '/test/ws'
+        })
+
+        expect(mockSync.exportSession).toHaveBeenCalledWith('sess-1', '/test/ws')
+        expect(result.status).toBe('ok')
+        expect(result.messageCount).toBe(5)
+      })
+
+      test('chatHistorySync 未注入时抛 NOT_OPEN', async () => {
+        Object.keys(handlers).forEach(k => delete handlers[k])
+        workspaceHandler.register({
+          workspaceManager: mockManager
+        })
+
+        const result = await handlers['workspace:exportSession']({}, {
+          sessionId: 'sess-1',
+          workspacePath: '/test/ws'
+        })
+
+        expect(result.success).toBe(false)
+        expect(result.errorCode).toBe('NOT_OPEN')
+      })
+
+      test('exportSession 抛 WorkspaceError → 转 ErrorCodes 格式', async () => {
+        const { WorkspaceError } = require('../../workspace/WorkspaceError')
+        mockSync.exportSession.mockRejectedValue(
+          new WorkspaceError('CHAT_HISTORY_EXPORT_FAIL', '导出失败', true)
+        )
+
+        const result = await handlers['workspace:exportSession']({}, {
+          sessionId: 'sess-1',
+          workspacePath: '/test/ws'
+        })
+
+        expect(result.success).toBe(false)
+        expect(result.errorCode).toBe('CHAT_HISTORY_EXPORT_FAIL')
+      })
+    })
+  })
 })
