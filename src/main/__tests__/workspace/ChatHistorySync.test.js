@@ -48,7 +48,8 @@ describe('ChatHistorySync', () => {
     mockExporter = {
       formatMD: jest.fn(),
       formatJSONL: jest.fn(),
-      parseJSONL: jest.fn()
+      parseJSONL: jest.fn(),
+      loadSession: jest.fn()
     }
     sync = new ChatHistorySync({ workspace: mgr, exporter: mockExporter })
 
@@ -395,6 +396,221 @@ describe('ChatHistorySync', () => {
       expect(spy2).not.toHaveBeenCalled()  // debounce 已取消
 
       jest.useRealTimers()
+    })
+  })
+
+  // ==================== listSessions（双源合并）====================
+
+  describe('listSessions', () => {
+    const workspacePath = '/test/workspace'
+
+    beforeEach(() => {
+      mockFs.readdir = jest.fn().mockResolvedValue([])
+      mockChatSession.findAll.mockResolvedValue([])
+    })
+
+    test('无文件系统目录且无 SQLite 数据时返回空数组', async () => {
+      const sessions = await sync.listSessions(workspacePath)
+      expect(sessions).toEqual([])
+    })
+
+    test('从文件系统读取 session（扫描 chat-history 子目录）', async () => {
+      mockFs.readdir.mockResolvedValue(['abc12345', 'def67890'])
+      mockFs.readFile
+        .mockResolvedValueOnce([
+          '---',
+          'sessionId: sess-abc',
+          'title: Test Session ABC',
+          'workspacePath: /test/workspace',
+          'messageCount: 10',
+          'firstActivity: "2025-01-01T00:00:00Z"',
+          'lastActivity: "2025-01-01T01:00:00Z"',
+          'exportedAt: "2025-01-01T01:00:01Z"',
+          '---'
+        ].join('\n'))
+        .mockResolvedValueOnce([
+          '---',
+          'sessionId: sess-def',
+          'title: Test Session DEF',
+          'workspacePath: /test/workspace',
+          'messageCount: 5',
+          'firstActivity: "2025-01-02T00:00:00Z"',
+          'lastActivity: "2025-01-02T00:30:00Z"',
+          'exportedAt: "2025-01-02T00:30:01Z"',
+          '---'
+        ].join('\n'))
+
+      const sessions = await sync.listSessions(workspacePath)
+
+      expect(sessions).toHaveLength(2)
+      expect(sessions[0].sessionId).toBe('sess-abc')
+      expect(sessions[0].source).toBe('file')
+      expect(sessions[0].pending).toBe(false)
+      expect(sessions[1].sessionId).toBe('sess-def')
+      expect(sessions[1].source).toBe('file')
+      expect(sessions[1].pending).toBe(false)
+    })
+
+    test('按 workspacePath 严格隔离，过滤不匹配的 session', async () => {
+      mockFs.readdir.mockResolvedValue(['abc12345'])
+      mockFs.readFile.mockResolvedValueOnce([
+        '---',
+        'sessionId: sess-other',
+        'title: Other Workspace',
+        'workspacePath: /other/workspace',
+        'messageCount: 1',
+        'firstActivity: "2025-01-01T00:00:00Z"',
+        'lastActivity: "2025-01-01T00:00:00Z"',
+        'exportedAt: "2025-01-01T00:00:01Z"',
+        '---'
+      ].join('\n'))
+
+      const sessions = await sync.listSessions(workspacePath)
+      expect(sessions).toEqual([])
+    })
+
+    test('workspacePath 归一化比较（反斜杠 vs 正斜杠）', async () => {
+      mockFs.readdir.mockResolvedValue(['abc12345'])
+      mockFs.readFile.mockResolvedValueOnce([
+        '---',
+        'sessionId: sess-match',
+        'title: Match',
+        'workspacePath: C:/Users/test/workspace',
+        'messageCount: 1',
+        'firstActivity: "2025-01-01T00:00:00Z"',
+        'lastActivity: "2025-01-01T00:00:00Z"',
+        'exportedAt: "2025-01-01T00:00:01Z"',
+        '---'
+      ].join('\n'))
+
+      const sessions = await sync.listSessions('C:\\Users\\test\\workspace')
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0].sessionId).toBe('sess-match')
+    })
+
+    test('SQLite 最近 60s 活跃 session 合并到结果（pending: true）', async () => {
+      mockFs.readdir.mockResolvedValue(['abc12345'])
+      mockFs.readFile.mockResolvedValueOnce([
+        '---',
+        'sessionId: sess-file',
+        'title: File Session',
+        'workspacePath: /test/workspace',
+        'messageCount: 3',
+        'firstActivity: "2025-01-01T00:00:00Z"',
+        'lastActivity: "2025-01-01T00:00:30Z"',
+        'exportedAt: "2025-01-01T00:00:31Z"',
+        '---'
+      ].join('\n'))
+
+      mockChatSession.findAll.mockResolvedValue([
+        { sessionId: 'sess-file', sessionName: 'File Session', createdAt: new Date(), lastActivity: new Date() },
+        { sessionId: 'sess-db-only', sessionName: 'DB Only', createdAt: new Date(), lastActivity: new Date() }
+      ])
+
+      const sessions = await sync.listSessions(workspacePath)
+
+      expect(sessions).toHaveLength(2)
+
+      const fileSession = sessions.find(s => s.sessionId === 'sess-file')
+      expect(fileSession.source).toBe('file')
+      expect(fileSession.pending).toBe(false)
+
+      const dbSession = sessions.find(s => s.sessionId === 'sess-db-only')
+      expect(dbSession.source).toBe('sqlite')
+      expect(dbSession.pending).toBe(true)
+      expect(dbSession.sessionId).toBe('sess-db-only')
+    })
+
+    test('readdir 抛出异常时回退到空列表（不影响 SQLite 查询）', async () => {
+      mockFs.readdir.mockRejectedValue(new Error('ENOENT'))
+      mockChatSession.findAll.mockResolvedValue([
+        { sessionId: 'sess-db', sessionName: 'DB Session', createdAt: new Date(), lastActivity: new Date() }
+      ])
+
+      const sessions = await sync.listSessions(workspacePath)
+
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0].sessionId).toBe('sess-db')
+      expect(sessions[0].source).toBe('sqlite')
+    })
+
+    test('单个 session.md 损坏不影响其他正常 session', async () => {
+      mockFs.readdir.mockResolvedValue(['ok-dir', 'bad-dir'])
+      mockFs.readFile
+        .mockResolvedValueOnce([
+          '---',
+          'sessionId: sess-ok',
+          'title: OK',
+          'workspacePath: /test/workspace',
+          'messageCount: 1',
+          'firstActivity: "2025-01-01T00:00:00Z"',
+          'lastActivity: "2025-01-01T00:00:00Z"',
+          'exportedAt: "2025-01-01T00:00:01Z"',
+          '---'
+        ].join('\n'))
+        .mockRejectedValueOnce(new Error('EPERM'))
+
+      const sessions = await sync.listSessions(workspacePath)
+
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0].sessionId).toBe('sess-ok')
+    })
+
+    test('ChatSession.findAll 失败时不影响文件系统结果', async () => {
+      mockFs.readdir.mockResolvedValue(['abc12345'])
+      mockFs.readFile.mockResolvedValueOnce([
+        '---',
+        'sessionId: sess-file',
+        'title: File',
+        'workspacePath: /test/workspace',
+        'messageCount: 1',
+        'firstActivity: "2025-01-01T00:00:00Z"',
+        'lastActivity: "2025-01-01T00:00:00Z"',
+        'exportedAt: "2025-01-01T00:00:01Z"',
+        '---'
+      ].join('\n'))
+      mockChatSession.findAll.mockRejectedValue(new Error('table not found'))
+
+      const sessions = await sync.listSessions(workspacePath)
+
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0].sessionId).toBe('sess-file')
+    })
+
+    test('workspacePath 为 null 的 frontmatter 不过滤（兼容旧数据）', async () => {
+      mockFs.readdir.mockResolvedValue(['abc12345'])
+      mockFs.readFile.mockResolvedValueOnce([
+        '---',
+        'sessionId: sess-legacy',
+        'title: Legacy',
+        'workspacePath:',
+        'messageCount: 1',
+        'firstActivity: "2025-01-01T00:00:00Z"',
+        'lastActivity: "2025-01-01T00:00:00Z"',
+        'exportedAt: "2025-01-01T00:00:01Z"',
+        '---'
+      ].join('\n'))
+
+      const sessions = await sync.listSessions(workspacePath)
+      expect(sessions).toHaveLength(1)
+      expect(sessions[0].sessionId).toBe('sess-legacy')
+    })
+  })
+
+  // ==================== loadSession ====================
+
+  describe('loadSession', () => {
+    test('委托给 this.exporter.loadSession', async () => {
+      const expected = {
+        messages: [{ id: 1, role: 'user', content: 'hi' }],
+        renderedMd: '---\nsessionId: test\n---\n\n# MD',
+        summary: { sessionId: 'test', messageCount: 1 }
+      }
+      mockExporter.loadSession = jest.fn().mockResolvedValue(expected)
+
+      const result = await sync.loadSession('test-session-id', '/test/ws')
+      expect(mockExporter.loadSession).toHaveBeenCalledWith('test-session-id', '/test/ws')
+      expect(result).toBe(expected)
     })
   })
 

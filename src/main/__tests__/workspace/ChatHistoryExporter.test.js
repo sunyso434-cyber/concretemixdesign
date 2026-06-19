@@ -1,8 +1,14 @@
 /**
  * ChatHistoryExporter 单元测试
  *
- * 只测纯函数转换：formatMD / formatJSONL / parseJSONL，无 IO。
+ * 测纯函数转换：formatMD / formatJSONL / parseJSONL，以及 loadSession（IO 读）。
  */
+
+// Mock fs.promises for loadSession IO tests
+const mockReadFile = jest.fn()
+jest.mock('fs', () => ({
+  promises: { readFile: mockReadFile }
+}))
 
 const { ChatHistoryExporter } = require('../../workspace/ChatHistoryExporter')
 
@@ -207,6 +213,93 @@ describe('ChatHistoryExporter（纯函数转换）', () => {
       // firstActivity / lastActivity 在 frontmatter 中
       expect(md).toContain('firstActivity:')
       expect(md).toContain('lastActivity:')
+    })
+  })
+
+  // ==================== loadSession ====================
+
+  describe('loadSession', () => {
+    const sessionId = 'test-session-12345678'
+    const workspacePath = '/test/workspace'
+
+    beforeEach(() => {
+      mockReadFile.mockReset()
+    })
+
+    test('读取并解析 JSONL 和 MD 文件', async () => {
+      const jsonlContent = JSON.stringify({ id: 1, role: 'user', content: 'hello' }) + '\n' +
+                           JSON.stringify({ id: 2, role: 'assistant', content: 'hi' }) + '\n'
+      const mdContent = [
+        '---',
+        'sessionId: test-session-12345678',
+        'workspacePath: /test/workspace',
+        'messageCount: 2',
+        'firstActivity: 2025-01-01T00:00:00.000Z',
+        'lastActivity: 2025-01-01T00:00:01.000Z',
+        'exportedAt: 2025-01-01T00:00:02.000Z',
+        '---',
+        '',
+        '# 会话内容'
+      ].join('\n')
+
+      mockReadFile
+        .mockResolvedValueOnce(jsonlContent)  // 第一次：读 JSONL
+        .mockResolvedValueOnce(mdContent)      // 第二次：读 MD
+
+      const result = await exporter.loadSession(sessionId, workspacePath)
+
+      expect(result.messages).toHaveLength(2)
+      expect(result.messages[0].id).toBe(1)
+      expect(result.messages[0].role).toBe('user')
+      expect(result.messages[1].id).toBe(2)
+      expect(result.messages[1].role).toBe('assistant')
+      expect(result.renderedMd).toBe(mdContent)
+      expect(result.summary).toMatchObject({
+        sessionId: 'test-session-12345678',
+        workspacePath: '/test/workspace',
+        messageCount: 2
+      })
+    })
+
+    test('slng 取 sessionId 前 8 位', async () => {
+      mockReadFile
+        .mockResolvedValueOnce('{"id":1}\n')
+        .mockResolvedValueOnce('---\nsessionId: foo\n---')
+
+      await exporter.loadSession(sessionId, workspacePath)
+
+      // 验证 JSONL 路径包含 slug（前 8 位）: test-sess（跨平台分隔符）
+      const call1 = mockReadFile.mock.calls[0][0]
+      expect(call1).toMatch(/wiki[/\\]chat-history[/\\]test-ses[/\\]session\.jsonl$/)
+      const call2 = mockReadFile.mock.calls[1][0]
+      expect(call2).toMatch(/wiki[/\\]chat-history[/\\]test-ses[/\\]session\.md$/)
+    })
+
+    test('空 JSONL 返回空消息数组', async () => {
+      mockReadFile
+        .mockResolvedValueOnce('')
+        .mockResolvedValueOnce('---\nsessionId: empty\n---')
+
+      const result = await exporter.loadSession(sessionId, workspacePath)
+
+      expect(result.messages).toEqual([])
+      expect(result.summary).toMatchObject({ sessionId: 'empty' })
+    })
+
+    test('JSONL 一行一条消息', async () => {
+      const messages = [
+        { id: 1, role: 'user', content: 'a' },
+        { id: 2, role: 'assistant', content: 'b', toolCalls: [{ name: 'search', args: {} }] }
+      ]
+      const jsonl = messages.map(m => JSON.stringify(m)).join('\n') + '\n'
+
+      mockReadFile
+        .mockResolvedValueOnce(jsonl)
+        .mockResolvedValueOnce('---\nsessionId: multi\n---')
+
+      const result = await exporter.loadSession(sessionId, workspacePath)
+      expect(result.messages).toHaveLength(2)
+      expect(result.messages[1].toolCalls).toEqual([{ name: 'search', args: {} }])
     })
   })
 })

@@ -5,6 +5,8 @@
  * IO 编排由 ChatHistorySync.exportSession 负责。
  */
 
+const path = require('path')
+const fs = require('fs').promises
 const matter = require('gray-matter')
 
 class ChatHistoryExporter {
@@ -93,6 +95,23 @@ class ChatHistoryExporter {
   parseJSONL(jsonlStr) {
     if (!jsonlStr || !jsonlStr.trim()) return []
     return jsonlStr.trim().split('\n').map(l => JSON.parse(l))
+  }
+
+  /**
+   * v1.5.3 关键：loadSession 只读文件，无 DB 依赖
+   * @param {string} sessionId
+   * @param {string} workspacePath
+   * @returns {Promise<{messages: Array, renderedMd: string, summary: object}>}
+   */
+  async loadSession(sessionId, workspacePath) {
+    const slug = sessionId.substring(0, 8)
+    const jsonlPath = path.join(workspacePath, 'wiki', 'chat-history', slug, 'session.jsonl')
+    const mdPath = path.join(workspacePath, 'wiki', 'chat-history', slug, 'session.md')
+    const content = await fs.readFile(jsonlPath, 'utf-8')
+    const messages = this.parseJSONL(content)
+    const renderedMd = await fs.readFile(mdPath, 'utf-8')
+    const { data: summary } = matter(renderedMd)
+    return { messages, renderedMd, summary }
   }
 
   /**

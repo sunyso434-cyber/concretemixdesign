@@ -12,6 +12,7 @@
 const path = require('path')
 const fs = require('fs').promises
 const crypto = require('crypto')
+const matter = require('gray-matter')
 const { ChatHistory, ChatSession } = require('../db/database')
 const { WorkspaceError } = require('./WorkspaceError')
 const { Op } = require('sequelize')
@@ -176,18 +177,57 @@ class ChatHistorySync {
    * @returns {Promise<Array>}
    */
   async listSessions(workspacePath) {
-    // TODO: Task 2.14 实现
+    const fileSessions = []
+
+    // 源 1: 文件系统 — 扫描 wiki/chat-history/*/session.md
+    const chatHistoryDir = path.join(workspacePath, 'wiki', 'chat-history')
+    let dirs = []
+    try { dirs = await fs.readdir(chatHistoryDir) } catch { dirs = [] }
+
+    for (const dir of dirs) {
+      const mdPath = path.join(chatHistoryDir, dir, 'session.md')
+      try {
+        const raw = await fs.readFile(mdPath, 'utf-8')
+        const { data: fm } = matter(raw)
+        // 严格隔离：workspacePath 可能存为正斜杠，比较时统一归一化
+        if (fm.workspacePath && fm.workspacePath.replace(/\\/g, '/') !== workspacePath.replace(/\\/g, '/')) continue
+        fileSessions.push({ ...fm, source: 'file', pending: false })
+      } catch { continue }
+    }
+
+    // 源 2: SQLite 60s 内的（双源合并补救 5 秒空窗）
+    const cutoff = new Date(Date.now() - 60000)
+    try {
+      const recent = await ChatSession.findAll({
+        where: { workspacePath, lastActivity: { [Op.gt]: cutoff } }
+      })
+      for (const r of recent) {
+        if (!fileSessions.find(s => s.sessionId === r.sessionId)) {
+          fileSessions.push({
+            sessionId: r.sessionId,
+            title: r.sessionName,
+            createdAt: r.createdAt,
+            lastActivity: r.lastActivity,
+            messageCount: 0,
+            workspacePath,
+            source: 'sqlite',
+            pending: true
+          })
+        }
+      }
+    } catch { /* ChatSession 表可能不存在（首次运行） */ }
+
+    return fileSessions
   }
 
   /**
-   * 加载指定 session 的消息列表。
-   * Task 2.14 实现。
+   * 加载指定 session 的消息列表（委托 ChatHistoryExporter.loadSession）。
    * @param {string} sessionId
    * @param {string} workspacePath
-   * @returns {Promise<Array>}
+   * @returns {Promise<{messages: Array, renderedMd: string, summary: object}>}
    */
   async loadSession(sessionId, workspacePath) {
-    // TODO: Task 2.14 实现
+    return await this.exporter.loadSession(sessionId, workspacePath)
   }
 
   /**
