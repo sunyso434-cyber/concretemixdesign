@@ -1,0 +1,60 @@
+// write-handler.js（Task 3.2 薄封装）
+// 职责：调 writers dispatcher 生成 Buffer → 写盘到 <workspacePath>/reports/<filename>
+// 输入：{ workspaceManager, type, filename, payload }
+// 输出：{ path, size, savedAt }
+//
+// 错误处理：
+//   - 工作区未打开（workspaceManager.current() === null）→ WorkspaceError(NOT_OPEN, retryable=false)
+//   - dispatcher 抛错（未知 type 等） → 包 WorkspaceError(WRITE_FAIL, retryable=true, cause)
+//   - fs.writeFile 失败 → 包 WorkspaceError(WRITE_FAIL, retryable=true, cause)
+//
+// 为什么是薄封装：
+//   - IPC handler 只负责"接到请求 → 调本模块 → 包 IPC 错误格式"
+//   - 本模块专注"业务逻辑"（路径拼接 + dispatcher + 写盘 + 业务错误码）
+//   - 单元测试直接调本模块，不必 mock electron.ipcMain
+const path = require('path')
+const fs = require('fs').promises
+const writers = require('./writers')
+const { WorkspaceError } = require('./WorkspaceError')
+
+/**
+ * 把 payload 生成 Buffer 并写到 <workspacePath>/reports/<filename>
+ *
+ * @param {Object} args
+ * @param {Object} args.workspaceManager - WorkspaceManager 实例（需有 current() 方法）
+ * @param {string} args.type - 'docx' | 'xlsx' | 'markdown' | 'md'
+ * @param {string} args.filename - 落盘文件名（不含路径），如 'report.docx'
+ * @param {Object} args.payload - writer payload（spec §4.4）
+ * @returns {Promise<{path: string, size: number, savedAt: string}>}
+ */
+async function writeFile({ workspaceManager, type, filename, payload }) {
+  // 1) 工作区未开 → NOT_OPEN
+  const current = workspaceManager.current()
+  if (!current || !current.path) {
+    throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
+  }
+
+  // 2) 调 dispatcher 生成 Buffer（未知 type 会抛错，下面 catch 包 WRITE_FAIL）
+  let buf
+  try {
+    buf = await writers.write(type, payload)
+  } catch (err) {
+    throw new WorkspaceError('WRITE_FAIL', `生成 ${type} 失败：${err.message}`, true, err)
+  }
+
+  // 3) 写盘到 <workspacePath>/reports/<filename>
+  const targetPath = path.posix.join(current.path, 'reports', filename)
+  try {
+    await fs.writeFile(targetPath, buf)
+  } catch (err) {
+    throw new WorkspaceError('WRITE_FAIL', `写入文件失败：${err.message}`, true, err)
+  }
+
+  return {
+    path: targetPath,
+    size: buf.length,
+    savedAt: new Date().toISOString()
+  }
+}
+
+module.exports = { writeFile }

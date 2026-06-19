@@ -110,7 +110,18 @@ function register(refs) {
     return await refs.chatHistorySync.exportSession(sessionId, workspacePath)
   }))
 
-  // 后续 task 加：workspace:search / workspace:writeFile / workspace:searchGraph
+  // Task 3.2: workspace:writeFile - 写 docx/xlsx/md 到 reports/（spec §4.5）
+  ipcMain.handle('workspace:writeFile', wrapWorkspaceCall(async (event, { type, filename, payload }) => {
+    const { writeFile } = require('../workspace/write-handler')
+    return await writeFile({
+      workspaceManager: refs.workspaceManager,
+      type,
+      filename,
+      payload
+    })
+  }))
+
+  // 后续 task 加：workspace:search / workspace:searchGraph
 }
 
 module.exports = { register }
