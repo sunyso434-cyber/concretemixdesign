@@ -1,3 +1,65 @@
+## v4.9.3 hotfix (2026-06-19) - pickFolder 启动 watch（不再绕过）
+
+### 修复内容
+老板报告：v4.9.2 拖入文件**仍不自动 ingest**。我去看 app.log 找原因，发现**真正的 bug**：
+
+### 根因（app.log 揭示的）
+- v4.9.2 启动成功（log 显示 workspace IPC 已注册）
+- 但 log 完全停在数据库初始化（line 66），**没有 `[WorkspaceManager.watch] starting chokidar`**
+- 也没有任何 workspace:open 记录
+- **老板点了 📁，但 pickFolder handler 绕过了 workspace:open IPC**：
+  ```js
+  // 旧代码（v4.9.2 pickFolder）
+  const selectedPath = result.filePaths[0]
+  await refs.workspaceManager.open(selectedPath)  // ← 直接调，绕过 IPC
+  ```
+- workspace:open IPC 里的 watch 启动逻辑（line 23-25）**从未执行**
+- chokidar 永远不启动 → 拖入文件没事件 → 不 ingest
+
+### 修复
+抽 `openAndWatch` 公共方法（open + watch 一起做），**pickFolder 也调它**：
+```js
+async function openAndWatch(selectedPath) {
+  await refs.workspaceManager.open(selectedPath)
+  if (refs.wikiEngine) {
+    refs.workspaceManager.watch(refs.wikiEngine)
+  }
+  return refs.workspaceManager.current().path
+}
+
+// workspace:open 改用 openAndWatch
+// workspace:pickFolder 改用 openAndWatch
+```
+
+保证只要选了工作区（不管是 📁 按钮还是别的方式），watch 一定启动。
+
+### 改动（1 commit, 2 files, +19/-4, commit 2694c56）
+- `src/main/ipcHandlers/workspaceHandler.js`
+  - 抽 `openAndWatch(selectedPath)` 公共方法
+  - `workspace:open` 改用 `openAndWatch`
+  - `workspace:pickFolder` 改用 `openAndWatch`（不再绕过）
+- `package.json` — version 4.9.2 → 4.9.3，output dist-4.9.2 → dist-4.9.3
+
+### 验证
+- ✅ 808/808 全量过（0 regression）
+- ✅ v4.9.3 log 应有 `[WorkspaceManager.watch] starting chokidar on: <工作区路径>`
+- ✅ 拖入文件后 log 应有 `[chokidar] add: <文件名>` + `[chokidar] ingest OK: ...`
+
+### 反思（3 次踩坑）
+1. **v4.9.0 review 漏测端到端**：只测 mock，没测真实集成
+2. **v4.9.1 思考深度不够**：只想到"路径算错"没想到"事件根本不 fire"
+3. **v4.9.2 没看 log 就改**：没问老板要 log 就盲目加 polling，应该**先看 log 找真正根因**
+- 教训：以后 desktop app 集成 bug，**第一步是看 main process log**，不是猜原因
+- 我之前说"老板看 log"是对的，但应该自己也要看（不看就盲猜）
+
+### 已知遗留
+- ingest→index 桥接缺失（I-1）
+- 聊天历史不按工作区分组（P2b）
+- LLM 不能调 workspace 工具（P4）
+- E2E 跑不动（P6）
+
+---
+
 ## v4.9.2 hotfix (2026-06-19) - chokidar 改 polling + 详细调试日志
 
 ### 修复内容
