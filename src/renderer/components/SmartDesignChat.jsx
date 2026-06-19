@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
 import ToolMessageBubble from './ToolMessageBubble'
 import StreamingAgentCard from './StreamingAgentCard'
+import FileMessageCard from './FileMessageCard'
 import MixDesignResultCard from './MixDesignResultCard'
 import OptimizationResultCard from './OptimizationResultCard'
 import MaterialCompareCard from './MaterialCompareCard'
@@ -1306,6 +1307,14 @@ const SmartDesignChat = () => {
                         agentStatus={state.agent.status}
                         agentReplyText={state.agent.replyText}
                       />
+                      {/* 附件文件卡片：bot 报告里携带的 docx/xlsx/md/pdf 文件 */}
+                      {item.role === 'assistant' && Array.isArray(item.attachments) && item.attachments.length > 0 && (
+                        <div className="file-message-card-list" style={{ marginTop: 8 }}>
+                          {item.attachments.map((att, idx) => (
+                            <FileMessageCard key={`${att.path || 'file'}-${idx}`} file={att} />
+                          ))}
+                        </div>
+                      )}
                       {item.materialPicker && !chatState.isMaterialPickerDone(item.materialPicker.pickerId) && item.materialPicker.type !== 'contrast_selection' && (
                         <MaterialPicker
                           materials={item.materialPicker.materials || chatState.pendingMaterialPicker?.allMaterials}
