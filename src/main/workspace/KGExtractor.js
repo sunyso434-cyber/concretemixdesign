@@ -134,14 +134,118 @@ Schema：
 
   /**
    * 原子写 graph.json：先写 .tmp.<ts>，再 rename。
+   * Task 5.3 (P5)：写盘前调 checkSize，超过 50MB / 5万 relations 抛 INDEX_TOO_LARGE。
+   * 1万 relations 触发 warning 写入 graph._sizeWarnings（消费方读后自处理）。
    */
   async saveGraph(workspacePath, graph) {
+    const { checkSize } = require('./kg-merge')
+    const sizeCheck = checkSize(graph)
+    if (sizeCheck.warnings.length > 0) {
+      // 把 warning 挂到 graph 上（不破坏 schema，存 _ 前缀私有字段）
+      graph._sizeWarnings = [...(graph._sizeWarnings || []), ...sizeCheck.warnings]
+    }
     const dir = path.join(workspacePath, 'wiki', 'kg')
     await fs.mkdir(dir, { recursive: true })
     const fp = path.join(dir, 'graph.json')
     const tmpFp = `${fp}.tmp.${Date.now()}`
     await fs.writeFile(tmpFp, JSON.stringify(graph, null, 2), 'utf-8')
     await fs.rename(tmpFp, fp)
+  }
+
+  /**
+   * BM25 检索知识图谱，返回完整三元组列表（spec §4.14）。
+   * - 不调 LLM（纯本地 BM25）
+   * - 索引：entity name + aliases + relation evidence
+   * - 展开：entity 命中 → 找相关 relations；relation 命中 → 直接返回三元组
+   * - 去重：按 (subjectId, predicate, objectId)
+   *
+   * @param {string} query - 用户查询关键词
+   * @param {number} [topK=10]
+   * @param {string} [workspacePath=null] - 不传则从 instance 推断（v1.5.1 简化版不依赖单例）
+   * @returns {Promise<Array<{subject: {name, type, id}, predicate: string, object: {name, type, id}, evidence: string, confidence: number, source: string, score: number}>>}
+   */
+  async searchGraph(query, topK = 10, workspacePath = null) {
+    if (!query || !query.trim()) return []
+
+    // v1.5.1 简化版：要求传 workspacePath（不依赖 WorkspaceManager 单例）
+    if (!workspacePath) {
+      throw new WorkspaceError('PATH_INVALID', 'searchGraph 需要 workspacePath 参数（P5 阶段请传当前工作区路径）', false)
+    }
+
+    const graph = await this.loadGraph(workspacePath)
+    if (Object.keys(graph.entities).length === 0) return []
+
+    // 1. 构造可检索语料
+    const corpus = []
+    const docIndex = []  // path → { kind, key }
+    for (const e of Object.values(graph.entities)) {
+      const aliasesText = (e.aliases || []).join(' ')
+      corpus.push(`${e.name} ${aliasesText}`)
+      docIndex.push({ kind: 'entity', key: e.id })
+    }
+    for (const r of graph.relations) {
+      corpus.push(r.evidence || '')
+      docIndex.push({ kind: 'relation', key: r })
+    }
+
+    // 2. BM25 检索（双倍 topK 以便展开后有足够结果）
+    const { buildBM25, queryBM25 } = require('./bm25')
+    const bm25 = buildBM25(corpus.map((content, i) => ({ path: String(i), content })))
+    const hits = queryBM25(bm25, query, topK * 2)
+
+    if (hits.length === 0) return []
+
+    // 3. 扩展到完整三元组
+    const results = []
+    for (const hit of hits) {
+      const idx = parseInt(hit.path, 10)
+      const ref = docIndex[idx]
+      if (!ref) continue
+
+      if (ref.kind === 'entity') {
+        // entity 命中：找出所有相关 relations（按主语/宾语）
+        const entityId = ref.key
+        const relatedRels = graph.relations.filter(r =>
+          r.subjectId === entityId || r.objectId === entityId
+        ).slice(0, 3)
+        for (const r of relatedRels) {
+          const s = graph.entities[r.subjectId]
+          const o = graph.entities[r.objectId]
+          if (!s || !o) continue
+          results.push({
+            subject: { name: s.name, type: s.type, id: s.id },
+            predicate: r.predicate,
+            object: { name: o.name, type: o.type, id: o.id },
+            evidence: r.evidence, confidence: r.confidence, source: r.source,
+            score: hit.score
+          })
+        }
+      } else {
+        // relation 命中：直接返回三元组
+        const r = ref.key
+        const s = graph.entities[r.subjectId]
+        const o = graph.entities[r.objectId]
+        if (!s || !o) continue
+        results.push({
+          subject: { name: s.name, type: s.type, id: s.id },
+          predicate: r.predicate,
+          object: { name: o.name, type: o.type, id: o.id },
+          evidence: r.evidence, confidence: r.confidence, source: r.source,
+          score: hit.score
+        })
+      }
+    }
+
+    // 4. 去重 + 排序 + topK
+    const seen = new Set()
+    const deduped = []
+    for (const r of results) {
+      const key = `${r.subject.id}-${r.predicate}-${r.object.id}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      deduped.push(r)
+    }
+    return deduped.sort((a, b) => b.score - a.score).slice(0, topK)
   }
 
   /**
