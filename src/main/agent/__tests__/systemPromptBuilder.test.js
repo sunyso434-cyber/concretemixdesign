@@ -95,3 +95,40 @@ describe('buildSystemPrompt 注入 preferenceSummary', () => {
     expect(prompt).toContain('- 计算方法：体积法')
   })
 })
+
+// Task 4.4：system prompt 注入 7 个 workspace 工具说明
+// 验证 7 个工具名都出现在 prompt 中，LLM 才能知道怎么用
+describe('buildSystemPrompt 注入 workspace 工具说明（Task 4.4）', () => {
+  const EXPECTED_TOOLS = [
+    'workspace.search',
+    'workspace.readPage',
+    'workspace.ingest',
+    'workspace.writeFile',
+    'workspace.listFiles',
+    'workspace.lint',
+    'workspace.searchGraph'
+  ]
+
+  test('7 个 workspace 工具名应全部出现在 system prompt', () => {
+    const prompt = buildSystemPrompt({
+      memoryContext: '',
+      skillNames: ['calculate_mix_design'],
+      agentMdRules: ''
+    })
+    for (const name of EXPECTED_TOOLS) {
+      expect(prompt).toContain(name)
+    }
+  })
+
+  test('应包含 "workspace 工具说明" 小标题', () => {
+    const prompt = buildSystemPrompt({})
+    expect(prompt).toContain('workspace 工具说明')
+  })
+
+  test('应说明 LLM 优先 ingest 再 readPage 的工作流提示', () => {
+    const prompt = buildSystemPrompt({})
+    expect(prompt).toContain('ingest')
+    expect(prompt).toContain('readPage')
+    expect(prompt).toContain('wiki 摘要更精炼')
+  })
+})
