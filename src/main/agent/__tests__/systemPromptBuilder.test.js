@@ -1,4 +1,4 @@
-const { buildSystemPrompt } = require('../systemPromptBuilder')
+const { buildSystemPrompt, REPORT_SKILL_MATRIX } = require('../systemPromptBuilder')
 
 describe('systemPromptBuilder', () => {
   test('应输出包含角色定义的字符串', () => {
@@ -130,5 +130,60 @@ describe('buildSystemPrompt 注入 workspace 工具说明（Task 4.4）', () => 
     expect(prompt).toContain('ingest')
     expect(prompt).toContain('readPage')
     expect(prompt).toContain('wiki 摘要更精炼')
+  })
+})
+
+// Task 4.3：5 类报告 → 必调 Skill 矩阵（v1.5.3 软约束）
+// 软约束：LLM 看到后倾向按此顺序调用，可视情况跳过。
+// 硬拦截不在 UnifiedStrategy 实现（避免破坏 LLM 自主性）。
+describe('buildSystemPrompt 注入 5 类报告 Skill 矩阵（Task 4.3 软约束）', () => {
+  test('REPORT_SKILL_MATRIX 常量应被导出且含 5 类报告标题', () => {
+    expect(REPORT_SKILL_MATRIX).toBeDefined()
+    expect(REPORT_SKILL_MATRIX).toContain('5 类报告')
+    expect(REPORT_SKILL_MATRIX).toContain('必调 Skill 矩阵')
+  })
+
+  test('buildSystemPrompt 应注入 5 类报告 → 必调 Skill 矩阵（关键内容）', () => {
+    const prompt = buildSystemPrompt({
+      memoryContext: '',
+      skillNames: ['calculate_mix_design', 'performance_prediction'],
+      agentMdRules: ''
+    })
+    expect(prompt).toContain('5 类报告')
+    expect(prompt).toContain('配合比设计报告')
+    expect(prompt).toContain('calculate_mix_design')
+    expect(prompt).toContain('workspace.search')
+  })
+
+  test('buildSystemPrompt 应覆盖全部 5 类报告场景', () => {
+    const prompt = buildSystemPrompt({})
+    expect(prompt).toContain('配合比设计报告')
+    expect(prompt).toContain('多方案对比')
+    expect(prompt).toContain('报价单')
+    expect(prompt).toContain('原材料检测报告')
+    expect(prompt).toContain('PDF 知识源报告')
+  })
+
+  test('buildSystemPrompt 应包含全部关键 Skill 名（calculate_mix_design / cost_optimization / prepare_quote_draft / compliance_check / performance_prediction）', () => {
+    const prompt = buildSystemPrompt({})
+    expect(prompt).toContain('calculate_mix_design')
+    expect(prompt).toContain('cost_optimization')
+    expect(prompt).toContain('prepare_quote_draft')
+    expect(prompt).toContain('compliance_check')
+    expect(prompt).toContain('performance_prediction')
+  })
+
+  test('matrix 应出现在 agentMdRules 之后、回答风格之前（位置正确）', () => {
+    const prompt = buildSystemPrompt({
+      memoryContext: '',
+      skillNames: [],
+      agentMdRules: '我的规则占位'
+    })
+    const idxRules = prompt.indexOf('我的规则占位')
+    const idxMatrix = prompt.indexOf('5 类报告')
+    const idxStyle = prompt.indexOf('回答风格')
+    expect(idxRules).toBeGreaterThan(-1)
+    expect(idxMatrix).toBeGreaterThan(idxRules)
+    expect(idxStyle).toBeGreaterThan(idxMatrix)
   })
 })
