@@ -79,6 +79,12 @@ async function initSkillSystem() {
   DeepSeekService.setSkillRegistry(skillRegistry)
 
   // 创建 DynamicContextProvider（按需注入服务，节省token）
+  // v1.5.3 Task 4.2：额外注入 wiki/workspace/chatHistory 到 allServices，
+  // 让 18 个 Skill 可选地通过 context.wiki / context.workspace / context.chatHistory
+  // 访问 workspace 能力（不改 Skill 的 execute(args, context) 签名）。
+  // 来源是 global.*：main.js 在 workspace 初始化时已挂到 global。
+  // P1 阶段 global.* 可能为 null → DynamicContextProvider.getServices 内部
+  // `if (this.allServices[serviceName])` 跳过 null，不抛错。
   const allServices = {
     materialService: require('../services/MaterialService'),
     mixDesignService: require('../services/MixDesignService'),
@@ -89,12 +95,17 @@ async function initSkillSystem() {
     salesQuoteCalculation: require('../services/SalesQuoteCalculationService'),
     salesQuoteHistory: require('../services/SalesQuoteHistoryService'),
     xgboostPrediction: require('../services/XGBoostPredictionService'),
-    mixDesignToQuote: require('../services/MixDesignToQuoteService')
+    mixDesignToQuote: require('../services/MixDesignToQuoteService'),
+
+    // === v1.5.3 Task 4.2：workspace 能力注入（从 global 拿，main.js 已注入）===
+    wiki: global.wikiEngine || null,
+    workspace: global.workspaceManager || null,
+    chatHistory: global.chatHistorySync || null  // v1.5.3 关键：是 Sync 不是 Exporter
   }
 
   const contextProvider = new DynamicContextProvider(allServices)
   contextProvider.setRegistry(skillRegistry)
-  console.log('[AgentHandler] 使用 DynamicContextProvider（按需注入服务）')
+  console.log('[AgentHandler] 使用 DynamicContextProvider（含 wiki/workspace/chatHistory）')
 
   skillExecutor = new SkillExecutor({ skillRegistry, contextProvider })
 
