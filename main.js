@@ -280,8 +280,6 @@ app.whenReady().then(async () => {
 
   const workspaceRefs = { workspaceManager: null, wikiEngine: null, kgExtractor: null, chatHistorySync: null }
   workspaceRefs.workspaceManager = new WorkspaceManager()
-  // Task 1.10：实例化 WikiEngine，注入到 workspaceRefs（handler 通过 refs.wikiEngine 读最新值）
-  workspaceRefs.wikiEngine = new WikiEngine({ workspace: workspaceRefs.workspaceManager })
   // Task 2.12-2.15：实例化 ChatHistorySync + ChatHistoryExporter，绑定到 WorkspaceManager
   const chatHistoryExporter = new ChatHistoryExporter()
   workspaceRefs.chatHistorySync = new ChatHistorySync({
@@ -289,11 +287,60 @@ app.whenReady().then(async () => {
     exporter: chatHistoryExporter
   })
   workspaceRefs.workspaceManager.attachSync(workspaceRefs.chatHistorySync)
+
+  // === Task 5.2：实例化 KGExtractor 并注入到 WikiEngine ===
+  // v1.5.3 关键：注入到 workspaceRefs（handler 走 refs.kgExtractor 读最新值）
+  // + global.kgExtractor（伪 Skill 闭包用 global.*）
+  // Task 5.2 (P5.2)：同时把 kgExtractor 注入 WikiEngine，ingest 自动跑 KG 提取
+  const { KGExtractor } = require('./src/main/workspace/KGExtractor')
+  let kgSchema = null
+  try {
+    kgSchema = require('./src/main/workspace/kg-schema.json')
+  } catch (_) {
+    // kg-schema.json 不存在时 searchGraph 仍可用（extract 才需要 schema）
+  }
+  const kgExtractor = new KGExtractor({ llmClient: global.deepseekService || null, schema: kgSchema })
+  workspaceRefs.kgExtractor = kgExtractor
+  global.kgExtractor = kgExtractor
+
+  // Task 1.10 + Task 5.2：实例化 WikiEngine，注入 workspace 和 kgExtractor
+  workspaceRefs.wikiEngine = new WikiEngine({
+    workspace: workspaceRefs.workspaceManager,
+    kgExtractor: workspaceRefs.kgExtractor
+  })
   workspaceHandler.register(workspaceRefs)
   // 暴露到全局供其他模块（如 AgentMemoryService / BackgroundTaskService）使用
   global.workspaceManager = workspaceRefs.workspaceManager
   global.wikiEngine = workspaceRefs.wikiEngine
   global.chatHistorySync = workspaceRefs.chatHistorySync
+  console.log('[main] P5 阶段：KGExtractor 已实例化（searchGraph 启用）')
+
+  // 重新注册 7 个 workspace 伪 Skill（searchGraph 闭包现在能拿到 kgExtractor）
+  try {
+    const { getSkillRegistry } = require('./src/main/ipcHandlers/agentHandler')
+    const skillRegistry = getSkillRegistry()
+    if (skillRegistry) {
+      const oldWorkspaceSkillNames = [
+        'workspace.search', 'workspace.readPage', 'workspace.ingest',
+        'workspace.writeFile', 'workspace.listFiles', 'workspace.lint', 'workspace.searchGraph'
+      ]
+      for (const name of oldWorkspaceSkillNames) skillRegistry.unregister(name)
+      const { buildWorkspaceSkills } = require('./src/main/agent/workspaceTools')
+      const newSkills = buildWorkspaceSkills({
+        workspaceManager: workspaceRefs.workspaceManager,
+        wikiEngine: workspaceRefs.wikiEngine,
+        kgExtractor
+      })
+      for (const s of newSkills) {
+        skillRegistry.register(s, { builtin: true, filePath: '<workspace-pseudo>' })
+      }
+      console.log('[main] P5 阶段：workspace.searchGraph 伪 Skill 已重新注册（含 kgExtractor 闭包）')
+    }
+  } catch (err) {
+    // Skill 系统未初始化时静默忽略（agentHandler.initSkillSystem 会在后续 registerAgentHandlers 里调）
+    console.warn('[main] P5 阶段重新注册 workspace 伪 Skill 跳过（skillRegistry 尚未初始化）:', err.message)
+  }
+
   console.log('workspace IPC 已注册（9 个 handler，含 workspace:ingest/migrateSession/exportSession）')
 
   // 初始化 agent.md 服务（加载 + 监听用户自定义规则文件）

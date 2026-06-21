@@ -121,6 +121,21 @@ function register(refs) {
     })
   }))
 
+  // Task 5.4: workspace:searchGraph - BM25 查询知识图谱（spec §4.14）
+  // v1.5.3 关键：kgExtractor 走 workspaceRefs（不是闭包变量）
+  ipcMain.handle('workspace:searchGraph', wrapWorkspaceCall(async (event, { query, topK }) => {
+    if (!refs.kgExtractor) {
+      throw new WorkspaceError('NOT_OPEN', '知识图谱未启用（P5 阶段才激活）', false)
+    }
+    // 走当前工作区路径
+    const current = refs.workspaceManager.current()
+    if (!current || !current.path) {
+      throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
+    }
+    const results = await refs.kgExtractor.searchGraph(query, topK || 10, current.path)
+    return { results }
+  }))
+
   // 后续 task 加：workspace:search / workspace:searchGraph
 }
 
