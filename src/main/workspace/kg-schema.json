@@ -1,0 +1,75 @@
+{
+  "entityTypes": ["Material", "Property", "Spec", "Process", "Admixture"],
+  "relationTypes": ["increases", "decreases", "correlatesWith", "requires", "conflictsWith", "causes", "mentionsIn"],
+  "examples": [
+    {
+      "input": "硅灰能显著提高混凝土的 28d 抗压强度，因其填充效应和火山灰活性，但会降低流动性。",
+      "output": {
+        "entities": [
+          { "name": "硅灰", "type": "Material" },
+          { "name": "28d 抗压强度", "type": "Property" },
+          { "name": "流动性", "type": "Property" }
+        ],
+        "relations": [
+          { "subject": "硅灰", "predicate": "increases", "object": "28d 抗压强度", "evidence": "硅灰能显著提高混凝土的 28d 抗压强度，因其填充效应和火山灰活性", "confidence": 0.95 },
+          { "subject": "硅灰", "predicate": "decreases", "object": "流动性", "evidence": "但会降低流动性，需要配合减水剂使用以保持施工性能", "confidence": 0.9 }
+        ]
+      }
+    },
+    {
+      "input": "水胶比与混凝土抗压强度呈强负相关，W/B 越低强度越高但脆性增加。",
+      "output": {
+        "entities": [
+          { "name": "水胶比", "type": "Property" },
+          { "name": "抗压强度", "type": "Property" },
+          { "name": "脆性", "type": "Property" }
+        ],
+        "relations": [
+          { "subject": "水胶比", "predicate": "correlatesWith", "object": "抗压强度", "evidence": "水胶比与混凝土抗压强度呈强负相关，W/B 越低强度越高", "confidence": 0.9 },
+          { "subject": "水胶比", "predicate": "decreases", "object": "脆性", "evidence": "W/B 越低脆性增加，因水化产物更致密", "confidence": 0.7 }
+        ]
+      }
+    },
+    {
+      "input": "UHPC 必须掺入钢纤维和硅灰，常规工艺无法获得 150MPa 以上强度。",
+      "output": {
+        "entities": [
+          { "name": "UHPC", "type": "Spec" },
+          { "name": "钢纤维", "type": "Material" },
+          { "name": "硅灰", "type": "Material" }
+        ],
+        "relations": [
+          { "subject": "UHPC", "predicate": "requires", "object": "钢纤维", "evidence": "UHPC 必须掺入钢纤维以获得高抗拉强度", "confidence": 0.95 },
+          { "subject": "UHPC", "predicate": "requires", "object": "硅灰", "evidence": "必须掺入硅灰，常规工艺无法获得 150MPa 以上强度", "confidence": 0.95 }
+        ]
+      }
+    },
+    {
+      "input": "海砂因含氯离子会腐蚀钢筋，与普通河砂在混凝土应用上存在冲突。",
+      "output": {
+        "entities": [
+          { "name": "海砂", "type": "Material" },
+          { "name": "河砂", "type": "Material" },
+          { "name": "钢筋", "type": "Material" },
+          { "name": "氯离子腐蚀", "type": "Process" }
+        ],
+        "relations": [
+          { "subject": "海砂", "predicate": "conflictsWith", "object": "河砂", "evidence": "海砂因含氯离子会腐蚀钢筋，与普通河砂在混凝土应用上存在冲突", "confidence": 0.85 },
+          { "subject": "海砂", "predicate": "causes", "object": "氯离子腐蚀", "evidence": "海砂含氯离子，会导致钢筋锈蚀降低结构耐久性", "confidence": 0.9 }
+        ]
+      }
+    },
+    {
+      "input": "GB/T 50082-2009 标准规定了混凝土抗冻融试验方法。",
+      "output": {
+        "entities": [
+          { "name": "GB/T 50082-2009", "type": "Spec" },
+          { "name": "抗冻融试验", "type": "Process" }
+        ],
+        "relations": [
+          { "subject": "GB/T 50082-2009", "predicate": "mentionsIn", "object": "抗冻融试验", "evidence": "GB/T 50082-2009 标准规定了混凝土抗冻融试验方法", "confidence": 0.95 }
+        ]
+      }
+    }
+  ]
+}
