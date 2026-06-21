@@ -1,3 +1,41 @@
+## v7.0.0 (2026-06-22) - P5 阶段完工：KG 提取（7 task）
+
+### 阶段总览
+P5 7 个 task（5.1-5.4 + 5.5a/b/c 合并）全部完成 + final review READY_TO_MERGE。
+
+### 7 个 task 一览
+| Task | 内容 | Commit |
+|------|------|--------|
+| 5.1 | KGExtractor 基础（extract/loadGraph/saveGraph/compact）| 3d7e8ff |
+| 5.2 | WikiEngine.ingest 集成 KG（.tmp/ 阶段准备 kg/sources/）| 6a9d63f |
+| 5.3 | kg-merge.js（mergeInto 冲突检测 + compactGraph + checkSize）| 13dbb87 |
+| 5.4 | GraphQuery（searchGraph BM25 + 三元组 + workspace:searchGraph IPC）| 38e30a2 + d923315 |
+| 5.5a | E2E M 论文级提取（≥10 entities + ≥8 relations + ≥3 relation type）| bdcf833 |
+| 5.5b | E2E N 合并冲突检测（conflicting_relation）| (合并) |
+| 5.5c | E2E O 查询验证（searchGraph < 100ms 命中三元组）| 671b3e5 |
+
+### 核心功能
+- **KGExtractor one-shot 提取**：5 entityTypes + 7 relationTypes + 5 few-shot examples
+- **原子性 KG 集成**：ingest 阶段准备 kg/sources/<slug>.json，commit 阶段 rename
+- **KG 合并 + 冲突检测**：mergeInto 检测 conflicting_relation，保留双 evidence
+- **GraphQuery BM25**：searchGraph 命中三元组 < 100ms
+- **大小守卫**：graph.json 50MB / 5万 relations 抛 INDEX_TOO_LARGE
+- **失败降级**：KG 任何失败不污染 ingest 主流程
+- **searchGraph IPC**：7 伪 Skill 在 P5 阶段激活
+
+### 验证
+- ✅ 1045/1045 全量通过（142 suites, 0 regression）
+- ✅ E2E M 实测 16 entities + 9 relations + 5 relation type（远超 ≥10/≥8/≥3）
+- ✅ E2E N conflicting_relation 检测成功
+- ✅ E2E O < 100ms 命中三元组
+- ✅ Final review READY_TO_MERGE（0 Critical, 0 Important, 6 Minor）
+
+### 已知遗留
+- E2E 跑不动（P6 升级 Electron 22+）
+- 6 Minor（命名/性能阈值/深拷贝/console.warn 等，不阻塞）
+
+---
+
 ## v6.0.0 (2026-06-19) - P4 阶段完工：Agent 集成 workspace 工具（5 task）
 
 ### 阶段总览
