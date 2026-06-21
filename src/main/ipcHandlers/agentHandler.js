@@ -19,6 +19,7 @@ const SkillRegistry = require('../agent/SkillRegistry')
 const SkillExecutor = require('../agent/SkillExecutor')
 const DynamicContextProvider = require('../agent/DynamicContextProvider')
 const SkillDebugger = require('../agent/SkillDebugger')
+const { buildWorkspaceSkills } = require('../agent/workspaceTools')
 const agentMemoryService = require('../services/AgentMemoryService')
 const SystemService = require('../services/SystemService')
 
@@ -36,6 +37,29 @@ const { getInstance: getAgentMdService, agentMdPath } = require('../agent/agentM
 const { AgentMdParser } = require('../agent/agentMd/AgentMdParser')
 const { getSuggestionStore } = require('../agent/preferences')
 
+/**
+ * v1.5.3 Task 4.1：注册 7 个 workspace 伪 Skill。
+ *
+ * 关键设计：buildWorkspaceSkills 的 invoke 闭包在 execute 时才读
+ * global.workspaceManager / global.wikiEngine / global.kgExtractor，所以
+ * 即使本函数在 main.js workspace 初始化之前被调也安全——execute 实际被
+ * LLM 触发的时机远在 workspace ready 之后。
+ *
+ * 幂等：多次调用只会替换同名 skill（SkillRegistry 不去重，重复注册会覆盖）。
+ */
+function registerWorkspacePseudoSkills() {
+  if (!skillRegistry) return
+  const skills = buildWorkspaceSkills({
+    workspaceManager: global.workspaceManager || null,
+    wikiEngine: global.wikiEngine || null,
+    kgExtractor: global.kgExtractor || null
+  })
+  for (const s of skills) {
+    skillRegistry.register(s, { builtin: true, filePath: '<workspace-pseudo>' })
+  }
+  console.log(`[AgentHandler] 已注册 ${skills.length} 个 workspace 伪 Skill`)
+}
+
 // 初始化 Skill 系统（应用启动时调用）
 async function initSkillSystem() {
   if (skillRegistry) return skillRegistry
@@ -43,6 +67,13 @@ async function initSkillSystem() {
   console.log('[AgentHandler] 初始化 Skill 系统...')
   skillRegistry = new SkillRegistry()
   await skillRegistry.discover()
+
+  // v1.5.3 Task 4.1：注册 7 个 workspace 伪 Skill（早期注册，闭包里的
+  // global.* 引用在 execute 时才真正求值，避免 init 时序问题）。
+  // 真正的执行转发由各 invoke 闭包在运行时读 global.workspaceManager /
+  // global.wikiEngine / global.kgExtractor，确保 main.js 完成 workspace 初始化
+  // 之后才能正确调用。
+  registerWorkspacePseudoSkills()
 
   // 设置 DeepSeekService 的 SkillRegistry
   DeepSeekService.setSkillRegistry(skillRegistry)
