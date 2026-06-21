@@ -1,3 +1,37 @@
+## v6.0.0 (2026-06-19) - P4 阶段完工：Agent 集成 workspace 工具（5 task）
+
+### 阶段总览
+P4 5 个 task（4.1-4.4 + 4.5-4.8 合并）全部完成 + final review READY_TO_MERGE。
+
+### 5 个 task 一览
+| Task | 内容 | Commit | Review |
+|------|------|--------|--------|
+| 4.1 | 7 个 workspace 伪 Skill + agentHandler 注册 | 721e90c | (final 覆盖) |
+| 4.2 | DynamicContextProvider 注入 wiki/workspace/chatHistory（18 个 Skill 零修改）| 1604cdd | (final 覆盖) |
+| 4.3 | 5 类报告 → 必调 Skill 矩阵（v1.5.3 软约束）| 6625a54 | (final 覆盖) |
+| 4.4 | system prompt 注入 7 工具说明 | 467e041 | (final 覆盖) |
+| 4.5-4.8 | P4 E2E 5 场景（A/B/D/G/H 集成测试）| 901ebe1 | READY_TO_MERGE |
+
+### 核心功能
+- **7 个 workspace 工具作为伪 Skill**：search/readPage/ingest/writeFile/listFiles/lint/searchGraph
+- **不破坏 18 个 Skill**：`context.wiki?.search()` 安全链式调用
+- **5 类报告 Skill 矩阵**：配合比/优化/对比/诊断/报价 必调 Skill 提示
+- **system prompt 工具说明**：LLM 直接看懂每个工具用法
+- **5 E2E 场景**：A 搜索读页 / B ingest-write 完整闭环 / D lint 检测 / G chat-history 搜索 / H listFiles 组合
+
+### 验证
+- ✅ 1002/1002 全量通过（138 suites, 0 regression）
+- ✅ 18 个 Skill 文件零修改
+- ✅ 7 核心 agent 文件零修改
+- ✅ Final review READY_TO_MERGE（0 Critical, 0 Important, 1 Minor）
+
+### 已知遗留
+- E2E 跑不动（P6 升级 Electron 22+）
+- KG 提取未做（P5）
+- 1 Minor：`registerWorkspacePseudoSkills` 没导出（P5 重注册时补）
+
+---
+
 ## v5.0.0 (2026-06-19) - P3 阶段完工：写能力（6 task 全部 review PASS）
 
 ### 阶段总览
