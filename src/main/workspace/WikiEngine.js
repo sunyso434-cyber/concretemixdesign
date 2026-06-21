@@ -588,7 +588,23 @@ ${String(a)}
 
     // 4. 不重建 BM25（answer 文档不入索引）
 
+    // 5. Task 6.6 (P6 健壮性)：末尾尝试轮转 log.md
+    // - 失败不阻塞 recordAnswer 主流程（log 轮转是后台维护，不影响问答回填）
+    // - rotateLog 内部已处理 log.md 不存在 / 未达阈值
+    await this._maybeRotateLog()
+
     return { status: 'ok', answerPath: answerRel }
+  }
+
+  // Task 6.6 (P6 健壮性)：内部方法 - 调 rotateLog 轮转 log.md
+  // - 失败 catch 后只 console.warn，不抛（spec §4.13：log 轮转失败不影响主流程）
+  async _maybeRotateLog() {
+    try {
+      const { rotateLog } = require('./log-rotator')
+      await rotateLog(this.workspace.current().path)
+    } catch (err) {
+      console.warn('[WikiEngine._maybeRotateLog] log 轮转失败:', err.message)
+    }
   }
 }
 
