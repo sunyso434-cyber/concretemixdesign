@@ -70,8 +70,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readPage: (wikiPath) => ipcRenderer.invoke('workspace:readPage', { wikiPath }),
     pickFolder: () => ipcRenderer.invoke('workspace:pickFolder'),
     // P1 补全：源文件→wiki 入库（v4.8.3）
-    ingest: (filename) => ipcRenderer.invoke('workspace:ingest', { filename })
-    // 后续 task 加：search / writeFile / lint / searchGraph
+    ingest: (filename) => ipcRenderer.invoke('workspace:ingest', { filename }),
+    // Task 2.8：wiki 健康检查（5 类问题：orphans/missingFrontmatter/staleSummaries/missingCrossRef/contradictions）
+    lint: () => ipcRenderer.invoke('workspace:lint')
+    // 后续 task 加：search / writeFile / searchGraph
   }
 })
 

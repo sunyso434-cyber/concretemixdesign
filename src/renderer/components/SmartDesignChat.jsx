@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip } from 'antd'
-import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, ProfileOutlined } from '@ant-design/icons'
+import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, ProfileOutlined, HeartOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
@@ -16,6 +16,7 @@ import ComplianceResultCard from './ComplianceResultCard'
 import SalesQuoteResultCard from './SalesQuoteResultCard'
 import SaveBasicMixModal from './SaveBasicMixModal'
 import AgentRulesModal from './AgentRulesModal'
+import LintReportModal from './LintReportModal'
 import DecisionGate from './DecisionGate'
 import MemorySidebar from './MemorySidebar'
 import SlashCommandMenu from './SlashCommandMenu'
@@ -240,6 +241,9 @@ const SmartDesignChat = () => {
 
   // ===== 智能助手规则 Modal =====
   const [rulesModalOpen, setRulesModalOpen] = useState(false)
+
+  // ===== Wiki 健康检查 Modal（Task 6.3）=====
+  const [lintModalOpen, setLintModalOpen] = useState(false)
 
   // ===== 工作区抽屉 =====
   const [workspacePath, setWorkspacePath] = useState(null)
@@ -1146,6 +1150,14 @@ const SmartDesignChat = () => {
                   onClick={() => setRulesModalOpen(true)}
                 />
               </Tooltip>
+              <Tooltip title="🩺 Wiki 健康检查（扫描 5 类问题）">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<HeartOutlined />}
+                  onClick={() => setLintModalOpen(true)}
+                />
+              </Tooltip>
             </Space>
           </div>
 
@@ -1508,6 +1520,10 @@ const SmartDesignChat = () => {
       <AgentRulesModal
         visible={rulesModalOpen}
         onClose={() => setRulesModalOpen(false)}
+      />
+      <LintReportModal
+        visible={lintModalOpen}
+        onClose={() => setLintModalOpen(false)}
       />
     </div>
     </Content>
