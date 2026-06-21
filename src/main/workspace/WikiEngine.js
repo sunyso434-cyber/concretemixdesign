@@ -23,8 +23,13 @@ const { queryBM25, buildBM25 } = require('./bm25')
 const { tokenize } = require('./tokenizer')
 
 class WikiEngine {
-  constructor({ workspace }) {
+  // Task 5.2：加 kgExtractor 参数（注入 KG 提取器，P5.1 KGExtractor）
+  // - 不注入 → 等同 quality:low 降级（不写 kg/，不破坏现有行为，向后兼容）
+  // - 注入 → ingest 流程加 KG 步骤，在 .tmp/ 阶段准备 kg/sources/<slug>.json，
+  //   提交阶段和 .md 一起 rename 到 wiki/kg/sources/<slug>.json
+  constructor({ workspace, kgExtractor = null }) {
     this.workspace = workspace
+    this.kgExtractor = kgExtractor
   }
 
   // Task 2.1: 原子性 ingest (P2a 升级)
@@ -113,6 +118,37 @@ ${content}
 `
       await fs.writeFile(targetAbs, md, 'utf-8')
 
+      // 1d-kg. Task 5.2 (P5.2)：在 .tmp/ 阶段准备 kg/sources/<slug>.json
+      // - 调 kgExtractor.extract(content, filename) 提取实体关系
+      // - quality:high → 写 .tmp/kg/sources/<slug>.json（提交阶段一起 rename）
+      // - quality:low / extractor 抛错 → 降级，不写 kg/，不污染 graph.json
+      // - 不注入 kgExtractor → 跳过此步骤（向后兼容）
+      // - Task 5.3 (mergeInto) 会在 ingest 流程的提交后做，不在 .tmp/ 阶段
+      let kgResult = null       // Task 5.3：提到外层 try 顶部，mergeInto 需引用
+      let kgResultAbs = null    // 用于提交阶段 rename
+      if (this.kgExtractor) {
+        try {
+          kgResult = await this.kgExtractor.extract(content, filename)
+        } catch (kgErr) {
+          // extractor 意外抛错 → 降级，不挂 ingest
+          console.warn('[WikiEngine.ingest] kgExtractor.extract 抛错，降级:', kgErr.message)
+          kgResult = null
+        }
+        if (kgResult && kgResult.quality === 'high') {
+          // 准备 .tmp/ingest-<uuid>/kg/sources/<slug>.json
+          const kgSourcesDir = path.join(tmpDir, 'kg', 'sources')
+          await fs.mkdir(kgSourcesDir, { recursive: true })
+          const kgTargetRel = `kg/sources/${slug}.json`
+          kgResultAbs = path.join(tmpDir, kgTargetRel)
+          await fs.writeFile(kgResultAbs, JSON.stringify(kgResult, null, 2), 'utf-8')
+          // 校验：JSON 大小必须 > 0
+          const kgStat = await fs.stat(kgResultAbs)
+          if (kgStat.size === 0) {
+            throw new WorkspaceError('ATOMIC_FAIL', 'kg json 大小为 0', true)
+          }
+        }
+      }
+
       // 1e. P2a 暂不更新 index.md / log.md（Task 2.2 引入 schema 后做）
       // 1f. v4.9.4 (P2a follow-up I-1)：ingest→index 桥接完成
       //     提交阶段后立即 buildBM25 + saveIndex，下次 search 走持久化索引
@@ -128,6 +164,37 @@ ${content}
       const finalDir = path.join(current.path, 'wiki', 'sources')
       await fs.mkdir(finalDir, { recursive: true })
       await fs.rename(targetAbs, path.join(finalDir, `${slug}.md`))
+      // Task 5.2 (P5.2)：KG 文件同步 rename 到 wiki/kg/sources/<slug>.json
+      // - 只有质量为 high 时才写了 kgResultAbs
+      // - 和 .md 一起在提交阶段一次性 rename（如果前面抛错，.tmp/ 清理时一并删掉）
+      if (kgResultAbs) {
+        const finalKgDir = path.join(current.path, 'wiki', 'kg', 'sources')
+        await fs.mkdir(finalKgDir, { recursive: true })
+        await fs.rename(kgResultAbs, path.join(finalKgDir, `${slug}.json`))
+      }
+
+      // Task 5.3 (P5.3)：把新提取的三元组合并到全局 graph.json
+      // - 在 .md / kg/sources/<slug>.json 都原子 rename 后再 mergeInto
+      //   （任何前序失败 → .tmp/ 清理，graph.json 不动 → 保持原子性）
+      // - mergeInto 内部已含 _checkSize（kg-merge.js）；saveGraph 失败不污染 ingest 主流程
+      let kgMergeResult = null
+      if (this.kgExtractor && kgResult && kgResult.quality === 'high') {
+        try {
+          const { mergeInto } = require('./kg-merge')
+          const oldGraph = await this.kgExtractor.loadGraph(current.path)
+          const { graph: newGraph, conflicts } = mergeInto(oldGraph, kgResult, filename)
+          await this.kgExtractor.saveGraph(current.path, newGraph)
+          kgMergeResult = {
+            mergedEntities: kgResult.entities.length,
+            mergedRelations: kgResult.relations.length,
+            conflictsDetected: conflicts.length
+          }
+        } catch (err) {
+          // KG 合并失败不影响 ingest 主流程（spec §4.13：KG 失败降级 quality: low）
+          const code = err instanceof WorkspaceError ? err.code : 'KG_EXTRACT_FAIL'
+          kgMergeResult = { error: code, message: err.message }
+        }
+      }
 
       // ===== 4. 清理 .tmp/ =====
       await fs.rm(tmpDir, { recursive: true, force: true })
@@ -175,7 +242,8 @@ ${content}
         pagesUpdated: [],
         refsUpdated: 0,
         bm25TokensAdded: tokensAdded,
-        durationMs: Date.now() - startTime
+        durationMs: Date.now() - startTime,
+        kgMerge: kgMergeResult
       }
     } catch (err) {
       // 任何失败：清理 .tmp/ingest-<uuid>/，并尝试清理空 .tmp/ 父目录（保持原子性测试不变量）
