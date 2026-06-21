@@ -1,3 +1,44 @@
+## v8.0.0 (2026-06-22) - P6 关键 task 完工 + 项目全部阶段结束
+
+### 阶段总览
+P6 老板选了 3 个关键 task（6.3 lint UI + 6.4 验收清单自动化 + 6.6 log 轮转），全部完成。**项目 60 个 task 全部完工**。
+
+### 3 个 task 一览
+| Task | 内容 | Commit |
+|------|------|--------|
+| 6.3 | Lint 健康检查 Modal UI（5 类问题展示）| c2eb909 |
+| 6.4 | 老板人工验收 7 条清单自动化（18 E2E）| 1a30db5 |
+| 6.6 | log.md 轮转（10MB/1000条触发，30天归档清理）| c0c05a9 |
+
+### 核心功能
+- **Lint UI**：老板点「🩺 健康检查」按钮 → 弹 Modal 显示 5 类问题
+- **7 条验收 E2E**：ingest / docx / 坏 PDF / /rounds 3 / markdown / 429 降级 / UHPC KG 提取
+- **log 轮转**：10MB 或 1000 条触发 gzip 归档，保留 30 天
+
+### 验证
+- ✅ 1094/1094 全量通过（145 suites, 0 regression）
+- ✅ Final review READY_TO_MERGE（0 Critical, 0 Important, 7 Minor）
+
+### 整个项目最终总结（v4.8.5 → v8.0.0）
+
+| 版本 | 阶段 | 核心功能 |
+|------|------|----------|
+| v4.8.5 | P1 末 | 工作区基础 |
+| v4.9.0 | P2a | Wiki 引擎 + 搜索 + lint + recordAnswer |
+| v4.9.1-4.9.4 | hotfix | chokidar + pickFolder + unclassified |
+| v4.10.0 | P2a follow-up | ingest→index 桥接等 6 问题 |
+| v4.10.1 | hotfix | unclassified 兜底 |
+| v5.0.0 | P3 | 3 writer + writeFile IPC + FileMessageCard UI |
+| v6.0.0 | P4 | 7 workspace 伪 Skill + Agent 集成 |
+| v7.0.0 | P5 | KG 提取（KGExtractor + 合并 + GraphQuery）|
+| v8.0.0 | P6 | lint UI + 7 验收 + log 轮转 |
+
+**项目计划完成度**：60 / 60 task = 100%
+**全量测试**：1094 / 1094（145 suites）
+**最终版本**：v8.0.0
+
+---
+
 ## v7.0.0 (2026-06-22) - P5 阶段完工：KG 提取（7 task）
 
 ### 阶段总览
