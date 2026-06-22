@@ -201,6 +201,14 @@ export function createSession({ dispatch }) {
   dispatch({ type: 'SET_SESSION_ID', payload: newId })
   dispatch({ type: 'CLEAR_MESSAGES' })
   dispatch({ type: 'RESET_AGENT' })
+
+  // 立即在数据库中创建 ChatSession 记录，这样会话会立即出现在列表中
+  // 默认名称会在用户发送第一条消息时被 AI 摘要覆盖
+  window.electronAPI.invoke('agent:createSession', {
+    sessionId: newId,
+    sessionName: `新对话 ${new Date().toLocaleString('zh-CN', { hour12: false })}`
+  }).catch(err => console.error('创建会话记录失败:', err))
+
   // loadSessionList 内部已 try/catch，但仍加 .catch 兜底防止未来重构去掉
   loadSessionList({ dispatch }).catch(() => {})
 }

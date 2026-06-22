@@ -367,6 +367,18 @@ function registerAgentHandlers() {
     return { success: true }
   })
 
+  ipcMain.handle('agent:createSession', async (_event, { sessionId, sessionName }) => {
+    const { ChatSession } = require('../db/database')
+    const currentWorkspacePath = global.workspaceManager ? global.workspaceManager.current()?.path : null
+    await ChatSession.upsert({
+      sessionId,
+      sessionName: sessionName || `新对话 ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+      workspacePath: currentWorkspacePath,
+      lastActivity: new Date()
+    })
+    return { success: true }
+  })
+
   ipcMain.handle('agent:getSessionInfo', async (_event, { sessionId }) => {
     const { ChatSession } = require('../db/database')
     const session = await ChatSession.findOne({ where: { sessionId } })

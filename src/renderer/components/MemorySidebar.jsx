@@ -77,29 +77,54 @@ const MemorySidebar = ({ onToggle }) => {
   }
 
   const handleRenameSession = (sessionId, currentName) => {
-    let newName = currentName || ''
-    Modal.confirm({
+    let inputValue = currentName || ''
+    let modalInstance = null
+
+    const handleOk = async () => {
+      const trimmedName = inputValue.trim()
+      if (!trimmedName) {
+        message.warning('会话名称不能为空')
+        return
+      }
+      if (trimmedName === (currentName || '').trim()) {
+        message.info('名称未改变')
+        return
+      }
+      try {
+        await window.electronAPI.invoke('agent:renameSession', {
+          sessionId,
+          sessionName: trimmedName
+        })
+        await loadSessionList({ dispatch })
+        // 同时刷新分组数据
+        await fetchGroupedSessions()
+        message.success('重命名成功')
+      } catch (err) {
+        console.error('重命名失败:', err)
+        message.error('重命名失败: ' + err.message)
+      }
+    }
+
+    modalInstance = Modal.confirm({
       title: '重命名会话',
       content: (
         <div>
           <p>请输入新的会话名称：</p>
           <Input
             defaultValue={currentName}
-            onChange={e => newName = e.target.value}
+            autoFocus
+            onChange={e => { inputValue = e.target.value }}
+            onPressEnter={() => {
+              modalInstance && modalInstance.destroy()
+              handleOk()
+            }}
             placeholder="输入会话名称"
           />
         </div>
       ),
-      onOk: async () => {
-        if (newName.trim()) {
-          await window.electronAPI.invoke('agent:renameSession', {
-            sessionId,
-            sessionName: newName.trim()
-          })
-          await loadSessionList({ dispatch })
-          message.success('重命名成功')
-        }
-      }
+      okText: '确认',
+      cancelText: '取消',
+      onOk: handleOk
     })
   }
 
