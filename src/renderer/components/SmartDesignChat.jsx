@@ -12,7 +12,6 @@ import OptimizationResultCard from './OptimizationResultCard'
 import MaterialCompareCard from './MaterialCompareCard'
 import MaterialPicker from './MaterialPicker'
 import DiagnosisResultCard from './DiagnosisResultCard'
-import ComplianceResultCard from './ComplianceResultCard'
 import SalesQuoteResultCard from './SalesQuoteResultCard'
 import SaveBasicMixModal from './SaveBasicMixModal'
 import AgentRulesModal from './AgentRulesModal'
@@ -109,9 +108,6 @@ function createToolSummary(toolName, args = {}) {
   }
   if (toolName === 'run_parameter_diagnosis') {
     return '分析上传数据'
-  }
-  if (toolName === 'check_compliance') {
-    return args.mixDesign?.strengthGrade || args.mixDesign?.strength || '规范条文检索'
   }
   if (toolName === 'predict_performance') {
     return '预测强度、坍落度和容重'
@@ -1244,9 +1240,6 @@ const SmartDesignChat = () => {
                           )}
                           {item.toolCall.type === 'parameter_diagnosis' && (
                             <DiagnosisResultCard data={item.toolCall.data} />
-                          )}
-                          {item.toolCall.type === 'compliance_check' && (
-                            <ComplianceResultCard data={item.toolCall.data} />
                           )}
                         </>
                       )}
