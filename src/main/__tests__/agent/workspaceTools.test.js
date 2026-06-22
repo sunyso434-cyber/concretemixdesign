@@ -42,8 +42,8 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
     expect(skills).toHaveLength(7)
     const names = skills.map(s => s.name).sort()
     expect(names).toEqual([
-      'workspace.ingest', 'workspace.lint', 'workspace.listFiles',
-      'workspace.readPage', 'workspace.search', 'workspace.searchGraph', 'workspace.writeFile'
+      'workspace_ingest', 'workspace_lint', 'workspace_listFiles',
+      'workspace_readPage', 'workspace_search', 'workspace_searchGraph', 'workspace_writeFile'
     ].sort())
   })
 
@@ -77,81 +77,81 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
 
   // ===== invoke 转发测试 =====
 
-  test('workspace.search → wikiEngine.search(query, topK)', async () => {
+  test('workspace_search → wikiEngine.search(query, topK)', async () => {
     const wiki = makeMockWiki()
     const skills = buildWorkspaceSkills({ workspaceManager: makeMockWM(), wikiEngine: wiki, kgExtractor: null })
-    const skill = skills.find(s => s.name === 'workspace.search')
+    const skill = skills.find(s => s.name === 'workspace_search')
     const result = await skill.execute({ query: '硅灰', topK: 3 }, {})
     expect(wiki.search).toHaveBeenCalledWith('硅灰', 3)
     expect(result).toEqual([{ path: 'sources/a.md', score: 1.0 }])
   })
 
-  test('workspace.search 不传 topK → 默认 5', async () => {
+  test('workspace_search 不传 topK → 默认 5', async () => {
     const wiki = makeMockWiki()
     const skills = buildWorkspaceSkills({ workspaceManager: makeMockWM(), wikiEngine: wiki, kgExtractor: null })
-    const skill = skills.find(s => s.name === 'workspace.search')
+    const skill = skills.find(s => s.name === 'workspace_search')
     await skill.execute({ query: '粉煤灰' }, {})
     expect(wiki.search).toHaveBeenCalledWith('粉煤灰', 5)
   })
 
-  test('workspace.readPage → wikiEngine.readPage(wikiPath)', async () => {
+  test('workspace_readPage → wikiEngine.readPage(wikiPath)', async () => {
     const wiki = makeMockWiki()
     const skills = buildWorkspaceSkills({ workspaceManager: makeMockWM(), wikiEngine: wiki, kgExtractor: null })
-    const skill = skills.find(s => s.name === 'workspace.readPage')
+    const skill = skills.find(s => s.name === 'workspace_readPage')
     const result = await skill.execute({ wikiPath: 'sources/jgj-55-2011.md' }, {})
     expect(wiki.readPage).toHaveBeenCalledWith('sources/jgj-55-2011.md')
     expect(result.content).toBe('body')
   })
 
-  test('workspace.ingest → wikiEngine.ingest(args)', async () => {
+  test('workspace_ingest → wikiEngine.ingest(args)', async () => {
     const wiki = makeMockWiki()
     const skills = buildWorkspaceSkills({ workspaceManager: makeMockWM(), wikiEngine: wiki, kgExtractor: null })
-    const skill = skills.find(s => s.name === 'workspace.ingest')
+    const skill = skills.find(s => s.name === 'workspace_ingest')
     const result = await skill.execute({ filename: 'report.pdf' }, {})
     expect(wiki.ingest).toHaveBeenCalledWith({ filename: 'report.pdf' })
     expect(result.status).toBe('ok')
   })
 
-  test('workspace.lint → wikiEngine.lint()（无参）', async () => {
+  test('workspace_lint → wikiEngine.lint()（无参）', async () => {
     const wiki = makeMockWiki()
     const skills = buildWorkspaceSkills({ workspaceManager: makeMockWM(), wikiEngine: wiki, kgExtractor: null })
-    const skill = skills.find(s => s.name === 'workspace.lint')
+    const skill = skills.find(s => s.name === 'workspace_lint')
     const result = await skill.execute({}, {})
     expect(wiki.lint).toHaveBeenCalledWith()
     expect(result.missingFrontmatter).toEqual([])
     expect(result.contradictions).toEqual([])
   })
 
-  test('workspace.listFiles → workspaceManager.listFiles(subdir) 并包成 {files}', async () => {
+  test('workspace_listFiles → workspaceManager.listFiles(subdir) 并包成 {files}', async () => {
     const wm = makeMockWM()
     const skills = buildWorkspaceSkills({ workspaceManager: wm, wikiEngine: makeMockWiki(), kgExtractor: null })
-    const skill = skills.find(s => s.name === 'workspace.listFiles')
+    const skill = skills.find(s => s.name === 'workspace_listFiles')
     const result = await skill.execute({ subdir: 'reports' }, {})
     expect(wm.listFiles).toHaveBeenCalledWith('reports')
     expect(result).toEqual({ files: [{ name: 'a.md', path: 'root/a.md', size: 0 }] })
   })
 
-  test('workspace.searchGraph 在 kgExtractor=null 时抛 WorkspaceError(NOT_OPEN) → 包成 ErrorCodes 格式', async () => {
+  test('workspace_searchGraph 在 kgExtractor=null 时抛 WorkspaceError(NOT_OPEN) → 包成 ErrorCodes 格式', async () => {
     const skills = buildWorkspaceSkills({
       workspaceManager: makeMockWM(),
       wikiEngine: makeMockWiki(),
       kgExtractor: null
     })
-    const skill = skills.find(s => s.name === 'workspace.searchGraph')
+    const skill = skills.find(s => s.name === 'workspace_searchGraph')
     const result = await skill.execute({ query: '硅灰' }, {})
     expect(result.success).toBe(false)
     expect(result.errorCode).toBe('NOT_OPEN')
     expect(result.error).toContain('知识图谱未启用')
   })
 
-  test('workspace.searchGraph 在 kgExtractor 存在时 → kgExtractor.searchGraph(query, topK)', async () => {
+  test('workspace_searchGraph 在 kgExtractor 存在时 → kgExtractor.searchGraph(query, topK)', async () => {
     const kg = makeMockKG()
     const skills = buildWorkspaceSkills({
       workspaceManager: makeMockWM(),
       wikiEngine: makeMockWiki(),
       kgExtractor: kg
     })
-    const skill = skills.find(s => s.name === 'workspace.searchGraph')
+    const skill = skills.find(s => s.name === 'workspace_searchGraph')
     const result = await skill.execute({ query: '硅灰', topK: 8 }, {})
     expect(kg.searchGraph).toHaveBeenCalledWith('硅灰', 8)
     expect(result).toEqual({ triples: [{ s: 'a', p: 'b', o: 'c' }] })
@@ -165,7 +165,7 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
       search: jest.fn().mockRejectedValue(new WorkspaceError('PAGE_NOT_FOUND', 'wiki 页不存在: x.md', false))
     }
     const skills = buildWorkspaceSkills({ workspaceManager: makeMockWM(), wikiEngine: wiki, kgExtractor: null })
-    const skill = skills.find(s => s.name === 'workspace.search')
+    const skill = skills.find(s => s.name === 'workspace_search')
     const result = await skill.execute({ query: 'x' }, {})
     expect(result).toMatchObject({
       success: false,
@@ -180,7 +180,7 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
       search: jest.fn().mockRejectedValue(new Error('boom'))
     }
     const skills = buildWorkspaceSkills({ workspaceManager: makeMockWM(), wikiEngine: wiki, kgExtractor: null })
-    const skill = skills.find(s => s.name === 'workspace.search')
+    const skill = skills.find(s => s.name === 'workspace_search')
     const result = await skill.execute({ query: 'x' }, {})
     expect(result).toMatchObject({
       success: false,
@@ -209,8 +209,8 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
     const schemas = reg.getToolSchemas()
     const names = schemas.map(sc => sc.function.name).sort()
     expect(names).toEqual([
-      'workspace.ingest', 'workspace.lint', 'workspace.listFiles',
-      'workspace.readPage', 'workspace.search', 'workspace.searchGraph', 'workspace.writeFile'
+      'workspace_ingest', 'workspace_lint', 'workspace_listFiles',
+      'workspace_readPage', 'workspace_search', 'workspace_searchGraph', 'workspace_writeFile'
     ].sort())
   })
 })

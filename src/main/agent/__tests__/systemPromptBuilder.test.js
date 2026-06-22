@@ -100,13 +100,13 @@ describe('buildSystemPrompt 注入 preferenceSummary', () => {
 // 验证 7 个工具名都出现在 prompt 中，LLM 才能知道怎么用
 describe('buildSystemPrompt 注入 workspace 工具说明（Task 4.4）', () => {
   const EXPECTED_TOOLS = [
-    'workspace.search',
-    'workspace.readPage',
-    'workspace.ingest',
-    'workspace.writeFile',
-    'workspace.listFiles',
-    'workspace.lint',
-    'workspace.searchGraph'
+    'workspace_search',
+    'workspace_readPage',
+    'workspace_ingest',
+    'workspace_writeFile',
+    'workspace_listFiles',
+    'workspace_lint',
+    'workspace_searchGraph'
   ]
 
   test('7 个 workspace 工具名应全部出现在 system prompt', () => {
@@ -152,7 +152,7 @@ describe('buildSystemPrompt 注入 5 类报告 Skill 矩阵（Task 4.3 软约束
     expect(prompt).toContain('5 类报告')
     expect(prompt).toContain('配合比设计报告')
     expect(prompt).toContain('calculate_mix_design')
-    expect(prompt).toContain('workspace.search')
+    expect(prompt).toContain('workspace_search')
   })
 
   test('buildSystemPrompt 应覆盖全部 5 类报告场景', () => {

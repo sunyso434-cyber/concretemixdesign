@@ -6,13 +6,13 @@
 // Task 4.4：注入到 system prompt，让 LLM 知道每个工具怎么用、返回什么
 const WORKSPACE_TOOLS_PROMPT = `
 可用 workspace 工具（共 7 个，v1.5.1 原始设计 v1.5.3 沿用）：
-- workspace.search(query, topK) → 找相关 wiki 页（含 chat-history，不调 LLM）
-- workspace.readPage(wikiPath) → 读 wiki 页全文
-- workspace.ingest(filename) → 原始文件入 wiki（自动调 KG 提取）
-- workspace.writeFile({ type, filename, payload }) → 写 docx/xlsx/md 到 reports/
-- workspace.listFiles(subdir) → 列出工作区文件（含子目录）
-- workspace.lint() → 健康检查（不阻塞）
-- workspace.searchGraph(query, topK) → 查询知识图谱，返回完整三元组（v1.5.1 新增，P5 阶段启用）
+- workspace_search(query, topK) → 找相关 wiki 页（含 chat-history，不调 LLM）
+- workspace_readPage(wikiPath) → 读 wiki 页全文
+- workspace_ingest(filename) → 原始文件入 wiki（自动调 KG 提取）
+- workspace_writeFile({ type, filename, payload }) → 写 docx/xlsx/md 到 reports/
+- workspace_listFiles(subdir) → 列出工作区文件（含子目录）
+- workspace_lint() → 健康检查（不阻塞）
+- workspace_searchGraph(query, topK) → 查询知识图谱，返回完整三元组（v1.5.1 新增，P5 阶段启用）
 
 注：原始文件不直接读——LLM 应先 ingest 再 readPage，wiki 摘要更精炼。
 `
@@ -28,12 +28,12 @@ const REPORT_SKILL_MATRIX = `## 5 类报告 → 必调 Skill 矩阵（软约束�
 2. **多方案对比** → \`calculate_mix_design\` × N → \`cost_optimization\`
 3. **报价单** → \`calculate_mix_design\` → \`prepare_quote_draft\`
 4. **原材料检测报告** → \`performance_prediction\` + \`compliance_check\`
-5. **PDF 知识源报告** → (不调计算 Skill) → 仅用 \`workspace.search\` / \`workspace.readPage\` 检索
+5. **PDF 知识源报告** → (不调计算 Skill) → 仅用 \`workspace_search\` / \`workspace_readPage\` 检索
 
 ## workspace 工具软提示
 
-读工作区资料时：\`workspace.search(query)\` → \`workspace.readPage(path)\`。
-写报告时：构造 payload → \`workspace.writeFile({ type, filename, payload })\`。`
+读工作区资料时：\`workspace_search(query)\` → \`workspace_readPage(path)\`。
+写报告时：构造 payload → \`workspace_writeFile({ type, filename, payload })\`。`
 
 /**
  * 构造 system prompt

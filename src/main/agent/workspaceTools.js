@@ -45,26 +45,26 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
   })
 
   return [
-    skill('workspace.search', '在工作区 wiki + chat-history 中检索相关文档。返回 topK 个 SearchHit 列表。',
+    skill('workspace_search', '在工作区 wiki + chat-history 中检索相关文档。返回 topK 个 SearchHit 列表。',
       {
         query: { type: 'string', description: '搜索关键词（支持中文 2-gram）', required: true },
         topK: { type: 'number', description: '返回条数', required: false, min: 1, max: 50, default: 5 }
       },
       (args) => getWiki().search(args.query, args.topK || 5)
     ),
-    skill('workspace.readPage', '读 wiki 页全文 + frontmatter 字段。',
+    skill('workspace_readPage', '读 wiki 页全文 + frontmatter 字段。',
       {
         wikiPath: { type: 'string', description: 'wiki 页相对路径（如 sources/jgj-55-2011.md）', required: true }
       },
       (args) => getWiki().readPage(args.wikiPath)
     ),
-    skill('workspace.ingest', '把工作区根目录的原始文件（PDF/Word/Excel/MD/CSV）ingest 到 wiki。',
+    skill('workspace_ingest', '把工作区根目录的原始文件（PDF/Word/Excel/MD/CSV）ingest 到 wiki。',
       {
         filename: { type: 'string', description: '工作区根目录下的文件名', required: true }
       },
       (args) => getWiki().ingest(args)
     ),
-    skill('workspace.writeFile', '把报告/数据写入工作区 reports/ 目录，支持 docx/xlsx/md 3 种格式。',
+    skill('workspace_writeFile', '把报告/数据写入工作区 reports/ 目录，支持 docx/xlsx/md 3 种格式。',
       {
         type: { type: 'string', description: '文件类型', required: true, enum: ['docx', 'xlsx', 'md'] },
         filename: { type: 'string', description: '文件名（含后缀）', required: true },
@@ -72,17 +72,17 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       },
       (args) => writeHandler.writeFile({ workspaceManager: getWM(), type: args.type, filename: args.filename, payload: args.payload })
     ),
-    skill('workspace.listFiles', '列出工作区指定子目录下的文件。',
+    skill('workspace_listFiles', '列出工作区指定子目录下的文件。',
       {
         subdir: { type: 'string', description: '子目录', required: true, enum: ['root', 'wiki', 'reports', 'chat-history'] }
       },
       async (args) => ({ files: await getWM().listFiles(args.subdir) })
     ),
-    skill('workspace.lint', '跑工作区 wiki 健康检查（孤儿页/缺失 frontmatter/过期摘要）。',
+    skill('workspace_lint', '跑工作区 wiki 健康检查（孤儿页/缺失 frontmatter/过期摘要）。',
       {},
       () => getWiki().lint()
     ),
-    skill('workspace.searchGraph', '查询知识图谱：按关键词找相关实体和关系（论文核心功能）。返回完整三元组（subject-predicate-object）。**P5 阶段启用**——P4 阶段如果未启用会返回 NOT_OPEN 错误。',
+    skill('workspace_searchGraph', '查询知识图谱：按关键词找相关实体和关系（论文核心功能）。返回完整三元组（subject-predicate-object）。**P5 阶段启用**——P4 阶段如果未启用会返回 NOT_OPEN 错误。',
       {
         query: { type: 'string', description: '搜索关键词', required: true },
         topK: { type: 'number', description: '返回条数', required: false, min: 1, max: 50, default: 10 }

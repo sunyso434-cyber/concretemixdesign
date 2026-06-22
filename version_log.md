@@ -1,3 +1,104 @@
+## v8.0.2 (2026-06-22) - hotfix：修复 v8.0.0 升级后 "AI 连续响应失败"
+
+### 问题
+老板升级 v8.0.0 后每次发消息都报"AI 连续响应失败，请稍后重试"，包括"你好""？"等任意消息，~500-700ms 立即失败。
+
+### 老板精准假设（关键贡献）
+老板在排查过程中假设："是不是 `/model` 调整的模型名称未正确写入？" 这一假设把排查方向从 API Key/服务端问题引导到应用配置层面，最终定位到 P4 阶段引入的工具命名 bug。
+
+### 根因（一句话）
+v6.0.0 P4 阶段 commit [721e90c](src/main/agent/workspaceTools.js#L48-L85)（2026-06-21 22:54）注册的 7 个 workspace 伪 Skill 用了 **`workspace.search` / `workspace.readPage` / `workspace.ingest` / `workspace.writeFile` / `workspace.listFiles` / `workspace.lint` / `workspace.searchGraph`** 这种带点号 `.` 的命名空间式工具名，但 **DeepSeek API 要求工具名必须匹配 `^[a-zA-Z0-9_-]+$`**（点号不合法）→ API 立即返回 400 → 2 次连续失败触发 `max_failures_exceeded`。
+
+### 老板完整时间线证据链
+| 时间 | 事件 | 状态 |
+|------|------|------|
+| 2026-06-19 07:23 UTC | 老板用 v5.0.0 成功（**只有 21 个 mix design 工具，无 workspace 工具**）| ✅ |
+| 2026-06-21 22:54 | commit `721e90c` 引入 7 个 `workspace.xxx` 工具 | 代码层 bug 引入 |
+| 2026-06-21 23:05 / 23:09 | commit `467e041` + `6625a54` system prompt 注入 workspace 工具说明 | system prompt 也带点号 |
+| 2026-06-22 01:37 UTC | 老板升级 v8.0.0（含 P4 阶段所有改动）| ❌ 失败 |
+| 2026-06-22 09:37+ 北京 | 老板报告"AI 连续响应失败" | ← 触发本次排查 |
+
+### 失败根因（关键证据）
+老板应用 `~/.concrete-mixdesign/agent-debug.log` 显示 6/22 01:37~01:39 连续 5 次失败，每次 < 700ms（**不是 120s 超时**，是 API 立即拒绝）。
+
+数据库 `deepseekModel` 历史对比：
+- 6/18 / 6/19 备份：`deepseek-v4-pro` ✅（v5.0.0 时代无 workspace 工具）
+- 6/22 当前：`deepseek-v4-flash`（老板看到失败后切换，但工具名问题持续）
+
+### 修复
+| 步骤 | 操作 | 结果 |
+|------|------|------|
+| 1 | 写 `scripts/diagnose-real-with-tools.js` 复现脚本：用老板真实 DB 配置 + 真实 system prompt + 28 个 tool schema 调 `chatWithToolsStream` | ✅ **复现成功**（FAILED 329ms，错误：`API 400: Invalid 'tools[21].function.name': string does not match pattern. Expected a string that matches the pattern '^[a-zA-Z0-9_-]+$.'`）|
+| 2 | [src/main/agent/workspaceTools.js:48-85](src/main/agent/workspaceTools.js#L48-L85) - 7 个 skill 名 `workspace.xxx` → `workspace_xxx` | ✅ |
+| 3 | [src/main/agent/systemPromptBuilder.js:9-36](src/main/agent/systemPromptBuilder.js#L9-L36) - system prompt 提示文本同步改名 | ✅ |
+| 4 | [src/main/__tests__/agent/workspaceTools.test.js](src/main/__tests__/agent/workspaceTools.test.js) - 单元测试期望同步 | ✅ |
+| 5 | [src/main/__tests__/agent/agent-e2e-scenarios.test.js](src/main/__tests__/agent/agent-e2e-scenarios.test.js) - E2E 测试同步 | ✅ |
+| 6 | [src/main/agent/__tests__/systemPromptBuilder.test.js:103-155](src/main/agent/__tests__/systemPromptBuilder.test.js#L103-L155) - 提示构建测试同步 | ✅ |
+| 7 | 跑 `diagnose-real-with-tools.js` 验证 | ✅ **修复成功**（SUCCESS 1964ms，content=69 字符，正常回复）|
+| 8 | 跑全量 jest 测试套件 | ✅ **1094/1094 全过**（145 suites, 0 regression）|
+
+### 改动文件汇总
+| # | 文件 | 改动类型 |
+|---|------|----------|
+| 1 | [src/main/agent/workspaceTools.js](src/main/agent/workspaceTools.js) | 7 个 skill 名改下划线 |
+| 2 | [src/main/agent/systemPromptBuilder.js](src/main/agent/systemPromptBuilder.js) | system prompt 提示文本同步 |
+| 3 | [src/main/__tests__/agent/workspaceTools.test.js](src/main/__tests__/agent/workspaceTools.test.js) | 单元测试期望同步 |
+| 4 | [src/main/__tests__/agent/agent-e2e-scenarios.test.js](src/main/__tests__/agent/agent-e2e-scenarios.test.js) | E2E 测试同步 |
+| 5 | [src/main/agent/__tests__/systemPromptBuilder.test.js](src/main/agent/__tests__/systemPromptBuilder.test.js) | 提示构建测试同步 |
+
+### 旧 chat-history 兼容性说明
+**老板历史会话里**（`chat_history` 表）如果有 6/19 之前的 `workspace.search` 等 tool_calls，重新加载时会找不到对应 skill（因为 SkillRegistry 重新加载时这些 skill 不存在），但不会报错——只会在前端显示"工具不存在"的提示。**影响很小**（6/19 → 6/22 老板有 3 天断档，未发现大量旧会话）。
+
+### 反思 + 防范
+**为什么会犯这种错**：P4 阶段 721e90c 作者（按"AI 全栈开发者"规则，由 AI 提交）**没查 DeepSeek API 工具名规范**就用了 namespace 风格命名（OpenAI 早期 demo 有 namespace 风格，但 DeepSeek/OpenAI 当前 API 都强制 `^[a-zA-Z0-9_-]+$`）。
+
+**改进计划**（老板批准后实施）：
+1. **SkillRegistry 注册时强制校验**：在 [src/main/agent/SkillRegistry.js](src/main/agent/SkillRegistry.js) 的 `_validateSkill` 里加 `if (!/^[a-zA-Z0-9_-]+$/.test(skill.name)) throw new Error(...)`，CI 直接报错
+2. **诊断脚本沉淀**：把 `scripts/diagnose-real-with-tools.js` 改成 `scripts/diagnose-agent.js`，加进 `npm run diagnose:agent`，release 前必跑
+3. **测试覆盖**：补一个 `workspaceTools.test.js` 测试用例验证 `buildWorkspaceSkills` 返回的所有 skill 名都匹配 DeepSeek API pattern，防回归
+
+---
+
+## v8.0.1 (2026-06-22) - hotfix：修复打包后 `Cannot find module 'docx'`
+
+### 问题
+老板运行打包后的应用触发 docx 写入时，主进程崩溃：
+```
+Uncaught Exception:
+Error: Cannot find module 'docx'
+Require stack: .../docx.js ← .../writers/index.js ← .../write-handler.js ←
+  .../workspaceTools.js ← .../agentHandler.js ← .../main.js
+```
+
+### 根因
+`docx` 包（v9.7.1）被错误放置在 `devDependencies`（[package.json:61](package.json#L61)），而运行时主进程代码 [src/main/workspace/writers/docx.js:19](src/main/workspace/writers/docx.js#L19) 真正 require 它。electron-builder 默认**只把 `dependencies` 里的包打包**进生产应用，`devDependencies` 不打 → 打包后找不到模块。
+
+### 修复
+| 步骤 | 操作 | 结果 |
+|------|------|------|
+| 1 | 把 `docx` 从 `devDependencies` 移到 `dependencies`（[package.json:32](package.json#L32)）| ✅ |
+| 2 | `npm install` 更新 `package-lock.json` | ✅ 4s |
+| 3 | 跑 `docx writer` 单元测试 | ✅ 4/4 通过 |
+| 4 | `npm run electron:build` 重新打包 | ✅ 成功（exit 0）|
+| 5 | 验证 `app.asar` 内含 `node_modules/docx` | ✅ 找到 `node_modules/docx/dist/index.cjs` + `nanoid`（transitive）|
+
+### 不动的相关包
+- `pdfkit`（[package.json:66](package.json#L66)）：只在 `__tests__/workspace/readers/fixtures/generate.js` 用，**正确放在 devDependencies**，不动
+
+### 打包产物
+- `dist-8.0.0/win-unpacked/` - 解包目录
+- `dist-8.0.0/混凝土配合比设计软件 Setup 8.0.0.exe` - NSIS 安装包（275 MB）
+- `dist-8.0.0/混凝土配合比设计软件-8.0.0-x64.exe` - 便携版（274 MB）
+
+### 反思 + 防范
+**为什么会犯这种错**：早期 `docx` 只在测试用，放 devDependencies 合情合理；后来 P3 阶段加了运行时 `src/main/workspace/writers/docx.js`，但**没人同步 package.json**。
+
+**改进计划**（老板批准后实施）：
+1. 加 `scripts/check-runtime-deps.js`：扫描 `src/main/**` 的所有 `require()`，对比 `dependencies`，**缺失就 CI 报错**
+2. 任何 release 前跑该脚本
+
+---
+
 ## v8.0.0 (2026-06-22) - P6 关键 task 完工 + 项目全部阶段结束
 
 ### 阶段总览

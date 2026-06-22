@@ -190,7 +190,7 @@ describe('P4 E2E 场景 A/B/D/G/H（Task 4.5-4.8）', () => {
     }
   })
 
-  // ==================== 场景 A：workspace.search 命中 → workspace.readPage 读全文 ====================
+  // ==================== 场景 A：workspace_search 命中 → workspace_readPage 读全文 ====================
 
   test('场景 A: search 命中 → readPage 读全文（spec §7.4）', async () => {
     // 准备：1 个源文件
@@ -201,14 +201,14 @@ describe('P4 E2E 场景 A/B/D/G/H（Task 4.5-4.8）', () => {
     await wiki.ingest({ filename: '抗渗混凝土.md' })
 
     // 脚本化 LLM：
-    //   第 1 轮：调 workspace.search('抗渗')
-    //   第 2 轮：调 workspace.readPage(<hit>)
+    //   第 1 轮：调 workspace_search('抗渗')
+    //   第 2 轮：调 workspace_readPage(<hit>)
     //   第 3 轮：返回最终回复
     let capturedArgs = null
     const scripted = [
       () => ({
         content: null,
-        tool_calls: [tc('call-1', 'workspace.search', { query: '抗渗', topK: 3 })]
+        tool_calls: [tc('call-1', 'workspace_search', { query: '抗渗', topK: 3 })]
       }),
       () => {
         // 第二次 LLM：拿第一次 tool result 决定调 readPage
@@ -216,7 +216,7 @@ describe('P4 E2E 场景 A/B/D/G/H（Task 4.5-4.8）', () => {
         return {
           content: null,
           tool_calls: [
-            tc('call-2', 'workspace.readPage', { wikiPath: 'sources/抗渗混凝土-xxxxxx.md' })
+            tc('call-2', 'workspace_readPage', { wikiPath: 'sources/抗渗混凝土-xxxxxx.md' })
           ]
         }
       },
@@ -263,16 +263,16 @@ describe('P4 E2E 场景 A/B/D/G/H（Task 4.5-4.8）', () => {
     const scripted = [
       () => ({
         content: null,
-        tool_calls: [tc('c1', 'workspace.ingest', { filename: '设计参数.md' })]
+        tool_calls: [tc('c1', 'workspace_ingest', { filename: '设计参数.md' })]
       }),
       () => ({
         content: null,
-        tool_calls: [tc('c2', 'workspace.search', { query: '水胶比 配合比', topK: 3 })]
+        tool_calls: [tc('c2', 'workspace_search', { query: '水胶比 配合比', topK: 3 })]
       }),
       () => ({
         content: null,
         tool_calls: [
-          tc('c3', 'workspace.writeFile', {
+          tc('c3', 'workspace_writeFile', {
             type: 'docx',
             filename: 'C30配合比报告.docx',
             payload: {
@@ -322,9 +322,9 @@ describe('P4 E2E 场景 A/B/D/G/H（Task 4.5-4.8）', () => {
     expect(deepseekService.chatWithToolsStream.mock.calls.length).toBe(4)
   })
 
-  // ==================== 场景 D：workspace.lint 5 类检查 ====================
+  // ==================== 场景 D：workspace_lint 5 类检查 ====================
 
-  test('场景 D: workspace.lint 5 类错误报告（spec §4.2）', async () => {
+  test('场景 D: workspace_lint 5 类错误报告（spec §4.2）', async () => {
     // 准备一个工作区，含各种 lint 问题
     const sourcesDir = path.join(testPath, 'wiki', 'sources')
     await fs.mkdir(sourcesDir, { recursive: true })
@@ -350,7 +350,7 @@ describe('P4 E2E 场景 A/B/D/G/H（Task 4.5-4.8）', () => {
     const scripted = [
       () => ({
         content: null,
-        tool_calls: [tc('lint-1', 'workspace.lint', {})]
+        tool_calls: [tc('lint-1', 'workspace_lint', {})]
       }),
       () => ({ content: '健康检查完成：发现 3 类问题。', tool_calls: null })
     ]
@@ -372,7 +372,7 @@ describe('P4 E2E 场景 A/B/D/G/H（Task 4.5-4.8）', () => {
 
   // ==================== 场景 G：chat-history search 命中 ====================
 
-  test('场景 G: workspace.search 命中 chat-history（sourceType="chatHistory"）', async () => {
+  test('场景 G: workspace_search 命中 chat-history（sourceType="chatHistory"）', async () => {
     // 准备：1 个 wiki 源 + 1 个 chat-history session
     await fs.writeFile(path.join(testPath, '抗冻.md'), '# 抗冻融\n\n抗冻融混凝土。')
     await wiki.ingest({ filename: '抗冻.md' })
@@ -400,7 +400,7 @@ describe('P4 E2E 场景 A/B/D/G/H（Task 4.5-4.8）', () => {
     const scripted = [
       () => ({
         content: null,
-        tool_calls: [tc('g1', 'workspace.search', { query: '抗渗 水胶比', topK: 5 })]
+        tool_calls: [tc('g1', 'workspace_search', { query: '抗渗 水胶比', topK: 5 })]
       }),
       () => ({ content: '搜索完成：命中 wiki + chat-history 2 个源。', tool_calls: null })
     ]
@@ -426,7 +426,7 @@ describe('P4 E2E 场景 A/B/D/G/H（Task 4.5-4.8）', () => {
 
   // ==================== 场景 H：listFiles + writeFile 组合 ====================
 
-  test('场景 H: workspace.listFiles 列出子目录 → writeFile 生成报告', async () => {
+  test('场景 H: workspace_listFiles 列出子目录 → writeFile 生成报告', async () => {
     // 准备：先 ingest 一个源（让 wiki 有内容）
     await fs.writeFile(path.join(testPath, '数据源.md'), '# 数据源\n\n基本数据。')
     await wiki.ingest({ filename: '数据源.md' })
@@ -435,12 +435,12 @@ describe('P4 E2E 场景 A/B/D/G/H（Task 4.5-4.8）', () => {
     const scripted = [
       () => ({
         content: null,
-        tool_calls: [tc('h1', 'workspace.listFiles', { subdir: 'wiki' })]
+        tool_calls: [tc('h1', 'workspace_listFiles', { subdir: 'wiki' })]
       }),
       () => ({
         content: null,
         tool_calls: [
-          tc('h2', 'workspace.writeFile', {
+          tc('h2', 'workspace_writeFile', {
             type: 'md',
             filename: 'wiki-listing-report.md',
             payload: {
