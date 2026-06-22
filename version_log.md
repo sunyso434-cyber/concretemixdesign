@@ -1,3 +1,63 @@
+## v8.0.3 (2026-06-22) - hotfix：修复写入工具只有标题没有正文
+
+### 问题
+老板报告：`workspace_writeFile` 写入的 md 文档和 docx 文档都只有一个标题，没有正文。
+
+### 复现证据（[scripts/repro-write-no-body.js](scripts/repro-write-no-body.js)）
+模拟 LLM 只传 `{ title: 'xxx' }` 不传 sections，跑 markdown + docx writer：
+```
+=== markdown 输出 ===
+---
+title: C30 配合比设计报告
+---
+（没有正文！）
+
+=== docx 输出 ===
+document.xml 文本节点: C30 配合比设计报告
+（只有 1 个文本节点，没正文！）
+✅ 假设验证：只有 1 个标题文本，没正文！
+```
+
+### 根因（一句话）
+**LLM 调 `workspace_writeFile` 时不知道 payload 应该长什么样**——3 处都"漏讲"了 payload 结构：
+
+| 位置 | 内容 | 问题 |
+|------|------|------|
+| [src/main/agent/workspaceTools.js:67](src/main/agent/workspaceTools.js#L67) Tool description | 旧：'把报告/数据写入工作区 reports/ 目录，支持 docx/xlsx/md 3 种格式。' | **没说 payload 结构** |
+| [src/main/agent/workspaceTools.js:71](src/main/agent/workspaceTools.js#L71) Tool schema payload 字段 | 旧：`description: 'payload 结构由 type 决定'` | **"由 type 决定"是空话** |
+| [src/main/agent/systemPromptBuilder.js:36](src/main/agent/systemPromptBuilder.js#L36) system prompt | 旧：'写报告时：构造 payload → workspace_writeFile(...)' | **只说"构造 payload"，没说怎么构造** |
+
+3 处都没告诉 LLM payload 长什么样，LLM 看到 schema 不知道 payload 里要传什么 → **瞎传** `{ title: 'xxx' }` → writers 正确处理（title 进 frontmatter/Heading 1，sections 空数组→空 body）→ **只有标题没正文**。
+
+这跟老板 P4 阶段的 design goal"LLM 直接看懂每个工具用法"完全不符——`workspace_writeFile` 没达到这个目标。
+
+### 修复（3 处同步 + 4 个防回归测试）
+| 步骤 | 操作 | 结果 |
+|------|------|------|
+| 1 | [src/main/agent/workspaceTools.js:67](src/main/agent/workspaceTools.js#L67) Tool description 加完整 payload schema + 6 种 section type 示例 + type 字段含义 | ✅ |
+| 2 | [src/main/agent/systemPromptBuilder.js:36](src/main/agent/systemPromptBuilder.js#L36) system prompt 加 `payload = { title, sections: [...] }` 结构 + **"payload 必须包含 sections 数组——只传 title 会只生成标题没正文"** 显式提示 | ✅ |
+| 3 | [src/main/__tests__/agent/workspaceTools.test.js](src/main/__tests__/agent/workspaceTools.test.js) 加 4 个回归测试：description 含 `payload` / `sections` / 6 种 section type / "必须包含" 提示 | ✅ |
+| 4 | 跑 [scripts/repro-write-no-body.js](scripts/repro-write-no-body.js) 验证根因（已完成） | ✅ |
+| 5 | 跑 workspaceTools.test.js 验证 4 个新增测试 | ✅ 18/18 通过 |
+| 6 | 跑全量 jest 测试 | ✅ **1098/1098 全过**（145 suites, 0 regression）|
+
+### 改动文件汇总
+| # | 文件 | 改动类型 |
+|---|------|----------|
+| 1 | [src/main/agent/workspaceTools.js](src/main/agent/workspaceTools.js) | workspace_writeFile description 加 payload schema |
+| 2 | [src/main/agent/systemPromptBuilder.js](src/main/agent/systemPromptBuilder.js) | system prompt 加 payload 示例 + 必填提示 |
+| 3 | [src/main/__tests__/agent/workspaceTools.test.js](src/main/__tests__/agent/workspaceTools.test.js) | 加 4 个防回归测试 |
+
+### 反思 + 防范
+**为什么会犯这种错**：v8.0.2 修 `workspace.search` 工具名时只关注"LLM 能不能调通"，没关注"LLM 调的时候传对参数没"。**只验证连通性，没验证参数正确性**。
+
+**改进计划**（老板批准后实施）：
+1. **统一工具描述规范**：所有 7 个 workspace 工具的 description 都必须包含**完整参数 schema 示例**（不只是 signature），写 `Tool description` 规范文档
+2. **SkillRegistry 注册时校验 description 长度**：`description.length < 100` 时 warn（防类似"漏讲参数"）
+3. **集成测试**：加 e2e 测试，模拟 LLM 调用 `workspace_writeFile` 传入完整 payload，验证生成的 docx/md 含正文（不再只测连通性）
+
+---
+
 ## v8.0.2 (2026-06-22) - hotfix：修复 v8.0.0 升级后 "AI 连续响应失败"
 
 ### 问题

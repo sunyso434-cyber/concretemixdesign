@@ -33,7 +33,7 @@ const REPORT_SKILL_MATRIX = `## 5 类报告 → 必调 Skill 矩阵（软约束�
 ## workspace 工具软提示
 
 读工作区资料时：\`workspace_search(query)\` → \`workspace_readPage(path)\`。
-写报告时：构造 payload → \`workspace_writeFile({ type, filename, payload })\`。`
+写报告时：\`payload = { title, sections: [{type:'h1'|'h2'|'p'|'list'|'table'|'code', ...}] }\` → \`workspace_writeFile({ type:'docx'|'xlsx'|'md', filename, payload })\`。**payload 必须包含 sections 数组**——只传 title 会只生成标题没正文。`
 
 /**
  * 构造 system prompt

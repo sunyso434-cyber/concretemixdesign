@@ -64,7 +64,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       },
       (args) => getWiki().ingest(args)
     ),
-    skill('workspace_writeFile', '把报告/数据写入工作区 reports/ 目录，支持 docx/xlsx/md 3 种格式。',
+    skill('workspace_writeFile', '把报告/数据写入工作区 reports/，支持 docx/xlsx/md 3 种格式。payload 结构（必须包含 sections 数组）：{ title: "报告标题", sections: [ { type: "h1"|"h2", content: "标题文字" }, { type: "p", content: "段落正文" }, { type: "list", items: ["项1", "项2"] }, { type: "table", rows: [["列1","列2"],["数据1","数据2"]] }, { type: "code", language: "js", code: "console.log(1)" } ], metadata?: { 任意key: "value" } }。type 字段：docx → 写 .docx；xlsx → 写 .xlsx；md 或 markdown → 写 .md。',
       {
         type: { type: 'string', description: '文件类型', required: true, enum: ['docx', 'xlsx', 'md'] },
         filename: { type: 'string', description: '文件名（含后缀）', required: true },

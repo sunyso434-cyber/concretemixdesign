@@ -214,3 +214,50 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
     ].sort())
   })
 })
+
+// v8.0.3 hotfix：workspace_writeFile 的 description 必须包含完整 payload schema
+// 防止 LLM 不知道 payload 结构只传 { title } → 只生成标题没正文
+describe('buildWorkspaceSkills v8.0.3 hotfix：workspace_writeFile payload schema 提示（防回归）', () => {
+  test('workspace_writeFile description 必须包含 "payload" 关键词', () => {
+    const skills = buildWorkspaceSkills({
+      workspaceManager: makeMockWM(),
+      wikiEngine: makeMockWiki(),
+      kgExtractor: null
+    })
+    const writeFile = skills.find(s => s.name === 'workspace_writeFile')
+    expect(writeFile.description).toContain('payload')
+  })
+
+  test('workspace_writeFile description 必须包含 "sections" 关键词', () => {
+    const skills = buildWorkspaceSkills({
+      workspaceManager: makeMockWM(),
+      wikiEngine: makeMockWiki(),
+      kgExtractor: null
+    })
+    const writeFile = skills.find(s => s.name === 'workspace_writeFile')
+    expect(writeFile.description).toContain('sections')
+  })
+
+  test('workspace_writeFile description 必须包含所有 6 种 section type（h1/h2/p/list/table/code）', () => {
+    const skills = buildWorkspaceSkills({
+      workspaceManager: makeMockWM(),
+      wikiEngine: makeMockWiki(),
+      kgExtractor: null
+    })
+    const writeFile = skills.find(s => s.name === 'workspace_writeFile')
+    for (const type of ['h1', 'h2', 'p', 'list', 'table', 'code']) {
+      expect(writeFile.description).toContain(type)
+    }
+  })
+
+  test('workspace_writeFile description 必须提示 payload 必须包含 sections', () => {
+    const skills = buildWorkspaceSkills({
+      workspaceManager: makeMockWM(),
+      wikiEngine: makeMockWiki(),
+      kgExtractor: null
+    })
+    const writeFile = skills.find(s => s.name === 'workspace_writeFile')
+    // 必须有明确指引让 LLM 知道 sections 不可省
+    expect(writeFile.description).toMatch(/payload.*sections|sections.*payload|必须包含/)
+  })
+})
