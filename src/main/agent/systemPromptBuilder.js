@@ -4,13 +4,17 @@
 
 // v1.5.3 决策：固定 7 个 workspace 工具说明（与 workspaceTools.js 注册的伪 Skill 一一对应）
 // Task 4.4：注入到 system prompt，让 LLM 知道每个工具怎么用、返回什么
+// v2026-06-22：listFiles 扩 enum + 加 ingested 状态字段（修「LLM 误判未导入」bug）
 const WORKSPACE_TOOLS_PROMPT = `
 可用 workspace 工具（共 7 个，v1.5.1 原始设计 v1.5.3 沿用）：
 - workspace_search(query, topK) → 找相关 wiki 页（含 chat-history，不调 LLM）
 - workspace_readPage(wikiPath) → 读 wiki 页全文
 - workspace_ingest(filename) → 原始文件入 wiki（自动调 KG 提取）
 - workspace_writeFile({ type, filename, payload }) → 写 docx/xlsx/md 到 reports/
-- workspace_listFiles(subdir) → 列出工作区文件（含子目录）
+- workspace_listFiles({ subdir, recursive?, includeDirs?, withIngestStatus? }) → 列出工作区条目
+  **判断文件是否已导入时，务必用 subdir="root" + withIngestStatus=true，结果里每个文件带 ingested:true/false 字段**——别靠文件名猜。
+  - subdir 可选：root / wiki / wiki/sources / wiki/reports / wiki/kg/sources / reports / chat-history
+  - recursive:true 递归子目录；includeDirs:true 列出目录条目
 - workspace_lint() → 健康检查（不阻塞）
 - workspace_searchGraph(query, topK) → 查询知识图谱，返回完整三元组（v1.5.1 新增，P5 阶段启用）。**前提：当前工作区必须已打开**——workspacePath 由工具自动读取，LLM 无需传。
 

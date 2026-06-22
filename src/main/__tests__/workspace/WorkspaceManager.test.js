@@ -48,6 +48,84 @@ describe('WorkspaceManager', () => {
     expect(files.find(f => f.name === 'test.pdf')).toBeTruthy()
   })
 
+  // ==================== v2026-06-22: listFiles 扩展 ====================
+
+  test('listFiles 默认行为：只列文件 + 不递归 + 不含 ingested 字段（向后兼容）', async () => {
+    await fs.mkdir(path.join(testPath, 'sub'), { recursive: true })
+    await fs.writeFile(path.join(testPath, 'a.txt'), 'x')
+    await fs.writeFile(path.join(testPath, 'sub', 'b.txt'), 'y')
+    await fs.writeFile(path.join(testPath, '.hidden'), 'z')
+    await mgr.open(testPath)
+    const files = await mgr.listFiles('root')
+    expect(files.map(f => f.name)).toEqual(['a.txt'])  // 隐藏文件和子目录文件都不在
+    expect(files[0].type).toBe('file')
+    expect(files[0].ingested).toBeUndefined()  // 默认不附 ingested
+  })
+
+  test('listFiles({recursive:true}) 递归子目录', async () => {
+    await fs.mkdir(path.join(testPath, 'wiki', 'sources'), { recursive: true })
+    await fs.writeFile(path.join(testPath, 'a.txt'), 'x')
+    await fs.writeFile(path.join(testPath, 'wiki', 'sources', 'b.md'), 'y')
+    await mgr.open(testPath)
+    const files = await mgr.listFiles('root', { recursive: true })
+    const names = files.map(f => f.name).sort()
+    expect(names).toEqual(['a.txt', 'b.md'])
+  })
+
+  test('listFiles({includeDirs:true}) 包含目录条目', async () => {
+    await fs.mkdir(path.join(testPath, 'wiki'), { recursive: true })
+    await mgr.open(testPath)
+    const files = await mgr.listFiles('root', { includeDirs: true })
+    expect(files.find(f => f.type === 'dir' && f.name === 'wiki')).toBeTruthy()
+  })
+
+  test('listFiles({withIngestStatus:true}) 附带 ingested 状态', async () => {
+    const { saveIndex } = require('../../workspace/index-store')
+    await fs.writeFile(path.join(testPath, 'ingested.txt'), 'x')
+    await fs.writeFile(path.join(testPath, 'pending.txt'), 'y')
+    await mgr.open(testPath)
+    await saveIndex(testPath, {
+      version: 1,
+      workspacePath: testPath.replace(/\\/g, '/'),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastFullRebuild: new Date().toISOString(),
+      files: {
+        'ingested.txt': {
+          hash: 'sha256:abc', mtime: 0, size: 1,
+          wikiPage: 'sources/ingested-123456.md',
+          lastIngestAt: 1700000000000, quality: 'high', ingestVersion: 2
+        }
+      },
+      bm25Index: { vocabulary: {}, postings: {}, docLengths: {}, avgDocLength: 0, totalDocs: 0 },
+      chatBM25Index: { vocabulary: {}, postings: {}, docLengths: {}, avgDocLength: 0, totalDocs: 0 }
+    })
+    const files = await mgr.listFiles('root', { withIngestStatus: true })
+    const ingestedFile = files.find(f => f.name === 'ingested.txt')
+    const pendingFile = files.find(f => f.name === 'pending.txt')
+    expect(ingestedFile.ingested).toBe(true)
+    expect(ingestedFile.wikiPage).toBe('sources/ingested-123456.md')
+    expect(ingestedFile.quality).toBe('high')
+    expect(pendingFile.ingested).toBe(false)
+  })
+
+  test('listFiles 不存在的子目录 → 返回空数组（不抛错）', async () => {
+    await mgr.open(testPath)
+    const files = await mgr.listFiles('nonexistent-dir')
+    expect(files).toEqual([])
+  })
+
+  test('listFiles 索引损坏时 withIngestStatus 不抛错', async () => {
+    await fs.writeFile(path.join(testPath, 'corrupt-index.txt'), 'x')
+    await mgr.open(testPath)
+    // 写入损坏的索引
+    await fs.writeFile(path.join(testPath, '.workspace-index.json'), '{ not valid json')
+    // 不应抛错，所有文件 ingested=false
+    const files = await mgr.listFiles('root', { withIngestStatus: true })
+    const f = files.find(x => x.name === 'corrupt-index.txt')
+    expect(f.ingested).toBe(false)
+  })
+
   // ==================== attachSync (Task 2.15) ====================
 
   describe('attachSync', () => {

@@ -72,11 +72,25 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       },
       (args) => writeHandler.writeFile({ workspaceManager: getWM(), type: args.type, filename: args.filename, payload: args.payload })
     ),
-    skill('workspace_listFiles', '列出工作区指定子目录下的文件。',
+    skill('workspace_listFiles', '列出工作区指定子目录下的条目。返回 [{ name, path, size, type: "file"|"dir", ingested?, wikiPage?, lastIngestAt?, quality? }]。**关键：当 subdir="root" 且 withIngestStatus=true 时，每条记录带 ingested:true/false — 用这个字段判断文件是否已摄入到 wiki**，避免凭空猜测。',
       {
-        subdir: { type: 'string', description: '子目录', required: true, enum: ['root', 'wiki', 'reports', 'chat-history'] }
+        subdir: {
+          type: 'string',
+          description: '子目录',
+          required: true,
+          enum: ['root', 'wiki', 'wiki/sources', 'wiki/reports', 'wiki/kg/sources', 'reports', 'chat-history']
+        },
+        recursive: { type: 'boolean', description: '是否递归列出子目录（默认 false）', required: false, default: false },
+        includeDirs: { type: 'boolean', description: '是否包含目录条目（默认 false 仅文件）', required: false, default: false },
+        withIngestStatus: { type: 'boolean', description: '是否附加每个文件的 ingested 状态（仅 subdir="root" 有意义，从 .workspace-index.json 读）', required: false, default: false }
       },
-      async (args) => ({ files: await getWM().listFiles(args.subdir) })
+      async (args) => ({
+        files: await getWM().listFiles(args.subdir, {
+          recursive: args.recursive,
+          includeDirs: args.includeDirs,
+          withIngestStatus: args.withIngestStatus
+        })
+      })
     ),
     skill('workspace_lint', '跑工作区 wiki 健康检查（孤儿页/缺失 frontmatter/过期摘要）。',
       {},

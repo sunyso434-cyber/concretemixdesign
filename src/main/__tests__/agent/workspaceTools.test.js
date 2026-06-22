@@ -123,12 +123,15 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
     expect(result.contradictions).toEqual([])
   })
 
-  test('workspace_listFiles → workspaceManager.listFiles(subdir) 并包成 {files}', async () => {
+  test('workspace_listFiles → workspaceManager.listFiles(subdir, options) 并包成 {files}', async () => {
     const wm = makeMockWM()
     const skills = buildWorkspaceSkills({ workspaceManager: wm, wikiEngine: makeMockWiki(), kgExtractor: null })
     const skill = skills.find(s => s.name === 'workspace_listFiles')
     const result = await skill.execute({ subdir: 'reports' }, {})
-    expect(wm.listFiles).toHaveBeenCalledWith('reports')
+    // v2026-06-22：listFiles 加 options 参数（recursive/includeDirs/withIngestStatus）
+    expect(wm.listFiles).toHaveBeenCalledWith('reports', {
+      recursive: undefined, includeDirs: undefined, withIngestStatus: undefined
+    })
     expect(result).toEqual({ files: [{ name: 'a.md', path: 'root/a.md', size: 0 }] })
   })
 

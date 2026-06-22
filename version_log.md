@@ -1,3 +1,48 @@
+## v8.1.0 hotfix-7 (2026-06-22) - 修复 LLM 误判已摄入文件为"未导入"
+
+### 问题
+老板报告：问 LLM "工作区里有什么"，LLM 回答"文件未导入"，但实际 wiki/sources/ 里已有内容。
+
+### 根本原因
+LLM 工具 `workspace_listFiles` 的 enum 限制只能查 `['root', 'wiki', 'reports', 'chat-history']`，**查不到 `wiki/sources`**。
+而 `listFiles('wiki')` 又因为 `entries.filter(e => e.isFile())` 把目录全过滤掉，永远返回空数组。
+LLM 没有工具能看到 wiki 里的摄入产物，只能凭文件名瞎猜 → 默认报"未导入"。
+
+### 修复内容（方案 A）
+1. **WorkspaceManager.listFiles 加 3 个选项**（默认全 false，向后兼容）：
+   - `recursive` 递归子目录
+   - `includeDirs` 包含目录条目
+   - `withIngestStatus` 附 `ingested:true/false + wikiPage/lastIngestAt/quality`（从 `.workspace-index.json` 读，仅 subdir='root' 有意义）
+2. **workspace_listFiles enum 扩展**：加 `wiki/sources`、`wiki/reports`、`wiki/kg/sources`
+3. **工具描述 + system prompt 强化**：告诉 LLM "判断导入用 `subdir='root' + withIngestStatus:true`，别靠文件名猜"
+4. **新增 6 个单元测试**：默认行为、recursive、includeDirs、withIngestStatus、不存在子目录、索引损坏降级
+
+### 改动文件汇总
+
+| # | 文件 | 改动类型 |
+|---|------|----------|
+| 1 | [src/main/workspace/WorkspaceManager.js](src/main/workspace/WorkspaceManager.js) | listFiles 加 options + 抽 _readDirEntries 递归辅助 |
+| 2 | [src/main/agent/workspaceTools.js](src/main/agent/workspaceTools.js) | enum 扩展 + 参数 schema 加 recursive/includeDirs/withIngestStatus |
+| 3 | [src/main/agent/systemPromptBuilder.js](src/main/agent/systemPromptBuilder.js) | WORKSPACE_TOOLS_PROMPT 强调 withIngestStatus 用法 |
+| 4 | [src/main/__tests__/workspace/WorkspaceManager.test.js](src/main/__tests__/workspace/WorkspaceManager.test.js) | 加 6 个新测试 |
+| 5 | [src/main/__tests__/agent/workspaceTools.test.js](src/main/__tests__/agent/workspaceTools.test.js) | 适配 listFiles 新签名 |
+
+### 边缘情况清单
+- ✅ 默认行为不变（兼容 WorkspaceFilePopover.jsx）
+- ✅ 索引文件损坏时降级为 `ingested:false`，不抛错
+- ✅ 不存在的子目录返回空数组（不抛错）
+- ⚠️ 路径穿越攻击防护依赖 LLM 工具 schema（IPC handler 未校验 subdir）
+- ⚠️ 大工作区（1000+ 文件）性能未测
+
+### 打包记录
+- **命令**: `npm run electron:build`
+- **结果**: 成功（exit 0）
+- **产物**:
+  - `dist-8.0.0\混凝土配合比设计软件 Setup 8.1.0.exe`（NSIS 安装版）
+  - `dist-8.0.0\混凝土配合比设计软件-8.1.0-x64.exe`（便携版）
+
+---
+
 ## v8.1.0 (2026-06-22) - 移除规范管理模块 + 版本号升级
 
 ### 修复内容

@@ -111,25 +111,106 @@ class WorkspaceManager {
     return { path: this._state.path, status: this._state.status }
   }
 
-  async listFiles(subdir) {
+  /**
+   * 列出工作区指定子目录下的条目
+   *
+   * @param {string} subdir - 子目录（'root' 或相对路径，如 'wiki/sources'）
+   * @param {Object} [options]
+   * @param {boolean} [options.recursive=false] - 是否递归子目录
+   * @param {boolean} [options.includeDirs=false] - 是否包含目录条目（默认仅文件）
+   * @param {boolean} [options.withIngestStatus=false] - 是否附加 ingested/wikiPage/lastIngestAt/quality
+   *   （从 .workspace-index.json 读，root 目录有意义；wiki 子目录直接返回文件本身的 frontmatter）
+   * @returns {Promise<Array<{name, path, size, type, ingested?, wikiPage?, lastIngestAt?, quality?}>>}
+   *
+   * v2026-06-22：扩展 listFiles 让 LLM 能判断文件是否已摄入
+   *   - 加 recursive 选项（LLM 看 wiki 树）
+   *   - 加 includeDirs 选项（LLM 看 wiki 顶层目录）
+   *   - 加 withIngestStatus 选项（LLM 一眼判断 root 文件是否摄入）
+   *   - 默认行为不变，兼容 WorkspaceFilePopover 等现有调用方
+   */
+  async listFiles(subdir, options = {}) {
     if (this._state.status !== 'ready') {
       throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
     }
+    const { recursive = false, includeDirs = false, withIngestStatus = false } = options
     const targetPath = subdir === 'root'
       ? this._state.path
       : path.posix.join(this._state.path, subdir)
+
+    // withIngestStatus：预读 .workspace-index.json（仅 root 目录用得到）
+    let ingestMap = null
+    if (withIngestStatus) {
+      try {
+        const { loadIndex } = require('./index-store')
+        const idx = await loadIndex(this._state.path)
+        ingestMap = idx.files || {}
+      } catch (err) {
+        // 索引损坏/不存在 → 当作全部未摄入，不阻塞 listFiles
+        ingestMap = {}
+      }
+    }
+
     try {
-      const entries = await fs.readdir(targetPath, { withFileTypes: true })
-      return entries
-        .filter(e => e.isFile() && !e.name.startsWith('.'))  // 排除隐藏
-        .map(e => ({
-          name: e.name,
-          path: path.posix.join(subdir, e.name),
-          size: 0  // 可选：调 fs.stat 补
-        }))
+      const results = await this._readDirEntries(targetPath, subdir, {
+        recursive, includeDirs, ingestMap, rootForIngest: this._state.path
+      })
+      return results
     } catch (err) {
+      if (err instanceof WorkspaceError) throw err
       throw new WorkspaceError('READ_FAIL', err.message, true, err)
     }
+  }
+
+  /**
+   * 内部：递归读目录条目（listFiles 辅助）
+   */
+  async _readDirEntries(absDir, relDir, { recursive, includeDirs, ingestMap, rootForIngest }) {
+    let entries
+    try {
+      entries = await fs.readdir(absDir, { withFileTypes: true })
+    } catch (err) {
+      if (err.code === 'ENOENT') return []  // 子目录不存在 → 返回空数组而非抛错
+      throw err
+    }
+
+    const out = []
+    for (const e of entries) {
+      // 排除隐藏文件/目录（包括 .workspace-index.json）
+      if (e.name.startsWith('.')) continue
+
+      const entryPath = path.posix.join(absDir, e.name)
+      const entryRel = path.posix.join(relDir, e.name)
+
+      if (e.isDirectory()) {
+        if (includeDirs) {
+          out.push({ name: e.name, path: entryRel, size: 0, type: 'dir' })
+        }
+        if (recursive) {
+          const sub = await this._readDirEntries(entryPath, entryRel, {
+            recursive, includeDirs, ingestMap, rootForIngest
+          })
+          out.push(...sub)
+        }
+      } else if (e.isFile()) {
+        const fileEntry = { name: e.name, path: entryRel, size: 0, type: 'file' }
+        // 仅当 subdir === 'root' 时把 ingested 状态挂上
+        // （wiki 子目录下的文件本身就是摄入产物，不存在「再摄入」语义）
+        if (ingestMap && relDir === 'root') {
+          // ingestMap 的 key 是原始源文件名（即 root 下的 filename）
+          const info = ingestMap[e.name]
+          if (info) {
+            fileEntry.ingested = true
+            fileEntry.wikiPage = info.wikiPage
+            fileEntry.lastIngestAt = info.lastIngestAt
+            fileEntry.quality = info.quality
+          } else {
+            fileEntry.ingested = false
+          }
+        }
+        out.push(fileEntry)
+      }
+    }
+    return out
   }
 }
 
