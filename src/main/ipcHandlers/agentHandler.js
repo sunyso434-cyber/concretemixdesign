@@ -259,13 +259,48 @@ function registerAgentHandlers() {
       // upsert ChatSession：取 user 消息前 15 字作为 sessionName
       if (role === 'user' && content && sessionId) {
         const { ChatSession } = require('../db/database')
-        // grapheme-safe 截取（用 spread 操作符避免 surrogate pair 截断）
-        const truncated = [...content.trim()].slice(0, 15).join('')
-        const sessionName = truncated || `对话 ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`
+
+        // 检查是否是第一条用户消息
+        const existingSession = await ChatSession.findOne({ where: { sessionId } })
+        const isFirstMessage = !existingSession || !existingSession.sessionName
+
+        let sessionName
+        if (isFirstMessage) {
+          // 尝试使用 AI 生成摘要
+          try {
+            const ag = await getOrchestrator()
+            if (ag && ag.deepseekService) {
+              const prompt = `请从以下用户消息中提取关键信息，生成一个简短的会话标题（不超过20个字符）。
+要求：
+1. 保留核心意图
+2. 去除语气词和无关信息
+3. 如果包含具体参数（如强度等级、材料名称），优先保留
+4. 只返回标题文本，不要添加引号或其他格式
+
+用户消息：${content.trim()}`
+              sessionName = await ag.deepseekService.invoke(prompt)
+              sessionName = sessionName.trim().substring(0, 20)
+              _log(`[AgentHandler] AI摘要生成成功: "${sessionName}"`)
+            }
+          } catch (err) {
+            _log(`[AgentHandler] AI摘要生成失败，使用截取方式: ${err.message}`)
+          }
+        }
+
+        // 如果 AI 摘要失败或是后续消息，使用截取方式
+        if (!sessionName) {
+          // grapheme-safe 截取（用 spread 操作符避免 surrogate pair 截断）
+          const truncated = [...content.trim()].slice(0, 15).join('')
+          sessionName = truncated || `对话 ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`
+        }
+
+        // 获取当前工作区路径
+        const currentWorkspacePath = global.workspaceManager ? global.workspaceManager.current()?.path : null
 
         await ChatSession.upsert({
           sessionId,
           sessionName,
+          workspacePath: currentWorkspacePath,
           lastActivity: new Date()
         })
       }
@@ -334,10 +369,31 @@ function registerAgentHandlers() {
     return { success: true }
   })
 
+  ipcMain.handle('agent:getSessionInfo', async (_event, { sessionId }) => {
+    const { ChatSession } = require('../db/database')
+    const session = await ChatSession.findOne({ where: { sessionId } })
+    return session ? {
+      sessionId: session.sessionId,
+      sessionName: session.sessionName,
+      workspacePath: session.workspacePath,
+      lastActivity: session.lastActivity
+    } : null
+  })
+
+  ipcMain.handle('agent:renameSession', async (_event, { sessionId, sessionName }) => {
+    const { ChatSession } = require('../db/database')
+    await ChatSession.update(
+      { sessionName },
+      { where: { sessionId } }
+    )
+    return { success: true }
+  })
+
   ipcMain.handle('agent:clearAllMemory', async () => {
-    const { ChatHistory, CorrectionRule } = require('../db/database')
+    const { ChatHistory, ChatSession, CorrectionRule } = require('../db/database')
     // 注意：user_preferences 表已在阶段 B 迁移中删除，不在此处引用
     await ChatHistory.destroy({ where: {}, truncate: true })
+    await ChatSession.destroy({ where: {}, truncate: true })  // 清空会话表
     await CorrectionRule.destroy({ where: {}, truncate: true })
     return { success: true }
   })

@@ -154,6 +154,23 @@ export async function switchSession({ dispatch, sessionId }) {
   dispatch({ type: 'RESET_AGENT' })
 
   try {
+    // 1. 获取目标会话的信息（包括 workspacePath）
+    const sessionInfo = await window.electronAPI.invoke('agent:getSessionInfo', { sessionId })
+
+    if (sessionInfo && sessionInfo.workspacePath) {
+      // 2. 获取当前工作区
+      const currentWorkspace = await window.electronAPI.workspace.current()
+      const currentPath = currentWorkspace?.path?.replace(/\\/g, '/') || null
+      const targetPath = sessionInfo.workspacePath.replace(/\\/g, '/')
+
+      // 3. 如果工作区不同，切换工作区
+      if (currentPath !== targetPath) {
+        console.log('[switchSession] 切换工作区:', targetPath)
+        await window.electronAPI.workspace.open(targetPath)
+      }
+    }
+
+    // 4. 加载会话消息
     const r = await window.electronAPI.invoke('agent:getSessionMessages', { sessionId })
     if (r && r.messages) {
       dispatch({

@@ -308,6 +308,16 @@ const SmartDesignChat = () => {
           // 恢复最近的会话
           const latestSession = sessions[0]
           await switchSession({ dispatch, sessionId: latestSession.sessionId })
+
+          // 更新工作区状态
+          try {
+            const current = await window.electronAPI.workspace.current()
+            if (current && current.path) {
+              setWorkspacePath(current.path)
+            }
+          } catch (err) {
+            console.warn('[SmartDesignChat] 更新工作区状态失败:', err)
+          }
         }
       } catch (error) {
         console.warn('[SmartDesignChat] 初始化加载会话失败:', error)
@@ -322,6 +332,23 @@ const SmartDesignChat = () => {
       loadSkills()
     }
   }, [showSlashMenu, availableSkills.length, loadSkills])
+
+  // 监听会话切换，更新工作区状态
+  useEffect(() => {
+    const updateWorkspaceState = async () => {
+      try {
+        const current = await window.electronAPI.workspace.current()
+        if (current && current.path) {
+          setWorkspacePath(current.path)
+        } else {
+          setWorkspacePath(null)
+        }
+      } catch (err) {
+        console.warn('[SmartDesignChat] 更新工作区状态失败:', err)
+      }
+    }
+    updateWorkspaceState()
+  }, [state.session.currentId])
 
   // 监听输入变化，同步光标位置
   const handleInputChange = useCallback((e) => {

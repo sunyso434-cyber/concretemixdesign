@@ -1,3 +1,40 @@
+## v8.0.6 (2026-06-22) - 历史会话按工作区归档功能完善
+
+### 修复内容
+
+1. **清空历史对话数据** - 修复清空会话后历史会话列表仍然显示的问题
+   - 修改 `agent:clearAllMemory` handler，清空 ChatSession 表
+
+2. **会话名称使用 AI 摘要** - 当用户发送第一条消息时，使用 AI 生成摘要作为会话名称
+   - 修改 `agent:saveMessage` handler，添加 AI 摘要逻辑
+   - 如果 AI 调用失败，降级为截取前 15 个字符
+
+3. **切换会话时自动切换工作区** - 当切换到不同工作区的会话时，自动切换工作区
+   - 修改 `switchSession` 函数，添加工作区切换逻辑
+   - 新增 `agent:getSessionInfo` handler 获取会话信息
+
+4. **会话操作菜单** - 在会话名称末端添加三个点按钮，提供重命名和删除功能
+   - 新增 `agent:renameSession` handler
+   - 修改 MemorySidebar 组件，添加 Dropdown 菜单
+
+### 改动文件汇总
+
+| # | 文件 | 改动类型 |
+|---|------|----------|
+| 1 | [src/main/ipcHandlers/agentHandler.js](src/main/ipcHandlers/agentHandler.js) | 修改 saveMessage/clearAllMemory + 新增 getSessionInfo/renameSession |
+| 2 | [src/renderer/components/agentActions.js](src/renderer/components/agentActions.js) | 修改 switchSession 添加工作区切换逻辑 |
+| 3 | [src/renderer/components/MemorySidebar.jsx](src/renderer/components/MemorySidebar.jsx) | 添加会话操作菜单（三个点按钮） |
+| 4 | [src/renderer/components/SmartDesignChat.jsx](src/renderer/components/SmartDesignChat.jsx) | 添加会话切换时工作区状态更新 |
+
+### 打包记录
+- **命令**: `npm run electron:build`
+- **结果**: 成功（exit 0）
+- **版本号**: **8.0.6**（hotfix 不升 version 号，产物命名沿用 v8.0.0）
+- **构建产物**: `dist-8.0.0/混凝土配合比设计软件 Setup 8.0.0.exe` + 便携版
+- **测试**: 待测试
+
+---
+
 ## v8.0.5 (2026-06-22) - hotfix：修复知识图谱 KG 提取从未触发（kgMerge 始终 null）
 
 ### 问题

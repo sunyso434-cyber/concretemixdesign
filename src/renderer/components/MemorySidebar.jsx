@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { Button, List, Typography, Space, Tabs, Popconfirm, Layout } from 'antd'
-import { HistoryOutlined, PlusOutlined, DeleteOutlined, RobotOutlined, FolderOpenOutlined } from '@ant-design/icons'
+import { Button, List, Typography, Space, Tabs, Popconfirm, Layout, Dropdown, Modal, Input, message } from 'antd'
+import { HistoryOutlined, PlusOutlined, DeleteOutlined, RobotOutlined, FolderOpenOutlined, MoreOutlined, EditOutlined } from '@ant-design/icons'
 import { useAgentStore } from './AgentStore'
 import { createSession, switchSession, loadSessionList } from './agentActions'
 
@@ -74,6 +74,33 @@ const MemorySidebar = ({ onToggle }) => {
     if (sessionId === currentSessionId) {
       handleNewSession()
     }
+  }
+
+  const handleRenameSession = (sessionId, currentName) => {
+    let newName = currentName || ''
+    Modal.confirm({
+      title: '重命名会话',
+      content: (
+        <div>
+          <p>请输入新的会话名称：</p>
+          <Input
+            defaultValue={currentName}
+            onChange={e => newName = e.target.value}
+            placeholder="输入会话名称"
+          />
+        </div>
+      ),
+      onOk: async () => {
+        if (newName.trim()) {
+          await window.electronAPI.invoke('agent:renameSession', {
+            sessionId,
+            sessionName: newName.trim()
+          })
+          await loadSessionList({ dispatch })
+          message.success('重命名成功')
+        }
+      }
+    })
   }
 
   const { workspaces, unclassified } = groupedData
@@ -150,14 +177,6 @@ const MemorySidebar = ({ onToggle }) => {
                           border: 'none'
                         }}
                         onClick={() => handleLoadSession(s.sessionId)}
-                        actions={[
-                          <Popconfirm key="del" title="删除此对话？" onConfirm={async (e) => {
-                            e?.stopPropagation?.()
-                            await handleDeleteSession(s.sessionId)
-                          }}>
-                            <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={e => e.stopPropagation()} />
-                          </Popconfirm>
-                        ]}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                           <Space size={6}>
@@ -166,9 +185,38 @@ const MemorySidebar = ({ onToggle }) => {
                               {s.title || (s.sessionId ? s.sessionId.substring(0, 8) : '未命名')}
                             </Text>
                           </Space>
-                          <Text type="secondary" style={{ fontSize: 11, flexShrink: 0, marginLeft: 8 }}>
-                            {relativeTime(s.lastActivity)}
-                          </Text>
+                          <Space size={4}>
+                            <Text type="secondary" style={{ fontSize: 11, flexShrink: 0, marginLeft: 8 }}>
+                              {relativeTime(s.lastActivity)}
+                            </Text>
+                            <Dropdown
+                              menu={{
+                                items: [
+                                  {
+                                    key: 'rename',
+                                    label: '重命名',
+                                    icon: <EditOutlined />,
+                                    onClick: () => handleRenameSession(s.sessionId, s.title)
+                                  },
+                                  {
+                                    key: 'delete',
+                                    label: '删除',
+                                    icon: <DeleteOutlined />,
+                                    danger: true,
+                                    onClick: () => handleDeleteSession(s.sessionId)
+                                  }
+                                ]
+                              }}
+                              trigger={['click']}
+                            >
+                              <Button
+                                size="small"
+                                type="text"
+                                icon={<MoreOutlined />}
+                                onClick={e => e.stopPropagation()}
+                              />
+                            </Dropdown>
+                          </Space>
                         </div>
                       </List.Item>
                     ))}
@@ -200,14 +248,6 @@ const MemorySidebar = ({ onToggle }) => {
                           border: 'none'
                         }}
                         onClick={() => handleLoadSession(s.sessionId)}
-                        actions={[
-                          <Popconfirm key="del" title="删除此对话？" onConfirm={async (e) => {
-                            e?.stopPropagation?.()
-                            await handleDeleteSession(s.sessionId)
-                          }}>
-                            <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={e => e.stopPropagation()} />
-                          </Popconfirm>
-                        ]}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                           <Space size={6}>
@@ -216,9 +256,38 @@ const MemorySidebar = ({ onToggle }) => {
                               {s.title || (s.sessionId ? s.sessionId.substring(0, 8) : '未命名')}
                             </Text>
                           </Space>
-                          <Text type="secondary" style={{ fontSize: 11, flexShrink: 0, marginLeft: 8 }}>
-                            {relativeTime(s.lastActivity)}
-                          </Text>
+                          <Space size={4}>
+                            <Text type="secondary" style={{ fontSize: 11, flexShrink: 0, marginLeft: 8 }}>
+                              {relativeTime(s.lastActivity)}
+                            </Text>
+                            <Dropdown
+                              menu={{
+                                items: [
+                                  {
+                                    key: 'rename',
+                                    label: '重命名',
+                                    icon: <EditOutlined />,
+                                    onClick: () => handleRenameSession(s.sessionId, s.title)
+                                  },
+                                  {
+                                    key: 'delete',
+                                    label: '删除',
+                                    icon: <DeleteOutlined />,
+                                    danger: true,
+                                    onClick: () => handleDeleteSession(s.sessionId)
+                                  }
+                                ]
+                              }}
+                              trigger={['click']}
+                            >
+                              <Button
+                                size="small"
+                                type="text"
+                                icon={<MoreOutlined />}
+                                onClick={e => e.stopPropagation()}
+                              />
+                            </Dropdown>
+                          </Space>
                         </div>
                       </List.Item>
                     ))}
