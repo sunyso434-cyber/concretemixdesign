@@ -1,3 +1,53 @@
+## v8.0.5 (2026-06-22) - hotfix：修复知识图谱 KG 提取从未触发（kgMerge 始终 null）
+
+### 问题
+老板报告：`workspace_ingest` 导入文件后全文搜索正常，但知识图谱（`workspace_searchGraph`）始终为空，`kgMerge` 字段为 `null`。
+
+实际原因是 `global.deepseekService` **从未被赋值**——全项目搜索无 `global.deepseekService =` 语句。WikiEngine 初始化时 `llmClient: global.deepseekService || null` 永远拿到 `null`，导致 KGExtractor.extract() 直接返回 `quality: 'low'`；而 DeepSeekService 真正实例化在 `agentHandler.getOrchestrator()` 里，但只存在局部变量 `ds`，没写回全局。
+
+### 根因（两个问题叠加）
+| # | 问题 | 所在位置 |
+|---|------|----------|
+| 1 | `global.deepseekService` 从来没人赋值 | [main.js:302](main.js#L302) 只读，全项目无写入 |
+| 2 | KGExtractor 在启动时就锁死 `llmClient = null`，之后 DeepSeek 初始化也更新不了 | [KGExtractor.js:14](src/main/workspace/KGExtractor.js#L14) 构造时绑定 |
+| 3 | DeepSeekService 缺少 `invoke(prompt)` 方法（KGExtractor 需要的接口） | [KGExtractor.js:36](src/main/workspace/KGExtractor.js#L36) 调 `llmClient.invoke(prompt)` 但 DeepSeekService 没这方法 |
+
+### 修复（2 文件共 3 处改动）
+| 步骤 | 操作 | 结果 |
+|------|------|------|
+| 1 | [DeepSeekService.js](src/main/services/DeepSeekService.js) 新增 `invoke(prompt)` 方法——发送单条 user message，返回纯文本 | ✅ |
+| 2 | [agentHandler.js](src/main/ipcHandlers/agentHandler.js) `getOrchestrator()` 里 `global.deepseekService = ds` | ✅ |
+| 3 | [agentHandler.js](src/main/ipcHandlers/agentHandler.js) 同时 `global.kgExtractor.llmClient = ds` 更新已创建的 KGExtractor | ✅ |
+| 4 | 跑 KG 相关测试（4 suites） | ✅ 38/38 通过 |
+| 5 | 跑全量 jest 测试 | ✅ **1097/1101**（4 个失败是 PDF 解析环境问题，与本次无关）|
+
+### 修复后流程
+```
+用户首次 AI 对话 → getOrchestrator() 创建 DeepSeekService
+  → global.deepseekService = ds        ✅ 全局可用
+  → kgExtractor.llmClient = ds         ✅ 已创建的 extractor 重新激活
+  → 之后 workspace_ingest 文件
+  → kgExtractor.extract() 调 LLM      ✅ 拿到三元组
+  → quality: 'high' → mergeInto()     ✅ 写入 graph.json
+  → kgMerge 不再是 null               ✅
+  → workspace_searchGraph 有数据       ✅
+```
+
+### 改动文件汇总
+| # | 文件 | 改动类型 |
+|---|------|----------|
+| 1 | [src/main/services/DeepSeekService.js](src/main/services/DeepSeekService.js) | 新增 `invoke(prompt)` 方法 |
+| 2 | [src/main/ipcHandlers/agentHandler.js](src/main/ipcHandlers/agentHandler.js) | 补 `global.deepseekService` 赋值 + 更新 `kgExtractor.llmClient` |
+
+### 打包记录
+- **命令**: `npm run electron:build`
+- **结果**: 成功（exit 0）
+- **版本号**: **8.0.5**（hotfix 不升 version 号，产物命名沿用 v8.0.0）
+- **构建产物**: `dist-8.0.0/混凝土配合比设计软件 Setup 8.0.0.exe`（263 MB）+ 便携版（262 MB）
+- **测试**: 1097/1101（4 个失败为预存在的 PDF 解析问题，与本次改动无关）
+
+---
+
 ## v8.0.3 (2026-06-22) - hotfix：修复写入工具只有标题没有正文
 
 ### 问题

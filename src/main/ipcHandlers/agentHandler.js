@@ -143,6 +143,13 @@ async function getOrchestrator() {
   if (!orchestrator || cachedApiKey !== apiKey) {
     const ds = new DeepSeekService(apiKey, SystemService)
 
+    // P5 KG：把 DeepSeek 实例写入全局，并更新已创建的 KGExtractor 的 llmClient
+    // （KGExtractor 在 app.whenReady 时创建，当时 DeepSeek 尚未初始化，llmClient 为空）
+    global.deepseekService = ds
+    if (global.kgExtractor) {
+      global.kgExtractor.llmClient = ds
+    }
+
     // 确保 Skill 系统已初始化
     await initSkillSystem()
 

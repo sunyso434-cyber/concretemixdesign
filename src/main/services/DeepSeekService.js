@@ -754,6 +754,22 @@ class DeepSeekService {
   }
 
   /**
+  /**
+   * 简单调用 LLM：发送 prompt，返回纯文本响应。
+   * 供 KGExtractor 等内部组件使用 —— 不走对话历史、不走工具调用。
+   * @param {string} prompt - 提示词
+   * @returns {Promise<string>} - LLM 返回的文本内容
+   */
+  async invoke(prompt) {
+    if (!this.apiKey) {
+      throw new Error('DeepSeek API密钥未配置')
+    }
+    const messages = [{ role: 'user', content: prompt }]
+    const response = await this._callAPI(messages, false)
+    return response.content || ''
+  }
+
+  /**
    * 与AI对话（支持 Function Calling 工具调用循环）
    * @param {string} message - 用户消息
    * @param {Array} context - 上下文数据（配合比数据等）
