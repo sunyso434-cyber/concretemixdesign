@@ -10,7 +10,6 @@ import OptimizationResultCard from '../components/OptimizationResultCard'
 import MaterialCompareCard from '../components/MaterialCompareCard'
 import DiagnosisResultCard from '../components/DiagnosisResultCard'
 import SmartDesignChat from '../components/SmartDesignChat'
-import StandardsManager from '../components/StandardsManager'
 import AIAnalysisPage_Upload from './AIAnalysisPage_Upload'
 import AIAnalysisPage_Results from './AIAnalysisPage_Results'
 
@@ -1011,11 +1010,6 @@ const AIAnalysisPage = () => {
       key: 'smart-analysis',
       label: '智能解析',
       children: <Tabs items={analysisItems} defaultActiveKey="data-import" size="large" />,
-    },
-    {
-      key: 'standards',
-      label: '规范管理',
-      children: <StandardsManager />,
     },
   ]
 

@@ -90,8 +90,6 @@ async function initSkillSystem() {
     mixDesignService: require('../services/MixDesignService'),
     basicMixDesignService: require('../services/BasicMixDesignService'),
     mixDesignOptimizer: require('../services/MixDesignOptimizer'),
-    complianceService: require('../services/StandardComplianceService'),
-    knowledgeService: require('../services/StandardKnowledgeService'),
     salesQuoteCalculation: require('../services/SalesQuoteCalculationService'),
     salesQuoteHistory: require('../services/SalesQuoteHistoryService'),
     xgboostPrediction: require('../services/XGBoostPredictionService'),
@@ -610,7 +608,6 @@ module.exports = {
       // TODO: 在这里实现你的查询逻辑
       // 可以使用 context 中的服务：
       //   context.materialService  - 材料库
-      //   context.knowledgeService - 规范知识库
       //   context.mixDesignService - 配合比服务
 
       const results = []
@@ -728,8 +725,7 @@ module.exports = {
     try {
       // TODO: 在这里实现你的检查逻辑
       // 可以使用 context 中的服务：
-      //   context.complianceService - 规范合规检查
-      //   context.knowledgeService  - 规范知识库查询
+      //   context.materialService  - 材料库
 
       const issues = []     // 发现的问题
       const warnings = []   // 警告信息

@@ -223,21 +223,17 @@ ${history}
    */
   async getResourceSummary() {
     const { MixDesign, BasicMixDesign, OptimizationHistory } = require('../db/database')
-    const knowledgeService = require('./StandardKnowledgeService')
     const { fn, col } = require('sequelize')
 
     const [
       designHistoryResult,
       optimizationResult,
-      standardsResult,
       strengthResult
     ] = await Promise.allSettled([
       // 统计历史设计记录数（方案库 + 基准配合比库）
       Promise.all([MixDesign.count(), BasicMixDesign.count()]).then(([a, b]) => a + b),
       // 统计优化历史记录数
       OptimizationHistory.count(),
-      // 获取规范知识包数量
-      knowledgeService.listStandards(),
       // 统计用户常用强度等级（从历史记录取 top 3）
       MixDesign.findAll({
         attributes: ['strength', [fn('COUNT', col('strength')), 'cnt']],
@@ -262,13 +258,6 @@ ${history}
       console.warn('[AgentMemoryService] getResourceSummary: failed to count OptimizationHistory:', optimizationResult.reason?.message)
     }
 
-    let standardsCount = 0
-    if (standardsResult.status === 'fulfilled') {
-      standardsCount = standardsResult.value.length
-    } else {
-      console.warn('[AgentMemoryService] getResourceSummary: failed to listStandards:', standardsResult.reason?.message)
-    }
-
     let commonStrengthGrades = []
     if (strengthResult.status === 'fulfilled') {
       commonStrengthGrades = strengthResult.value.map(r => r.strength).filter(Boolean)
@@ -287,7 +276,6 @@ ${history}
     }
 
     return {
-      standardsCount,
       designHistoryCount,
       optimizationCount,
       userPreferences: {

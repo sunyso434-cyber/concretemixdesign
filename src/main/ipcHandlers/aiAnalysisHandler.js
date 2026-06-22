@@ -11,7 +11,6 @@ const MixDesignOptimizer = require('../services/MixDesignOptimizer')
 const ParameterDiagnosisService = require('../services/ParameterDiagnosisService')
 const AnalysisClassifier = require('../services/AnalysisClassifier')
 const AnalysisPreprocessor = require('../services/AnalysisPreprocessor')
-const standardKnowledgeService = require('../services/StandardKnowledgeService')
 const BasicMixDesignService = require('../services/BasicMixDesignService')
 const SalesQuoteRuleService = require('../services/SalesQuoteRuleService')
 const SalesQuoteCalculationService = require('../services/SalesQuoteCalculationService')
@@ -413,76 +412,6 @@ const executeToolCall = async (toolName, args) => {
         args = { ...args, ...converted }
       }
       return await XGBoostPredictionService.predict(args)
-    }
-
-    case 'check_compliance': {
-      const StandardComplianceService = require('../services/StandardComplianceService')
-      const apiKey = await getDeepSeekApiKey()
-      const dsService = apiKey ? new DeepSeekService(apiKey, SystemService) : null
-      const complianceService = new StandardComplianceService(dsService)
-
-      // 方案A：根据材料ID自动查询材料库获取性能参数
-      let mixDesign = args.mixDesign || args
-      const materialIds = mixDesign.materialIds
-      if (materialIds) {
-        const materialProperties = {}
-        const queries = []
-        if (materialIds.cementId) {
-          queries.push(
-            MaterialService.getMaterialById(materialIds.cementId).then(m => { materialProperties.cement = m })
-          )
-        }
-        if (materialIds.sandIds?.length) {
-          queries.push(
-            Promise.all(materialIds.sandIds.map(id => MaterialService.getMaterialById(id)))
-              .then(list => { materialProperties.sands = list.filter(Boolean) })
-          )
-        }
-        if (materialIds.stoneIds?.length) {
-          queries.push(
-            Promise.all(materialIds.stoneIds.map(id => MaterialService.getMaterialById(id)))
-              .then(list => { materialProperties.stones = list.filter(Boolean) })
-          )
-        }
-        if (materialIds.flyAshId) {
-          queries.push(
-            MaterialService.getMaterialById(materialIds.flyAshId).then(m => { materialProperties.flyAsh = m })
-          )
-        }
-        if (materialIds.slagId) {
-          queries.push(
-            MaterialService.getMaterialById(materialIds.slagId).then(m => { materialProperties.slag = m })
-          )
-        }
-        if (materialIds.lithiumSlagId) {
-          queries.push(
-            MaterialService.getMaterialById(materialIds.lithiumSlagId).then(m => { materialProperties.lithiumSlag = m })
-          )
-        }
-        if (materialIds.compositePowderId) {
-          queries.push(
-            MaterialService.getMaterialById(materialIds.compositePowderId).then(m => { materialProperties.compositePowder = m })
-          )
-        }
-        if (materialIds.superplasticizerId) {
-          queries.push(
-            MaterialService.getMaterialById(materialIds.superplasticizerId).then(m => { materialProperties.superplasticizer = m })
-          )
-        }
-        await Promise.all(queries)
-        mixDesign = { ...mixDesign, materialProperties }
-      }
-
-      const report = await complianceService.check(mixDesign, {
-        standards: args.standards || [],
-        standardNames: args.standardNames || [],
-        standardCategories: args.standardCategories || []
-      })
-      return {
-        success: true,
-        type: 'compliance_check',
-        data: report
-      }
     }
 
     case 'prepare_sales_quote_draft': {
