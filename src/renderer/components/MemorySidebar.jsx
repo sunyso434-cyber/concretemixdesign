@@ -42,6 +42,7 @@ const MemorySidebar = ({ onToggle }) => {
 
   const [sidebarTab, setSidebarTab] = useState('history')
   const [groupedData, setGroupedData] = useState({ workspaces: [], unclassified: [] })
+  const [renameModal, setRenameModal] = useState({ open: false, sessionId: null, value: '' })
 
   // 获取按工作区分组的会话列表
   const fetchGroupedSessions = async () => {
@@ -76,56 +77,35 @@ const MemorySidebar = ({ onToggle }) => {
     }
   }
 
-  const handleRenameSession = (sessionId, currentName) => {
-    let inputValue = currentName || ''
-    let modalInstance = null
+  const openRenameModal = (sessionId, currentName) => {
+    setRenameModal({ open: true, sessionId, value: currentName || '' })
+  }
 
-    const handleOk = async () => {
-      const trimmedName = inputValue.trim()
-      if (!trimmedName) {
-        message.warning('会话名称不能为空')
-        return
-      }
-      if (trimmedName === (currentName || '').trim()) {
-        message.info('名称未改变')
-        return
-      }
-      try {
-        await window.electronAPI.invoke('agent:renameSession', {
-          sessionId,
-          sessionName: trimmedName
-        })
-        await loadSessionList({ dispatch })
-        // 同时刷新分组数据
-        await fetchGroupedSessions()
-        message.success('重命名成功')
-      } catch (err) {
-        console.error('重命名失败:', err)
-        message.error('重命名失败: ' + err.message)
-      }
+  const closeRenameModal = () => {
+    setRenameModal({ open: false, sessionId: null, value: '' })
+  }
+
+  const submitRename = async () => {
+    const trimmedName = renameModal.value.trim()
+    if (!trimmedName) {
+      message.warning('会话名称不能为空')
+      return false
     }
-
-    modalInstance = Modal.confirm({
-      title: '重命名会话',
-      content: (
-        <div>
-          <p>请输入新的会话名称：</p>
-          <Input
-            defaultValue={currentName}
-            autoFocus
-            onChange={e => { inputValue = e.target.value }}
-            onPressEnter={() => {
-              modalInstance && modalInstance.destroy()
-              handleOk()
-            }}
-            placeholder="输入会话名称"
-          />
-        </div>
-      ),
-      okText: '确认',
-      cancelText: '取消',
-      onOk: handleOk
-    })
+    try {
+      await window.electronAPI.invoke('agent:renameSession', {
+        sessionId: renameModal.sessionId,
+        sessionName: trimmedName
+      })
+      closeRenameModal()
+      await loadSessionList({ dispatch })
+      await fetchGroupedSessions()
+      message.success('重命名成功')
+      return true
+    } catch (err) {
+      console.error('重命名失败:', err)
+      message.error('重命名失败: ' + err.message)
+      return false
+    }
   }
 
   const { workspaces, unclassified } = groupedData
@@ -221,7 +201,7 @@ const MemorySidebar = ({ onToggle }) => {
                                     key: 'rename',
                                     label: '重命名',
                                     icon: <EditOutlined />,
-                                    onClick: () => handleRenameSession(s.sessionId, s.title)
+                                    onClick: () => openRenameModal(s.sessionId, s.title)
                                   },
                                   {
                                     key: 'delete',
@@ -292,7 +272,7 @@ const MemorySidebar = ({ onToggle }) => {
                                     key: 'rename',
                                     label: '重命名',
                                     icon: <EditOutlined />,
-                                    onClick: () => handleRenameSession(s.sessionId, s.title)
+                                    onClick: () => openRenameModal(s.sessionId, s.title)
                                   },
                                   {
                                     key: 'delete',
@@ -332,6 +312,27 @@ const MemorySidebar = ({ onToggle }) => {
           }
         }}>清空全部对话</Button>
       </div>
+
+      {/* 重命名对话框 */}
+      <Modal
+        title="重命名会话"
+        open={renameModal.open}
+        onOk={submitRename}
+        onCancel={closeRenameModal}
+        okText="确认"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <p>请输入新的会话名称：</p>
+        <Input
+          value={renameModal.value}
+          onChange={e => setRenameModal(prev => ({ ...prev, value: e.target.value }))}
+          onPressEnter={submitRename}
+          placeholder="输入会话名称"
+          autoFocus
+          maxLength={50}
+        />
+      </Modal>
     </Sider>
   )
 }
