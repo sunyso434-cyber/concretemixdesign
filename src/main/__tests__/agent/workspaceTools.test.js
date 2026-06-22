@@ -22,7 +22,8 @@ function makeMockWiki() {
 
 function makeMockWM() {
   return {
-    listFiles: jest.fn().mockResolvedValue([{ name: 'a.md', path: 'root/a.md', size: 0 }])
+    listFiles: jest.fn().mockResolvedValue([{ name: 'a.md', path: 'root/a.md', size: 0 }]),
+    current: () => null  // 默认工作区未开；具体测试需要时可覆盖
   }
 }
 
@@ -144,16 +145,21 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
     expect(result.error).toContain('知识图谱未启用')
   })
 
-  test('workspace_searchGraph 在 kgExtractor 存在时 → kgExtractor.searchGraph(query, topK)', async () => {
+  test('workspace_searchGraph 在 kgExtractor 存在时 → kgExtractor.searchGraph(query, topK, workspacePath)', async () => {
     const kg = makeMockKG()
+    // v8.0.4 后 invoke 自动从 workspaceManager.current().path 拿 workspacePath
+    const wmWithPath = {
+      ...makeMockWM(),
+      current: () => ({ path: '/test-workspace' })
+    }
     const skills = buildWorkspaceSkills({
-      workspaceManager: makeMockWM(),
+      workspaceManager: wmWithPath,
       wikiEngine: makeMockWiki(),
       kgExtractor: kg
     })
     const skill = skills.find(s => s.name === 'workspace_searchGraph')
     const result = await skill.execute({ query: '硅灰', topK: 8 }, {})
-    expect(kg.searchGraph).toHaveBeenCalledWith('硅灰', 8)
+    expect(kg.searchGraph).toHaveBeenCalledWith('硅灰', 8, '/test-workspace')
     expect(result).toEqual({ triples: [{ s: 'a', p: 'b', o: 'c' }] })
   })
 
@@ -259,5 +265,72 @@ describe('buildWorkspaceSkills v8.0.3 hotfix：workspace_writeFile payload schem
     const writeFile = skills.find(s => s.name === 'workspace_writeFile')
     // 必须有明确指引让 LLM 知道 sections 不可省
     expect(writeFile.description).toMatch(/payload.*sections|sections.*payload|必须包含/)
+  })
+})
+
+// v8.0.4 hotfix：workspace_searchGraph invoke 必须自动传 workspacePath 给 KGExtractor
+// 防止 LLM 漏传 workspacePath → KGExtractor 抛 PATH_INVALID
+describe('buildWorkspaceSkills v8.0.4 hotfix：workspace_searchGraph workspacePath 自动注入（防回归）', () => {
+  test('workspace_searchGraph invoke 传给 KGExtractor 的 workspacePath = global.workspaceManager.current().path', async () => {
+    // mock KGExtractor 接收并验证参数
+    let capturedArgs = null
+    const mockKG = {
+      searchGraph: jest.fn().mockImplementation(async (query, topK, workspacePath) => {
+        capturedArgs = { query, topK, workspacePath }
+        return { triples: [{ s: 'a', p: 'b', o: 'c' }] }
+      })
+    }
+    const mockWM = {
+      current: () => ({ path: 'D:/test-workspace' })
+    }
+
+    // 用 mock KG 构造 skill
+    const skills = buildWorkspaceSkills({
+      workspaceManager: mockWM,
+      wikiEngine: makeMockWiki(),
+      kgExtractor: mockKG
+    })
+    const searchGraph = skills.find(s => s.name === 'workspace_searchGraph')
+
+    // LLM 只传 { query, topK }（v8.0.3 的真实场景）
+    await searchGraph.execute({ query: 'UHPC', topK: 10 }, {})
+
+    // workspacePath 应自动从 mockWM 拿
+    expect(capturedArgs.workspacePath).toBe('D:/test-workspace')
+    expect(capturedArgs.query).toBe('UHPC')
+    expect(capturedArgs.topK).toBe(10)
+  })
+
+  test('workspace_searchGraph 工作区未开时返回友好错误（NOT_OPEN），不抛 PATH_INVALID', async () => {
+    const mockKG = {
+      searchGraph: jest.fn().mockResolvedValue({ triples: [] })
+    }
+    const mockWMClosed = {
+      current: () => null
+    }
+    const skills = buildWorkspaceSkills({
+      workspaceManager: mockWMClosed,
+      wikiEngine: makeMockWiki(),
+      kgExtractor: mockKG
+    })
+    const searchGraph = skills.find(s => s.name === 'workspace_searchGraph')
+
+    const result = await searchGraph.execute({ query: 'UHPC', topK: 10 }, {})
+    // 应该返回 WorkspaceError(NOT_OPEN)，不调 KGExtractor
+    expect(result.success).toBe(false)
+    expect(result.errorCode).toBe('NOT_OPEN')
+    expect(result.error).toContain('请先打开工作区')
+    expect(mockKG.searchGraph).not.toHaveBeenCalled()
+  })
+
+  test('workspace_searchGraph description 必须说明前提（工作区已打开 + LLM 不传 workspacePath）', () => {
+    const skills = buildWorkspaceSkills({
+      workspaceManager: makeMockWM(),
+      wikiEngine: makeMockWiki(),
+      kgExtractor: null
+    })
+    const searchGraph = skills.find(s => s.name === 'workspace_searchGraph')
+    expect(searchGraph.description).toContain('当前工作区')
+    expect(searchGraph.description).toContain('LLM 不需要传')
   })
 })

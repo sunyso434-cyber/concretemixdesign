@@ -82,7 +82,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       {},
       () => getWiki().lint()
     ),
-    skill('workspace_searchGraph', '查询知识图谱：按关键词找相关实体和关系（论文核心功能）。返回完整三元组（subject-predicate-object）。**P5 阶段启用**——P4 阶段如果未启用会返回 NOT_OPEN 错误。',
+    skill('workspace_searchGraph', '查询知识图谱：按关键词找相关实体和关系（论文核心功能）。返回完整三元组（subject-predicate-object）。**P5 阶段启用**——P4 阶段如果未启用会返回 NOT_OPEN 错误。前提：当前工作区必须已打开（workspacePath 由 execute 内部从 global.workspaceManager.current() 读取，LLM 不需要传）。',
       {
         query: { type: 'string', description: '搜索关键词', required: true },
         topK: { type: 'number', description: '返回条数', required: false, min: 1, max: 50, default: 10 }
@@ -92,7 +92,11 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         if (!kg) {
           throw new WorkspaceError('NOT_OPEN', '知识图谱未启用（P5 阶段才激活）', false)
         }
-        return await kg.searchGraph(args.query, args.topK || 10)
+        const current = getWM().current()
+        if (!current || !current.path) {
+          throw new WorkspaceError('NOT_OPEN', '请先打开工作区再调用 workspace_searchGraph（当前工作区路径由工具自动读取，LLM 无需传 workspacePath）', false)
+        }
+        return await kg.searchGraph(args.query, args.topK || 10, current.path)
       }
     )
   ]

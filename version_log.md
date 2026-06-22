@@ -72,7 +72,60 @@ document.xml 文本节点: C30 配合比设计报告
 
 ---
 
-## v8.0.2 (2026-06-22) - hotfix：修复 v8.0.0 升级后 "AI 连续响应失败"
+## v8.0.4 (2026-06-22) - hotfix：修复 workspace_searchGraph 漏传 workspacePath
+
+### 问题
+老板报告：`workspace_searchGraph` 调用时报错 `searchGraph 需要 workspacePath 参数（P5 阶段请传当前工作区路径）`。老板 LLM 实际只传了 `{ query: 'UHPC 超高性能混凝土', topK: 30 }`，没传 workspacePath。
+
+### 复现证据（[scripts/repro-searchgraph-no-workspace.js](scripts/repro-searchgraph-no-workspace.js)）
+模拟 LLM 实际调用 args（只传 query + topK）：
+```
+KGExtractor.searchGraph 收到:
+  query: UHPC 超高性能混凝土
+  topK: 30
+  workspacePath: undefined
+
+❌ 抛错: PATH_INVALID - searchGraph 需要 workspacePath 参数（P5 阶段请传当前工作区路径）
+✅ 假设验证：当前 invoke 没传 workspacePath → KGExtractor 抛 PATH_INVALID
+```
+
+### 根因（一句话）
+`workspace_searchGraph` 的 invoke 函数漏传 `workspacePath` 给 `KGExtractor.searchGraph(query, topK, workspacePath)`（第 3 个参数），但 `workspacePath` 是**全局状态**（当前工作区路径），LLM 看不见也传不出来——所以**正确修复不是让 LLM 传**，而是 **execute 内部从 `global.workspaceManager.current()?.path` 自动拿**。
+
+### 完整问题点（3 处一致漏讲）
+| 位置 | 内容 | 问题 |
+|------|------|------|
+| [src/main/agent/workspaceTools.js:85-94](src/main/agent/workspaceTools.js#L85-L94) `workspace_searchGraph` invoke | 旧：`return await kg.searchGraph(args.query, args.topK \|\| 10)` | **漏传第 3 参数 workspacePath** |
+| [src/main/agent/systemPromptBuilder.js](src/main/agent/systemPromptBuilder.js) system prompt 提示 | 旧：`workspace_searchGraph(query, topK)` | **没说前提（工作区必须已开）+ 没说明 LLM 不需要传 workspacePath** |
+| [src/main/agent/workspaceTools.js](src/main/agent/workspaceTools.js) tool description | 旧：'查询知识图谱...' | **没说工作区前提** |
+
+### 修复（3 处同步 + 3 个防回归测试）
+| 步骤 | 操作 | 结果 |
+|------|------|------|
+| 1 | [src/main/agent/workspaceTools.js](src/main/agent/workspaceTools.js) invoke 改成 `kg.searchGraph(args.query, args.topK \|\| 10, getWM().current()?.path)`，并加工作区未开时的友好 NOT_OPEN 错误 | ✅ |
+| 2 | tool description 加"前提：当前工作区必须已打开（workspacePath 由 execute 内部从 global.workspaceManager.current() 读取，LLM 不需要传）" | ✅ |
+| 3 | [src/main/agent/systemPromptBuilder.js](src/main/agent/systemPromptBuilder.js) system prompt 加"**前提：当前工作区必须已打开**——workspacePath 由工具自动读取，LLM 无需传" | ✅ |
+| 4 | [src/main/__tests__/agent/workspaceTools.test.js](src/main/__tests__/agent/workspaceTools.test.js) 加 3 个回归测试：workspacePath 自动注入 / 工作区未开友好错误 / description 包含前提说明 | ✅ |
+| 5 | 更新 `makeMockWM` mock 加 `current: () => null` 默认值，更新旧测试期望 3 参数 | ✅ |
+| 6 | 跑 workspaceTools.test.js | ✅ 21/21 通过 |
+| 7 | 跑全量 jest 测试 | ✅ **1101/1101 全过**（145 suites, 0 regression）|
+
+### 改动文件汇总
+| # | 文件 | 改动类型 |
+|---|------|----------|
+| 1 | [src/main/agent/workspaceTools.js](src/main/agent/workspaceTools.js) | workspace_searchGraph invoke 自动拿 workspacePath |
+| 2 | [src/main/agent/systemPromptBuilder.js](src/main/agent/systemPromptBuilder.js) | system prompt 加前提说明 |
+| 3 | [src/main/__tests__/agent/workspaceTools.test.js](src/main/__tests__/agent/workspaceTools.test.js) | 加 3 个防回归测试 + 更新旧测试 |
+
+### 反思 + 防范
+**为什么会犯这种错**：v8.0.3 修 `workspace_writeFile` 的 schema 时只关注"LLM 能不能看见参数"，没意识到 `KGExtractor` 这种**要求全局状态参数**的工具——LLM 看不见当前工作区路径。设计缺陷：**让 LLM 传全局参数**就是错的。
+
+**改进计划**（老板批准后实施）：
+1. **统一规范**：所有依赖全局状态的工具，**invoke 内部必须从 global/wm 读取**，LLM 不传、tool schema 也不声明
+2. **代码审查清单**：code-review 时检查所有工具的"参数是否都是 LLM 能提供的"，全局状态必须由 execute 内部处理
+3. **审计其他 6 个工具**：检查 `workspace_search/readPage/ingest/writeFile/listFiles/lint` 是否有类似 LLM 看不见但被传给底层函数的参数
+
+---
 
 ### 问题
 老板升级 v8.0.0 后每次发消息都报"AI 连续响应失败，请稍后重试"，包括"你好""？"等任意消息，~500-700ms 立即失败。
@@ -151,9 +204,18 @@ v6.0.0 P4 阶段 commit [721e90c](src/main/agent/workspaceTools.js#L48-L85)（20
 2. **诊断脚本沉淀**：把 `scripts/diagnose-real-with-tools.js` 改成 `scripts/diagnose-agent.js`，加进 `npm run diagnose:agent`，release 前必跑
 3. **测试覆盖**：补一个 `workspaceTools.test.js` 测试用例验证 `buildWorkspaceSkills` 返回的所有 skill 名都匹配 DeepSeek API pattern，防回归
 
+3. **审计其他 6 个工具**：检查 `workspace_search/readPage/ingest/writeFile/listFiles/lint` 是否有类似 LLM 看不见但被传给底层函数的参数
+
+### 打包记录
+- **命令**: `npm run electron:build`
+- **结果**: 成功（exit 0）
+- **版本号**: **8.0.4**（hotfix 不升 version 号，产物命名沿用 v8.0.0）
+- **构建产物**: `dist-8.0.0/混凝土配合比设计软件 Setup 8.0.0.exe`（263 MB）+ 便携版（262 MB）
+- **测试**: 1101/1101 全过（145 suites, 0 regression）
+
 ---
 
-## v8.0.1 (2026-06-22) - hotfix：修复打包后 `Cannot find module 'docx'`
+## v8.0.2 (2026-06-22) - hotfix：修复 v8.0.0 升级后 "AI 连续响应失败"
 
 ### 问题
 老板运行打包后的应用触发 docx 写入时，主进程崩溃：
@@ -193,7 +255,10 @@ Require stack: .../docx.js ← .../writers/index.js ← .../write-handler.js ←
 
 ---
 
-## v8.0.0 (2026-06-22) - P6 关键 task 完工 + 项目全部阶段结束
+## v8.0.1 (2026-06-22) - hotfix：修复打包后 `Cannot find module 'docx'`
+
+### 问题
+老板运行打包后的应用触发 docx 写入时，主进程崩溃：
 
 ### 阶段总览
 P6 老板选了 3 个关键 task（6.3 lint UI + 6.4 验收清单自动化 + 6.6 log 轮转），全部完成。**项目 60 个 task 全部完工**。

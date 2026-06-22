@@ -12,7 +12,7 @@ const WORKSPACE_TOOLS_PROMPT = `
 - workspace_writeFile({ type, filename, payload }) → 写 docx/xlsx/md 到 reports/
 - workspace_listFiles(subdir) → 列出工作区文件（含子目录）
 - workspace_lint() → 健康检查（不阻塞）
-- workspace_searchGraph(query, topK) → 查询知识图谱，返回完整三元组（v1.5.1 新增，P5 阶段启用）
+- workspace_searchGraph(query, topK) → 查询知识图谱，返回完整三元组（v1.5.1 新增，P5 阶段启用）。**前提：当前工作区必须已打开**——workspacePath 由工具自动读取，LLM 无需传。
 
 注：原始文件不直接读——LLM 应先 ingest 再 readPage，wiki 摘要更精炼。
 `
