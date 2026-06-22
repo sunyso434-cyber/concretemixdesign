@@ -1,3 +1,41 @@
+## v8.1.0 (2026-06-22) - 移除规范管理模块 + 版本号升级
+
+### 修复内容
+
+1. **移除规范审查技能** - 删除 compliance-check.js 和 compliance-query.js
+2. **移除规范管理模块** - 删除规范相关服务、前端UI、IPC处理器
+   - 删除技能：standards-list.js, standards-query.js
+   - 删除服务：StandardKnowledgeService, StandardComplianceService, StandardReviewContext, StandardScopeService, StandardClauseNormalizer, ComplianceRuleEngine, EmbeddingService
+   - 删除前端UI：StandardsManager.jsx
+   - 删除IPC处理器：complianceHandler.js
+3. **移除规范审查工具定义** - 从 DeepSeekService.js 移除 list_standards 和 check_compliance
+4. **版本号升级** - 从 8.0.0 升级到 8.1.0，导航栏同步更新
+
+### 改动文件汇总
+
+| # | 文件 | 改动类型 |
+|---|------|----------|
+| 1 | [package.json](package.json) | 版本号 8.0.0 → 8.1.0 |
+| 2 | [src/renderer/pages/WorkspacePage.jsx](src/renderer/pages/WorkspacePage.jsx) | 导航栏版本号 v3.8.1 → v8.1.0 |
+| 3 | [src/main/ipcHandlers/agentHandler.js](src/main/ipcHandlers/agentHandler.js) | 移除规范服务引用 |
+| 4 | [src/main/ipcHandlers/aiAnalysisHandler.js](src/main/ipcHandlers/aiAnalysisHandler.js) | 移除规范审查功能 |
+| 5 | [src/main/services/AgentMemoryService.js](src/main/services/AgentMemoryService.js) | 移除规范知识包统计 |
+| 6 | [src/main/services/DeepSeekService.js](src/main/services/DeepSeekService.js) | 移除规范审查工具定义 |
+| 7 | [src/renderer/components/SmartDesignChat.jsx](src/renderer/components/SmartDesignChat.jsx) | 移除规范审查相关UI |
+| 8 | [src/renderer/pages/AIAnalysisPage.jsx](src/renderer/pages/AIAnalysisPage.jsx) | 移除规范管理Tab |
+| 9 | 删除 17 个文件 | 规范相关技能、服务、UI、测试 |
+
+### 打包记录
+- **命令**: `npm run electron:build`
+- **结果**: 成功（exit 0）
+- **版本号**: **8.1.0**
+- **构建产物**: 
+  - `dist-8.0.0/混凝土配合比设计软件 Setup 8.1.0.exe`（安装包）
+  - `dist-8.0.0/混凝土配合比设计软件-8.1.0-x64.exe`（便携版）
+- **提交**: 待提交
+
+---
+
 ## v8.0.6 (2026-06-22) - 历史会话按工作区归档功能完善
 
 ### 修复内容
