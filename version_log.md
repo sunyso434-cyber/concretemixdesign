@@ -45,6 +45,26 @@ v6.0.0 P4 阶段 commit [721e90c](src/main/agent/workspaceTools.js#L48-L85)（20
 | 3 | [src/main/__tests__/agent/workspaceTools.test.js](src/main/__tests__/agent/workspaceTools.test.js) | 单元测试期望同步 |
 | 4 | [src/main/__tests__/agent/agent-e2e-scenarios.test.js](src/main/__tests__/agent/agent-e2e-scenarios.test.js) | E2E 测试同步 |
 | 5 | [src/main/agent/__tests__/systemPromptBuilder.test.js](src/main/agent/__tests__/systemPromptBuilder.test.js) | 提示构建测试同步 |
+| 6 | [scripts/diagnose-real-with-tools.js](scripts/diagnose-real-with-tools.js) | 100% 复现 + 验证脚本（诊断过程产物）|
+| 7 | [scripts/diagnose-real.js](scripts/diagnose-real.js) | 早期探索版本 |
+| 8 | [scripts/verify-streaming.js](scripts/verify-streaming.js) | 早期探索 |
+| 9 | [scripts/verify-thinking-conflict.js](scripts/verify-thinking-conflict.js) | 早期探索 |
+
+### 打包记录
+- **命令**: `npm run electron:build`
+- **结果**: 成功（exit 0）
+- **版本号**: **8.0.2**（hotfix 不升 version 号，产物命名沿用 v8.0.0）
+- **输出目录**: `dist-8.0.0/`
+- **构建产物**:
+  - `dist-8.0.0/混凝土配合比设计软件 Setup 8.0.0.exe` - NSIS 安装包（263 MB）
+  - `dist-8.0.0/混凝土配合比设计软件-8.0.0-x64.exe` - 便携版（262 MB）
+  - `dist-8.0.0/win-unpacked/` - 解包目录
+  - `dist-8.0.0/win-unpacked/resources/app.asar` - 372 MB
+- **提交**: `fc5c0c2` fix(agent): v8.0.2 hotfix - 修复 workspace 工具名含点号违反 DeepSeek API pattern
+- **测试**: 1094/1094 全过（145 suites, 0 regression）
+- **code-review-graph 风险评估**: Overall risk score **0.00**（零风险）
+- **electron-builder**: 24.13.3 / electron 28.3.3 / win32 x64
+- **构建产物大小变化**: v8.0.0 → v8.0.2 仅改字符串，体积基本一致
 
 ### 旧 chat-history 兼容性说明
 **老板历史会话里**（`chat_history` 表）如果有 6/19 之前的 `workspace.search` 等 tool_calls，重新加载时会找不到对应 skill（因为 SkillRegistry 重新加载时这些 skill 不存在），但不会报错——只会在前端显示"工具不存在"的提示。**影响很小**（6/19 → 6/22 老板有 3 天断档，未发现大量旧会话）。
