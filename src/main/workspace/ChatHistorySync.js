@@ -233,80 +233,87 @@ class ChatHistorySync {
    * @returns {Promise<{workspaces: Array<{path, basename, sessionCount, sessions}>, unclassified: Array}>}
    */
   async listSessionsGrouped() {
-    const { ChatSession } = require('../db/database')
+    const { ChatSession, ChatHistory } = require('../db/database')
+    const { fn, col } = require('sequelize')
 
-    // 收集所有已知 workspacePath
-    const pathSet = new Set()
-    // 收集 workspacePath = null 的旧 session（v4.10.0 之前创建，迁移未填）
     const unclassified = []
 
-    // 源 1: SQLite ChatSession 表中所有不同 workspacePath
+    // v8.1.0 hotfix-6: 直接从 ChatSession 表查询所有会话，不再依赖文件系统扫描
+    // 之前的问题：listSessions 依赖文件系统扫描 + 60s 窗口，导致重命名后会话丢失
     try {
-      const rows = await ChatSession.findAll({
-        attributes: ['workspacePath'],
-        group: ['workspacePath'],
+      // 1. 查询所有 ChatSession 记录（不再 group by workspacePath）
+      const allSessions = await ChatSession.findAll({
+        order: [['lastActivity', 'DESC']],
         raw: true
       })
-      for (const r of rows) {
-        if (r.workspacePath) {
-          pathSet.add(r.workspacePath.replace(/\\/g, '/'))
-        }
+
+      // 2. 批量查询每个 session 的最后消息时间（从 ChatHistory 表）
+      const sessionIds = allSessions.map(s => s.sessionId)
+      let activityMap = {}
+      if (sessionIds.length > 0) {
+        const activityRows = await ChatHistory.findAll({
+          attributes: [
+            'sessionId',
+            [fn('MAX', col('createdAt')), 'lastActivity']
+          ],
+          where: { sessionId: sessionIds },
+          group: ['sessionId'],
+          raw: true
+        })
+        activityMap = Object.fromEntries(
+          activityRows.map(r => [r.sessionId, r.lastActivity])
+        )
       }
-    } catch { /* ChatSession 表可能不存在（首次运行） */ }
 
-    // 源 2: 当前打开的工作区
-    const current = this.workspace.current()
-    if (current && current.path) {
-      pathSet.add(current.path.replace(/\\/g, '/'))
-    }
-
-    const workspaces = []
-    for (const wsPath of pathSet) {
-      try {
-        const sessions = await this.listSessions(wsPath)
-        if (sessions.length > 0) {
-          const basename = wsPath.split('/').filter(Boolean).pop() || wsPath
-          workspaces.push({
-            path: wsPath,
-            basename,
-            sessionCount: sessions.length,
-            sessions: sessions.map(s => ({
-              sessionId: s.sessionId,
-              title: s.title || s.sessionName || null,
-              lastActivity: s.lastActivity,
-              workspacePath: s.workspacePath || wsPath,
-              source: s.source || 'unknown',
-              pending: s.pending || false
-            }))
+      // 3. 按 workspacePath 分组
+      const wsMap = new Map()
+      for (const s of allSessions) {
+        const wsPath = s.workspacePath
+        if (wsPath) {
+          const normalizedPath = wsPath.replace(/\\/g, '/')
+          if (!wsMap.has(normalizedPath)) {
+            wsMap.set(normalizedPath, [])
+          }
+          wsMap.get(normalizedPath).push({
+            sessionId: s.sessionId,
+            title: s.sessionName,
+            lastActivity: activityMap[s.sessionId] || s.lastActivity,
+            workspacePath: s.workspacePath,
+            source: 'sqlite',
+            pending: false
+          })
+        } else {
+          unclassified.push({
+            sessionId: s.sessionId,
+            title: s.sessionName,
+            lastActivity: activityMap[s.sessionId] || s.lastActivity,
+            workspacePath: null,
+            source: 'sqlite',
+            pending: false
           })
         }
-      } catch { /* 跳过无法访问的路径 */ }
-    }
+      }
 
-    // v4.10.0.1 (fix): 源 3 - 收集 workspacePath = null 的旧 session（v4.9.x 时代）
-    // 之前会漏掉：pathSet 只放非 null，null 的 session 永远进不去 workspaces
-    // 这些 session 应进 unclassified 数组（MemorySidebar 单独显示）
-    try {
-      const nullRows = await ChatSession.findAll({
-        where: { workspacePath: null },
-        raw: true
-      })
-      for (const r of nullRows) {
-        unclassified.push({
-          sessionId: r.sessionId,
-          title: r.sessionName,
-          lastActivity: r.lastActivity,
-          workspacePath: null,
-          source: 'sqlite',
-          pending: false
+      // 4. 构造 workspaces 数组
+      const workspaces = []
+      for (const [wsPath, sessions] of wsMap.entries()) {
+        const basename = wsPath.split('/').filter(Boolean).pop() || wsPath
+        workspaces.push({
+          path: wsPath,
+          basename,
+          sessionCount: sessions.length,
+          sessions
         })
       }
-    } catch { /* ChatSession 表可能不存在（首次运行） */ }
 
-    // 按 basename 排序
-    workspaces.sort((a, b) => a.basename.localeCompare(b.basename, 'zh-CN'))
+      // 按 basename 排序
+      workspaces.sort((a, b) => a.basename.localeCompare(b.basename, 'zh-CN'))
 
-    return { workspaces, unclassified }
+      return { workspaces, unclassified }
+    } catch (err) {
+      console.error('[ChatHistorySync.listSessionsGrouped] 失败:', err.message)
+      return { workspaces: [], unclassified: [] }
+    }
   }
 
   /**
