@@ -56,6 +56,20 @@ document.xml 文本节点: C30 配合比设计报告
 2. **SkillRegistry 注册时校验 description 长度**：`description.length < 100` 时 warn（防类似"漏讲参数"）
 3. **集成测试**：加 e2e 测试，模拟 LLM 调用 `workspace_writeFile` 传入完整 payload，验证生成的 docx/md 含正文（不再只测连通性）
 
+### 打包记录
+- **命令**: `npm run electron:build`
+- **结果**: 成功（exit 0）
+- **版本号**: **8.0.3**（hotfix 不升 version 号，产物命名沿用 v8.0.0）
+- **输出目录**: `dist-8.0.0/`
+- **构建产物**:
+  - `dist-8.0.0/混凝土配合比设计软件 Setup 8.0.0.exe` - NSIS 安装包（263 MB）
+  - `dist-8.0.0/混凝土配合比设计软件-8.0.0-x64.exe` - 便携版（262 MB）
+  - `dist-8.0.0/win-unpacked/` - 解包目录
+- **提交**: `e8bc121` fix(agent): v8.0.3 hotfix - 修复 workspace_writeFile 只有标题没正文
+- **测试**: 1098/1098 全过（145 suites, 0 regression）
+- **electron-builder**: 24.13.3 / electron 28.3.3 / win32 x64
+- **构建产物大小变化**: v8.0.2 → v8.0.3 体积基本一致
+
 ---
 
 ## v8.0.2 (2026-06-22) - hotfix：修复 v8.0.0 升级后 "AI 连续响应失败"
