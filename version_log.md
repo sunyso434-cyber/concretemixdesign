@@ -125,7 +125,17 @@ KGExtractor.searchGraph 收到:
 2. **代码审查清单**：code-review 时检查所有工具的"参数是否都是 LLM 能提供的"，全局状态必须由 execute 内部处理
 3. **审计其他 6 个工具**：检查 `workspace_search/readPage/ingest/writeFile/listFiles/lint` 是否有类似 LLM 看不见但被传给底层函数的参数
 
+### 打包记录
+- **命令**: `npm run electron:build`
+- **结果**: 成功（exit 0）
+- **版本号**: **8.0.4**（hotfix 不升 version 号，产物命名沿用 v8.0.0）
+- **构建产物**: `dist-8.0.0/混凝土配合比设计软件 Setup 8.0.0.exe`（263 MB）+ 便携版（262 MB）
+- **提交**: `43c6e50` fix(agent): v8.0.4 hotfix - 修复 workspace_searchGraph 漏传 workspacePath
+- **测试**: 1101/1101 全过（145 suites, 0 regression）
+
 ---
+
+## v8.0.2 (2026-06-22) - hotfix：修复 v8.0.0 升级后 "AI 连续响应失败"
 
 ### 问题
 老板升级 v8.0.0 后每次发消息都报"AI 连续响应失败，请稍后重试"，包括"你好""？"等任意消息，~500-700ms 立即失败。
@@ -215,7 +225,7 @@ v6.0.0 P4 阶段 commit [721e90c](src/main/agent/workspaceTools.js#L48-L85)（20
 
 ---
 
-## v8.0.2 (2026-06-22) - hotfix：修复 v8.0.0 升级后 "AI 连续响应失败"
+## v8.0.1 (2026-06-22) - hotfix：修复打包后 `Cannot find module 'docx'`
 
 ### 问题
 老板运行打包后的应用触发 docx 写入时，主进程崩溃：
@@ -255,10 +265,7 @@ Require stack: .../docx.js ← .../writers/index.js ← .../write-handler.js ←
 
 ---
 
-## v8.0.1 (2026-06-22) - hotfix：修复打包后 `Cannot find module 'docx'`
-
-### 问题
-老板运行打包后的应用触发 docx 写入时，主进程崩溃：
+## v8.0.0 (2026-06-22) - P6 关键 task 完工 + 项目全部阶段结束
 
 ### 阶段总览
 P6 老板选了 3 个关键 task（6.3 lint UI + 6.4 验收清单自动化 + 6.6 log 轮转），全部完成。**项目 60 个 task 全部完工**。
