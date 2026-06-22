@@ -36,11 +36,6 @@ jest.mock('../db/database', () => {
   }
 })
 
-// stub StandardKnowledgeService.listStandards 避免引入 electron.app
-jest.mock('../services/StandardKnowledgeService', () => ({
-  listStandards: async () => []
-}))
-
 const AgentMemoryService = require('../services/AgentMemoryService')
 
 describe('AgentMemoryService.getResourceSummary 偏好注入', () => {

@@ -36,7 +36,6 @@
     "iconv-lite": "^0.7.2",
     "js-yaml": "^4.2.0",
     "mammoth": "^1.12.0",
-    "onnxruntime-node": "^1.26.0",
     "papaparse": "^5.5.3",
     "pdf-parse": "^2.4.5",
     "react": "^18.2.0",
