@@ -182,6 +182,7 @@ const TOOLS = [
       }
     }
   },
+  {
     type: 'function',
     function: {
       name: 'predict_performance',
