@@ -22,6 +22,7 @@ const SkillDebugger = require('../agent/SkillDebugger')
 const { buildWorkspaceSkills } = require('../agent/workspaceTools')
 const agentMemoryService = require('../services/AgentMemoryService')
 const SystemService = require('../services/SystemService')
+const { classifyError } = require('../agent/errorClassifier')
 
 // 缓存实例
 let orchestrator = null
@@ -182,50 +183,59 @@ function registerAgentHandlers() {
   })
 
   ipcMain.handle('agent:run', async (event, { requestId, sessionId, message, mode }) => {
+    // 生成 requestId（如渲染端未传）
+    const reqId = requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
     // [DEBUG] 记录请求到达和锁状态
-    _log(`[AgentHandler] 🔵 agent:run 收到请求 sessionId=${sessionId} requestId=${requestId} agentRunning=${agentRunning} 锁持有=${agentRunning ? Math.round((Date.now() - agentRunningAt) / 1000) + 's' : '无'}`)
+    _log(`[AgentHandler] 🔵 agent:run 收到请求 sessionId=${sessionId} requestId=${reqId} agentRunning=${agentRunning} 锁持有=${agentRunning ? Math.round((Date.now() - agentRunningAt) / 1000) + 's' : '无'}`)
 
     if (agentRunning) {
       if (Date.now() - agentRunningAt > AGENT_LOCK_TIMEOUT) {
-        _log(`[AgentHandler] ⚠️ agent:run 锁超时自动释放 sessionId=${sessionId} requestId=${requestId} (held ${Math.round((Date.now() - agentRunningAt) / 1000)}s)`)
+        _log(`[AgentHandler] ⚠️ agent:run 锁超时自动释放 sessionId=${sessionId} requestId=${reqId} (held ${Math.round((Date.now() - agentRunningAt) / 1000)}s)`)
         agentRunning = false
       } else {
-        _log(`[AgentHandler] 🚫 agent:run 被锁拒绝 sessionId=${sessionId} requestId=${requestId}`)
+        _log(`[AgentHandler] 🚫 agent:run 被锁拒绝 sessionId=${sessionId} requestId=${reqId}`)
         return { success: false, error: '上一个任务还在执行中，请稍等' }
       }
     }
     agentRunning = true
     agentRunningAt = Date.now()
-    _log(`[AgentHandler] 🔒 agent:run 获取锁 requestId=${requestId}`)
+    _log(`[AgentHandler] 🔒 agent:run 获取锁 requestId=${reqId}`)
     try {
       const ag = await getOrchestrator()
       if (!ag) {
-        _log(`[AgentHandler] ❌ agent:run Orchestrator 未初始化 requestId=${requestId}`)
+        _log(`[AgentHandler] ❌ agent:run Orchestrator 未初始化 requestId=${reqId}`)
         return { success: false, error: 'DeepSeek API未配置，请在系统设置中配置API密钥' }
       }
-      _log(`[AgentHandler] 🚀 agent:run 开始执行 requestId=${requestId} message="${message.slice(0, 50)}" mode=${mode}`)
+      _log(`[AgentHandler] 🚀 agent:run 开始执行 requestId=${reqId} message="${message.slice(0, 50)}" mode=${mode}`)
       const result = await ag.run({ sessionId, message, mode: mode || 'auto', webContents: event.sender })
-      _log(`[AgentHandler] ✅ agent:run 执行完成 requestId=${requestId}: ${JSON.stringify({ success: result?.success, hasContent: !!result?.content, contentLen: result?.content?.length || 0, error: result?.error })}`)
+      _log(`[AgentHandler] ✅ agent:run 执行完成 requestId=${reqId}: ${JSON.stringify({ success: result?.success, hasContent: !!result?.content, contentLen: result?.content?.length || 0, error: result?.error })}`)
 
       // UnifiedStrategy 已通过流式事件发送 type: 'done' / type: 'error'，这里不再重复发送
 
       return { success: true, result }
     } catch (error) {
-      _log(`[AgentHandler] 💥 agent:run 异常 requestId=${requestId}: ${error.message}`)
-      // 异常情况（Orchestrator 层面崩溃）：发送错误事件
+      _log(`[AgentHandler] 💥 agent:run 异常 requestId=${reqId}: ${error.message}`)
+      // 异常情况（Orchestrator 层面崩溃）：分类错误并发送标准化错误事件
+      const classified = classifyError(error, {
+        callSite: 'agentHandler.agent:run',
+        sessionId,
+        requestId: reqId,
+      })
       try {
         if (!event.sender.isDestroyed()) {
           event.sender.send('agent:progress', {
             type: 'error',
-            error: error.message
+            error: classified,
+            sessionId,
+            requestId: reqId,
           })
         }
       } catch (_) {}
 
-      return { success: false, error: error.message }
+      return { success: false, error: classified }
     } finally {
       agentRunning = false
-      _log(`[AgentHandler] 🔓 agent:run 释放锁 requestId=${requestId}`)
+      _log(`[AgentHandler] 🔓 agent:run 释放锁 requestId=${reqId}`)
     }
   })
 
