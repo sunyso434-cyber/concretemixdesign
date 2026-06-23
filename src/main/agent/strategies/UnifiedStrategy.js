@@ -292,8 +292,10 @@ class UnifiedStrategy {
             }
 
             if (execResult && execResult.success === false) {
+              // v8.2.2: workspace_readPage 等工具通过 createError 返回 {code, title, hint, recovery, details}
+              // 优先读 .title（用户可读消息），再读老的 .message/.error，避免全部丢失后落到"未知错误"兜底
               const errorMsg = typeof execResult.error === 'object'
-                ? (execResult.error.message || execResult.error.error || JSON.stringify(execResult.error))
+                ? (execResult.error.title || execResult.error.message || execResult.error.error || JSON.stringify(execResult.error))
                 : String(execResult.error || '未知错误')
               failureCounters.skillExec++
 

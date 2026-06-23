@@ -1,3 +1,34 @@
+## v8.2.2 (2026-06-23) - workspace 工具错误信息提取修复
+
+### 版本信息
+- **版本号**: 8.2.2
+- **Electron**: 28.3.3
+- **Node.js**: 20.20.2
+- **构建产物**:
+  - `混凝土配合比设计软件 Setup 8.2.2.exe` (NSIS 安装包)
+  - `混凝土配合比设计软件-8.2.2-x64.exe` (绿色便携版)
+
+### Bug 修复: workspace 工具错误显示"未知错误"导致 LLM 重复失败熔断
+
+#### 现象
+- LLM 调用 `workspace_readPage` 等工具时，前端/日志显示"未知错误"
+- LLM 拿不到具体错误信息（页面不存在/工作区未打开等），反复重试同一路径
+- 连续 2 次失败 → 触发 E-AGENT-001 熔断
+
+#### 根因
+- 工具通过 `ErrorCodes.createError()` 返回 `{code, title, hint, recovery, details}`
+- `UnifiedStrategy` 提取错误消息时只读 `.message`/`.error`，**漏读 `.title`**
+- 所有具体错误消息都丢失，落到"未知错误"兜底
+
+#### 修复
+- `UnifiedStrategy.js`: 错误消息提取顺序调整为 `title → message → error → JSON.stringify`
+- 备选：让 LLM 看到完整错误对象（带 code + hint）后能自适应换路径
+
+### 改动文件
+- `src/main/agent/strategies/UnifiedStrategy.js`
+- `package.json`（版本号）
+- `version_log.md`
+
 ## v8.2.1 (2026-06-23) - E-AGENT-001 错误分类修复 + Token 预算提升
 
 ### 版本信息
