@@ -73,20 +73,14 @@ export default function useAgentMode() {
           dispatch({ type: 'DONE', payload: { reply: data.result?.reply } })
           return
         case 'error': {
-          const errorMsg = typeof data.error === 'string' ? data.error
-            : data.error?.message || data.error?.error || '未知错误'
-          if (errorMsg === 'aborted' || errorMsg === 'wc_destroyed') {
-            dispatch({ type: 'ABORT' })
-          } else {
-            dispatch({ type: 'ERROR', payload: { error: errorMsg } })
-            // 显示用户友好的错误提示
-            const friendlyMap = {
-              'max_failures_exceeded': 'AI 连续响应失败，请稍后重试',
-              'max_steps_exceeded': 'AI 执行步骤过多，请简化需求后重试',
-            }
-            message.error(friendlyMap[errorMsg] || errorMsg || '未知错误')
-          }
-          return
+          const { error: classifiedError, sessionId, requestId } = data
+          // P3 commit 1 期间保留 message.error（commit 3 才删）
+          message.error(classifiedError.title || classifiedError.code || 'AI 发生错误')
+          dispatch({
+            type: 'ERROR',
+            payload: { classifiedError, sessionId, requestId },
+          })
+          break
         }
         default:
           // 旧格式兼容（无 type 字段的旧事件）
