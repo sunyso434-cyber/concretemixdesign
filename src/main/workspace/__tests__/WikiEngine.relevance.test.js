@@ -503,7 +503,7 @@ describe('WikiEngine._summarizeHeuristic', () => {
     const hintSuffix = '\n\n（_如需完整内容，请重新调用 workspace_readPage 不传 query 参数_）'
     const mainPart = result.replace(hintSuffix, '')
     // 加上 '...' 后可能略超 500，但 slice(0, 500) + '...' 不会远超
-    expect(mainPart.length).toBeLessThanOrEqual(SUMMARY_MAX_CHARS + 3) // +3 for '...'
+    expect(mainPart.length).toBeLessThanOrEqual(SUMMARY_MAX_CHARS)
   })
 
   test('末尾包含"请重新调用"提示', () => {

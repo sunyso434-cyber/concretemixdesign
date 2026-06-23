@@ -970,8 +970,9 @@ ${String(a)}
 ${segment.text}
 
 摘要：`
-    const summary = await deepseekService.invoke(prompt)
-    return summary.trim() + '\n\n（_如需完整内容，请重新调用 workspace_readPage 不传 query 参数_）'
+    const raw = await deepseekService.invoke(prompt)
+    const trimmed = raw.trim().slice(0, SUMMARY_MAX_CHARS)
+    return trimmed + '\n\n（_如需完整内容，请重新调用 workspace_readPage 不传 query 参数_）'
   }
 
   // Task 5: _summarizeHeuristic — 启发式摘要（降级路径，不依赖 LLM）
@@ -982,8 +983,9 @@ ${segment.text}
     if (firstSentences) kept.push(firstSentences.trim())
     const numericLines = lines.filter(line => /\d/.test(line) && line.length < 200).slice(0, 3)
     numericLines.forEach(l => { if (!kept.includes(l)) kept.push(l) })
-    let summary = kept.join('\n').slice(0, SUMMARY_MAX_CHARS)
+    let summary = kept.join('\n')
     if (summary.length < text.length) summary += '...'
+    summary = summary.slice(0, SUMMARY_MAX_CHARS)
     return summary + '\n\n（_如需完整内容，请重新调用 workspace_readPage 不传 query 参数_）'
   }
 
