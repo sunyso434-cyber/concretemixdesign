@@ -19,6 +19,7 @@ const { trim } = require('../messageTrimmer')
 const errorHandler = require('../../utils/errorHandler')
 const { DEFAULT_AGENT_MAX_STEPS } = require('../../utils/agentConstants')
 const { getInstance: getAgentMdService } = require('../agentMd')
+const { classifyError } = require('../errorClassifier')
 
 const DEFAULT_TOKEN_BUDGET = 30000
 
@@ -196,8 +197,12 @@ class UnifiedStrategy {
 
         if (failureCounters.llmParse >= threshold || failureCounters.llmNetwork >= threshold) {
           errorHandler.fatal('orchestrator', { counters: failureCounters })
-          this._notifyProgress(webContents, { type: 'error', error: 'max_failures_exceeded', mode })
-          return { success: false, error: 'max_failures_exceeded' }
+          const classifiedError = classifyError(new Error('max_failures_exceeded: LLM parse/network failures exceeded threshold'), {
+            callSite: 'UnifiedStrategy.llmLoop',
+            sessionId,
+          })
+          this._notifyProgress(webContents, { type: 'error', error: classifiedError, mode })
+          return { success: false, error: classifiedError }
         }
         continue
       }
@@ -301,8 +306,12 @@ class UnifiedStrategy {
                 trimmedMessages.push({ role: 'tool', content: toolErrContent1, tool_call_id: tc.id })
                 try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: toolErrContent1, toolCallId: tc.id }) } catch (_) {}
                 finalResult = { reply: `执行"${name}"时连续失败：${errorMsg}`, mode, error: true }
-                this._notifyProgress(webContents, { type: 'error', error: 'max_failures_exceeded', result: finalResult, mode })
-                return { success: false, error: 'max_failures_exceeded' }
+                const classifiedError = classifyError(new Error('max_failures_exceeded: skill execution failures exceeded threshold'), {
+                  callSite: 'UnifiedStrategy.skillExec',
+                  sessionId,
+                })
+                this._notifyProgress(webContents, { type: 'error', error: classifiedError, result: finalResult, mode })
+                return { success: false, error: classifiedError }
               }
 
               trimmedMessages.push({ role: 'tool', content: JSON.stringify({ ...execResult, hint: '此步骤执行失败，请尝试其他方法或跳过' }), tool_call_id: tc.id })
@@ -348,8 +357,12 @@ class UnifiedStrategy {
       return { success: true, content: response.content || '' }
     }
 
-    this._notifyProgress(webContents, { type: 'error', error: 'max_steps_exceeded', mode })
-    return { success: false, error: 'max_steps_exceeded' }
+    const classifiedError = classifyError(new Error('max_steps_exceeded'), {
+      callSite: 'UnifiedStrategy.maxStepsExceeded',
+      sessionId,
+    })
+    this._notifyProgress(webContents, { type: 'error', error: classifiedError, mode })
+    return { success: false, error: classifiedError }
   }
 }
 
