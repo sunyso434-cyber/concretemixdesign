@@ -36,6 +36,12 @@ const DEFAULT_CONTEXT_LINES = 5
 // Task 5: 摘要常量
 const SUMMARY_MAX_CHARS = 500
 
+// Task 6: 批量摘要常量
+const MAX_CONCURRENT = 5
+const MAX_TOTAL = 10
+const SUMMARIZE_TIMEOUT_MS = 8000
+const BATCH_TIMEOUT_MS = 30000
+
 class WikiEngine {
   // Task 5.2：加 kgExtractor 参数（注入 KG 提取器，P5.1 KGExtractor）
   // - 不注入 → 等同 quality:low 降级（不写 kg/，不破坏现有行为，向后兼容）
@@ -989,6 +995,82 @@ ${segment.text}
     return summary + '\n\n（_如需完整内容，请重新调用 workspace_readPage 不传 query 参数_）'
   }
 
+  // Task 6: _batchSummarize — 批量摘要（并发控制 + 超时 + 降级）
+  // 参数：segments = [{id, text, ...}], query, deepseekService
+  // 返回：Map<segmentId, summaryText>
+  // 策略：
+  //   1. 前 MAX_TOTAL 段走 LLM，剩余走启发式
+  //   2. LLM 段按 MAX_CONCURRENT 并发
+  //   3. 单段超时 SUMMARIZE_TIMEOUT_MS，整批超时 BATCH_TIMEOUT_MS
+  //   4. 任何失败/超时 → 降级为 _summarizeHeuristic
+  async _batchSummarize(summarySegments, query, deepseekService) {
+    const result = new Map()
+    if (!summarySegments || summarySegments.length === 0) return result
+
+    // 1. 分组：前 MAX_TOTAL 段走 LLM，剩余走启发式
+    const llmSegments = summarySegments.slice(0, MAX_TOTAL)
+    const heuristicSegments = summarySegments.slice(MAX_TOTAL)
+
+    // 2. 剩余段直接启发式
+    for (const seg of heuristicSegments) {
+      result.set(seg.id, this._summarizeHeuristic(seg.text))
+    }
+
+    // 3. LLM 段按 MAX_CONCURRENT 并发处理，整批有 30s 超时
+    const batchDeadline = Date.now() + BATCH_TIMEOUT_MS
+
+    // 将 llmSegments 分成若干小批次，每批最多 MAX_CONCURRENT 个
+    for (let i = 0; i < llmSegments.length; i += MAX_CONCURRENT) {
+      // 检查整批超时
+      if (Date.now() >= batchDeadline) {
+        // 超时：剩余未处理的 LLM 段全部降级
+        for (let j = i; j < llmSegments.length; j++) {
+          result.set(llmSegments[j].id, this._summarizeHeuristic(llmSegments[j].text))
+        }
+        break
+      }
+
+      const batch = llmSegments.slice(i, i + MAX_CONCURRENT)
+      const promises = batch.map(seg => this._summarizeOne(seg, query, deepseekService, batchDeadline))
+      const settled = await Promise.allSettled(promises)
+
+      for (let k = 0; k < settled.length; k++) {
+        const { status, value } = settled[k]
+        if (status === 'fulfilled') {
+          result.set(batch[k].id, value)
+        } else {
+          // LLM 失败 → 降级
+          result.set(batch[k].id, this._summarizeHeuristic(batch[k].text))
+        }
+      }
+    }
+
+    return result
+  }
+
+  // 辅助：单段摘要（带 8s 超时 + 整批超时感知）
+  async _summarizeOne(segment, query, deepseekService, batchDeadline) {
+    // 如果整批已超时，直接降级
+    const remaining = batchDeadline - Date.now()
+    if (remaining <= 0) {
+      return this._summarizeHeuristic(segment.text)
+    }
+
+    const timeout = Math.min(SUMMARIZE_TIMEOUT_MS, remaining)
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('SUMMARIZE_TIMEOUT')), timeout)
+    )
+
+    try {
+      return await Promise.race([
+        this._summarizeWithLLM(segment, query, deepseekService),
+        timeoutPromise
+      ])
+    } catch {
+      return this._summarizeHeuristic(segment.text)
+    }
+  }
+
   // Task 6.6 (P6 健壮性)：内部方法 - 调 rotateLog 轮转 log.md
   // - 失败 catch 后只 console.warn，不抛（spec §4.13：log 轮转失败不影响主流程）
   async _maybeRotateLog() {
@@ -1001,4 +1083,4 @@ ${segment.text}
   }
 }
 
-module.exports = { WikiEngine, SINGLE_SEGMENT_MAX_SIZE, TABLE_MAX_ROWS, RELEVANCE_THRESHOLD_HIGH, DEFAULT_CONTEXT_LINES, SUMMARY_MAX_CHARS }
+module.exports = { WikiEngine, SINGLE_SEGMENT_MAX_SIZE, TABLE_MAX_ROWS, RELEVANCE_THRESHOLD_HIGH, DEFAULT_CONTEXT_LINES, SUMMARY_MAX_CHARS, MAX_CONCURRENT, MAX_TOTAL, SUMMARIZE_TIMEOUT_MS, BATCH_TIMEOUT_MS }

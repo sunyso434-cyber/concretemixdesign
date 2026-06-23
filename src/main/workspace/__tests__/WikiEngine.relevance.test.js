@@ -1,4 +1,4 @@
-const { WikiEngine, SINGLE_SEGMENT_MAX_SIZE, RELEVANCE_THRESHOLD_HIGH, DEFAULT_CONTEXT_LINES, SUMMARY_MAX_CHARS } = require('../WikiEngine')
+const { WikiEngine, SINGLE_SEGMENT_MAX_SIZE, RELEVANCE_THRESHOLD_HIGH, DEFAULT_CONTEXT_LINES, SUMMARY_MAX_CHARS, MAX_CONCURRENT, MAX_TOTAL, SUMMARIZE_TIMEOUT_MS, BATCH_TIMEOUT_MS } = require('../WikiEngine')
 
 describe('WikiEngine._splitIntoSegments', () => {
   // 辅助：创建一个最简 WikiEngine 实例（只需 _splitIntoSegments，不需要真实 workspace）
@@ -554,5 +554,140 @@ describe('WikiEngine._summarizeWithLLM', () => {
     const result = await engine._summarizeWithLLM(segment, '测试', mockService)
     expect(result.endsWith('）')).toBe(true)
     expect(result).toContain('请重新调用')
+  })
+})
+
+describe('WikiEngine._batchSummarize', () => {
+  function createEngine() {
+    return new WikiEngine({ workspace: { current: () => null } })
+  }
+
+  function makeSegments(n) {
+    return Array.from({ length: n }, (_, i) => ({
+      id: i,
+      text: `段落${i}的内容：这是关于混凝土配合比的第${i}段描述。`
+    }))
+  }
+
+  // 辅助：构造返回固定文本的 mock
+  function mockService(fn) {
+    return { invoke: jest.fn(fn) }
+  }
+
+  test('正常批量摘要 → 全部走 LLM', async () => {
+    const engine = createEngine()
+    const segments = makeSegments(3)
+    const service = mockService(async (prompt) => 'LLM摘要:' + prompt.slice(0, 20))
+
+    const result = await engine._batchSummarize(segments, '混凝土', service)
+
+    expect(result).toBeInstanceOf(Map)
+    expect(result.size).toBe(3)
+    expect(service.invoke).toHaveBeenCalledTimes(3)
+    // 每个结果都包含 LLM 摘要前缀
+    for (const seg of segments) {
+      expect(result.get(seg.id)).toContain('LLM摘要:')
+    }
+  })
+
+  test('LLM 调用抛错 → 降级为启发式摘要', async () => {
+    const engine = createEngine()
+    const segments = makeSegments(3)
+    // 第 1 段抛错，其余正常
+    let callCount = 0
+    const service = mockService(async () => {
+      callCount++
+      if (callCount === 2) throw new Error('LLM服务不可用')
+      return '正常摘要'
+    })
+
+    const result = await engine._batchSummarize(segments, '测试', service)
+
+    expect(result.size).toBe(3)
+    // 第 1 段（id=1）走启发式
+    expect(result.get(1)).toContain('如需完整内容，请重新调用')
+    // 其余走 LLM
+    expect(result.get(0)).toContain('正常摘要')
+    expect(result.get(2)).toContain('正常摘要')
+  })
+
+  test('LLM 超时 → 降级为启发式摘要', async () => {
+    const engine = createEngine()
+    const segments = makeSegments(2)
+    const service = mockService(async () => {
+      // 模拟超时：返回一个延迟超过 SUMMARIZE_TIMEOUT_MS 的 Promise
+      await new Promise(resolve => setTimeout(resolve, SUMMARIZE_TIMEOUT_MS + 2000))
+      return '不应该到达'
+    })
+
+    const result = await engine._batchSummarize(segments, '测试', service)
+
+    expect(result.size).toBe(2)
+    // 两段都应降级为启发式（因为超时）
+    for (const seg of segments) {
+      expect(result.get(seg.id)).toContain('如需完整内容，请重新调用')
+    }
+  }, 15000)
+
+  test('超过 MAX_TOTAL 段 → 超出部分直接启发式', async () => {
+    const engine = createEngine()
+    const segments = makeSegments(MAX_TOTAL + 5)
+    const service = mockService(async () => 'LLM结果')
+
+    const result = await engine._batchSummarize(segments, '测试', service)
+
+    expect(result.size).toBe(MAX_TOTAL + 5)
+    // LLM 只被调用 MAX_TOTAL 次
+    expect(service.invoke).toHaveBeenCalledTimes(MAX_TOTAL)
+    // 前 MAX_TOTAL 段走 LLM
+    for (let i = 0; i < MAX_TOTAL; i++) {
+      expect(result.get(i)).toContain('LLM结果')
+    }
+    // 超出部分走启发式
+    for (let i = MAX_TOTAL; i < MAX_TOTAL + 5; i++) {
+      expect(result.get(i)).toContain('如需完整内容，请重新调用')
+    }
+  })
+
+  test('空数组 → 返回空 Map', async () => {
+    const engine = createEngine()
+    const service = mockService(async () => '摘要')
+    const result = await engine._batchSummarize([], '测试', service)
+    expect(result).toBeInstanceOf(Map)
+    expect(result.size).toBe(0)
+    expect(service.invoke).not.toHaveBeenCalled()
+  })
+
+  test('null 输入 → 返回空 Map', async () => {
+    const engine = createEngine()
+    const service = mockService(async () => '摘要')
+    const result = await engine._batchSummarize(null, '测试', service)
+    expect(result).toBeInstanceOf(Map)
+    expect(result.size).toBe(0)
+  })
+
+  test('并发上限：MAX_CONCURRENT 个一批', async () => {
+    const engine = createEngine()
+    // 用 MAX_CONCURRENT + 2 个段测试分批逻辑
+    const segCount = MAX_CONCURRENT + 2
+    const segments = makeSegments(segCount)
+    let maxConcurrent = 0
+    let currentConcurrent = 0
+
+    const service = mockService(async () => {
+      currentConcurrent++
+      maxConcurrent = Math.max(maxConcurrent, currentConcurrent)
+      // 模拟小延迟确保并发测量准确
+      await new Promise(resolve => setTimeout(resolve, 50))
+      currentConcurrent--
+      return '摘要'
+    })
+
+    const result = await engine._batchSummarize(segments, '测试', service)
+
+    expect(result.size).toBe(segCount)
+    expect(service.invoke).toHaveBeenCalledTimes(segCount)
+    // 并发数不超过 MAX_CONCURRENT
+    expect(maxConcurrent).toBeLessThanOrEqual(MAX_CONCURRENT)
   })
 })
