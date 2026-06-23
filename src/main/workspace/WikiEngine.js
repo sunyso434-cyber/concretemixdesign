@@ -33,6 +33,9 @@ const TABLE_MAX_ROWS = 500
 const RELEVANCE_THRESHOLD_HIGH = 0.5
 const DEFAULT_CONTEXT_LINES = 5
 
+// Task 5: 摘要常量
+const SUMMARY_MAX_CHARS = 500
+
 class WikiEngine {
   // Task 5.2：加 kgExtractor 参数（注入 KG 提取器，P5.1 KGExtractor）
   // - 不注入 → 等同 quality:low 降级（不写 kg/，不破坏现有行为，向后兼容）
@@ -957,6 +960,33 @@ ${String(a)}
     return { status: 'ok', answerPath: answerRel }
   }
 
+  // Task 5: _summarizeWithLLM — 调用 DeepSeek 对段落做摘要（主路径）
+  async _summarizeWithLLM(segment, query, deepseekService) {
+    const prompt = `请用简洁的中文总结以下段落，保留与查询相关的关键信息（数值、结论、专有名词）。摘要不超过 ${SUMMARY_MAX_CHARS} 字符。
+
+查询：${query}
+
+段落内容：
+${segment.text}
+
+摘要：`
+    const summary = await deepseekService.invoke(prompt)
+    return summary.trim() + '\n\n（_如需完整内容，请重新调用 workspace_readPage 不传 query 参数_）'
+  }
+
+  // Task 5: _summarizeHeuristic — 启发式摘要（降级路径，不依赖 LLM）
+  _summarizeHeuristic(text) {
+    const lines = text.split('\n')
+    const kept = []
+    const firstSentences = text.match(/[^.。!?？!]+[.。!?？!]/g)?.slice(0, 2).join('') || ''
+    if (firstSentences) kept.push(firstSentences.trim())
+    const numericLines = lines.filter(line => /\d/.test(line) && line.length < 200).slice(0, 3)
+    numericLines.forEach(l => { if (!kept.includes(l)) kept.push(l) })
+    let summary = kept.join('\n').slice(0, SUMMARY_MAX_CHARS)
+    if (summary.length < text.length) summary += '...'
+    return summary + '\n\n（_如需完整内容，请重新调用 workspace_readPage 不传 query 参数_）'
+  }
+
   // Task 6.6 (P6 健壮性)：内部方法 - 调 rotateLog 轮转 log.md
   // - 失败 catch 后只 console.warn，不抛（spec §4.13：log 轮转失败不影响主流程）
   async _maybeRotateLog() {
@@ -969,4 +999,4 @@ ${String(a)}
   }
 }
 
-module.exports = { WikiEngine, SINGLE_SEGMENT_MAX_SIZE, TABLE_MAX_ROWS, RELEVANCE_THRESHOLD_HIGH, DEFAULT_CONTEXT_LINES }
+module.exports = { WikiEngine, SINGLE_SEGMENT_MAX_SIZE, TABLE_MAX_ROWS, RELEVANCE_THRESHOLD_HIGH, DEFAULT_CONTEXT_LINES, SUMMARY_MAX_CHARS }

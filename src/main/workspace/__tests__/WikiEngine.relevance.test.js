@@ -1,4 +1,4 @@
-const { WikiEngine, SINGLE_SEGMENT_MAX_SIZE, RELEVANCE_THRESHOLD_HIGH, DEFAULT_CONTEXT_LINES } = require('../WikiEngine')
+const { WikiEngine, SINGLE_SEGMENT_MAX_SIZE, RELEVANCE_THRESHOLD_HIGH, DEFAULT_CONTEXT_LINES, SUMMARY_MAX_CHARS } = require('../WikiEngine')
 
 describe('WikiEngine._splitIntoSegments', () => {
   // 辅助：创建一个最简 WikiEngine 实例（只需 _splitIntoSegments，不需要真实 workspace）
@@ -470,5 +470,89 @@ describe('WikiEngine._decideMode', () => {
     const result = engine._decideMode(scored, 1)
     expect(result[0].mode).toBe('full')
     expect(result[1].mode).toBe('summary')
+  })
+})
+
+describe('WikiEngine._summarizeHeuristic', () => {
+  function createEngine() {
+    return new WikiEngine({ workspace: { current: () => null } })
+  }
+
+  test('保留前 2 句', () => {
+    const engine = createEngine()
+    const text = '第一句话。第二句话！第三句话？第四句话。'
+    const result = engine._summarizeHeuristic(text)
+    expect(result).toContain('第一句话。')
+    expect(result).toContain('第二句话！')
+  })
+
+  test('保留含数字行', () => {
+    const engine = createEngine()
+    const text = '这是一段介绍。\n强度达到30MPa。\n水灰比0.45。\n总结完毕。'
+    const result = engine._summarizeHeuristic(text)
+    expect(result).toContain('30MPa')
+    expect(result).toContain('0.45')
+  })
+
+  test('截断到 500 字符', () => {
+    const engine = createEngine()
+    // 构造 > 500 字符的文本
+    const longText = '这是一段很长的文字。'.repeat(100)
+    const result = engine._summarizeHeuristic(longText)
+    // 去掉末尾固定提示后，正文部分应 <= 500 字符
+    const hintSuffix = '\n\n（_如需完整内容，请重新调用 workspace_readPage 不传 query 参数_）'
+    const mainPart = result.replace(hintSuffix, '')
+    // 加上 '...' 后可能略超 500，但 slice(0, 500) + '...' 不会远超
+    expect(mainPart.length).toBeLessThanOrEqual(SUMMARY_MAX_CHARS + 3) // +3 for '...'
+  })
+
+  test('末尾包含"请重新调用"提示', () => {
+    const engine = createEngine()
+    const text = '混凝土配合比设计。强度等级C30。水灰比0.5。'
+    const result = engine._summarizeHeuristic(text)
+    expect(result).toContain('如需完整内容，请重新调用 workspace_readPage 不传 query 参数')
+  })
+
+  test('空文本不崩溃', () => {
+    const engine = createEngine()
+    const result = engine._summarizeHeuristic('')
+    expect(result).toContain('如需完整内容，请重新调用 workspace_readPage 不传 query 参数')
+  })
+})
+
+describe('WikiEngine._summarizeWithLLM', () => {
+  function createEngine() {
+    return new WikiEngine({ workspace: { current: () => null } })
+  }
+
+  test('调用 deepseekService.invoke 并返回含提示的结果', async () => {
+    const engine = createEngine()
+    const segment = { text: '混凝土强度测试结果：C30 达标。' }
+    const query = '强度'
+    const mockService = { invoke: jest.fn().mockResolvedValue('C30混凝土强度测试达标。') }
+    const result = await engine._summarizeWithLLM(segment, query, mockService)
+    expect(mockService.invoke).toHaveBeenCalledTimes(1)
+    expect(result).toContain('C30混凝土强度测试达标。')
+    expect(result).toContain('如需完整内容，请重新调用 workspace_readPage 不传 query 参数')
+  })
+
+  test('prompt 中包含 query 和 segment.text', async () => {
+    const engine = createEngine()
+    const segment = { text: '水灰比0.45，坍落度180mm。' }
+    const query = '水灰比'
+    const mockService = { invoke: jest.fn().mockResolvedValue('摘要结果') }
+    await engine._summarizeWithLLM(segment, query, mockService)
+    const prompt = mockService.invoke.mock.calls[0][0]
+    expect(prompt).toContain('水灰比')
+    expect(prompt).toContain('水灰比0.45，坍落度180mm。')
+  })
+
+  test('结果末尾包含"请重新调用"提示', async () => {
+    const engine = createEngine()
+    const segment = { text: '测试内容' }
+    const mockService = { invoke: jest.fn().mockResolvedValue('摘要') }
+    const result = await engine._summarizeWithLLM(segment, '测试', mockService)
+    expect(result.endsWith('）')).toBe(true)
+    expect(result).toContain('请重新调用')
   })
 })
