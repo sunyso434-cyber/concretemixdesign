@@ -1,3 +1,29 @@
+## P3 commit 3 + P4 (2026-06-23) - 去 AI toast + 全链路联调
+
+### 目标
+删除 AI 错误相关所有 `message.error()` 调用，错误只走气泡展示；改造 default 分支使用 classifiedError 格式。
+
+### 改动内容
+
+| # | 文件 | 改动说明 |
+|---|------|----------|
+| 1 | `src/renderer/components/agentActions.js` | 删除 `import { message } from 'antd'`；sendMessage 3 个分支全部删 message.error()；dispatch payload 改为 `{ classifiedError }` 格式 |
+| 2 | `src/renderer/components/AgentMode.jsx` | 删除 `import { message } from 'antd'`；case 'error' 删 message.error()；default 分支旧格式 fallback 改为 dispatch `{ classifiedError: data.error }`（后端已包装） |
+| 3 | `tests/agentActions.test.js` | 新增：getFriendlyError 映射 + reducer 消费 string classifiedError + message.error 合约验证 |
+| 4 | `tests/agentMode.test.js` | 更新：删 message.error 回退测试；新增 default 分支 classifiedError 格式测试 + classifyError 架构约束验证 + message.error 合约验证 |
+
+### 全链路联调
+
+- 全量测试: 8 passed, 1 failed (systemErrorBubble.test.js 前置 jsdom 问题，与本次无关)
+- 测试数: 80 passed, 80 total
+
+### 架构约束
+
+- `classifyError()` 永远仅主进程调用，渲染端不再调 classifyError
+- 所有 AI 错误走气泡展示，不再弹 toast
+
+---
+
 ## v8.1.0 hotfix-7 (2026-06-22) - 修复 LLM 误判已摄入文件为"未导入"
 
 ### 问题

@@ -9,7 +9,6 @@
  */
 
 import { useEffect, useRef } from 'react'
-import { message } from 'antd'
 import { useAgentStore } from './AgentStore'
 
 /**
@@ -98,17 +97,17 @@ export async function sendMessage({ dispatch, sessionId, message: userMessage, r
     if (r && r.success === true && r.result && r.result.success === false) {
       const errorMsg = r.result.error || '启动失败'
       const friendlyMsg = getFriendlyError(errorMsg)
-      dispatch({ type: 'ERROR', payload: { error: friendlyMsg } })
-      message.error(friendlyMsg)
+      dispatch({ type: 'ERROR', payload: { classifiedError: friendlyMsg } })
+      // P3 commit 3: 删除 message.error，去 AI toast
     } else if (r && r.success === false) {
       // 兜底：外层 success=false（通信层面错误）
-      dispatch({ type: 'ERROR', payload: { error: r.error || '启动失败' } })
-      message.error(r.error || '启动失败，请稍候重试')
+      dispatch({ type: 'ERROR', payload: { classifiedError: r.error || '启动失败' } })
+      // P3 commit 3: 删除 message.error，去 AI toast
     }
   } catch (e) {
     console.error('[AgentChat] 💥 agent:run 异常', { requestId, error: e.message })
-    dispatch({ type: 'ERROR', payload: { error: '通信失败: ' + (e.message || '未知错误') } })
-    message.error('通信失败: ' + (e.message || '未知错误'))
+    dispatch({ type: 'ERROR', payload: { classifiedError: getFriendlyError(e.message || '未知错误') } })
+    // P3 commit 3: 删除 message.error，去 AI toast
   }
 }
 

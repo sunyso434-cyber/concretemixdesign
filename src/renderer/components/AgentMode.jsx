@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react'
-import { message } from 'antd'
 import { useAgentStore } from './AgentStore'
 
 /**
@@ -74,8 +73,7 @@ export default function useAgentMode() {
           return
         case 'error': {
           const { error: classifiedError, sessionId, requestId } = data
-          // P3 commit 1 期间保留 message.error（commit 3 才删）
-          message.error(classifiedError.title || classifiedError.code || 'AI 发生错误')
+          // P3 commit 3: 删除 message.error，去 AI toast
           dispatch({
             type: 'ERROR',
             payload: { classifiedError, sessionId, requestId },
@@ -87,9 +85,15 @@ export default function useAgentMode() {
           if (data.status === 'done' && data.result?.reply) {
             dispatch({ type: 'DONE', payload: { reply: data.result.reply } })
           } else if (data.status === 'error' && data.error && data.error !== 'aborted' && data.error !== 'wc_destroyed') {
-            const em = typeof data.error === 'string' ? data.error
-              : data.error?.message || data.error?.error || '未知错误'
-            dispatch({ type: 'ERROR', payload: { error: em } })
+            // P3 commit 3: data.error 已是 P2 agentHandler 包装好的结构化对象，直接用
+            dispatch({
+              type: 'ERROR',
+              payload: {
+                classifiedError: data.error,
+                sessionId: data.sessionId,
+                requestId: data.requestId,
+              },
+            })
           }
       }
     }

@@ -1,10 +1,11 @@
 /**
- * Task 9: AgentMode.jsx onProgress case 'error' 改造测试
+ * Task 9 + Task 16: AgentMode.jsx onProgress case 'error' + default 分支改造测试
  *
- * 目的：验证 onProgress 收到 type='error' 事件后：
- *   1. dispatch ERROR action 的 payload 格式 → { classifiedError, sessionId, requestId }
- *   2. message.error 的 title 回退逻辑 → title || code || 'AI 发生错误'
+ * 目的：验证 onProgress 收到事件后：
+ *   1. case 'error': dispatch ERROR action 的 payload 格式 → { classifiedError, sessionId, requestId }
+ *   2. default 分支: 旧格式 fallback → 直接 dispatch classifiedError（不调 classifyError）
  *   3. reducer 能正确消费新的 payload 格式
+ *   4. P3 commit 3: message.error 不再被调用
  *
  * 说明：本项目 jest 环境为 'node'，无 jsdom/@testing-library/react，
  * 因此本测试采用合约测试方式，验证 dispatch payload 格式与 reducer 的集成正确性。
@@ -14,16 +15,9 @@
 
 const { agentReducer, initialState } = require('../src/renderer/components/agentStoreCore')
 
-// ============================================================
-// message.error 回退逻辑（与 AgentMode.jsx onProgress case 'error' 一致）
-// ============================================================
-function getToastMessage(classifiedError) {
-  return classifiedError.title || classifiedError.code || 'AI 发生错误'
-}
-
-describe('AgentMode onProgress case "error"（Task 9）', () => {
+describe('AgentMode onProgress case "error" + default 分支（Task 9 + 16）', () => {
   // ============================================================
-  // 场景 1: 合同测试 — reducer 消费新 payload 格式
+  // 场景 1: 合同测试 — reducer 消费 { classifiedError, sessionId, requestId }
   // ============================================================
   describe('场景 1: reducer 消费 { classifiedError, sessionId, requestId }', () => {
     test('dispatch ERROR 新格式 → reducer 正确处理', () => {
@@ -55,34 +49,9 @@ describe('AgentMode onProgress case "error"（Task 9）', () => {
   })
 
   // ============================================================
-  // 场景 2: message.error title 回退逻辑
+  // 场景 2: 固化流式占位 + 追加错误气泡（end-to-end 合约）
   // ============================================================
-  describe('场景 2: message.error message 回退', () => {
-    test('有 title 时用 title', () => {
-      const err = { code: 'E-LLM-401', title: 'AI 密钥无效' }
-      expect(getToastMessage(err)).toBe('AI 密钥无效')
-    })
-
-    test('无 title 时回退到 code', () => {
-      const err = { code: 'E-LLM-500' }
-      expect(getToastMessage(err)).toBe('E-LLM-500')
-    })
-
-    test('无 title 无 code 时回退到默认文案', () => {
-      const err = {}
-      expect(getToastMessage(err)).toBe('AI 发生错误')
-    })
-
-    test('title 为空字符串时回退到 code', () => {
-      const err = { code: 'E-NET-503', title: '' }
-      expect(getToastMessage(err)).toBe('E-NET-503')
-    })
-  })
-
-  // ============================================================
-  // 场景 3: 固化流式占位 + 追加错误气泡（end-to-end 合约）
-  // ============================================================
-  describe('场景 3: 流式占位 + 错误气泡共存', () => {
+  describe('场景 2: 流式占位 + 错误气泡共存', () => {
     test('有 replyText + timeline → 固化为 assistant 气泡 + 追加 error 气泡', () => {
       const mockError = {
         code: 'E-NET-503',
@@ -129,11 +98,11 @@ describe('AgentMode onProgress case "error"（Task 9）', () => {
   })
 
   // ============================================================
-  // 场景 4: 验证旧 payload 格式被拒绝（确保不再用 { error: string } 格式）
+  // 场景 3: 验证旧 payload 格式被拒绝（确保不再用 { error: string } 格式）
   // ============================================================
-  describe('场景 4: 旧 payload 格式 { error: string } 兼容性', () => {
+  describe('场景 3: 旧 payload 格式 { error: string } 兼容性', () => {
     test('旧格式 payload 不包含 classifiedError → 不应 crash', () => {
-      // 旧格式：{ error: 'some string' } — default 分支仍在使用
+      // 旧格式：{ error: 'some string' } — default 分支已改为 classifiedError 格式
       // 确保 reducer 不会因为缺少 classifiedError 而 crash
       const state1 = { ...initialState, messages: [], agent: initialState.agent }
       const state2 = agentReducer(state1, {
@@ -144,6 +113,76 @@ describe('AgentMode onProgress case "error"（Task 9）', () => {
       // 仍然正常工作（agent.status = error，error 气泡有兜底文案）
       expect(state2.agent.status).toBe('error')
       expect(state2.messages.filter(m => m.type === 'error')).toHaveLength(1)
+    })
+  })
+
+  // ============================================================
+  // 场景 4: default 分支 — 旧格式事件使用 classifiedError 分发（Task 16）
+  // ============================================================
+  describe('场景 4: default 分支 classifiedError 格式（Task 16）', () => {
+    test('default 分支 dispatch ERROR 应携带 classifiedError（已由后端包装）', () => {
+      // 模拟后端 P2 agentHandler 已包装的 classifiedError 对象
+      const backendError = {
+        code: 'E-LLM-429',
+        title: '请求过于频繁',
+        hint: '请稍后重试',
+        details: { httpStatus: 429 },
+      }
+
+      const state1 = {
+        ...initialState,
+        messages: [{ id: 'a1', role: 'user', content: 'test' }],
+      }
+      const state2 = agentReducer(state1, {
+        type: 'ERROR',
+        payload: {
+          classifiedError: backendError,
+          sessionId: 's-default',
+          requestId: 'r-default',
+        },
+      })
+
+      // agent 状态变为 error
+      expect(state2.agent.status).toBe('error')
+
+      // 错误气泡包含完整的 classifiedError 对象
+      const errorBubbles = state2.messages.filter(m => m.type === 'error')
+      expect(errorBubbles).toHaveLength(1)
+      expect(errorBubbles[0].classifiedError.code).toBe('E-LLM-429')
+      expect(errorBubbles[0].classifiedError.title).toBe('请求过于频繁')
+      expect(errorBubbles[0].classifiedError.hint).toBe('请稍后重试')
+    })
+
+    test('default 分支不再调 classifyError（架构约束：仅主进程调用）', () => {
+      // 合约验证：AgentMode.jsx 中不含 classifyError 导入/调用
+      const fs = require('fs')
+      const path = require('path')
+      const src = fs.readFileSync(
+        path.resolve(__dirname, '../src/renderer/components/AgentMode.jsx'),
+        'utf-8'
+      )
+
+      // 验证文件中不含 classifyError 调用
+      const classifyErrorCalls = (src.match(/classifyError\(/g) || [])
+      expect(classifyErrorCalls.length).toBe(0)
+    })
+  })
+
+  // ============================================================
+  // 场景 5: message.error 不再被调用（P3 commit 3）
+  // ============================================================
+  describe('场景 5: message.error 不再调用（P3 commit 3）', () => {
+    test('AgentMode.jsx 中不含有 message.error 调用', () => {
+      const fs = require('fs')
+      const path = require('path')
+      const src = fs.readFileSync(
+        path.resolve(__dirname, '../src/renderer/components/AgentMode.jsx'),
+        'utf-8'
+      )
+
+      // 验证文件中不含 message.error( 调用
+      const messageErrorCalls = (src.match(/message\.error\(/g) || [])
+      expect(messageErrorCalls.length).toBe(0)
     })
   })
 })
