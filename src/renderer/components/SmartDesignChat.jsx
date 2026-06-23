@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
 import ToolMessageBubble from './ToolMessageBubble'
+import SystemErrorBubble from './SystemErrorBubble'
 import StreamingAgentCard from './StreamingAgentCard'
 import FileMessageCard from './FileMessageCard'
 import MixDesignResultCard from './MixDesignResultCard'
@@ -188,11 +189,19 @@ function MessageContent({ item, agentStatus, agentReplyText }) {
       </div>
     )
   }
-  if ((item.stopReason === 'aborted' || item.stopReason === 'error')) {
+  if (item.stopReason === 'aborted') {
     return (
       <div className="chat-markdown-body">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
         <span className="aborted-tag">[已停止]</span>
+      </div>
+    )
+  }
+  if (item.stopReason === 'error') {
+    return (
+      <div className="chat-markdown-body">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+        <span className="aborted-tag">[生成中断]</span>
       </div>
     )
   }
@@ -708,14 +717,17 @@ const SmartDesignChat = () => {
     }
 
     if (payload.type === 'error') {
-      updateStreamMessage(streamId, item => ({
-        ...item,
-        content: item.content || `AI 回复失败：${extractErrorMessage(payload.error) || '未知错误'}`,
-        streaming: false,
-        toolEvents: (item.toolEvents || []).map(tool => (
-          tool.status === 'loading' ? { ...tool, status: 'error', error: extractErrorMessage(payload.error) } : tool
-        ))
-      }))
+      // P3 commit 2 A段：固化流式消息 + 追加错误气泡 + 幂等去重
+      const { error: classifiedError, sessionId, requestId } = payload
+      const dupKey = `${sessionId}::${requestId}::${classifiedError.code}`
+      if (state.messages.some(m => m.type === 'error' && m._dedupKey === dupKey)) return
+      const next = state.messages.map(m =>
+        m.streaming ? { ...m, stopReason: 'error', streaming: false } : m
+      )
+      dispatch({ type: 'SET_MESSAGES', payload: [
+        ...next,
+        { type: 'error', classifiedError, _dedupKey: dupKey, timestamp: Date.now() }
+      ]})
     }
   }
 
@@ -754,6 +766,13 @@ const SmartDesignChat = () => {
           tool.status === 'loading' ? { ...tool, status: 'error', error: error.message } : tool
         ))
       }))
+      // P3 commit 2 B段：将原始错误发回主进程分类，主进程回发 classified error 事件
+      window.electronAPI.invoke('aiAnalysis:chatStream:reportError', {
+        sessionId: state.session.currentId,
+        requestId,
+        rawErrorMessage: error?.message || String(error),
+        rawErrorStack: error?.stack || null,
+      }).catch(() => {})
       throw error
     } finally {
       if (listenerId) {
@@ -1209,6 +1228,19 @@ const SmartDesignChat = () => {
           <List
             dataSource={state.messages}
             renderItem={(item) => {
+              // P3 commit 2: SystemErrorBubble 渲染 type='error' 气泡（chat stream + Agent 错误路径共用）
+              if (item.type === 'error') {
+                const idx = state.messages.findIndex(m => m === item)
+                const prev = state.messages.slice(0, idx).reverse().find(m => m.role === 'assistant')
+                return (
+                  <List.Item style={{ padding: 0, border: 'none' }}>
+                    <SystemErrorBubble
+                      errorPayload={item.classifiedError}
+                      previousAssistantContent={prev?.content || ''}
+                    />
+                  </List.Item>
+                )
+              }
               if (item.role === 'system') {
                 return (
                   <List.Item className="smart-chat-item-system" style={{ padding: 0, border: 'none' }}>

@@ -67,13 +67,11 @@ export function agentReducer(state, action) {
       return { ...state, messages: [...state.messages, action.payload] }
     }
     case 'SET_MESSAGES': {
-      // 历史消息：故意只投影 5 个必要字段（spec 3.1）
-      // - 内存标记 _streaming / _agentRequestId 不进数据库也不接受（spec 6.3）
-      // - attachment / input 等 UI 状态从历史中不还原
+      // P3 commit 2 修复：保留所有字段（含 streaming / streamId / toolEvents / _dedupKey / classifiedError 等），
+      // 仅规范化 timeline 和 stopReason 默认值。
+      // 历史消息加载时的字段剥离由调用方（agentActions.js）在 dispatch 前完成。
       const clean = action.payload.map(m => ({
-        role: m.role,
-        content: m.content,
-        toolCalls: m.toolCalls,
+        ...m,
         timeline: m.timeline || m.metadata?.timeline || [],
         stopReason: m.stopReason || null
       }))
@@ -175,12 +173,39 @@ export function agentReducer(state, action) {
       }
     }
     case 'ERROR': {
-      // 清理流式的assistant占位消息，避免卡住UI
-      const cleanedMessages = state.messages.filter(m => !(m._streaming && m._agentRequestId === state.agent.requestId))
+      const { classifiedError, sessionId, requestId } = action.payload || {}
+      const dupKey = `${sessionId}::${requestId}::${classifiedError?.code}`
+
+      // 1. 幂等去重：同 (sessionId, requestId, code) 不重复插入错误气泡
+      if (state.messages.some(m => m.type === 'error' && m._dedupKey === dupKey)) {
+        return { ...state, agent: { ...state.agent, status: 'error' } }
+      }
+
+      // 2. 固化流式占位（保留完整 content + timeline，含 reasoning）
+      const replyText = state.agent.replyText || ''
+      const timeline = state.agent.timeline || []
+      let messages = state.messages
+      if (replyText.trim() || timeline.length > 0) {
+        messages = messages.map(m =>
+          m._streaming
+            ? { ...m, content: replyText, timeline, stopReason: 'error', _streaming: false }
+            : m
+        )
+      }
+
+      // 3. 追加错误气泡
+      messages = [...messages, {
+        role: 'system',
+        type: 'error',
+        classifiedError,
+        _dedupKey: dupKey,
+        timestamp: Date.now(),
+      }]
+
       return {
         ...state,
-        agent: { ...state.agent, status: 'error', requestId: null },
-        messages: cleanedMessages
+        messages,
+        agent: { ...state.agent, status: 'error', replyText: '', timeline: [] },
       }
     }
     case 'SET_SESSION_ID': {

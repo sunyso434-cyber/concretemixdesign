@@ -4,6 +4,7 @@
  */
 
 const DeepSeekService = require('../services/DeepSeekService')
+const { classifyError } = require('../agent/errorClassifier')
 const SystemService = require('../services/SystemService')
 const MaterialService = require('../services/MaterialService')
 const MixDesignService = require('../services/MixDesignService/index')
@@ -842,6 +843,33 @@ const registerHandlers = (ipcMain) => {
   ipcMain.handle('aiAnalysis:chat', chatWithAI)
   ipcMain.handle('aiAnalysis:chatStream', chatWithAIStream)
   ipcMain.handle('aiAnalysis:clearHistory', clearChatHistory)
+
+  // P3 commit 2: 流式聊天错误路径 — 渲染端 catch 块回传原始错误，主进程分类后下发
+  ipcMain.handle('aiAnalysis:chatStream:reportError', async (event, { sessionId, requestId, rawErrorMessage, rawErrorStack }) => {
+    try {
+      const classified = classifyError(
+        { message: rawErrorMessage || 'unknown', stack: rawErrorStack },
+        { callSite: 'aiAnalysis:chatStream:reportError', sessionId, requestId }
+      )
+      event.sender.send(CHAT_STREAM_EVENT, {
+        type: 'error',
+        error: classified,
+        sessionId,
+        requestId,
+      })
+      return { success: true }
+    } catch (innerErr) {
+      const fallback = classifyError(innerErr, { callSite: 'aiAnalysis:chatStream:reportError.fallback' })
+      event.sender.send(CHAT_STREAM_EVENT, {
+        type: 'error',
+        error: fallback,
+        sessionId,
+        requestId,
+      })
+      return { success: false }
+    }
+  })
+
   console.log('AI Analysis IPC handlers registered')
 }
 
