@@ -1,3 +1,24 @@
+## v8.2.3 (2026-06-23) - 失败熔断阈值 2 → 5
+
+### 版本信息
+- **版本号**: 8.2.3
+- **Electron**: 28.3.3
+- **Node.js**: 20.20.2
+- **构建产物**:
+  - `混凝土配合比设计软件 Setup 8.2.3.exe` (NSIS 安装包)
+  - `混凝土配合比设计软件-8.2.3-x64.exe` (绿色便携版)
+
+### 优化: 失败熔断阈值放宽
+- `UnifiedStrategy.js`: `threshold = 2` → `threshold = 5`
+- llmParse / llmNetwork / skillExec 三个计数器共用阈值
+- 给 LLM 更多自适应重试机会（换路径/换工具），避免网络波动或单次工具错误就触发熔断
+
+### 改动文件
+- `src/main/agent/strategies/UnifiedStrategy.js`
+- `src/main/agent/__tests__/UnifiedStrategy.test.js`（同步测试断言 2 → 5）
+- `package.json`（版本号）
+- `version_log.md`
+
 ## v8.2.2 (2026-06-23) - workspace 工具错误信息提取修复
 
 ### 版本信息

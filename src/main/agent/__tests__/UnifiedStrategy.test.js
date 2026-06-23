@@ -71,7 +71,7 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     expect(mocks.deepseekService.chatWithToolsStream).toHaveBeenCalledTimes(2)
   })
 
-  test('场景 3: 连续 2 次 LLM 失败 → 终止', async () => {
+  test('场景 3: 连续 5 次 LLM 失败 → 终止', async () => {
     const mocks = makeMocks()
     mocks.deepseekService.chatWithToolsStream.mockRejectedValue(new Error('LLM down'))
 
@@ -79,8 +79,8 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     const result = await strategy.execute({ sessionId: 's1', message: 'hi' })
 
     expect(result.success).toBe(false)
-    // 验证 chatWithToolsStream 调用 ≤ 2 次（maxConsecutiveFailures=2）
-    expect(mocks.deepseekService.chatWithToolsStream.mock.calls.length).toBeLessThanOrEqual(2)
+    // 验证 chatWithToolsStream 调用 ≤ 5 次（v8.2.3: threshold 2 → 5）
+    expect(mocks.deepseekService.chatWithToolsStream.mock.calls.length).toBeLessThanOrEqual(5)
   })
 
   test('场景 4: LLM 触发 429 → 退避重试', async () => {

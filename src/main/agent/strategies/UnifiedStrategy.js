@@ -73,7 +73,8 @@ class UnifiedStrategy {
       llmNetwork: 0,
       skillExec: 0
     }
-    const threshold = 2
+    // v8.2.3: 失败阈值 2 → 5，给 LLM 更多自适应重试机会（换路径/换工具），避免触发误熔断
+    const threshold = 5
 
     // 1. 构造 messages
     const memoryContext = await this.agentMemoryService.buildMemoryContext(sessionId, {
