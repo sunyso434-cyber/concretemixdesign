@@ -21,7 +21,7 @@ const { DEFAULT_AGENT_MAX_STEPS } = require('../../utils/agentConstants')
 const { getInstance: getAgentMdService } = require('../agentMd')
 const { classifyError } = require('../errorClassifier')
 
-const DEFAULT_TOKEN_BUDGET = 30000
+const DEFAULT_TOKEN_BUDGET = 150000
 
 class UnifiedStrategy {
   constructor({ deepseekService, skillRegistry, skillExecutor, agentMemoryService, systemService }) {
@@ -184,13 +184,21 @@ class UnifiedStrategy {
           status: 'running'
         })
 
-        if (err.status === 429 || err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        // v8.2.1: _buildClassifiedError 将异常包装为 createError 格式（含 .code / .details.httpStatus）
+        // 按语义错误码区分网络错误 vs 解析错误，而非读原始 axios 属性
+        const isNetworkError = (
+          err.code === 'E-LLM-429' ||
+          err.code === 'E-NET-408' ||
+          err.code === 'E-NET-500' ||
+          err.details?.httpStatus === 429
+        )
+        if (isNetworkError) {
           failureCounters.llmNetwork++
         } else {
           failureCounters.llmParse++
         }
 
-        if (err.status === 429 && failureCounters.llmNetwork < threshold) {
+        if (err.code === 'E-LLM-429' && failureCounters.llmNetwork < threshold) {
           await new Promise(r => setTimeout(r, 5000 * Math.pow(2, failureCounters.llmNetwork - 1)))
           continue
         }

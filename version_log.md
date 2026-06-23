@@ -1,3 +1,31 @@
+## v8.2.1 (2026-06-23) - E-AGENT-001 错误分类修复 + Token 预算提升
+
+### 版本信息
+- **版本号**: 8.2.1
+- **Electron**: 28.3.3
+- **Node.js**: 20.20.2
+- **构建产物**:
+  - `混凝土配合比设计软件 Setup 8.2.1.exe` (NSIS 安装包)
+  - `混凝土配合比设计软件-8.2.1-x64.exe` (绿色便携版)
+
+### Bug 修复: E-AGENT-001 误报
+
+#### 根因
+v8.2.0 引入 `_buildClassifiedError` 将异常统一包装为 `createError` 格式（`{code, title, details}`），但 `UnifiedStrategy` 的 catch 块仍按旧格式读 `err.status`/`err.code`/`err.message`。属性全部丢失 → 所有错误（含网络超时/限流）均被误判为"解析失败" → 连续 2 次即触发 E-AGENT-001 熔断。
+
+#### 修复
+- `UnifiedStrategy.js:187-203`: 错误分类条件改为读语义错误码（`E-LLM-429`/`E-NET-408`/`E-NET-500`）和 `details.httpStatus`，正确区分网络/解析错误
+- 429 限流指数退避重试恢复正常
+
+### 优化: Token 预算提升
+
+- `DEFAULT_TOKEN_BUDGET`: 30,000 → 150,000（从 DeepSeek 80 万上下文的 3.75% 提升到 18.75%）
+- 工具返回结果不易被截断，减少 LLM 因数据残缺而反复无效尝试
+
+### 改动文件
+- `src/main/agent/strategies/UnifiedStrategy.js`
+- `package.json`（版本号）
+
 ## v8.2.0 (2026-06-23) - AI 错误编码化显示
 
 ### 版本信息
