@@ -21,6 +21,16 @@ class WorkspaceManager {
       for (const sub of ['wiki', 'reports', 'chat-history']) {
         await fs.mkdir(path.join(p, sub), { recursive: true })
       }
+      // v2026-06-23：清理上次崩溃留下的孤儿 .workspace-index.json.tmp.* 文件
+      // saveIndex 是原子写（先写 tmp 再 rename），但中途崩溃会让 tmp 留下
+      try {
+        const { cleanupOrphanTmps } = require('./index-store')
+        const removed = await cleanupOrphanTmps(p)
+        if (removed > 0) console.log(`[WorkspaceManager.open] 清理了 ${removed} 个孤儿 tmp 文件`)
+      } catch (err) {
+        // 清理失败不阻塞打开流程
+        console.warn('[WorkspaceManager.open] cleanupOrphanTmps 失败:', err.message)
+      }
       const newPath = p.replace(/\\/g, '/')
       // 先切出新工作区（flush pending exports）
       if (this._sync && oldPath) {
