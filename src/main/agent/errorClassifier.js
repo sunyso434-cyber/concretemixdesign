@@ -49,7 +49,7 @@ function classifyError(rawError, context = {}) {
   // 策略 3：网络错误代码（axios error.code 字段）
   if (rawError && rawError.code && typeof rawError.code === 'string') {
     if (rawError.code === 'ECONNABORTED') return buildPayload('E-NET-408', rawError, context)
-    if (['ENOTFOUND', 'ECONNREFUSED'].includes(rawError.code)) return buildPayload('E-NET-500', rawError, context)
+    if (['ENOTFOUND', 'ECONNREFUSED', 'ERR_NETWORK', 'ETIMEDOUT', 'ECONNRESET'].includes(rawError.code)) return buildPayload('E-NET-500', rawError, context)
   }
 
   const msg = getMessage(rawError)
