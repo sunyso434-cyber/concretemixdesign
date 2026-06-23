@@ -22,6 +22,9 @@ const { loadIndex, saveIndex } = require('./index-store')
 const { queryBM25, buildBM25 } = require('./bm25')
 const { tokenize } = require('./tokenizer')
 
+// Task 2 (readPage relevance filtering): 300KB 输出保护
+const MAX_OUTPUT_SIZE = 300 * 1024
+
 class WikiEngine {
   // Task 5.2：加 kgExtractor 参数（注入 KG 提取器，P5.1 KGExtractor）
   // - 不注入 → 等同 quality:low 降级（不写 kg/，不破坏现有行为，向后兼容）
@@ -269,7 +272,10 @@ ${content}
   // - 文件不存在 → PAGE_NOT_FOUND
   // - 文件 > 5MB → SIZE_EXCEEDED（保护内存）
   // - 成功返回 { content, frontmatter, mtime, size }（mtime/size 是数字）
-  async readPage(wikiPath) {
+  // Task 2: readPage 签名扩展 - options.query 用于后续 Task 8 相关性过滤
+  // 无 query 时走老逻辑 + 300KB 截断保护 + stats 返回
+  async readPage(wikiPath, options = {}) {
+    const startTime = Date.now()
     const current = this.workspace.current()
     if (!current || current.status !== 'ready') {
       throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
@@ -291,7 +297,43 @@ ${content}
     }
     raw = await fs.readFile(absPath, 'utf-8')
     const { data: frontmatter, content } = require('gray-matter')(raw)
-    return { content, frontmatter, mtime: stat.mtimeMs, size: stat.size }
+
+    // Task 2: 无 query 时对 content 做 300KB 截断保护
+    const outputContent = options.query
+      ? content  // 有 query 时保留原始 content（Task 8 做相关性过滤）
+      : this._truncateToSize(content, MAX_OUTPUT_SIZE)
+
+    return {
+      content: outputContent,
+      frontmatter,
+      mtime: stat.mtimeMs,
+      size: stat.size,
+      stats: { elapsedMs: Date.now() - startTime }
+    }
+  }
+
+  // Task 2: 截断 content 至 maxBytes 以内（UTF-8 边界安全）
+  // 修复 brief 中的无限循环 bug：while 循环的 suffix 含 \n，导致 lastNewline
+  // 反复命中 suffix 内的 \n 而非正文内容。改为：先裁剪内容，再追加 suffix。
+  _truncateToSize(content, maxBytes) {
+    if (Buffer.byteLength(content, 'utf-8') <= maxBytes) return content
+    const slice = content.slice(0, Math.floor(maxBytes * 1.3))
+    const lastParagraph = slice.lastIndexOf('\n\n')
+    const truncationSuffix = '\n\n[... 已截断（原始内容 > 300KB）...]'
+    const suffixBytes = Buffer.byteLength(truncationSuffix, 'utf-8')
+    let result
+    if (lastParagraph > maxBytes * 0.5) {
+      result = slice.slice(0, lastParagraph)
+    } else {
+      result = slice
+    }
+    // UTF-8 二次校验：逐步缩短内容直到 + suffix 不超限
+    while (Buffer.byteLength(result, 'utf-8') + suffixBytes > maxBytes) {
+      const lastNewline = result.lastIndexOf('\n')
+      if (lastNewline <= 0) break
+      result = result.slice(0, lastNewline)
+    }
+    return result + truncationSuffix
   }
 
   // Task 2.6 + Task 3.4: search - BM25 全文搜索 + snippet 生成（spec §4.5/§4.7 + §4.12）

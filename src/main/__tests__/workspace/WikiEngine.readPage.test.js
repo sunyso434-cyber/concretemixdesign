@@ -112,4 +112,72 @@ This is test content.
     expect(typeof result.size).toBe('number')
     expect(result.size).toBeGreaterThan(0)
   })
+
+  // Task 2: 不传 query → 行为等价于旧行为（content 未被截断，因为内容 < 300KB）
+  test('Task 2: 不传 query → 行为等价于旧行为', async () => {
+    const result = await wiki.readPage('sources/page.md')
+
+    // content 和旧行为一致
+    expect(result.content).toContain('# Test Page')
+    expect(result.content).toContain('This is test content.')
+    expect(result.content).not.toContain('已截断')
+
+    // frontmatter / mtime / size 结构不变
+    expect(result.frontmatter).toHaveProperty('title', 'test-page')
+    expect(typeof result.mtime).toBe('number')
+    expect(typeof result.size).toBe('number')
+  })
+
+  // Task 2: 不传 query + 内容 > 300KB → 被截断
+  test('Task 2: 不传 query + 内容 > 300KB → 被截断', async () => {
+    // 写一个 > 300KB 的 wiki 页（需要包含段落分隔符 \n\n，模拟真实 wiki 内容）
+    const bigPath = path.join(testPath, 'wiki', 'sources', 'big.md')
+    const nowIso = new Date().toISOString()
+    // 生成 ~350KB 的段落内容（每个段落 1KB，段落间用 \n\n 分隔）
+    const paragraph = 'x'.repeat(1024)
+    const paragraphs = []
+    for (let i = 0; i < 350; i++) {
+      paragraphs.push(paragraph)
+    }
+    const body = paragraphs.join('\n\n')
+    const bigMd = `---
+title: "big-page"
+source: "raw/big.md"
+ingested_at: "${nowIso}"
+updated_at: "${nowIso}"
+quality: "high"
+---
+
+${body}
+`
+    await fs.writeFile(bigPath, bigMd)
+
+    const result = await wiki.readPage('sources/big.md')
+
+    // 被截断
+    expect(result.content).toContain('已截断')
+    expect(result.content.length).toBeLessThan(body.length)
+
+    // 截断后 UTF-8 字节数 <= 300KB
+    const byteLen = Buffer.byteLength(result.content, 'utf-8')
+    expect(byteLen).toBeLessThanOrEqual(300 * 1024)
+  })
+
+  // Task 2: stats.elapsedMs 存在且 > 0
+  test('Task 2: stats.elapsedMs 存在且 >= 0', async () => {
+    const result = await wiki.readPage('sources/page.md')
+
+    expect(result.stats).toBeDefined()
+    expect(typeof result.stats.elapsedMs).toBe('number')
+    expect(result.stats.elapsedMs).toBeGreaterThanOrEqual(0)
+  })
+
+  // Task 2: 传 query 时 content 不被截断（< 300KB 内容）
+  test('Task 2: 传 query 时 content 不做 300KB 截断', async () => {
+    const result = await wiki.readPage('sources/page.md', { query: 'test' })
+
+    expect(result.content).toContain('# Test Page')
+    expect(result.content).not.toContain('已截断')
+    expect(result.stats).toBeDefined()
+  })
 })
