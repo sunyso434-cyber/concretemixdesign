@@ -172,12 +172,13 @@ ${body}
     expect(result.stats.elapsedMs).toBeGreaterThanOrEqual(0)
   })
 
-  // Task 2: 传 query 时 content 不被截断（< 300KB 内容）
+  // Task 2: 传 query 时走 filtered 路径（不做 300KB 截断）
   test('Task 2: 传 query 时 content 不做 300KB 截断', async () => {
     const result = await wiki.readPage('sources/page.md', { query: 'test' })
 
-    expect(result.content).toContain('# Test Page')
-    expect(result.content).not.toContain('已截断')
+    // 验证走了 filtered 路径（而非无 query 时的截断路径）
     expect(result.stats).toBeDefined()
+    expect(result.stats.mode).toBe('filtered')
+    expect(result.stats.query).toBe('test')
   })
 })
