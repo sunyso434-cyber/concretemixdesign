@@ -691,3 +691,178 @@ describe('WikiEngine._batchSummarize', () => {
     expect(maxConcurrent).toBeLessThanOrEqual(MAX_CONCURRENT)
   })
 })
+
+describe('WikiEngine._assemble', () => {
+  function createEngine() {
+    return new WikiEngine({ workspace: { current: () => null } })
+  }
+
+  function mockService(fn) {
+    return { invoke: jest.fn(fn) }
+  }
+
+  // 辅助：构建 decided 数组
+  function makeDecided(segments) {
+    return segments.map((seg, i) => ({
+      id: i,
+      level: seg.level || 0,
+      text: seg.text,
+      startLine: seg.startLine || 0,
+      endLine: seg.endLine || 0,
+      tokens: seg.tokens || 10,
+      score: seg.score ?? 0.1,
+      mode: seg.mode || 'summary'
+    }))
+  }
+
+  test('拼接顺序 = 原文档顺序', async () => {
+    const engine = createEngine()
+    const decided = makeDecided([
+      { text: '段落A', mode: 'full', score: 0.8 },
+      { text: '段落B', mode: 'summary', score: 0.1 },
+      { text: '段落C', mode: 'full', score: 0.9 }
+    ])
+    const service = mockService(async () => '摘要B')
+    const result = await engine._assemble(decided, service, '测试')
+
+    const content = result.content
+    const posA = content.indexOf('段落A')
+    const posSummaryB = content.indexOf('摘要B')
+    const posC = content.indexOf('段落C')
+
+    // A 在 B 前，B 在 C 前
+    expect(posA).toBeLessThan(posSummaryB)
+    expect(posSummaryB).toBeLessThan(posC)
+  })
+
+  test('full 段带注释标记', async () => {
+    const engine = createEngine()
+    const decided = makeDecided([
+      { text: '相关段落内容', mode: 'full', score: 0.85 }
+    ])
+    const service = mockService(async () => '摘要')
+    const result = await engine._assemble(decided, service, '测试')
+
+    // 检查注释格式
+    expect(result.content).toContain('<!-- [段 1, 完整保留, 分数=0.85] -->')
+    expect(result.content).toContain('相关段落内容')
+  })
+
+  test('summary 段带注释标记', async () => {
+    const engine = createEngine()
+    const decided = makeDecided([
+      { text: '第一行\n第二行\n第三行', mode: 'summary', score: 0.1 }
+    ])
+    const service = mockService(async () => '压缩后的摘要')
+    const result = await engine._assemble(decided, service, '测试')
+
+    // 检查注释格式（原 3 行）
+    expect(result.content).toContain('<!-- [段 1, 已压缩, 原 3 行, 分数=0.10] -->')
+    expect(result.content).toContain('压缩后的摘要')
+  })
+
+  test('超 300KB → 被截断 + stats.truncated = true', async () => {
+    const engine = createEngine()
+    // 构造足够大的段落使其超过 300KB
+    const largeText = '这是一段很长的内容。'.repeat(15000)  // ~180KB per segment
+    const decided = makeDecided([
+      { text: largeText, mode: 'full', score: 0.8 },
+      { text: largeText, mode: 'full', score: 0.8 },
+      { text: largeText, mode: 'full', score: 0.8 }
+    ])
+    const service = mockService(async () => '摘要')
+    const result = await engine._assemble(decided, service, '测试')
+
+    expect(result.stats.truncated).toBe(true)
+    // 截断后应 <= 300KB
+    expect(Buffer.byteLength(result.content, 'utf-8')).toBeLessThanOrEqual(300 * 1024)
+  })
+
+  test('stats.elapsedMs 存在', async () => {
+    const engine = createEngine()
+    const decided = makeDecided([
+      { text: '简单段落', mode: 'full', score: 0.8 }
+    ])
+    const service = mockService(async () => '摘要')
+    const result = await engine._assemble(decided, service, '测试')
+
+    expect(result.stats).toBeDefined()
+    expect(typeof result.stats.elapsedMs).toBe('number')
+    expect(result.stats.elapsedMs).toBeGreaterThanOrEqual(0)
+  })
+
+  test('stats 字段完整性', async () => {
+    const engine = createEngine()
+    const decided = makeDecided([
+      { text: '命中段', mode: 'full', score: 0.8 },
+      { text: '上下文段', mode: 'full', score: 0.2 },
+      { text: '不相关段', mode: 'summary', score: 0.1 }
+    ])
+    const service = mockService(async () => '摘要')
+    const result = await engine._assemble(decided, service, '测试')
+
+    expect(result.stats.totalSegments).toBe(3)
+    expect(result.stats.fullSegments).toBe(2)
+    expect(result.stats.summarySegments).toBe(1)
+    expect(result.stats.contextSegments).toBe(1)  // score=0.2 的 full 段是上下文
+    expect(typeof result.stats.originalSize).toBe('number')
+    expect(typeof result.stats.filteredSize).toBe('number')
+    expect(typeof result.stats.compressionRatio).toBe('number')
+    expect(result.stats.truncated).toBe(false)
+  })
+
+  test('段号从 1 开始递增', async () => {
+    const engine = createEngine()
+    const decided = makeDecided([
+      { text: '第一段', mode: 'full', score: 0.8 },
+      { text: '第二段', mode: 'summary', score: 0.1 },
+      { text: '第三段', mode: 'full', score: 0.9 }
+    ])
+    const service = mockService(async () => '摘要')
+    const result = await engine._assemble(decided, service, '测试')
+
+    expect(result.content).toContain('[段 1,')
+    expect(result.content).toContain('[段 2,')
+    expect(result.content).toContain('[段 3,')
+  })
+
+  test('LLM 摘要失败时降级为启发式摘要', async () => {
+    const engine = createEngine()
+    const decided = makeDecided([
+      { text: '混凝土强度30MPa。', mode: 'summary', score: 0.1 }
+    ])
+    const service = mockService(async () => { throw new Error('LLM不可用') })
+    const result = await engine._assemble(decided, service, '强度')
+
+    // 降级后应包含启发式摘要内容
+    expect(result.content).toContain('如需完整内容，请重新调用')
+    // 注释标记仍然存在
+    expect(result.content).toContain('<!-- [段 1, 已压缩,')
+  })
+
+  test('空段落数组', async () => {
+    const engine = createEngine()
+    const service = mockService(async () => '摘要')
+    const result = await engine._assemble([], service, '测试')
+
+    expect(result.content).toBe('')
+    expect(result.stats.totalSegments).toBe(0)
+    expect(result.stats.fullSegments).toBe(0)
+    expect(result.stats.summarySegments).toBe(0)
+    expect(result.stats.truncated).toBe(false)
+  })
+
+  test('不截断时 compressionRatio <= 1', async () => {
+    const engine = createEngine()
+    const decided = makeDecided([
+      { text: '段A ' + '内容'.repeat(50), mode: 'full', score: 0.8 },
+      { text: '段B ' + '内容'.repeat(50), mode: 'summary', score: 0.1 }
+    ])
+    const service = mockService(async () => '短摘要')
+    const result = await engine._assemble(decided, service, '测试')
+
+    // summary 段被压缩，整体 filteredSize 应 <= originalSize
+    expect(result.stats.filteredSize).toBeLessThanOrEqual(result.stats.originalSize)
+    expect(result.stats.truncated).toBe(false)
+  })
+})

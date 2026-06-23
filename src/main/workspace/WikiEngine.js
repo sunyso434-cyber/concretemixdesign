@@ -1071,6 +1071,84 @@ ${segment.text}
     }
   }
 
+  // Task 7: _assemble — 拼接输出 + 长度优先截断
+  // 将 full/summary 段按原顺序拼接，超 300KB 时截断。
+  // 参数：decided = [{...segment, mode:'full'|'summary', score}], deepseekService, query
+  // 返回：{ content, stats }
+  async _assemble(decided, deepseekService, query) {
+    const startTime = Date.now()
+
+    // 1. 收集需要摘要的段落
+    const summarySegments = decided.filter(seg => seg.mode === 'summary')
+
+    // 2. 调 _batchSummarize 获取摘要（Map<id, summaryText>）
+    const summaryMap = await this._batchSummarize(summarySegments, query, deepseekService)
+
+    // 3. 按原顺序拼接
+    const parts = []
+    let fullCount = 0
+    let summaryCount = 0
+    let contextCount = 0
+
+    for (let i = 0; i < decided.length; i++) {
+      const seg = decided[i]
+      const displayNum = i + 1  // 1-based 段号
+
+      if (seg.mode === 'full') {
+        // full 段：添加注释标记 + 原始文本
+        const comment = `<!-- [段 ${displayNum}, 完整保留, 分数=${seg.score.toFixed(2)}] -->`
+        parts.push(comment + '\n' + seg.text)
+        fullCount++
+      } else {
+        // summary 段：添加注释标记 + 摘要
+        const summary = summaryMap.get(seg.id) || this._summarizeHeuristic(seg.text)
+        const originalLineCount = seg.text.split('\n').length
+        const comment = `<!-- [段 ${displayNum}, 已压缩, 原 ${originalLineCount} 行, 分数=${seg.score.toFixed(2)}] -->`
+        parts.push(comment + '\n' + summary)
+        summaryCount++
+      }
+    }
+
+    // 4. 计算 contextSegments（full 段中非命中、因上下文扩展而保留的段）
+    for (const seg of decided) {
+      if (seg.mode === 'full' && seg.score <= RELEVANCE_THRESHOLD_HIGH) {
+        contextCount++
+      }
+    }
+
+    // 5. 拼接所有段（段间用双换行分隔）
+    let assembled = parts.join('\n\n')
+
+    // 6. 计算原始大小（所有段原始文本拼接）
+    const originalContent = decided.map(seg => seg.text).join('\n\n')
+    const originalSize = Buffer.byteLength(originalContent, 'utf-8')
+
+    // 7. 截断到 300KB
+    let truncated = false
+    if (Buffer.byteLength(assembled, 'utf-8') > MAX_OUTPUT_SIZE) {
+      assembled = this._truncateToSize(assembled, MAX_OUTPUT_SIZE)
+      truncated = true
+    }
+
+    const filteredSize = Buffer.byteLength(assembled, 'utf-8')
+    const compressionRatio = originalSize > 0 ? filteredSize / originalSize : 1
+
+    return {
+      content: assembled,
+      stats: {
+        totalSegments: decided.length,
+        fullSegments: fullCount,
+        summarySegments: summaryCount,
+        contextSegments: contextCount,
+        originalSize,
+        filteredSize,
+        compressionRatio,
+        truncated,
+        elapsedMs: Date.now() - startTime
+      }
+    }
+  }
+
   // Task 6.6 (P6 健壮性)：内部方法 - 调 rotateLog 轮转 log.md
   // - 失败 catch 后只 console.warn，不抛（spec §4.13：log 轮转失败不影响主流程）
   async _maybeRotateLog() {
