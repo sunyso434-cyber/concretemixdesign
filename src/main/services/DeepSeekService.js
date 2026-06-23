@@ -5,6 +5,7 @@
 
 const axios = require('axios')
 const { DEFAULT_AGENT_MAX_STEPS, AGENT_CONFIG_CACHE_TTL_MS } = require('../utils/agentConstants')
+const { createError } = require('../agent/ErrorCodes')
 
 const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions'
 
@@ -354,6 +355,45 @@ class DeepSeekService {
     return this._config
   }
 
+  /**
+   * 把任意 axios / network 异常归一为 createError 标准结构（方向 A：直接构造，不走 classifyError）。
+   * 拆 HTTP 400/401/402/403/413/429/503 → 各自 E-LLM-xxx；其他 5xx → E-LLM-500；
+   * ECONNABORTED → E-NET-408；ENOTFOUND / ECONNREFUSED → E-NET-500；
+   * 其余未知错误 → E-SYS-999 兜底。
+   *
+   * @param {Error|object} error  原始异常（axios reject / Error）
+   * @param {string} callSite     发生位置，如 'DeepSeekService.chat'
+   * @returns {object} createError 标准结构（6 字段：success/code/title/hint/recovery/details）
+   */
+  _buildClassifiedError(error, callSite) {
+    const status = error && error.response && error.response.status
+    const code = (() => {
+      const httpToCode = {
+        400: 'E-LLM-400', 401: 'E-LLM-401', 402: 'E-LLM-402', 403: 'E-LLM-403',
+        413: 'E-LLM-413', 429: 'E-LLM-429', 503: 'E-LLM-503',
+      }
+      if (status && httpToCode[status]) return httpToCode[status]
+      if (status && status >= 500) return 'E-LLM-500'  // 其他 5xx 兜底
+      if (error && error.code === 'ECONNABORTED') return 'E-NET-408'
+      if (error && (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED')) return 'E-NET-500'
+      return 'E-SYS-999'  // 兜底
+    })()
+
+    const data = error && error.response && error.response.data
+    const rawMessage = (data && data.error && data.error.message)
+      || (data && typeof data === 'object' ? JSON.stringify(data).slice(0, 500) : '')
+      || (error && error.message)
+      || ''
+
+    return createError(code, null, null, {
+      httpStatus: status,
+      endpoint: DEEPSEEK_API_URL,
+      rawMessage,
+      callSite,
+      occurredAt: new Date().toISOString(),
+    })
+  }
+
   // v1.2: 返回可用模型列表
   getAvailableModels() {
     return ['deepseek-v4-flash', 'deepseek-v4-pro']
@@ -437,9 +477,8 @@ class DeepSeekService {
       return response.data.choices[0].message
     } catch (error) {
       if (error.response) {
-        const errMsg = `API ${error.response.status}: ${JSON.stringify(error.response.data).slice(0, 500)}`
-        console.error(errMsg)
-        throw new Error(errMsg)
+        console.error(`API ${error.response.status}: ${JSON.stringify(error.response.data).slice(0, 500)}`)
+        throw error // 保留原始 axios error（含 .response），让外围 _buildClassifiedError 提取 HTTP 状态码
       }
       throw error
     }
@@ -472,9 +511,8 @@ class DeepSeekService {
       return response.data.choices[0].message
     } catch (error) {
       if (error.response) {
-        const errMsg = `API ${error.response.status}: ${JSON.stringify(error.response.data).slice(0, 500)}`
-        console.error(errMsg)
-        throw new Error(errMsg)
+        console.error(`API ${error.response.status}: ${JSON.stringify(error.response.data).slice(0, 500)}`)
+        throw error // 保留原始 axios error（含 .response），让外围 _buildClassifiedError 提取 HTTP 状态码
       }
       throw error
     }
@@ -491,19 +529,7 @@ class DeepSeekService {
     try {
       return await this._callAPIStream(messages, true, onEvent, tools)
     } catch (error) {
-      // 读取流式请求的错误响应体，获取具体错误信息
-      let errDetail = ''
-      if (error.response) {
-        try {
-          errDetail = await this._readErrorBody(error.response.data)
-        } catch (_) {}
-        const status = error.response.status
-        const msg = typeof errDetail === 'object'
-          ? (errDetail?.error?.message || JSON.stringify(errDetail).slice(0, 300))
-          : (typeof errDetail === 'string' ? errDetail.slice(0, 300) : '')
-        throw new Error(`API ${status}: ${msg || '未知错误'}`)
-      }
-      throw error
+      throw this._buildClassifiedError(error, 'DeepSeekService.chatWithToolsStream')
     }
   }
 
@@ -912,28 +938,7 @@ class DeepSeekService {
         messages // Return full message list for frontend to extract tool_call display data
       }
     } catch (error) {
-      if (error.response) {
-        const status = error.response.status
-        const data = error.response.data
-        if (status === 401) {
-          throw new Error('DeepSeek API密钥无效')
-        } else if (status === 429) {
-          throw new Error('DeepSeek API请求频率超限，请稍后重试')
-        } else {
-          let errDetail = ''
-          try {
-            const body = await this._readErrorBody(data)
-            errDetail = (body && typeof body === 'object')
-              ? (body.error?.message || JSON.stringify(body))
-              : (typeof body === 'string' && body ? body.substring(0, 500) : '')
-          } catch (_) { /* 读取失败，使用默认提示 */ }
-          throw new Error(`DeepSeek API错误(${status}): ${errDetail || '请检查请求参数'}`)
-        }
-      } else if (error.code === 'ECONNABORTED') {
-        throw new Error('DeepSeek API请求超时，请检查网络连接')
-      } else {
-        throw new Error(`DeepSeek API调用失败: ${error.message}`)
-      }
+      throw this._buildClassifiedError(error, 'DeepSeekService.chat')
     }
   }
 
@@ -1325,28 +1330,7 @@ ${diagnosisText}
       const content = response.data.choices[0].message.content
       return this.parseResponse(content)
     } catch (error) {
-      if (error.response) {
-        const status = error.response.status
-        const data = error.response.data
-        if (status === 401) {
-          throw new Error('DeepSeek API密钥无效')
-        } else if (status === 429) {
-          throw new Error('DeepSeek API请求频率超限，请稍后重试')
-        } else {
-          let errDetail = ''
-          try {
-            const body = await this._readErrorBody(data)
-            errDetail = (body && typeof body === 'object')
-              ? (body.error?.message || JSON.stringify(body))
-              : (typeof body === 'string' && body ? body.substring(0, 500) : '')
-          } catch (_) { /* 读取失败，使用默认提示 */ }
-          throw new Error(`DeepSeek API错误(${status}): ${errDetail || '请检查请求参数'}`)
-        }
-      } else if (error.code === 'ECONNABORTED') {
-        throw new Error('DeepSeek API请求超时，请检查网络连接')
-      } else {
-        throw new Error(`DeepSeek API调用失败: ${error.message}`)
-      }
+      throw this._buildClassifiedError(error, 'DeepSeekService.analyzeMixDesign')
     }
   }
 
