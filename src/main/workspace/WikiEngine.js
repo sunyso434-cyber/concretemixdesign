@@ -29,6 +29,10 @@ const MAX_OUTPUT_SIZE = 300 * 1024
 const SINGLE_SEGMENT_MAX_SIZE = 20 * 1024  // 20KB
 const TABLE_MAX_ROWS = 500
 
+// Task 4: 相关性过滤常量
+const RELEVANCE_THRESHOLD_HIGH = 0.5
+const DEFAULT_CONTEXT_LINES = 5
+
 class WikiEngine {
   // Task 5.2：加 kgExtractor 参数（注入 KG 提取器，P5.1 KGExtractor）
   // - 不注入 → 等同 quality:low 降级（不写 kg/，不破坏现有行为，向后兼容）
@@ -596,6 +600,61 @@ ${content}
     return result + truncationSuffix
   }
 
+  // Task 4: _decideMode — 根据分数和上下文行数决定每段是 full 还是 summary
+  // 步骤：
+  //   1. 标记命中段（score > 0.5 → full）
+  //   2. 扩展上下文（前后 ±contextLines 行，跨段合并到 full 区间）
+  //   3. 剩余段标 summary
+  // 输入: [{ id, level, text, startLine, endLine, isTable?, tableHeader?, tokens, score }]
+  // 输出: [{ ...segment, mode: 'full' | 'summary', score }]
+  _decideMode(scored, contextLines = DEFAULT_CONTEXT_LINES) {
+    if (!scored || scored.length === 0) return []
+
+    // 1. 收集命中段的扩展区间 [startLine - contextLines, endLine + contextLines]
+    const hitRanges = []
+    for (const seg of scored) {
+      if (seg.score > RELEVANCE_THRESHOLD_HIGH) {
+        hitRanges.push({
+          start: seg.startLine - contextLines,
+          end: seg.endLine + contextLines
+        })
+      }
+    }
+
+    // 2. 合并重叠区间（先按 start 排序，再扫描合并）
+    hitRanges.sort((a, b) => a.start - b.start)
+    const mergedRanges = []
+    for (const range of hitRanges) {
+      if (mergedRanges.length > 0) {
+        const last = mergedRanges[mergedRanges.length - 1]
+        if (range.start <= last.end + 1) {
+          // 重叠或相邻 → 合并
+          last.end = Math.max(last.end, range.end)
+          continue
+        }
+      }
+      mergedRanges.push({ start: range.start, end: range.end })
+    }
+
+    // 3. 对每个段，判断是否与合并区间重叠
+    return scored.map(seg => {
+      let mode = 'summary'
+      // 命中段本身 → full
+      if (seg.score > RELEVANCE_THRESHOLD_HIGH) {
+        mode = 'full'
+      } else {
+        // 非命中段：检查是否与合并区间重叠
+        for (const range of mergedRanges) {
+          if (seg.endLine >= range.start && seg.startLine <= range.end) {
+            mode = 'full'
+            break
+          }
+        }
+      }
+      return { ...seg, mode, score: seg.score }
+    })
+  }
+
   // Task 2.6 + Task 3.4: search - BM25 全文搜索 + snippet 生成（spec §4.5/§4.7 + §4.12）
   // - 返回 SearchHit[]：{ path, title, snippet, score, sourceType: 'wiki' | 'chatHistory' }
   // - Task 3.4 (P3)：合并 wiki + chat-history 两个 BM25 索引，统一排序截 topK
@@ -910,4 +969,4 @@ ${String(a)}
   }
 }
 
-module.exports = { WikiEngine, SINGLE_SEGMENT_MAX_SIZE, TABLE_MAX_ROWS }
+module.exports = { WikiEngine, SINGLE_SEGMENT_MAX_SIZE, TABLE_MAX_ROWS, RELEVANCE_THRESHOLD_HIGH, DEFAULT_CONTEXT_LINES }

@@ -1,4 +1,4 @@
-const { WikiEngine, SINGLE_SEGMENT_MAX_SIZE } = require('../WikiEngine')
+const { WikiEngine, SINGLE_SEGMENT_MAX_SIZE, RELEVANCE_THRESHOLD_HIGH, DEFAULT_CONTEXT_LINES } = require('../WikiEngine')
 
 describe('WikiEngine._splitIntoSegments', () => {
   // 辅助：创建一个最简 WikiEngine 实例（只需 _splitIntoSegments，不需要真实 workspace）
@@ -359,5 +359,116 @@ describe('WikiEngine._splitIntoSegments', () => {
       expect(tableSeg.text).toContain('| 姓名 | 年龄 |')
       expect(tableSeg.text).toContain('| 张三 | 25 |')
     })
+  })
+})
+
+describe('WikiEngine._decideMode', () => {
+  function createEngine() {
+    return new WikiEngine({ workspace: { current: () => null } })
+  }
+
+  test('命中段 → mode = full', () => {
+    const engine = createEngine()
+    // 段0: line 0-0 (命中, 扩展 [-5, 5])
+    // 段1: line 20-25 (远离, 不在扩展区间内 → summary)
+    const scored = [
+      { id: 0, level: 1, text: '# 标题', startLine: 0, endLine: 0, tokens: 10, score: 0.8 },
+      { id: 1, level: 0, text: '其他内容', startLine: 20, endLine: 25, tokens: 20, score: 0.1 }
+    ]
+    const result = engine._decideMode(scored)
+    expect(result[0].mode).toBe('full')
+    expect(result[1].mode).toBe('summary')
+  })
+
+  test('命中段上下文 ±5 行 → 相邻段 mode = full', () => {
+    const engine = createEngine()
+    // 段0: line 0-3 (score=0.8, 命中)
+    // 段1: line 5-8 (与段0上下文范围 [0-5, 3+5=8] 重叠 → full)
+    // 段2: line 20-25 (不重叠 → summary)
+    const scored = [
+      { id: 0, level: 1, text: '命中内容', startLine: 0, endLine: 3, tokens: 10, score: 0.8 },
+      { id: 1, level: 0, text: '邻近内容', startLine: 5, endLine: 8, tokens: 20, score: 0.1 },
+      { id: 2, level: 0, text: '远端内容', startLine: 20, endLine: 25, tokens: 20, score: 0.1 }
+    ]
+    const result = engine._decideMode(scored)
+    expect(result[0].mode).toBe('full')
+    expect(result[1].mode).toBe('full')
+    expect(result[2].mode).toBe('summary')
+  })
+
+  test('两个命中段上下文交叉 → 合并为一个 full 区间', () => {
+    const engine = createEngine()
+    // 段0: line 0-3 (score=0.8, 命中, 扩展 [-5, 8])
+    // 段1: line 10-15 (score=0.6, 命中, 扩展 [5, 20])
+    // 段0 扩展 end=8 与 段1 扩展 start=5 重叠 → 合并为 [-5, 20]
+    // 段2: line 17-19 (在合并区间内 → full)
+    // 段3: line 30-35 (不在合并区间 → summary)
+    const scored = [
+      { id: 0, level: 1, text: '命中A', startLine: 0, endLine: 3, tokens: 10, score: 0.8 },
+      { id: 1, level: 1, text: '命中B', startLine: 10, endLine: 15, tokens: 10, score: 0.6 },
+      { id: 2, level: 0, text: '中间内容', startLine: 17, endLine: 19, tokens: 20, score: 0.1 },
+      { id: 3, level: 0, text: '远端内容', startLine: 30, endLine: 35, tokens: 20, score: 0.1 }
+    ]
+    const result = engine._decideMode(scored)
+    expect(result[0].mode).toBe('full')
+    expect(result[1].mode).toBe('full')
+    expect(result[2].mode).toBe('full')
+    expect(result[3].mode).toBe('summary')
+  })
+
+  test('不相关段 → mode = summary', () => {
+    const engine = createEngine()
+    const scored = [
+      { id: 0, level: 0, text: '段落A', startLine: 0, endLine: 3, tokens: 10, score: 0.2 },
+      { id: 1, level: 0, text: '段落B', startLine: 10, endLine: 15, tokens: 10, score: 0.0 },
+      { id: 2, level: 0, text: '段落C', startLine: 20, endLine: 25, tokens: 10, score: 0.3 }
+    ]
+    const result = engine._decideMode(scored)
+    expect(result[0].mode).toBe('summary')
+    expect(result[1].mode).toBe('summary')
+    expect(result[2].mode).toBe('summary')
+  })
+
+  test('score 刚好等于阈值 → 不算命中', () => {
+    const engine = createEngine()
+    const scored = [
+      { id: 0, level: 0, text: '边界', startLine: 0, endLine: 3, tokens: 10, score: 0.5 }
+    ]
+    const result = engine._decideMode(scored)
+    expect(result[0].mode).toBe('summary')
+  })
+
+  test('空数组 → 返回空数组', () => {
+    const engine = createEngine()
+    expect(engine._decideMode([])).toEqual([])
+    expect(engine._decideMode(null)).toEqual([])
+  })
+
+  test('返回结果保留原始 segment 属性', () => {
+    const engine = createEngine()
+    const scored = [
+      { id: 0, level: 1, text: '内容', startLine: 0, endLine: 3, isTable: true, tableHeader: 'h', tokens: 10, score: 0.8 }
+    ]
+    const result = engine._decideMode(scored)
+    expect(result[0].id).toBe(0)
+    expect(result[0].level).toBe(1)
+    expect(result[0].isTable).toBe(true)
+    expect(result[0].tableHeader).toBe('h')
+    expect(result[0].tokens).toBe(10)
+    expect(result[0].score).toBe(0.8)
+    expect(result[0].mode).toBe('full')
+  })
+
+  test('自定义 contextLines 参数', () => {
+    const engine = createEngine()
+    // 段0: line 0-2 (命中, 扩展 ±1 → [-1, 3])
+    // 段1: line 5-8 (距段0 end=2 只差 3 行, 但 contextLines=1 时扩展到 3, 不重叠)
+    const scored = [
+      { id: 0, level: 0, text: '命中', startLine: 0, endLine: 2, tokens: 10, score: 0.8 },
+      { id: 1, level: 0, text: '邻近', startLine: 5, endLine: 8, tokens: 20, score: 0.1 }
+    ]
+    const result = engine._decideMode(scored, 1)
+    expect(result[0].mode).toBe('full')
+    expect(result[1].mode).toBe('summary')
   })
 })
