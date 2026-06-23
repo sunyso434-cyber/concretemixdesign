@@ -148,6 +148,10 @@ async function getOrchestrator() {
     if (global.kgExtractor) {
       global.kgExtractor.llmClient = ds
     }
+    // v8.2.4: 同步更新 WikiEngine 的 deepseekService（readPage 智能分块 LLM 摘要需要）
+    if (global.wikiEngine) {
+      global.wikiEngine.deepseekService = ds
+    }
 
     // 确保 Skill 系统已初始化
     await initSkillSystem()

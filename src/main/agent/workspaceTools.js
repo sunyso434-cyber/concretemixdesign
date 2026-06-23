@@ -54,9 +54,19 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
     ),
     skill('workspace_readPage', '读 wiki 页全文 + frontmatter 字段。',
       {
-        wikiPath: { type: 'string', description: 'wiki 页相对路径（如 sources/jgj-55-2011.md）', required: true }
+        wikiPath: { type: 'string', description: 'wiki 页相对路径（如 sources/jgj-55-2011.md）', required: true },
+        query: {
+          type: 'string',
+          description: '相关性关键词。传入后仅返回与查询相关的段落，无关内容压缩为摘要。不传则返回完整内容（仍受 300KB 截断保护）。',
+          required: false
+        },
+        contextLines: {
+          type: 'integer',
+          description: '命中段前后保留的上下文行数',
+          required: false, min: 0, max: 50, default: 5
+        }
       },
-      (args) => getWiki().readPage(args.wikiPath)
+      (args) => getWiki().readPage(args.wikiPath, { query: args.query, contextLines: args.contextLines })
     ),
     skill('workspace_ingest', '把工作区根目录的原始文件（PDF/Word/Excel/MD/CSV）ingest 到 wiki。',
       {
