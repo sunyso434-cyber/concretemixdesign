@@ -1,3 +1,44 @@
+## v8.2.4 (2026-06-23) - workspace_readPage 智能分块
+
+### 版本信息
+- **版本号**: 8.2.4
+- **Electron**: 28.3.3
+- **Node.js**: 20.20.2
+- **构建产物**:
+  - `混凝土配合比设计软件 Setup 8.2.4.exe` (NSIS 安装包)
+  - `混凝土配合比设计软件-8.2.4-x64.exe` (绿色便携版)
+
+### 新增功能: workspace_readPage 智能分块读取
+
+LLM 调用 `workspace_readPage` 读取大文件（1MB+）时，支持传入 `query` 参数做相关性过滤：
+- **相关段落**：整段保留（含上下文 ±N 行）
+- **不相关段落**：调 LLM 压缩为摘要（500 字符上限）
+- **降级策略**：LLM 摘要失败/超时 → 自动降级为启发式摘要
+- **并发控制**：批并发 5 段、总上限 10 段、单段 8s 超时、批 30s 超时
+- **向后兼容**：不传 query 走老逻辑（仅新增 300KB 截断保护）
+
+#### 4 阶段管线
+1. **段落切分**：按标题/空行切分，表格行作为原子段（> 500 行强制切）
+2. **相关性评分**：简化版 TF-IDF（TwoGramTokenizer + IDF 权重）
+3. **滑动窗口决策**：score > 0.5 → full，前后 ±5 行扩展，交叉区间合并
+4. **拼接输出**：按原顺序拼接，超 300KB 长度优先截断
+
+### 改动文件
+- `src/main/workspace/relevance.js` — **新增**，TF-IDF 打分模块
+- `src/main/workspace/WikiEngine.js` — readPage 智能分块（8 个新方法）
+- `src/main/agent/workspaceTools.js` — schema 加 query/contextLines
+- `src/main/ipcHandlers/agentHandler.js` — 同步 deepseekService 到 WikiEngine
+- `main.js` — 注入 deepseekService 到 WikiEngine 构造函数
+- `src/main/workspace/__tests__/relevance.test.js` — **新增**，6 个测试
+- `src/main/workspace/__tests__/WikiEngine.relevance.test.js` — **新增**，59 个测试
+- `package.json`（版本号）
+- `version_log.md`
+
+### 测试
+- relevance.js: 6/6 通过
+- WikiEngine.relevance: 59/59 通过
+- 合计: 65 个新增测试全部通过
+
 ## v8.2.3 (2026-06-23) - 失败熔断阈值 2 → 5
 
 ### 版本信息
