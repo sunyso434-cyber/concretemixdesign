@@ -25,6 +25,10 @@ const { tokenize } = require('./tokenizer')
 // Task 2 (readPage relevance filtering): 300KB 输出保护
 const MAX_OUTPUT_SIZE = 300 * 1024
 
+// Task 3: 段落切分常量
+const SINGLE_SEGMENT_MAX_SIZE = 20 * 1024  // 20KB
+const TABLE_MAX_ROWS = 500
+
 class WikiEngine {
   // Task 5.2：加 kgExtractor 参数（注入 KG 提取器，P5.1 KGExtractor）
   // - 不注入 → 等同 quality:low 降级（不写 kg/，不破坏现有行为，向后兼容）
@@ -310,6 +314,262 @@ ${content}
       size: stat.size,
       stats: { elapsedMs: Date.now() - startTime }
     }
+  }
+
+  // Task 3: 段落切分 — 将 markdown 内容切分为段落数组
+  // 规则：
+  //   1. 标题 (^#{1,6} ) 开始新段
+  //   2. 空行分隔段落
+  //   3. 表格行 (^| .* |$) 连续视为原子段，不被空行切开
+  //   4. 表格 > 500 行 → 强制切，每段带 header+separator 前缀
+  //   5. 非表格段 > 20KB → 按行强制切分
+  // 返回: [{ id, level, text, startLine, endLine, isTable?, tableHeader? }]
+  _splitIntoSegments(content) {
+    if (!content || !content.trim()) return []
+
+    // 1. 解析为行数组（带行号）
+    const lines = this._parseLineInfo(content)
+
+    // 2. 预识别表格块
+    const tableRegions = this._detectTableRegions(lines)
+
+    // 3. 按标题切分段落
+    const headingSections = this._splitByHeadings(lines, tableRegions)
+
+    // 4. 各段再按空行切分
+    const afterBlankSplit = []
+    for (const section of headingSections) {
+      afterBlankSplit.push(
+        ...this._splitSectionByBlankLines(section.lines, section.startLine, section.level)
+      )
+    }
+
+    // 5. 组装最终结果 + 强制切分
+    const HEADING_RE = /^#{1,6} /
+    const segments = []
+    let segId = 0
+    for (const seg of afterBlankSplit) {
+      const isTable = seg.lines.length > 0 && this._isTableLine(seg.lines[0].text)
+      const rawText = seg.lines.map(l => l.text).join('\n')
+
+      // 修正 level：只有真正以标题开头的段才有 level > 0
+      let effectiveLevel = seg.level
+      if (!isTable && seg.lines.length > 0) {
+        if (HEADING_RE.test(seg.lines[0].text)) {
+          effectiveLevel = seg.lines[0].text.match(/^(#{1,6})/)[1].length
+        } else {
+          effectiveLevel = 0
+        }
+      }
+
+      if (isTable) {
+        // 表格段：> 500 行 → 强制切
+        if (seg.lines.length > TABLE_MAX_ROWS) {
+          // 提取 header（第 1 行）+ separator（第 2 行）
+          const headerLine = seg.lines[0]
+          const separatorLine = seg.lines[1]
+          const tableHeader = headerLine.text + '\n' + separatorLine.text
+          const dataLines = seg.lines.slice(2)
+
+          // 按 TABLE_MAX_ROWS 切分（每块含 header+separator+数据行）
+          // 每块最大数据行 = TABLE_MAX_ROWS - 2（header+separator 占 2 行）
+          const chunkSize = TABLE_MAX_ROWS - 2
+          for (let i = 0; i < dataLines.length; i += chunkSize) {
+            const chunk = dataLines.slice(i, i + chunkSize)
+            const allLines = [headerLine, separatorLine, ...chunk]
+            segments.push({
+              id: segId++,
+              level: 0,
+              text: tableHeader + '\n' + chunk.map(l => l.text).join('\n'),
+              startLine: headerLine.lineNumber,
+              endLine: chunk[chunk.length - 1].lineNumber,
+              isTable: true,
+              tableHeader
+            })
+          }
+        } else {
+          // 正常表格段（≤ 500 行）
+          segments.push({
+            id: segId++,
+            level: 0,
+            text: rawText,
+            startLine: seg.lines[0].lineNumber,
+            endLine: seg.lines[seg.lines.length - 1].lineNumber,
+            isTable: true
+          })
+        }
+      } else {
+        // 非表格段：> 20KB → 按行强制切
+        if (Buffer.byteLength(rawText, 'utf-8') > SINGLE_SEGMENT_MAX_SIZE) {
+          const lineChunks = this._splitLargeSegmentByLines(seg.lines)
+          for (const chunk of lineChunks) {
+            segments.push({
+              id: segId++,
+              level: effectiveLevel,
+              text: chunk.lines.map(l => l.text).join('\n'),
+              startLine: chunk.lines[0].lineNumber,
+              endLine: chunk.lines[chunk.lines.length - 1].lineNumber
+            })
+          }
+        } else {
+          segments.push({
+            id: segId++,
+            level: effectiveLevel,
+            text: rawText,
+            startLine: seg.lines[0].lineNumber,
+            endLine: seg.lines[seg.lines.length - 1].lineNumber
+          })
+        }
+      }
+    }
+
+    return segments
+  }
+
+  // 辅助方法：解析内容为带行号的行数组
+  _parseLineInfo(content) {
+    const rawLines = content.split('\n')
+    const lines = []
+    for (let i = 0; i < rawLines.length; i++) {
+      lines.push({ lineNumber: i, text: rawLines[i] })
+    }
+    return lines
+  }
+
+  // 辅助方法：检测表格区域（连续 | 行的区间）
+  // 返回 Set<lineNumber>
+  _detectTableRegions(lines) {
+    const tableLines = new Set()
+    let i = 0
+    while (i < lines.length) {
+      if (this._isTableLine(lines[i].text)) {
+        const start = i
+        while (i < lines.length && this._isTableLine(lines[i].text)) {
+          tableLines.add(lines[i].lineNumber)
+          i++
+        }
+      } else {
+        i++
+      }
+    }
+    return tableLines
+  }
+
+  // 辅助方法：判断是否为表格行
+  _isTableLine(text) {
+    return /^\|.*\|$/.test(text)
+  }
+
+  // 辅助方法：按标题切分
+  // headingSections: [{ lines, startLine, level }]
+  _splitByHeadings(lines, tableLines) {
+    const HEADING_RE = /^#{1,6} /
+    const sections = []
+    let currentLines = []
+    let currentLevel = 0
+    let currentStartLine = lines.length > 0 ? lines[0].lineNumber : 0
+
+    for (const line of lines) {
+      // 行在表格内 → 不作为标题切分
+      if (tableLines.has(line.lineNumber)) {
+        currentLines.push(line)
+        continue
+      }
+
+      if (HEADING_RE.test(line.text)) {
+        // 保存之前的段落
+        if (currentLines.length > 0) {
+          sections.push({
+            lines: currentLines,
+            startLine: currentStartLine,
+            level: currentLevel
+          })
+        }
+        // 新标题段开始
+        currentLines = [line]
+        currentLevel = line.text.match(/^(#{1,6})/)[1].length
+        currentStartLine = line.lineNumber
+      } else {
+        currentLines.push(line)
+      }
+    }
+
+    // 最后一段
+    if (currentLines.length > 0) {
+      sections.push({
+        lines: currentLines,
+        startLine: currentStartLine,
+        level: currentLevel
+      })
+    }
+
+    return sections
+  }
+
+  // 辅助方法：按空行切分段落内的内容
+  // 空行不归入任何段（与 headingSection 的 level 一起传递）
+  _splitSectionByBlankLines(lines, sectionStartLine, level) {
+    const BLANK_RE = /^\s*$/
+    const segments = []
+    let currentLines = []
+
+    for (const line of lines) {
+      // 表格行不被空行切开
+      if (this._isTableLine(line.text)) {
+        currentLines.push(line)
+        continue
+      }
+
+      if (BLANK_RE.test(line.text)) {
+        // 空行 → 切分点
+        if (currentLines.length > 0) {
+          segments.push({
+            lines: currentLines,
+            startLine: currentLines[0].lineNumber,
+            level
+          })
+          currentLines = []
+        }
+      } else {
+        currentLines.push(line)
+      }
+    }
+
+    // 最后一段
+    if (currentLines.length > 0) {
+      segments.push({
+        lines: currentLines,
+        startLine: currentLines[0].lineNumber,
+        level
+      })
+    }
+
+    return segments
+  }
+
+  // 辅助方法：按行切分大段落（> 20KB）
+  // 每行作为独立子段
+  _splitLargeSegmentByLines(lines) {
+    const chunks = []
+    let currentLines = []
+    let currentSize = 0
+
+    for (const line of lines) {
+      const lineSize = Buffer.byteLength(line.text + '\n', 'utf-8')
+      if (currentSize + lineSize > SINGLE_SEGMENT_MAX_SIZE && currentLines.length > 0) {
+        chunks.push({ lines: currentLines })
+        currentLines = []
+        currentSize = 0
+      }
+      currentLines.push(line)
+      currentSize += lineSize
+    }
+
+    if (currentLines.length > 0) {
+      chunks.push({ lines: currentLines })
+    }
+
+    return chunks
   }
 
   // Task 2: 截断 content 至 maxBytes 以内（UTF-8 边界安全）
@@ -650,4 +910,4 @@ ${String(a)}
   }
 }
 
-module.exports = { WikiEngine }
+module.exports = { WikiEngine, SINGLE_SEGMENT_MAX_SIZE, TABLE_MAX_ROWS }

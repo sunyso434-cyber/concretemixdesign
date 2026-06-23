@@ -1,0 +1,363 @@
+const { WikiEngine, SINGLE_SEGMENT_MAX_SIZE } = require('../WikiEngine')
+
+describe('WikiEngine._splitIntoSegments', () => {
+  // 辅助：创建一个最简 WikiEngine 实例（只需 _splitIntoSegments，不需要真实 workspace）
+  function createEngine() {
+    // WikiEngine 需要 workspace 参数，但 _splitIntoSegments 不依赖它
+    return new WikiEngine({ workspace: { current: () => null } })
+  }
+
+  describe('标题切分', () => {
+    test('每个标题开始新段', () => {
+      const engine = createEngine()
+      const content = `# 标题一
+段落内容一
+
+## 标题二
+段落内容二
+
+### 标题三
+段落内容三`
+      const segments = engine._splitIntoSegments(content)
+      // # 标题一 + 段落内容一 → 1 段
+      // ## 标题二 + 段落内容二 → 1 段
+      // ### 标题三 + 段落内容三 → 1 段
+      expect(segments.length).toBe(3)
+      expect(segments[0].level).toBe(1)
+      expect(segments[0].text).toContain('# 标题一')
+      expect(segments[1].level).toBe(2)
+      expect(segments[1].text).toContain('## 标题二')
+      expect(segments[2].level).toBe(3)
+      expect(segments[2].text).toContain('### 标题三')
+    })
+
+    test('标题行号正确', () => {
+      const engine = createEngine()
+      const content = `# 标题一
+内容一
+内容二
+
+# 标题二
+内容三`
+      const segments = engine._splitIntoSegments(content)
+      expect(segments[0].startLine).toBe(0)
+      expect(segments[0].endLine).toBe(2)
+      expect(segments[1].startLine).toBe(4)
+      expect(segments[1].endLine).toBe(5)
+    })
+
+    test('不同级别标题（h1-h6）都正确切分', () => {
+      const engine = createEngine()
+      const content = `# h1
+内容
+## h2
+内容
+### h3
+内容
+#### h4
+内容
+##### h5
+内容
+###### h6
+内容`
+      const segments = engine._splitIntoSegments(content)
+      expect(segments.length).toBe(6)
+      expect(segments[0].level).toBe(1)
+      expect(segments[1].level).toBe(2)
+      expect(segments[2].level).toBe(3)
+      expect(segments[3].level).toBe(4)
+      expect(segments[4].level).toBe(5)
+      expect(segments[5].level).toBe(6)
+    })
+  })
+
+  describe('空行切分', () => {
+    test('无标题内容按空行切分', () => {
+      const engine = createEngine()
+      const content = `段落一第一行
+段落一第二行
+
+段落二第一行
+段落二第二行
+
+段落三第一行`
+      const segments = engine._splitIntoSegments(content)
+      expect(segments.length).toBe(3)
+      expect(segments[0].text).toContain('段落一')
+      expect(segments[0].level).toBe(0)
+      expect(segments[1].text).toContain('段落二')
+      expect(segments[2].text).toContain('段落三')
+    })
+
+    test('连续空行只产生一个切分点', () => {
+      const engine = createEngine()
+      const content = `段落一
+
+
+段落二`
+      const segments = engine._splitIntoSegments(content)
+      expect(segments.length).toBe(2)
+    })
+
+    test('空内容返回空数组', () => {
+      const engine = createEngine()
+      expect(engine._splitIntoSegments('')).toEqual([])
+      expect(engine._splitIntoSegments('   ')).toEqual([])
+      expect(engine._splitIntoSegments(null)).toEqual([])
+    })
+  })
+
+  describe('表格原子段', () => {
+    test('连续 | 行作为原子段，不被空行切开', () => {
+      const engine = createEngine()
+      const content = `一些文字
+
+| 列一 | 列二 | 列三 |
+| --- | --- | --- |
+| 数据1 | 数据2 | 数据3 |
+| 数据4 | 数据5 | 数据6 |
+
+更多文字`
+      const segments = engine._splitIntoSegments(content)
+      // "一些文字" → 1 段
+      // 表格（含空行间隔但表格行是原子的） → 1 段
+      // "更多文字" → 1 段
+      // 注意：表格前的空行会切出 "一些文字"，表格后的空行会切出 "更多文字"
+      // 表格本身是连续 | 行，中间没有非 | 行，所以是一段
+      const tableSeg = segments.find(s => s.isTable)
+      expect(tableSeg).toBeTruthy()
+      expect(tableSeg.text).toContain('| 列一 | 列二 | 列三 |')
+      expect(tableSeg.text).toContain('| 数据1 | 数据2 | 数据3 |')
+      expect(tableSeg.text).toContain('| 数据4 | 数据5 | 数据6 |')
+    })
+
+    test('表格段标记 isTable = true', () => {
+      const engine = createEngine()
+      const content = `| A | B |
+| --- | --- |
+| 1 | 2 |`
+      const segments = engine._splitIntoSegments(content)
+      expect(segments.length).toBe(1)
+      expect(segments[0].isTable).toBe(true)
+      expect(segments[0].level).toBe(0)
+    })
+
+    test('非表格段没有 isTable 属性', () => {
+      const engine = createEngine()
+      const content = `普通段落内容`
+      const segments = engine._splitIntoSegments(content)
+      expect(segments[0].isTable).toBeUndefined()
+    })
+  })
+
+  describe('大表格强制切分', () => {
+    test('表格 > 500 行 → 强制切，每段带 header+separator 前缀', () => {
+      const engine = createEngine()
+      // 构造一个 502 行数据的表格（+ header + separator = 504 行）
+      const header = '| 列A | 列B | 列C |'
+      const separator = '| --- | --- | --- |'
+      const dataLines = []
+      for (let i = 0; i < 502; i++) {
+        dataLines.push(`| 数据${i}-1 | 数据${i}-2 | 数据${i}-3 |`)
+      }
+      const content = [header, separator, ...dataLines].join('\n')
+
+      const segments = engine._splitIntoSegments(content)
+      // 502 数据行，每块 498 行（500 - 2 header/separator），ceil(502/498) = 2 块
+      expect(segments.length).toBe(2)
+
+      // 每块都带 header+separator 前缀
+      for (const seg of segments) {
+        expect(seg.isTable).toBe(true)
+        expect(seg.tableHeader).toBe(header + '\n' + separator)
+        expect(seg.text).toContain(header)
+        expect(seg.text).toContain(separator)
+      }
+
+      // 第一块有 498 行数据
+      expect(segments[0].text).toContain('数据0-1')
+      expect(segments[0].text).toContain('数据497-1')
+      // 第二块有 4 行数据
+      expect(segments[1].text).toContain('数据498-1')
+      expect(segments[1].text).toContain('数据501-1')
+    })
+
+    test('表格刚好 500 行 → 不切', () => {
+      const engine = createEngine()
+      const header = '| A | B |'
+      const separator = '| --- | --- |'
+      const dataLines = []
+      for (let i = 0; i < 498; i++) {
+        dataLines.push(`| ${i} | val |`)
+      }
+      const content = [header, separator, ...dataLines].join('\n')
+
+      const segments = engine._splitIntoSegments(content)
+      expect(segments.length).toBe(1)
+      expect(segments[0].isTable).toBe(true)
+      expect(segments[0].tableHeader).toBeUndefined()
+    })
+
+    test('大表格切分后行号连续', () => {
+      const engine = createEngine()
+      const header = '| A | B |'
+      const separator = '| --- | --- |'
+      const dataLines = []
+      for (let i = 0; i < 505; i++) {
+        dataLines.push(`| ${i} | val |`)
+      }
+      const content = [header, separator, ...dataLines].join('\n')
+
+      const segments = engine._splitIntoSegments(content)
+      // header line 0, separator line 1, data 2-506
+      // chunk1: 0-499 (header+sep+498 rows), chunk2: 0,1,500-506
+      expect(segments[0].startLine).toBe(0)
+      expect(segments[0].endLine).toBe(499)
+      expect(segments[1].startLine).toBe(0)  // header 重新加入
+      expect(segments[1].endLine).toBe(506)
+    })
+  })
+
+  describe('大段落强制切分（> 20KB）', () => {
+    test('非表格段 > 20KB → 按行切分', () => {
+      const engine = createEngine()
+      // 构造一个 > 20KB 的段落（每行约 100 字符 × 250 行 = 25KB）
+      const lines = []
+      for (let i = 0; i < 250; i++) {
+        lines.push('这是一段很长的文字内容，用于测试大段落的强制切分功能。'.repeat(2))
+      }
+      const content = lines.join('\n')
+      const segments = engine._splitIntoSegments(content)
+
+      // 应该被切分为多段
+      expect(segments.length).toBeGreaterThan(1)
+
+      // 每段大小不超过 20KB（允许少量超出，因为按行切分）
+      for (const seg of segments) {
+        const size = Buffer.byteLength(seg.text, 'utf-8')
+        // 按行切分可能导致单行就 > 20KB，但我们的测试数据每行约 200 字节
+        // 所以每段应该 < 20KB + 单行大小
+        expect(size).toBeLessThanOrEqual(SINGLE_SEGMENT_MAX_SIZE + 500)
+      }
+
+      // 段落 id 连续
+      for (let i = 0; i < segments.length; i++) {
+        expect(segments[i].id).toBe(i)
+      }
+    })
+
+    test('小段落不切分', () => {
+      const engine = createEngine()
+      const content = `短内容
+第二行
+第三行`
+      const segments = engine._splitIntoSegments(content)
+      expect(segments.length).toBe(1)
+      expect(segments[0].text).toBe(content)
+    })
+  })
+
+  describe('返回格式', () => {
+    test('段落 id 从 0 开始递增', () => {
+      const engine = createEngine()
+      const content = `# 标题一
+内容一
+
+# 标题二
+内容二
+
+# 标题三
+内容三`
+      const segments = engine._splitIntoSegments(content)
+      expect(segments[0].id).toBe(0)
+      expect(segments[1].id).toBe(1)
+      expect(segments[2].id).toBe(2)
+    })
+
+    test('startLine/endLine 是 0-based', () => {
+      const engine = createEngine()
+      const content = `第一行
+第二行
+
+第三行`
+      const segments = engine._splitIntoSegments(content)
+      expect(segments[0].startLine).toBe(0)
+      expect(segments[0].endLine).toBe(1)
+      expect(segments[1].startLine).toBe(3)
+      expect(segments[1].endLine).toBe(3)
+    })
+
+    test('标题段的 level 是标题级别，非标题段 level = 0', () => {
+      const engine = createEngine()
+      const content = `## 二级标题
+正文内容
+
+无标题段落`
+      const segments = engine._splitIntoSegments(content)
+      expect(segments[0].level).toBe(2)
+      expect(segments[1].level).toBe(0)
+    })
+  })
+
+  describe('混合场景', () => {
+    test('标题 + 空行 + 表格混合', () => {
+      const engine = createEngine()
+      const content = `# 第一章
+这是介绍文字
+
+## 数据表
+| 姓名 | 年龄 |
+| --- | --- |
+| 张三 | 25 |
+| 李四 | 30 |
+
+## 总结
+以上是数据`
+      const segments = engine._splitIntoSegments(content)
+
+      // # 第一章 + 介绍 → 1 段（level 1）
+      // ## 数据表 + 表格行（无空行分隔，所以在一起）→ 1 段（level 2）
+      // ## 总结 + 内容 → 1 段（level 2）
+      expect(segments.length).toBe(3)
+
+      // 第一段：标题 + 介绍
+      expect(segments[0].level).toBe(1)
+      expect(segments[0].text).toContain('# 第一章')
+      expect(segments[0].text).toContain('这是介绍文字')
+
+      // 第二段：标题 + 表格（一起，因为没有空行分隔）
+      expect(segments[1].level).toBe(2)
+      expect(segments[1].text).toContain('## 数据表')
+      expect(segments[1].text).toContain('| 姓名 | 年龄 |')
+      expect(segments[1].text).toContain('| 张三 | 25 |')
+
+      // 第三段：总结
+      expect(segments[2].level).toBe(2)
+      expect(segments[2].text).toContain('## 总结')
+    })
+
+    test('空行分隔的标题 + 独立表格段', () => {
+      const engine = createEngine()
+      const content = `## 数据表
+
+| 姓名 | 年龄 |
+| --- | --- |
+| 张三 | 25 |
+| 李四 | 30 |
+
+## 总结
+以上是数据`
+      const segments = engine._splitIntoSegments(content)
+
+      // ## 数据表 → 1 段（level 2）
+      // 表格行（独立段，被空行分隔）→ 1 段（isTable）
+      // ## 总结 + 内容 → 1 段（level 2）
+      expect(segments.length).toBe(3)
+
+      const tableSeg = segments.find(s => s.isTable)
+      expect(tableSeg).toBeTruthy()
+      expect(tableSeg.text).toContain('| 姓名 | 年龄 |')
+      expect(tableSeg.text).toContain('| 张三 | 25 |')
+    })
+  })
+})
