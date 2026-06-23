@@ -39,7 +39,7 @@ module.exports = {
 }
 
 /**
- * AI 错误编码注册表 - 21 条编码（spec 2.2 节定义）
+ * AI 错误编码注册表 - 19 条编码（spec 2.2 节定义）
  * 用于 classifyError / createError 自动补全 title/hint/recovery
  */
 const AI_ERROR_REGISTRY = {
@@ -47,14 +47,12 @@ const AI_ERROR_REGISTRY = {
   'E-LLM-401': { title: 'AI 密钥无效或未配置', hint: '请到「设置」→「AI 模型」检查 API Key 是否填错或过期', recovery: 'fix_settings', severity: 'error' },
   'E-LLM-402': { title: 'AI 账户余额不足', hint: '请前往 DeepSeek 控制台充值后重试', recovery: 'recharge', severity: 'error' },
   'E-LLM-403': { title: 'AI 接口无访问权限', hint: '当前账号无此模型权限，请联系开发或更换模型', recovery: 'change_model', severity: 'error' },
-  'E-LLM-404': { title: 'AI 模型或资源未找到', hint: '当前模型不存在或已下线，请到「设置」→「AI 模型」更换模型', recovery: 'change_model', severity: 'error' },
   'E-LLM-413': { title: '内容超限（超过最大 token 数）', hint: '输入或对话历史过长，请新建会话或精简提问后重试', recovery: 'trim_input', severity: 'error' },
   'E-LLM-429': { title: 'AI 请求频率超限', hint: '稍等 1-2 分钟后重试', recovery: 'wait_retry', severity: 'error' },
   'E-LLM-500': { title: 'AI 服务端错误', hint: 'DeepSeek 服务异常，请稍后重试', recovery: 'wait_retry', severity: 'error' },
   'E-LLM-503': { title: 'AI 服务暂不可用', hint: 'DeepSeek 维护中，请稍后重试', recovery: 'wait_retry', severity: 'error' },
   'E-NET-408': { title: '网络请求超时', hint: '请检查网络连接后重试', recovery: 'check_network', severity: 'error' },
   'E-NET-500': { title: '网络连接失败', hint: '无法连接到 AI 服务器，请检查网络或代理设置', recovery: 'check_network', severity: 'error' },
-  'E-NET-503': { title: '网络服务暂不可用', hint: '代理/网关临时不可用，请稍后重试或检查代理设置', recovery: 'check_network', severity: 'error' },
   'E-AGENT-001': { title: 'AI 连续失败次数超限', hint: 'AI 多次尝试均失败，请检查任务描述或换种说法', recovery: 'rephrase', severity: 'error' },
   'E-AGENT-002': { title: 'AI 执行步数超限', hint: '任务过于复杂，请拆分为更小的步骤', recovery: 'split_task', severity: 'error' },
   'E-PARSE-001': { title: 'AI 返回的 JSON 解析失败', hint: 'AI 输出格式异常，请重试一次', recovery: 'retry', severity: 'error' },
@@ -105,26 +103,30 @@ function _getRecoveryStrategy(code) {
  * - 否则若 code 在 AI_ERROR_REGISTRY 里，用 registry 的 title/hint/recovery 自动补全；
  * - 都未匹配则用 _getRecoveryStrategy(code) 兼容老 API。
  *
- * 返回字段保留 `errorCode`（向后兼容，老调用方都用这个），
- * 同时新增 `code` 别名（spec 3.3 数据契约要求）。
+ * 返回字段（spec 3.3 数据契约）：
+ *   code     - 错误码字符串（'E-LLM-401' 等）
+ *   title    - 用户可读的标题/消息（caller 传 message 或 registry 命中时；未注册且无 message 时为 undefined）
+ *   hint     - 恢复建议
+ *   recovery - 恢复策略标识符
+ *   details  - 详细信息
+ *   success  - 固定 false
+ *
+ * 不再有 `error` / `errorCode` 别名 —— spec 约束 "AI_ERROR_REGISTRY 是 createError() 的 lookup table，
+ * 不能引入并列体系"。渲染器请改读 `.title`，测试请改读 `.code`。
  *
  * @param {string} code - 错误码
- * @param {string} message - 错误消息
+ * @param {string} message - 错误消息（caller 显式传入时优先；等同 title 字段）
  * @param {string} hint - 恢复建议
  * @param {object} details - 详细信息
  * @returns {object} 标准错误响应
  */
 function createError(code, message, hint, details = null) {
   const registry = AI_ERROR_REGISTRY[code] || {}
-  // caller 显式传的 message 优先；未注册 code 且无 message 时不补全 title
-  // （保留 undefined，让调用方按"无 title"分支渲染，兼容老用法）
   const resolvedTitle = message || registry.title
   return {
     success: false,
-    error: resolvedTitle || code,    // 老字段：未注册时回退到 code 字符串
-    errorCode: code,    // 向后兼容（老调用方用此字段）
-    code,               // spec 3.3 数据契约字段名
-    title: resolvedTitle,   // 已注册 code 或显式 message 时有值
+    code,
+    title: resolvedTitle,
     hint: hint || registry.hint || undefined,
     recovery: registry.recovery || _getRecoveryStrategy(code),
     details: details || {},

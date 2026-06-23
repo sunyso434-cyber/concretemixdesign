@@ -1,7 +1,16 @@
 // D:/C-c/NEWConcrete-mixdesign/jest.config.js
 module.exports = {
   testEnvironment: 'node',
-  testMatch: ['**/__tests__/**/*.test.js'],
+  testMatch: [
+    '**/__tests__/**/*.test.js',
+    '<rootDir>/tests/**/*.test.js'  // Task 1：让 tests/ 顶层 *.test.js 也被 jest 默认发现
+  ],
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    '<rootDir>/tests/e2e/',         // 端到端测试走 npm run test:e2e，不进 npm test
+    '<rootDir>/tests/manual/',      // 手工脚本（npm run test:manual）
+    '<rootDir>/tests/unit/'         // 老手动脚本驱动（独立 runner，不进 jest）
+  ],
   collectCoverageFrom: [
     'src/main/agent/**/*.js',
     'src/main/utils/**/*.js',

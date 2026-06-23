@@ -16,8 +16,8 @@ describe('error-bridge', () => {
     const out = await wrapped()
     expect(out).toMatchObject({
       success: false,
-      error: '读取失败',
-      errorCode: 'READ_FAIL',
+      title: '读取失败',
+      code: 'READ_FAIL',
       recovery: 'retry'  // 来自 ErrorCodes._getRecoveryStrategy
     })
   })
@@ -28,8 +28,8 @@ describe('error-bridge', () => {
     })
     const out = await wrapped()
     expect(out.success).toBe(false)
-    expect(out.errorCode).toBe('UNKNOWN')
-    expect(out.error).toContain('boom')
+    expect(out.code).toBe('UNKNOWN')
+    expect(out.title).toContain('boom')
   })
 
   test('toIPCResult 把 success 包装成 IPC 标准格式', async () => {
@@ -37,15 +37,15 @@ describe('error-bridge', () => {
     expect(r1).toEqual({ success: true, files: [] })
 
     const r2 = await toIPCResult(Promise.reject(new WorkspaceError('PATH_INVALID', 'x', false)))
-    expect(r2).toMatchObject({ success: false, errorCode: 'PATH_INVALID' })
+    expect(r2).toMatchObject({ success: false, code: 'PATH_INVALID' })
   })
 
   test('toIPCResult 抛普通 Error → 包装为 UNKNOWN + 含 stack', async () => {
     const r3 = await toIPCResult(Promise.reject(new Error('plain boom')))
     expect(r3).toMatchObject({
       success: false,
-      error: 'plain boom',
-      errorCode: 'UNKNOWN',
+      title: 'plain boom',
+      code: 'UNKNOWN',
       details: { stack: expect.any(String) }  // stack 应该存在
     })
     expect(r3.details.stack).toContain('plain boom')  // stack 含原始消息

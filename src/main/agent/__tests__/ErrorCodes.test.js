@@ -61,8 +61,8 @@ describe('ErrorCodes', () => {
     }
     const err = ErrorCodes.createError('PARAM_MISSING', '缺少参数 x', '请提供 x', { x: 1 })
     expect(err.success).toBe(false)
-    expect(err.error).toBe('缺少参数 x')
-    expect(err.errorCode).toBe('PARAM_MISSING')
+    expect(err.title).toBe('缺少参数 x')
+    expect(err.code).toBe('PARAM_MISSING')
     expect(err.hint).toBe('请提供 x')
     expect(err.recovery).toBeDefined()
     expect(err.details).toEqual({ x: 1 })

@@ -80,8 +80,8 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
       const result = await handlers['workspace:open']({}, { path: '/bad' })
 
       expect(result.success).toBe(false)
-      expect(result.errorCode).toBe('PATH_INVALID')
-      expect(result.error).toContain('路径无效')
+      expect(result.code).toBe('PATH_INVALID')
+      expect(result.title).toContain('路径无效')
     })
 
     test('抛普通 Error → 包装为 UNKNOWN', async () => {
@@ -90,7 +90,7 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
       const result = await handlers['workspace:open']({}, { path: '/x' })
 
       expect(result.success).toBe(false)
-      expect(result.errorCode).toBe('UNKNOWN')
+      expect(result.code).toBe('UNKNOWN')
     })
   })
 
@@ -151,7 +151,7 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
       const result = await handlers['workspace:listFiles']({}, { subdir: 'root' })
 
       expect(result.success).toBe(false)
-      expect(result.errorCode).toBe('NOT_OPEN')
+      expect(result.code).toBe('NOT_OPEN')
     })
   })
 
@@ -186,7 +186,7 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
       // 默认 wikiEngine=null
       const result = await handlers['workspace:lint']({})
       expect(result.success).toBe(false)
-      expect(result.errorCode).toBe('NOT_OPEN')
+      expect(result.code).toBe('NOT_OPEN')
     })
 
     test('workspace:lint 抛 WorkspaceError → 转 ErrorCodes 格式', async () => {
@@ -197,7 +197,7 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
 
       const result = await handlers['workspace:lint']({})
       expect(result.success).toBe(false)
-      expect(result.errorCode).toBe('NOT_OPEN')
+      expect(result.code).toBe('NOT_OPEN')
     })
   })
 
@@ -278,7 +278,7 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
         })
 
         expect(result.success).toBe(false)
-        expect(result.errorCode).toBe('CHAT_HISTORY_CROSS_WORKSPACE')
+        expect(result.code).toBe('CHAT_HISTORY_CROSS_WORKSPACE')
       })
 
       test('migrateSession 抛 WorkspaceError → 转 ErrorCodes 格式', async () => {
@@ -294,7 +294,7 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
         })
 
         expect(result.success).toBe(false)
-        expect(result.errorCode).toBe('CHAT_HISTORY_CROSS_WORKSPACE')
+        expect(result.code).toBe('CHAT_HISTORY_CROSS_WORKSPACE')
       })
     })
 
@@ -329,7 +329,7 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
         })
 
         expect(result.success).toBe(false)
-        expect(result.errorCode).toBe('NOT_OPEN')
+        expect(result.code).toBe('NOT_OPEN')
       })
 
       test('exportSession 抛 WorkspaceError → 转 ErrorCodes 格式', async () => {
@@ -344,7 +344,7 @@ describe('workspaceHandler IPC (Task 1.9)', () => {
         })
 
         expect(result.success).toBe(false)
-        expect(result.errorCode).toBe('CHAT_HISTORY_EXPORT_FAIL')
+        expect(result.code).toBe('CHAT_HISTORY_EXPORT_FAIL')
       })
     })
   })

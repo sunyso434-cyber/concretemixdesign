@@ -10,9 +10,8 @@ export default function extractErrorMessage(error, fallback = '未知错误') {
   if (!error) return fallback
   if (typeof error === 'string') return error
   if (typeof error === 'object') {
-    // ErrorCodes 格式: { code, message, hint, recovery }
-    if (error.message) return String(error.message)
-    if (error.error) return String(error.error)
+    // ErrorCodes 格式: { code, title, hint, recovery }（spec 3.3 数据契约）
+    if (error.title) return String(error.title)
     // 兜底序列化
     try { return JSON.stringify(error) } catch { return fallback }
   }

@@ -86,8 +86,8 @@ describe('workspaceHandler workspace:writeFile（Task 3.2）', () => {
     })
 
     expect(result.success).toBe(false)
-    expect(result.errorCode).toBe('NOT_OPEN')
-    expect(result.error).toContain('工作区未打开')
+    expect(result.code).toBe('NOT_OPEN')
+    expect(result.title).toContain('工作区未打开')
   })
 
   test('write-handler 抛 WorkspaceError(WRITE_FAIL) → ErrorCodes 格式', async () => {
@@ -103,6 +103,6 @@ describe('workspaceHandler workspace:writeFile（Task 3.2）', () => {
     })
 
     expect(result.success).toBe(false)
-    expect(result.errorCode).toBe('WRITE_FAIL')
+    expect(result.code).toBe('WRITE_FAIL')
   })
 })

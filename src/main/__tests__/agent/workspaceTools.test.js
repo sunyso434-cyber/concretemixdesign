@@ -144,8 +144,8 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
     const skill = skills.find(s => s.name === 'workspace_searchGraph')
     const result = await skill.execute({ query: '硅灰' }, {})
     expect(result.success).toBe(false)
-    expect(result.errorCode).toBe('NOT_OPEN')
-    expect(result.error).toContain('知识图谱未启用')
+    expect(result.code).toBe('NOT_OPEN')
+    expect(result.title).toContain('知识图谱未启用')
   })
 
   test('workspace_searchGraph 在 kgExtractor 存在时 → kgExtractor.searchGraph(query, topK, workspacePath)', async () => {
@@ -178,8 +178,8 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
     const result = await skill.execute({ query: 'x' }, {})
     expect(result).toMatchObject({
       success: false,
-      errorCode: 'PAGE_NOT_FOUND',
-      error: 'wiki 页不存在: x.md'
+      code: 'PAGE_NOT_FOUND',
+      title: 'wiki 页不存在: x.md'
     })
   })
 
@@ -193,8 +193,8 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
     const result = await skill.execute({ query: 'x' }, {})
     expect(result).toMatchObject({
       success: false,
-      errorCode: ErrorCodes.UNKNOWN,
-      error: 'boom'
+      code: ErrorCodes.UNKNOWN,
+      title: 'boom'
     })
     expect(result.details && result.details.stack).toContain('boom')
   })
@@ -321,8 +321,8 @@ describe('buildWorkspaceSkills v8.0.4 hotfix：workspace_searchGraph workspacePa
     const result = await searchGraph.execute({ query: 'UHPC', topK: 10 }, {})
     // 应该返回 WorkspaceError(NOT_OPEN)，不调 KGExtractor
     expect(result.success).toBe(false)
-    expect(result.errorCode).toBe('NOT_OPEN')
-    expect(result.error).toContain('请先打开工作区')
+    expect(result.code).toBe('NOT_OPEN')
+    expect(result.title).toContain('请先打开工作区')
     expect(mockKG.searchGraph).not.toHaveBeenCalled()
   })
 
