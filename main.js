@@ -303,9 +303,11 @@ app.whenReady().then(async () => {
   global.kgExtractor = kgExtractor
 
   // Task 1.10 + Task 5.2：实例化 WikiEngine，注入 workspace 和 kgExtractor
+  // v8.2.4: 注入 deepseekService 供 readPage 智能分块的 LLM 摘要使用
   workspaceRefs.wikiEngine = new WikiEngine({
     workspace: workspaceRefs.workspaceManager,
-    kgExtractor: workspaceRefs.kgExtractor
+    kgExtractor: workspaceRefs.kgExtractor,
+    deepseekService: global.deepseekService || null
   })
   workspaceHandler.register(workspaceRefs)
   // 暴露到全局供其他模块（如 AgentMemoryService / BackgroundTaskService）使用
