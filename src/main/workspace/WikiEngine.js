@@ -21,6 +21,7 @@ const reader = require('./readers')
 const { loadIndex, saveIndex } = require('./index-store')
 const { queryBM25, buildBM25 } = require('./bm25')
 const { tokenize } = require('./tokenizer')
+const { tokenizeQuery, scoreSegment, computeIdf } = require('./relevance')
 
 // Task 2 (readPage relevance filtering): 300KB 输出保护
 const MAX_OUTPUT_SIZE = 300 * 1024
@@ -47,9 +48,10 @@ class WikiEngine {
   // - 不注入 → 等同 quality:low 降级（不写 kg/，不破坏现有行为，向后兼容）
   // - 注入 → ingest 流程加 KG 步骤，在 .tmp/ 阶段准备 kg/sources/<slug>.json，
   //   提交阶段和 .md 一起 rename 到 wiki/kg/sources/<slug>.json
-  constructor({ workspace, kgExtractor = null }) {
+  constructor({ workspace, kgExtractor = null, deepseekService = null }) {
     this.workspace = workspace
     this.kgExtractor = kgExtractor
+    this.deepseekService = deepseekService
   }
 
   // Task 2.1: 原子性 ingest (P2a 升级)
@@ -315,17 +317,38 @@ ${content}
     raw = await fs.readFile(absPath, 'utf-8')
     const { data: frontmatter, content } = require('gray-matter')(raw)
 
-    // Task 2: 无 query 时对 content 做 300KB 截断保护
-    const outputContent = options.query
-      ? content  // 有 query 时保留原始 content（Task 8 做相关性过滤）
-      : this._truncateToSize(content, MAX_OUTPUT_SIZE)
+    const startMs = Date.now()
+
+    // 无 query → 老逻辑 + 300KB 截断
+    if (!options.query || !options.query.trim()) {
+      return {
+        content: this._truncateToSize(content, MAX_OUTPUT_SIZE),
+        frontmatter,
+        mtime: stat.mtimeMs,
+        size: stat.size,
+        stats: { mode: 'full', query: null, elapsedMs: Date.now() - startMs }
+      }
+    }
+
+    // 4 阶段智能分块
+    const segments = this._splitIntoSegments(content)
+    const queryTokens = tokenizeQuery(options.query)
+    const segmentTokensList = segments.map(seg => new Set(tokenize(seg.text)))
+    const idfMap = computeIdf(segmentTokensList)
+    const scored = segments.map((seg, i) => ({
+      ...seg,
+      tokens: segmentTokensList[i],
+      score: scoreSegment(segmentTokensList[i], queryTokens, idfMap)
+    }))
+    const decided = this._decideMode(scored, options.contextLines ?? 5)
+    const { content: filtered, stats } = await this._assemble(decided, this.deepseekService, options.query)
 
     return {
-      content: outputContent,
+      content: filtered,
       frontmatter,
       mtime: stat.mtimeMs,
       size: stat.size,
-      stats: { elapsedMs: Date.now() - startTime }
+      stats: { mode: 'filtered', ...stats, query: options.query, elapsedMs: Date.now() - startMs }
     }
   }
 

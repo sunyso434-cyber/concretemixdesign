@@ -866,3 +866,136 @@ describe('WikiEngine._assemble', () => {
     expect(result.stats.truncated).toBe(false)
   })
 })
+
+// ==================== readPage 集成测试 ====================
+describe('WikiEngine.readPage (Task 8 集成)', () => {
+  const fs = require('fs').promises
+  const path = require('path')
+  const os = require('os')
+
+  let tmpDir
+  let engine
+
+  // 辅助：创建临时工作区 + wiki 文件
+  async function setupWorkspace(wikiContent) {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-readpage-'))
+    const wikiSourcesDir = path.join(tmpDir, 'wiki', 'sources')
+    await fs.mkdir(wikiSourcesDir, { recursive: true })
+    const filePath = path.join(wikiSourcesDir, 'test-page.md')
+    const md = `---
+title: "test-page"
+source: "test.md"
+ingested_at: "2026-01-01T00:00:00Z"
+updated_at: "2026-01-01T00:00:00Z"
+quality: "high"
+---
+
+${wikiContent}`
+    await fs.writeFile(filePath, md, 'utf-8')
+
+    const mockWorkspace = {
+      current: () => ({ path: tmpDir, status: 'ready' })
+    }
+    engine = new WikiEngine({
+      workspace: mockWorkspace,
+      deepseekService: { invoke: jest.fn().mockResolvedValue('LLM摘要结果') }
+    })
+  }
+
+  afterEach(async () => {
+    if (tmpDir) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+    }
+  })
+
+  test('不传 query → 走老逻辑 + stats.mode = full', async () => {
+    await setupWorkspace('# 标题\n\n混凝土强度C30，水灰比0.45。')
+    const result = await engine.readPage('sources/test-page.md')
+    expect(result.stats.mode).toBe('full')
+    expect(result.stats.query).toBeNull()
+    expect(result.content).toContain('混凝土强度C30')
+    expect(result.frontmatter.title).toBe('test-page')
+    expect(typeof result.mtime).toBe('number')
+    expect(typeof result.size).toBe('number')
+  })
+
+  test('不传 query + 大文件 → 300KB 截断', async () => {
+    // 构造 > 300KB 的内容
+    const bigContent = '# 大标题\n\n' + '这是一段很长的混凝土配合比设计内容。'.repeat(20000)
+    await setupWorkspace(bigContent)
+    const result = await engine.readPage('sources/test-page.md')
+    expect(result.stats.mode).toBe('full')
+    expect(Buffer.byteLength(result.content, 'utf-8')).toBeLessThanOrEqual(300 * 1024)
+    expect(result.content).toContain('已截断')
+  })
+
+  test('传 query → stats.mode = filtered', async () => {
+    await setupWorkspace(`# 混凝土配合比
+
+## 强度设计
+混凝土强度等级C30，水灰比0.45，坍落度180mm。
+
+## 原材料
+水泥采用P.O 42.5，砂率38%。
+
+## 施工工艺
+搅拌时间不少于120s。`)
+    const result = await engine.readPage('sources/test-page.md', { query: '强度 水灰比' })
+    expect(result.stats.mode).toBe('filtered')
+    expect(result.stats.query).toBe('强度 水灰比')
+    expect(result.stats.totalSegments).toBeGreaterThan(0)
+    expect(typeof result.stats.elapsedMs).toBe('number')
+  })
+
+  test('传 query + 大文件 → 返回 < 300KB', async () => {
+    // 构造大文件：相关段 + 大量无关段
+    const relatedSection = '# 强度设计\n\n混凝土强度C30，水灰比0.45。'
+    const unrelatedSections = Array.from({ length: 100 }, (_, i) =>
+      `## 无关章节${i}\n\n${'这是无关的施工记录内容，与强度无关。'.repeat(200)}`
+    ).join('\n\n')
+    const bigContent = relatedSection + '\n\n' + unrelatedSections
+    await setupWorkspace(bigContent)
+    const result = await engine.readPage('sources/test-page.md', { query: '强度 水灰比' })
+    expect(result.stats.mode).toBe('filtered')
+    expect(Buffer.byteLength(result.content, 'utf-8')).toBeLessThanOrEqual(300 * 1024)
+  })
+
+  test('传 query → 相关段被完整保留', async () => {
+    await setupWorkspace(`# 混凝土强度设计
+
+强度等级C30，水灰比0.45，坍落度180mm。
+
+# 无关章节
+
+这是完全无关的内容，不包含任何关键词。
+
+# 施工记录
+
+搅拌时间120s，养护温度20度。`)
+    const result = await engine.readPage('sources/test-page.md', { query: '强度 水灰比' })
+    // 相关段应以 full 模式保留
+    expect(result.content).toContain('强度等级C30')
+    expect(result.content).toContain('完整保留')
+  })
+
+  test('传 query → 不相关段被压缩（含"请重新调用"提示）', async () => {
+    await setupWorkspace(`# 强度设计
+
+混凝土强度C30，水灰比0.45。
+
+# 完全无关的章节
+
+这里的内容与查询毫无关系，应该被压缩为摘要。包含一些无关的文字来确保段落足够长。`)
+    const result = await engine.readPage('sources/test-page.md', { query: '强度' })
+    // 不相关段应被压缩，包含"请重新调用"提示
+    expect(result.content).toContain('请重新调用')
+    expect(result.content).toContain('已压缩')
+  })
+
+  test('stats.elapsedMs 存在且 > 0', async () => {
+    await setupWorkspace('# 标题\n\n内容。')
+    const result = await engine.readPage('sources/test-page.md', { query: '测试' })
+    expect(typeof result.stats.elapsedMs).toBe('number')
+    expect(result.stats.elapsedMs).toBeGreaterThanOrEqual(0)
+  })
+})
