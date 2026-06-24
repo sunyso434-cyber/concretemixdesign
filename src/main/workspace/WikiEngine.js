@@ -874,18 +874,20 @@ class WikiEngine {
       .sort((a, b) => b.score - a.score)
       .slice(0, topK)
 
-    // 生成 snippet
+    // 生成 snippet + 摘要增强
     const queryTokens = new Set(tokenize(query))
+    const matter = require('gray-matter')
 
     const enriched = []
     for (const hit of merged) {
       const absPath = path.posix.join(current.path, 'wiki', hit.path)
-      let content = ''
+      let content = '', fmData = {}
       try {
         const raw = await fs.readFile(absPath, 'utf-8')
-        // 去掉 frontmatter
-        const m = raw.match(/^---\n[\s\S]+?\n---\n([\s\S]*)$/)
-        content = m ? m[1] : raw
+        // 统一走 gray-matter（chat-history 也有 frontmatter，只是 summary/keyPoints 为 null）
+        const parsed = matter(raw)
+        fmData = parsed.data
+        content = parsed.content
       } catch { continue }
 
       // 找第一个匹配位置
@@ -909,8 +911,28 @@ class WikiEngine {
         snippet = prefix + content.substring(start, end) + suffix
       }
 
-      enriched.push({ ...hit, title: hit.path, snippet })
+      enriched.push({
+        ...hit,
+        title: hit.path,
+        snippet,
+        summary: fmData.summary || null,
+        description: fmData.summary || null,  // OKF alias
+        keyPoints: fmData.keyPoints || [],
+        tags: fmData.tags || []
+      })
     }
+
+    // keyPoints 命中加权：keyPoints 命中 query token 的页排序 +0.2 bonus
+    const queryTokenSet = tokenizeQuery(query)
+    for (const hit of enriched) {
+      const kpText = (hit.keyPoints || []).join(' ')
+      const kpTokens = new Set(tokenize(kpText))
+      let kpHits = 0
+      for (const t of queryTokenSet) { if (kpTokens.has(t)) kpHits++ }
+      hit.keyPointsBonus = kpHits > 0 ? 0.2 : 0
+      hit.adjustedScore = hit.score + hit.keyPointsBonus
+    }
+    enriched.sort((a, b) => b.adjustedScore - a.adjustedScore)
 
     return enriched
   }
