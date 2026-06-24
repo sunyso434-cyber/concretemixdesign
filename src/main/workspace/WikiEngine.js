@@ -1128,7 +1128,7 @@ class WikiEngine {
     const refsYaml = (refs || []).map(r => `  - "${r.replace(/"/g, '\\"')}"`).join('\n')
     const md = `---
 question: "${String(q).replace(/"/g, '\\"')}"
-answered_at: "${now.toISOString()}"
+answered_at: "${localISOString(now)}"
 refs:
 ${refsYaml || '  []'}
 ---
