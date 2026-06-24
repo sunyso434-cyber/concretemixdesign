@@ -8,6 +8,11 @@
   - `混凝土配合比设计软件 Setup 8.3.0.exe` (NSIS 安装包)
   - `混凝土配合比设计软件-8.3.0-x64.exe` (绿色便携版)
 
+### Hotfix (2026-06-24 晚)
+
+- **fix**: `_extractHeading` 兜底 — PDF 无 markdown 标题时取段落首行前 60 字符。PDF 提取的文本通常没有 `##` 格式标题，导致所有 section heading 为空，BM25 粗筛完全失效。
+- **fix**: `agentHandler` 同步 `global.summaryExtractor.deepseekService`。deepseekService 延迟初始化后，只同步了 kgExtractor 和 wikiEngine，遗漏了 summaryExtractor，导致 ingest 时摘要生成静默跳过。
+
 ### 核心改造: ingest 混合处理 + readPage 三层检索
 
 基于 Karpathy LLM Wiki、rohitg00 LLM Wiki v2、Google Cloud OKF 三个参考资源的优化方案：
