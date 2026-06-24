@@ -1,3 +1,79 @@
+## v8.3.0 (2026-06-24) - workspace 混合 ingest + 三层 readPage 检索
+
+### 版本信息
+- **版本号**: 8.3.0
+- **Electron**: 28.3.3
+- **Node.js**: 20.20.2
+- **构建产物**:
+  - `混凝土配合比设计软件 Setup 8.3.0.exe` (NSIS 安装包)
+  - `混凝土配合比设计软件-8.3.0-x64.exe` (绿色便携版)
+
+### 核心改造: ingest 混合处理 + readPage 三层检索
+
+基于 Karpathy LLM Wiki、rohitg00 LLM Wiki v2、Google Cloud OKF 三个参考资源的优化方案：
+
+#### ingest 并行处理
+- **SummaryExtractor**（新增）：ingest 时与 KGExtractor 并行调用 LLM
+  - 生成 200-500 字中文摘要 + 3-5 条关键点 + 语义关联链接
+  - relation 白名单校验（引用/对比/补充/反驳）
+  - 防 hallucination（relatedLinks 只能从已有页面列表选择）
+  - confidence ≥ 0.6 门槛过滤低质量关联
+- **frontmatter 扩展**：新增 type/summary/keyPoints/confidence/supersedes/relatedPages/sections 字段
+  - OKF 6 字段部分对齐（type/title/source/tags/ingested_at/updated_at）
+  - description 由 summary 自动镜像（真 alias）
+- **sections 预计算**：复用 _splitIntoSegments 预计算段落行号，readPage 直接按行号切片
+- **lint REQUIRED_FM**：从 5 字段扩到 6 字段（加 type）
+
+#### readPage 三层检索
+- **depth='relevant'**（默认）：section 全文 BM25 粗筛 + 上下文 ±1 + BM25 精筛（0 次 LLM 调用，~200ms）
+- **depth='full'**：现有 4 阶段管线（含 LLM 摘要）
+- **depth='auto'**：等同于 relevant
+- **无 sections 降级**_fullFiltered：复用 full 管线但跳过 LLM 摘要
+- **10KB 硬上限截断**：relevant 层 token 预算保护
+
+#### search 摘要增强
+- 返回结果新增 summary/keyPoints/tags/description(OKF alias)
+- keyPoints 命中 query token 时排序 +0.2 bonus
+- 统一走 gray-matter（含 chatHistory）
+
+#### batchUpgrade 批量升级
+- 后台扫描旧 wiki 页，自动补 summary/keyPoints/sections
+- O_EXCL 原子锁 + 5 分钟锁老化
+- 半写检测（三个字段任一缺失即强制重跑）
+- >20 文件 5 并发提取
+- **关联页面后置**：同一批次升级完成后统一执行 BM25 wikilinks 追加
+
+#### LLM 路由策略
+- system prompt 加入反模式提醒（search 拿到 keyPoints 有答案就不要调 readPage）
+- 路由建议：search → keyPoints 够 → 直接回答；不够 → readPage(relevant)；实体关系 → searchGraph
+
+### 变动文件
+- `src/main/workspace/SummaryExtractor.js` — **新增**
+- `src/main/__tests__/workspace/helpers.js` — **新增**
+- `src/main/__tests__/workspace/SummaryExtractor.test.js` — **新增**（10 用例）
+- `src/main/__tests__/workspace/WikiEngine.ingest.parallel.test.js` — **新增**（6 用例）
+- `src/main/__tests__/workspace/WikiEngine.readPage.layered.test.js` — **新增**（6 用例）
+- `src/main/__tests__/workspace/WikiEngine.batchUpgrade.test.js` — **新增**（4 用例）
+- `src/main/workspace/WikiEngine.js` — ingest 并行 + readPage 分层 + search 增强 + batchUpgrade
+- `src/main/workspace/WorkspaceManager.js` — EventEmitter emit('opened')
+- `src/main/agent/workspaceTools.js` — readPage depth enum 更新
+- `src/main/agent/systemPromptBuilder.js` — 路由建议 + 反模式提醒
+- `main.js` — SummaryExtractor 注入 + batchUpgrade 触发
+- `CLAUDE.md` — 中文提交规范
+- `package.json`（版本号 + 输出目录）
+
+### 测试结果
+- 新增测试: 26 PASS
+- 回归测试: 335 PASS (3 FAIL 为 PDF ESM 环境预存问题)
+- 合计: 361 PASS
+
+### 参考来源
+- Karpathy LLM Wiki: 三层架构 + LLM 维护 wiki + wikilinks 两阶段
+- rohitg00 LLM Wiki v2: 实体提取 + BM25 搜索 + confidence 评分
+- Google Cloud OKF: frontmatter 标准化格式
+
+---
+
 ## v8.2.4 (2026-06-23) - workspace_readPage 智能分块
 
 ### 版本信息
