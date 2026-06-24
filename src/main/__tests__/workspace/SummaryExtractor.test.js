@@ -145,4 +145,20 @@ describe('SummaryExtractor.extract', () => {
     const prompt = mockLLM.invoke.mock.calls[0][0]
     expect(prompt).toContain('保留关键术语原文')
   })
+
+  test('LLM 返回 markdown 包裹的 JSON → 正确解析', async () => {
+    const wrapped = '```json\n' + JSON.stringify({
+      summary: '测试摘要',
+      keyPoints: ['关键点 1', '关键点 2'],
+      tags: ['水泥'],
+      confidence: 0.85,
+      relatedLinks: []
+    }) + '\n```'
+    const mockLLM = { invoke: jest.fn().mockResolvedValue(wrapped) }
+    const extractor = new SummaryExtractor({ deepseekService: mockLLM })
+    const result = await extractor.extract('test', 'test.pdf', [])
+    expect(result).not.toBeNull()
+    expect(result.summary).toBe('测试摘要')
+    expect(result.keyPoints).toHaveLength(2)
+  })
 })

@@ -37,8 +37,22 @@ class KGExtractor {
       const prompt = this._buildPrompt(content)
       // 2. 调 LLM（llmClient 已在 extract 入口懒加载）
       const raw = await llmClient.invoke(prompt)
-      // 3. 解析 JSON
-      const parsed = JSON.parse(raw)
+      // 3. 解析 JSON（兜底 markdown 包裹）
+      let parsed
+      try {
+        parsed = JSON.parse(raw)
+      } catch (err) {
+        const codeBlockMatch = raw.match(/```(?:json)?\s*([\s\S]+?)\s*```/)
+        if (codeBlockMatch) {
+          try {
+            parsed = JSON.parse(codeBlockMatch[1])
+          } catch (e2) {
+            throw e2
+          }
+        } else {
+          throw err
+        }
+      }
       // 4. 先建索引：name → entity（Crit-5：relation 的 type 从这里反查）
       const nameToEntity = {}
       for (const e of (parsed.entities || [])) {

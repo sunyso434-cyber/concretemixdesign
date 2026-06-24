@@ -53,8 +53,19 @@ class SummaryExtractor {
     try {
       parsed = JSON.parse(raw)
     } catch (err) {
-      console.warn('[SummaryExtractor] JSON 解析失败:', err.message)
-      return null
+      // 兜底：LLM 返回了 markdown 包裹的 JSON（```json ... ```）
+      const codeBlockMatch = raw.match(/```(?:json)?\s*([\s\S]+?)\s*```/)
+      if (codeBlockMatch) {
+        try {
+          parsed = JSON.parse(codeBlockMatch[1])
+        } catch (e2) {
+          console.warn('[SummaryExtractor] JSON 解析失败（含 markdown 包裹）:', e2.message, 'raw[:200]:', raw.slice(0, 200))
+          return null
+        }
+      } else {
+        console.warn('[SummaryExtractor] JSON 解析失败:', err.message, 'raw[:200]:', raw.slice(0, 200))
+        return null
+      }
     }
 
     // 缺 summary 且缺 keyPoints → null
