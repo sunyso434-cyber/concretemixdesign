@@ -14,7 +14,7 @@ describe('WikiEngine.ingest（并行 KG + 摘要）', () => {
   beforeEach(async () => {
     tmpDir = path.join(process.cwd(), '.tmp', `ingest-${Date.now()}`)
     await fs.mkdir(tmpDir, { recursive: true })
-    for (const sub of ['wiki', 'reports', 'chat-history']) {
+    for (const sub of ['wiki', 'wiki/sources', 'reports', 'chat-history']) {
       await fs.mkdir(path.join(tmpDir, sub), { recursive: true })
     }
     // 预建一个已有页面（供 existingPages 列表用）
@@ -27,8 +27,12 @@ describe('WikiEngine.ingest（并行 KG + 摘要）', () => {
   })
 
   afterEach(async () => {
-    await mgr.close()
-    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+    if (mgr) {
+      await mgr.close().catch(() => {})
+    }
+    if (tmpDir) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+    }
   })
 
   function makeEngine(mockLLM, kgSchema) {

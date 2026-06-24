@@ -48,10 +48,11 @@ class WikiEngine {
   // - 不注入 → 等同 quality:low 降级（不写 kg/，不破坏现有行为，向后兼容）
   // - 注入 → ingest 流程加 KG 步骤，在 .tmp/ 阶段准备 kg/sources/<slug>.json，
   //   提交阶段和 .md 一起 rename 到 wiki/kg/sources/<slug>.json
-  constructor({ workspace, kgExtractor = null, deepseekService = null }) {
+  constructor({ workspace, kgExtractor = null, deepseekService = null, summaryExtractor = null }) {
     this.workspace = workspace
     this.kgExtractor = kgExtractor
     this.deepseekService = deepseekService
+    this.summaryExtractor = summaryExtractor
   }
 
   // Task 2.1: 原子性 ingest (P2a 升级)
@@ -117,28 +118,27 @@ class WikiEngine {
         ? `${slugBase}-${fnv1a32(filename).toString(16).padStart(8, '0').substring(0, 6)}`
         : slugBase
 
-      // 1d. 生成 sources/<slug>.md（含 frontmatter：必填 4 + 选填 4 占位）
-      const sourcesDir = path.join(tmpDir, 'sources')
-      await fs.mkdir(sourcesDir, { recursive: true })
-      const targetRel = `sources/${slug}.md`
-      const targetAbs = path.join(tmpDir, targetRel)
-      const nowIso = new Date().toISOString()
-      const md = `---
-title: "${slug}"
-source: "${filename}"
-ingested_at: "${nowIso}"
-updated_at: "${nowIso}"
-quality: "high"
-tags: []
-entities: []
-concepts: []
----
+      // 1d. 并行执行：KG 提取 + 摘要生成
+      // - existingPages 从 index.bm25Index.docLengths 推导（wiki 页面列表），不是 index.files
+      // - 任一失败不影响另一个（Promise.allSettled）
+      const _idxForExistingPages = await loadIndex(current.path)
+      const wikiFiles = Object.keys(_idxForExistingPages.bm25Index?.docLengths || {})
+      const existingPages = wikiFiles.map(f => ({
+        title: path.parse(f).name,
+        path: `sources/${f}`
+      }))
 
-# ${slug}
+      const [kgResultSettled, summaryResultSettled] = await Promise.allSettled([
+        this.kgExtractor
+          ? this.kgExtractor.extract(content, filename)
+          : Promise.resolve(null),
+        this.summaryExtractor
+          ? this.summaryExtractor.extract(content, filename, existingPages)
+          : Promise.resolve(null)
+      ])
 
-${content}
-`
-      await fs.writeFile(targetAbs, md, 'utf-8')
+      const kgResult = kgResultSettled.status === 'fulfilled' ? kgResultSettled.value : null
+      const summaryResult = summaryResultSettled.status === 'fulfilled' ? summaryResultSettled.value : null
 
       // 1d-kg. Task 5.2 (P5.2)：在 .tmp/ 阶段准备 kg/sources/<slug>.json
       // - 调 kgExtractor.extract(content, filename) 提取实体关系
@@ -146,32 +146,50 @@ ${content}
       // - quality:low / extractor 抛错 → 降级，不写 kg/，不污染 graph.json
       // - 不注入 kgExtractor → 跳过此步骤（向后兼容）
       // - Task 5.3 (mergeInto) 会在 ingest 流程的提交后做，不在 .tmp/ 阶段
-      let kgResult = null       // Task 5.3：提到外层 try 顶部，mergeInto 需引用
       let kgResultAbs = null    // 用于提交阶段 rename
-      if (this.kgExtractor) {
-        try {
-          kgResult = await this.kgExtractor.extract(content, filename)
-        } catch (kgErr) {
-          // extractor 意外抛错 → 降级，不挂 ingest
-          console.warn('[WikiEngine.ingest] kgExtractor.extract 抛错，降级:', kgErr.message)
-          kgResult = null
-        }
-        if (kgResult && kgResult.quality === 'high') {
-          // 准备 .tmp/ingest-<uuid>/kg/sources/<slug>.json
-          const kgSourcesDir = path.join(tmpDir, 'kg', 'sources')
-          await fs.mkdir(kgSourcesDir, { recursive: true })
-          const kgTargetRel = `kg/sources/${slug}.json`
-          kgResultAbs = path.join(tmpDir, kgTargetRel)
-          await fs.writeFile(kgResultAbs, JSON.stringify(kgResult, null, 2), 'utf-8')
-          // 校验：JSON 大小必须 > 0
-          const kgStat = await fs.stat(kgResultAbs)
-          if (kgStat.size === 0) {
-            throw new WorkspaceError('ATOMIC_FAIL', 'kg json 大小为 0', true)
-          }
+      if (kgResult && kgResult.quality === 'high') {
+        // 准备 .tmp/ingest-<uuid>/kg/sources/<slug>.json
+        const kgSourcesDir = path.join(tmpDir, 'kg', 'sources')
+        await fs.mkdir(kgSourcesDir, { recursive: true })
+        const kgTargetRel = `kg/sources/${slug}.json`
+        kgResultAbs = path.join(tmpDir, kgTargetRel)
+        await fs.writeFile(kgResultAbs, JSON.stringify(kgResult, null, 2), 'utf-8')
+        // 校验：JSON 大小必须 > 0
+        const kgStat = await fs.stat(kgResultAbs)
+        if (kgStat.size === 0) {
+          throw new WorkspaceError('ATOMIC_FAIL', 'kg json 大小为 0', true)
         }
       }
 
-      // 1e. P2a 暂不更新 index.md / log.md（Task 2.2 引入 schema 后做）
+      // 1e. 预计算 sections（复用 _splitIntoSegments）和生成 .md frontmatter
+      // - 用 gray-matter.stringify 写 frontmatter（不用字符串拼接）
+      // - entities 从 kgResult 填充（不写空数组）
+      const sourcesDir = path.join(tmpDir, 'sources')
+      await fs.mkdir(sourcesDir, { recursive: true })
+      const targetRel = `sources/${slug}.md`
+      const targetAbs = path.join(tmpDir, targetRel)
+      const nowIso = new Date().toISOString()
+      const sections = this.computeSections(content)
+      const fmObj = {
+        type: 'wiki-source-page',
+        title: slug,
+        source: filename,
+        tags: summaryResult?.tags || [],
+        ingested_at: nowIso,
+        updated_at: nowIso,
+        quality: 'high',
+        summary: summaryResult?.summary || null,
+        keyPoints: summaryResult?.keyPoints || [],
+        confidence: summaryResult?.confidence ?? 0.85,
+        supersedes: [],
+        entities: kgResult?.entities?.map(e => e.name) || [],
+        concepts: kgResult?.entities?.filter(e => e.type === 'Concept' || e.type === 'Property').map(e => e.name) || [],
+        relatedPages: summaryResult?.relatedLinks || [],
+        sections_version: 1,
+        sections
+      }
+      const md = require('gray-matter').stringify(content, fmObj)
+      await fs.writeFile(targetAbs, md.replace(/\r\n/g, '\n'), 'utf-8')
       // 1f. v4.9.4 (P2a follow-up I-1)：ingest→index 桥接完成
       //     提交阶段后立即 buildBM25 + saveIndex，下次 search 走持久化索引
       //     干掉 Task 2.6 search 内的 fallback 临时方案
@@ -775,7 +793,7 @@ ${content}
     // v4.9.4 (P2a follow-up M-8)：5 必填（含 updated_at）
     // 之前 4 必填（title/source/ingested_at/quality）漏 updated_at
     // 但 ingest 写 5 字段，lint 不检会漏报过期/缺失
-    const REQUIRED_FM = ['title', 'source', 'ingested_at', 'updated_at', 'quality']
+    const REQUIRED_FM = ['type', 'title', 'source', 'ingested_at', 'updated_at', 'quality']
     const wikiRoot = path.posix.join(current.path, 'wiki')
     const sourcesDir = path.join(wikiRoot, 'sources')
 
@@ -1181,6 +1199,32 @@ ${segment.text}
     } catch (err) {
       console.warn('[WikiEngine._maybeRotateLog] log 轮转失败:', err.message)
     }
+  }
+
+  /**
+   * 预计算 sections 元数据（复用 _splitIntoSegments）
+   * 强制约束：必须从 _splitIntoSegments 复用 segments，禁止自行重新切分
+   * @param {string} content - 正文（不含 frontmatter）
+   * @returns {Array<{id, heading, startLine, endLine}>}
+   */
+  computeSections(content) {
+    const segments = this._splitIntoSegments(content)
+    return segments.map(seg => ({
+      id: seg.id,
+      heading: this._extractHeading(seg),
+      startLine: seg.startLine,
+      endLine: seg.endLine
+    }))
+  }
+
+  /**
+   * 从段落提取 heading（第一个标题行，或空字符串）
+   */
+  _extractHeading(seg) {
+    if (!seg.lines || seg.lines.length === 0) return ''
+    const firstLine = seg.lines[0].text || ''
+    const headingMatch = firstLine.match(/^#{1,6}\s+(.+)/)
+    return headingMatch ? headingMatch[1].trim() : ''
   }
 }
 
