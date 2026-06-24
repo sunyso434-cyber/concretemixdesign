@@ -1381,8 +1381,8 @@ ${segment.text}
    * 从段落提取 heading（第一个标题行，或空字符串）
    */
   _extractHeading(seg) {
-    if (!seg.lines || seg.lines.length === 0) return ''
-    const firstLine = seg.lines[0].text || ''
+    if (!seg.text) return ''
+    const firstLine = seg.text.split('\n')[0] || ''
     const headingMatch = firstLine.match(/^#{1,6}\s+(.+)/)
     if (headingMatch) return headingMatch[1].trim()
     // 兜底：没有 markdown 标题时，用段落首行前 60 字符作为 heading
