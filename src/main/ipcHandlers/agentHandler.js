@@ -156,6 +156,11 @@ async function getOrchestrator() {
     if (global.summaryExtractor) {
       global.summaryExtractor.deepseekService = ds
     }
+    // v8.3.0: 同步更新 KGExtractor 的 llmClient
+    if (global.kgExtractor) {
+      global.kgExtractor.llmClient = ds
+    }
+    console.log('[agentHandler] deepseekService 已同步到 KGExtractor / SummaryExtractor / WikiEngine')
 
     // 确保 Skill 系统已初始化
     await initSkillSystem()

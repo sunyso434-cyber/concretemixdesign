@@ -302,9 +302,11 @@ app.whenReady().then(async () => {
   const kgExtractor = new KGExtractor({ llmClient: global.deepseekService || null, schema: kgSchema })
   workspaceRefs.kgExtractor = kgExtractor
   global.kgExtractor = kgExtractor
+  console.log('[main] KGExtractor 实例化时 llmClient:', global.deepseekService ? 'OK' : 'NULL（待 agentHandler 同步）')
 
   // 实例化 SummaryExtractor（仅在 main 启动时设置一次，不在 workspace open 回调中覆盖）
   const summaryExtractor = new SummaryExtractor({ deepseekService: global.deepseekService || null })
+  console.log('[main] SummaryExtractor 实例化时 deepseekService:', global.deepseekService ? 'OK' : 'NULL（待 agentHandler 同步）')
 
   // Task 1.10 + Task 5.2：实例化 WikiEngine，注入 workspace 和 kgExtractor + summaryExtractor
   // v8.2.4: 注入 deepseekService 供 readPage 智能分块的 LLM 摘要使用
