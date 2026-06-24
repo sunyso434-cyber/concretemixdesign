@@ -6,19 +6,29 @@
 // Task 4.4：注入到 system prompt，让 LLM 知道每个工具怎么用、返回什么
 // v2026-06-22：listFiles 扩 enum + 加 ingested 状态字段（修「LLM 误判未导入」bug）
 const WORKSPACE_TOOLS_PROMPT = `
-可用 workspace 工具（共 7 个，v1.5.1 原始设计 v1.5.3 沿用）：
-- workspace_search(query, topK) → 找相关 wiki 页（含 chat-history，不调 LLM）
-- workspace_readPage(wikiPath) → 读 wiki 页全文
-- workspace_ingest(filename) → 原始文件入 wiki（自动调 KG 提取）
+可用 workspace 工具（共 7 个）：
+- workspace_search(query, topK) → 找相关 wiki 页（含 chat-history，不调 LLM）。**返回结果含 summary/keyPoints，大多数情况直接看结果即可回答。**
+- workspace_readPage(wikiPath, {query?, depth?}) → 读 wiki 页。
+  - depth='relevant'（默认）：返回相关段落原文（~2K tokens，纯本地，~200ms）
+  - depth='full'：返回全文+LLM摘要（~8K tokens，5-15s）
+- workspace_ingest(filename) → 原始文件入 wiki（自动调 KG 提取+LLM摘要）
 - workspace_writeFile({ type, filename, payload }) → 写 docx/xlsx/md 到 reports/
 - workspace_listFiles({ subdir, recursive?, includeDirs?, withIngestStatus? }) → 列出工作区条目
   **判断文件是否已导入时，务必用 subdir="root" + withIngestStatus=true，结果里每个文件带 ingested:true/false 字段**——别靠文件名猜。
   - subdir 可选：root / wiki / wiki/sources / wiki/reports / wiki/kg/sources / reports / chat-history
   - recursive:true 递归子目录；includeDirs:true 列出目录条目
 - workspace_lint() → 健康检查（不阻塞）
-- workspace_searchGraph(query, topK) → 查询知识图谱，返回完整三元组（v1.5.1 新增，P5 阶段启用）。**前提：当前工作区必须已打开**——workspacePath 由工具自动读取，LLM 无需传。
+- workspace_searchGraph(query, topK) → 查询知识图谱，返回完整三元组。**前提：当前工作区必须已打开**。
 
-注：原始文件不直接读——LLM 应先 ingest 再 readPage，wiki 摘要更精炼。
+重要：workspace_search 返回结果已含 summary/keyPoints。如果 keyPoints 已经能回答问题，不要调 workspace_readPage。
+反模式：search 拿到了 keyPoints 里有答案，还去调 readPage → 浪费 token。
+
+路由建议：
+1. 先 workspace_search(query) → 看 keyPoints 是否够回答
+2. 够了 → 直接回答，不要调 readPage
+3. 不够 → workspace_readPage(path, {query, depth:'relevant'})
+4. 涉及实体关系 → workspace_searchGraph(query)
+5. 复杂问题 → 综合 search + searchGraph + readPage
 `
 
 // v1.5.3 决策：5 类报告 → 必调 Skill 矩阵（软约束）

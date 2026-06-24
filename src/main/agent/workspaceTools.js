@@ -52,21 +52,27 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       },
       (args) => getWiki().search(args.query, args.topK || 5)
     ),
-    skill('workspace_readPage', '读 wiki 页全文 + frontmatter 字段。',
+    skill('workspace_readPage', '读 wiki 页。支持 2 种读取深度：relevant（相关段落原文，~2K tokens）→ full（全文+LLM摘要，~8K tokens）。默认 relevant。注意：search 返回结果已含 summary/keyPoints，大多数情况不需要调 readPage。',
       {
         wikiPath: { type: 'string', description: 'wiki 页相对路径（如 sources/jgj-55-2011.md）', required: true },
         query: {
           type: 'string',
-          description: '相关性关键词。传入后仅返回与查询相关的段落，无关内容压缩为摘要。不传则返回完整内容（仍受 300KB 截断保护）。',
+          description: '相关性关键词。传入后仅返回与查询相关的段落（depth=relevant）。不传则 fallthrough 到 _readPageFull（300KB 截断全文）。',
           required: false
         },
         contextLines: {
           type: 'integer',
           description: '命中段前后保留的上下文行数',
           required: false, min: 0, max: 50, default: 5
+        },
+        depth: {
+          type: 'string',
+          description: '读取深度。relevant=返回相关段落原文（默认）；full=返回全文+LLM摘要；auto=默认relevant',
+          required: false, default: 'auto',
+          enum: ['relevant', 'full', 'auto']
         }
       },
-      (args) => getWiki().readPage(args.wikiPath, { query: args.query, contextLines: args.contextLines })
+      (args) => getWiki().readPage(args.wikiPath, { query: args.query, contextLines: args.contextLines, depth: args.depth })
     ),
     skill('workspace_ingest', '把工作区根目录的原始文件（PDF/Word/Excel/MD/CSV）ingest 到 wiki。',
       {

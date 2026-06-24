@@ -129,7 +129,8 @@ describe('buildSystemPrompt 注入 workspace 工具说明（Task 4.4）', () => 
     const prompt = buildSystemPrompt({})
     expect(prompt).toContain('ingest')
     expect(prompt).toContain('readPage')
-    expect(prompt).toContain('wiki 摘要更精炼')
+    // v1 改造：原 "wiki 摘要更精炼" 已替换为 search 摘要增强 + 路由建议
+    expect(prompt).toContain('summary/keyPoints')
   })
 })
 

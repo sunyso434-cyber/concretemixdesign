@@ -95,12 +95,15 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
     expect(wiki.search).toHaveBeenCalledWith('粉煤灰', 5)
   })
 
-  test('workspace_readPage → wikiEngine.readPage(wikiPath)', async () => {
+  test('workspace_readPage → wikiEngine.readPage(wikiPath, {query, depth})', async () => {
     const wiki = makeMockWiki()
     const skills = buildWorkspaceSkills({ workspaceManager: makeMockWM(), wikiEngine: wiki, kgExtractor: null })
     const skill = skills.find(s => s.name === 'workspace_readPage')
     const result = await skill.execute({ wikiPath: 'sources/jgj-55-2011.md' }, {})
-    expect(wiki.readPage).toHaveBeenCalledWith('sources/jgj-55-2011.md')
+    // v1 改造：readPage 现在接受 {query, contextLines, depth} 第二参数
+    expect(wiki.readPage).toHaveBeenCalledWith('sources/jgj-55-2011.md', {
+      query: undefined, contextLines: undefined, depth: undefined
+    })
     expect(result.content).toBe('body')
   })
 
