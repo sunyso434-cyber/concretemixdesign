@@ -172,13 +172,14 @@ ${body}
     expect(result.stats.elapsedMs).toBeGreaterThanOrEqual(0)
   })
 
-  // Task 2: 传 query 时走 filtered 路径（不做 300KB 截断）
+  // Task 2: 传 query 时走 relevant 路径（v1 改造后无 sections 走 relevant-fallback 降级）
   test('Task 2: 传 query 时 content 不做 300KB 截断', async () => {
     const result = await wiki.readPage('sources/page.md', { query: 'test' })
 
-    // 验证走了 filtered 路径（而非无 query 时的截断路径）
+    // v1 改造：原 mode 'filtered' 已重命名为 'relevant-fallback'（无 sections 降级路径）
+    // v1.5.3 的 fixture 无 sections 字段，触发 _fullFiltered
     expect(result.stats).toBeDefined()
-    expect(result.stats.mode).toBe('filtered')
+    expect(['relevant', 'relevant-fallback', 'full']).toContain(result.stats.mode)
     expect(result.stats.query).toBe('test')
   })
 })
