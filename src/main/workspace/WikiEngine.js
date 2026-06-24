@@ -16,6 +16,7 @@
 // - 写文件失败 → WRITE_FAIL（retryable）
 const fs = require('fs').promises
 const path = require('path')
+const matter = require('gray-matter')
 const { WorkspaceError } = require('./WorkspaceError')
 const reader = require('./readers')
 const { loadIndex, saveIndex } = require('./index-store')
@@ -188,7 +189,7 @@ class WikiEngine {
         sections_version: 1,
         sections
       }
-      const md = require('gray-matter').stringify(content, fmObj)
+      const md = matter.stringify(content, fmObj)
       await fs.writeFile(targetAbs, md.replace(/\r\n/g, '\n'), 'utf-8')
       // 1f. v4.9.4 (P2a follow-up I-1)：ingest→index 桥接完成
       //     提交阶段后立即 buildBM25 + saveIndex，下次 search 走持久化索引
@@ -332,7 +333,7 @@ class WikiEngine {
       throw new WorkspaceError('SIZE_EXCEEDED', `wiki 页 > 5MB (${stat.size} bytes)`, false)
     }
     raw = await fs.readFile(absPath, 'utf-8')
-    const { data: fm, content } = require('gray-matter')(raw)
+    const { data: fm, content } = matter(raw)
 
     const query = options.query
     const contextLines = options.contextLines ?? 5
@@ -876,7 +877,6 @@ class WikiEngine {
 
     // 生成 snippet + 摘要增强
     const queryTokens = new Set(tokenize(query))
-    const matter = require('gray-matter')
 
     const enriched = []
     for (const hit of merged) {
@@ -985,7 +985,7 @@ class WikiEngine {
       } catch {
         continue
       }
-      const { data: frontmatter, content } = require('gray-matter')(raw)
+      const { data: frontmatter, content } = matter(raw)
       const presentKeys = Object.keys(frontmatter || {})
       const missing = REQUIRED_FM.filter(k => !presentKeys.includes(k))
       if (missing.length > 0) {
@@ -1385,6 +1385,137 @@ ${segment.text}
     const firstLine = seg.lines[0].text || ''
     const headingMatch = firstLine.match(/^#{1,6}\s+(.+)/)
     return headingMatch ? headingMatch[1].trim() : ''
+  }
+
+  /**
+   * 后台批量升级旧页面（补 summary/keyPoints/sections）
+   * @param {string} workspacePath
+   * @param {Object} options
+   * @param {Object} options.summaryExtractor - SummaryExtractor 实例
+   * @param {Function} options.computeSections - computeSections 方法
+   */
+  async batchUpgrade(workspacePath, { summaryExtractor, computeSections }) {
+    // O_EXCL 原子锁（不是 fs.access 礼貌锁）
+    const lockPath = path.posix.join(workspacePath, 'wiki', '.batch-upgrade.lock')
+    let fd
+    try {
+      fd = await fs.open(lockPath, 'wx')  // O_EXCL: 已存在则抛错
+      await fd.close()
+    } catch (err) {
+      if (err.code === 'EEXIST') {
+        // 锁老化：超过 5 分钟视为孤儿（PID 死了锁没删）
+        try {
+          const lockStat = await fs.stat(lockPath)
+          if (Date.now() - lockStat.mtimeMs > 5 * 60 * 1000) {
+            await fs.rm(lockPath, { force: true })
+            fd = await fs.open(lockPath, 'wx')  // 重试
+            await fd.close()
+            // 继续执行（锁已清理）
+          } else {
+            console.log('[batchUpgrade] 另一个升级任务正在运行，跳过')
+            return { upgraded: 0, failed: 0, skipped: 'locked' }
+          }
+        } catch {
+          console.log('[batchUpgrade] 另一个升级任务正在运行，跳过')
+          return { upgraded: 0, failed: 0, skipped: 'locked' }
+        }
+      } else {
+        throw err
+      }
+    }
+
+    try {
+      const sourcesDir = path.posix.join(workspacePath, 'wiki', 'sources')
+      const entries = await fs.readdir(sourcesDir).catch(() => [])
+      const mdFiles = entries.filter(n => n.endsWith('.md'))
+
+      // 过滤掉 ingest 不到 5 分钟的新文件（避免和并发 ingest 竞争）
+      const FIVE_MIN = 5 * 60 * 1000
+      const pendingFiles = []
+      for (const file of mdFiles) {
+        const absPath = path.posix.join(sourcesDir, file)
+        const stat = await fs.stat(absPath).catch(() => null)
+        if (stat && (Date.now() - stat.mtimeMs) < FIVE_MIN) continue
+        pendingFiles.push(file)
+      }
+
+      // 并发控制：≤20 文件串行，>20 文件开 5 并发（spec §5.4）
+      const CONCURRENCY = pendingFiles.length > 20 ? 5 : 1
+      let upgraded = 0, failed = 0
+
+      // sections 预计算必须串行（避免文件锁竞争），只并发 extract
+      const processOne = async (file) => {
+        const absPath = path.posix.join(sourcesDir, file)
+        const raw = await fs.readFile(absPath, 'utf-8')
+        const { data: fm, content } = matter(raw)
+
+        // 半写检测：三个字段任一缺失 → 强制重跑
+        const needsUpgrade = !fm.summary
+          || !fm.sections || fm.sections.length === 0
+          || !fm.keyPoints || fm.keyPoints.length === 0
+        if (!needsUpgrade) return false
+
+        const summaryResult = await (summaryExtractor ? summaryExtractor.extract(content, file) : null)
+        fm.summary = summaryResult ? summaryResult.summary : null
+        fm.keyPoints = summaryResult ? (summaryResult.keyPoints || []) : []
+        fm.tags = summaryResult ? (summaryResult.tags || []) : []
+        fm.sections = computeSections(content)
+        fm.sections_version = (fm.sections_version || 0) + 1
+
+        const updated = matter.stringify(content, fm)
+        await fs.writeFile(absPath, updated.replace(/\r\n/g, '\n'), 'utf-8')
+        return true
+      }
+
+      // 批量处理（串行或并发）
+      for (let i = 0; i < pendingFiles.length; i += CONCURRENCY) {
+        const batch = pendingFiles.slice(i, i + CONCURRENCY)
+        const results = await Promise.allSettled(batch.map(f => processOne(f)))
+        for (const r of results) {
+          if (r.status === 'fulfilled' && r.value) upgraded++
+          else if (r.status === 'rejected') failed++
+        }
+      }
+
+      // 关联页面：同一批次只调用一次，传完整 pendingFiles 列表
+      if (upgraded > 0) {
+        await this._batchUpdateRelatedPages(workspacePath, pendingFiles)
+      }
+
+      return { upgraded, failed, total: pendingFiles.length }
+    } finally {
+      await fs.rm(lockPath, { force: true }).catch(() => {})
+    }
+  }
+
+  /**
+   * 批量更新关联页面（第二阶段 wikilinks：BM25 机器搜索 + frontmatter 去重）
+   * @param {string} workspacePath
+   * @param {string[]} mdFiles - 文件名列表（不含路径前缀）
+   */
+  async _batchUpdateRelatedPages(workspacePath, mdFiles) {
+    const sourcesDir = path.posix.join(workspacePath, 'wiki', 'sources')
+    for (const file of mdFiles) {
+      const absPath = path.posix.join(sourcesDir, file)
+      const raw = await fs.readFile(absPath, 'utf-8').catch(() => null)
+      if (!raw) continue
+      const { data: fm, content } = matter(raw)
+      const existingRelated = (fm.relatedPages || []).map(r => r.page)
+
+      const searchQuery = [file, ...(fm.keyPoints || [])].join(' ')
+      const hits = await this.search(searchQuery, 5).catch(() => [])
+      const newRelated = hits
+        .filter(h => h.path !== `sources/${file}` && !existingRelated.includes(h.path))
+        .slice(0, 3)
+        .map(h => ({ page: h.path, relation: '相关' }))
+
+      if (newRelated.length > 0) {
+        fm.relatedPages = [...(fm.relatedPages || []), ...newRelated]
+        const links = fm.relatedPages.map(r => `- [[${r.page}]]`).join('\n')
+        const updated = matter.stringify(content + `\n\n---\n> **关联页面**\n${links}\n`, fm)
+        await fs.writeFile(absPath, updated.replace(/\r\n/g, '\n'), 'utf-8')
+      }
+    }
   }
 }
 

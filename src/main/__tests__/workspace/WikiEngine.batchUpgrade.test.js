@@ -23,6 +23,12 @@ describe('WikiEngine.batchUpgrade', () => {
         summary: null, keyPoints: [], sections: [], sections_version: 0
       })
     }
+    // 设置文件时间为 10 分钟前（避免 5 分钟过滤）
+    const TEN_MIN_AGO = new Date(Date.now() - 10 * 60 * 1000)
+    for (let i = 1; i <= 3; i++) {
+      const p = path.join(tmpDir, 'wiki', 'sources', `page${i}.md`)
+      await fs.utimes(p, TEN_MIN_AGO, TEN_MIN_AGO)
+    }
     mgr = new WorkspaceManager()
     await mgr.open(tmpDir)
     mockLLM = {
@@ -76,6 +82,9 @@ describe('WikiEngine.batchUpgrade', () => {
     await createTestWikiPage(path.join(tmpDir, 'wiki', 'sources'), 'half-page.md', '# half-page\n半写内容', {
       summary: '已有摘要', keyPoints: ['有关键点'], sections: [], sections_version: 0
     })
+    // 设置 half-page 时间为 10 分钟前（避免 5 分钟过滤）
+    const TEN_MIN_AGO = new Date(Date.now() - 10 * 60 * 1000)
+    await fs.utimes(path.join(tmpDir, 'wiki', 'sources', 'half-page.md'), TEN_MIN_AGO, TEN_MIN_AGO)
     const r = await engine.batchUpgrade(tmpDir, {
       summaryExtractor: engine.summaryExtractor,
       computeSections: engine.computeSections.bind(engine)
