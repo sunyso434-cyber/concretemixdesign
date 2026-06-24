@@ -57,6 +57,7 @@ class SummaryExtractor {
 
     // 缺 summary 且缺 keyPoints → null
     if (!parsed.summary && (!parsed.keyPoints || parsed.keyPoints.length === 0)) {
+      console.warn('[SummaryExtractor] LLM 返回了合法 JSON 但缺 summary 和 keyPoints，raw:', raw.slice(0, 200))
       return null
     }
 

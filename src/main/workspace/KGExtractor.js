@@ -77,6 +77,7 @@ class KGExtractor {
       }
       // 7. 质量降级
       if (entities.length === 0 && relations.length === 0) {
+        console.warn('[KGExtractor] LLM 返回了合法 JSON 但 entities 和 relations 均为空')
         return {
           entities: [], relations: [], quality: 'low',
           error: new WorkspaceError('KG_EXTRACT_FAIL', 'all relations dropped', true),
@@ -85,6 +86,7 @@ class KGExtractor {
       }
       return { entities, relations, quality: 'high', droppedRelations }
     } catch (err) {
+      console.warn('[KGExtractor] LLM 调用或解析异常:', err.message)
       return {
         entities: [], relations: [], quality: 'low',
         error: new WorkspaceError('KG_EXTRACT_FAIL', err.message, true, err)
