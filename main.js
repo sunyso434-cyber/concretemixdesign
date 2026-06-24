@@ -292,6 +292,7 @@ app.whenReady().then(async () => {
   // + global.kgExtractor（伪 Skill 闭包用 global.*）
   // Task 5.2 (P5.2)：同时把 kgExtractor 注入 WikiEngine，ingest 自动跑 KG 提取
   const { KGExtractor } = require('./src/main/workspace/KGExtractor')
+  const { SummaryExtractor } = require('./src/main/workspace/SummaryExtractor')
   let kgSchema = null
   try {
     kgSchema = require('./src/main/workspace/kg-schema.json')
@@ -302,19 +303,56 @@ app.whenReady().then(async () => {
   workspaceRefs.kgExtractor = kgExtractor
   global.kgExtractor = kgExtractor
 
-  // Task 1.10 + Task 5.2：实例化 WikiEngine，注入 workspace 和 kgExtractor
+  // 实例化 SummaryExtractor（仅在 main 启动时设置一次，不在 workspace open 回调中覆盖）
+  const summaryExtractor = new SummaryExtractor({ deepseekService: global.deepseekService || null })
+
+  // Task 1.10 + Task 5.2：实例化 WikiEngine，注入 workspace 和 kgExtractor + summaryExtractor
   // v8.2.4: 注入 deepseekService 供 readPage 智能分块的 LLM 摘要使用
   workspaceRefs.wikiEngine = new WikiEngine({
     workspace: workspaceRefs.workspaceManager,
     kgExtractor: workspaceRefs.kgExtractor,
-    deepseekService: global.deepseekService || null
+    deepseekService: global.deepseekService || null,
+    summaryExtractor: summaryExtractor
   })
   workspaceHandler.register(workspaceRefs)
   // 暴露到全局供其他模块（如 AgentMemoryService / BackgroundTaskService）使用
   global.workspaceManager = workspaceRefs.workspaceManager
   global.wikiEngine = workspaceRefs.wikiEngine
   global.chatHistorySync = workspaceRefs.chatHistorySync
-  console.log('[main] P5 阶段：KGExtractor 已实例化（searchGraph 启用）')
+  global.summaryExtractor = summaryExtractor   // 仅在 main 启动时设置一次
+  console.log('[main] P5 阶段：KGExtractor + SummaryExtractor 已实例化（searchGraph + batchUpgrade 启用）')
+
+  // batchUpgrade 触发：监听 WorkspaceManager 'opened' 事件
+  workspaceRefs.workspaceManager.on('opened', (wsPath) => {
+    setTimeout(async () => {
+      try {
+        if (global.wikiEngine && global.summaryExtractor) {
+          const result = await global.wikiEngine.batchUpgrade(wsPath, {
+            summaryExtractor: global.summaryExtractor,
+            computeSections: global.wikiEngine.computeSections.bind(global.wikiEngine)
+          })
+          console.log('[batchUpgrade] 完成:', result)
+        }
+      } catch (err) {
+        console.warn('[batchUpgrade] 后台任务失败:', err.message)
+      }
+    }, 10000)
+  })
+  // 兜底：启动 15s 后如果工作区已通过 workspaceManager.open() 打开（绕过 IPC），也跑一次
+  setTimeout(async () => {
+    try {
+      const wsPath = global.workspaceManager.current()?.path
+      if (wsPath && global.wikiEngine && global.summaryExtractor) {
+        const result = await global.wikiEngine.batchUpgrade(wsPath, {
+          summaryExtractor: global.summaryExtractor,
+          computeSections: global.wikiEngine.computeSections.bind(global.wikiEngine)
+        })
+        console.log('[batchUpgrade] 兜底完成:', result)
+      }
+    } catch (err) {
+      console.warn('[batchUpgrade] 兜底失败:', err.message)
+    }
+  }, 15000)  // 比 'opened' 事件晚 5s，避免重复跑
 
   // 重新注册 7 个 workspace 伪 Skill（searchGraph 闭包现在能拿到 kgExtractor）
   try {

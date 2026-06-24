@@ -1,10 +1,12 @@
+const EventEmitter = require('events')
 const fs = require('fs').promises
 const path = require('path')
 const chokidar = require('chokidar')
 const { WorkspaceError } = require('./WorkspaceError')
 
-class WorkspaceManager {
+class WorkspaceManager extends EventEmitter {
   constructor() {
+    super()
     this._state = { path: null, status: 'idle', lastError: null }
   }
 
@@ -40,6 +42,8 @@ class WorkspaceManager {
       }
       // 再覆盖 _state 切入新工作区
       this._state = { path: newPath, status: 'ready', lastError: null }
+      // emit 'opened' 事件（供 main.js batchUpgrade 监听）
+      this.emit('opened', newPath)
     } catch (err) {
       this._state.status = 'error'
       this._state.lastError = err.message
