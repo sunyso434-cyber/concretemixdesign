@@ -30,7 +30,10 @@ class SummaryExtractor {
    * @returns {Promise<{summary, keyPoints, tags, confidence, relatedLinks, quality} | null>}
    */
   async extract(content, sourceFile, existingPages = []) {
-    if (!this.deepseekService) return null
+    if (!this.deepseekService) {
+      console.warn('[SummaryExtractor] deepseekService 为空，跳过摘要生成（deepseekService 尚未初始化？）')
+      return null
+    }
     if (!content || !content.trim()) return null
 
     // 外层 catch：LLM 调用失败

@@ -24,6 +24,22 @@ const { queryBM25, buildBM25 } = require('./bm25')
 const { tokenize } = require('./tokenizer')
 const { tokenizeQuery, scoreSegment, computeIdf } = require('./relevance')
 
+// 本地时间 ISO 格式（北京时间 UTC+8）
+function localISOString(date = new Date()) {
+  const tzOffset = -date.getTimezoneOffset()
+  const tzSign = tzOffset >= 0 ? '+' : '-'
+  const tzH = String(Math.floor(Math.abs(tzOffset) / 60)).padStart(2, '0')
+  const tzM = String(Math.abs(tzOffset) % 60).padStart(2, '0')
+  return date.getFullYear() + '-' +
+    String(date.getMonth() + 1).padStart(2, '0') + '-' +
+    String(date.getDate()).padStart(2, '0') + 'T' +
+    String(date.getHours()).padStart(2, '0') + ':' +
+    String(date.getMinutes()).padStart(2, '0') + ':' +
+    String(date.getSeconds()).padStart(2, '0') + '.' +
+    String(date.getMilliseconds()).padStart(3, '0') +
+    tzSign + tzH + ':' + tzM
+}
+
 // Task 2 (readPage relevance filtering): 300KB 输出保护
 const MAX_OUTPUT_SIZE = 300 * 1024
 
@@ -122,6 +138,8 @@ class WikiEngine {
       // 1d. 并行执行：KG 提取 + 摘要生成
       // - existingPages 从 index.bm25Index.docLengths 推导（wiki 页面列表），不是 index.files
       // - 任一失败不影响另一个（Promise.allSettled）
+      if (!this.kgExtractor) console.warn('[WikiEngine.ingest] kgExtractor 未注入，跳过 KG')
+      if (!this.summaryExtractor) console.warn('[WikiEngine.ingest] summaryExtractor 未注入，跳过摘要')
       const _idxForExistingPages = await loadIndex(current.path)
       const wikiFiles = Object.keys(_idxForExistingPages.bm25Index?.docLengths || {})
       const existingPages = wikiFiles.map(f => ({
@@ -169,7 +187,7 @@ class WikiEngine {
       await fs.mkdir(sourcesDir, { recursive: true })
       const targetRel = `sources/${slug}.md`
       const targetAbs = path.join(tmpDir, targetRel)
-      const nowIso = new Date().toISOString()
+      const nowIso = localISOString()
       const sections = this.computeSections(content)
       const fmObj = {
         type: 'wiki-source-page',
@@ -256,7 +274,7 @@ class WikiEngine {
         quality: 'high',
         ingestVersion: 2
       }
-      index.updatedAt = new Date().toISOString()
+      index.updatedAt = localISOString()
       // 5c. 重新构建 BM25 索引（v1 简单实现：全量 rebuild + add new doc）
       const allDocs = []
       for (const [name, info] of Object.entries(index.files)) {
@@ -1081,7 +1099,7 @@ class WikiEngine {
       missingCrossRefs,
       staleSummaries,
       contradictions: [],  // V1.5 可选，本任务留空
-      scannedAt: new Date().toISOString()
+      scannedAt: localISOString()
     }
   }
 

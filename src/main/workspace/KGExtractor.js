@@ -24,6 +24,7 @@ class KGExtractor {
    */
   async extract(content, sourceFile) {
     if (!this.llmClient) {
+      console.warn('[KGExtractor] llmClient 为空，跳过 KG 提取（deepseekService 尚未初始化？）')
       return {
         entities: [], relations: [], quality: 'low',
         error: new WorkspaceError('KG_EXTRACT_FAIL', 'no LLM client', true)
