@@ -26,6 +26,7 @@ function logToFile(message) {
 // 覆盖 console.log 以便所有日志都输出到文件
 const originalLog = console.log
 const originalError = console.error
+const originalWarn = console.warn
 console.log = function(...args) {
   const message = args.join(' ')
   originalLog.apply(console, args)
@@ -35,6 +36,11 @@ console.error = function(...args) {
   const message = args.join(' ')
   originalError.apply(console, args)
   logToFile('[ERROR] ' + message)
+}
+console.warn = function(...args) {
+  const message = args.join(' ')
+  originalWarn.apply(console, args)
+  logToFile('[WARN] ' + message)
 }
 
 const { sequelize, syncModels } = require('./src/main/db/database')
