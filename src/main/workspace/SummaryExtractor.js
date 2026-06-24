@@ -30,7 +30,9 @@ class SummaryExtractor {
    * @returns {Promise<{summary, keyPoints, tags, confidence, relatedLinks, quality} | null>}
    */
   async extract(content, sourceFile, existingPages = []) {
-    if (!this.deepseekService) {
+    // 懒加载：优先用 this.deepseekService，没有就回退到 global.deepseekService
+    const deepseekService = this.deepseekService || (typeof global !== 'undefined' && global.deepseekService) || null
+    if (!deepseekService) {
       console.warn('[SummaryExtractor] deepseekService 为空，跳过摘要生成（deepseekService 尚未初始化？）')
       return null
     }
@@ -40,7 +42,7 @@ class SummaryExtractor {
     let raw
     try {
       const prompt = this._buildPrompt(content, existingPages)
-      raw = await this.deepseekService.invoke(prompt)
+      raw = await deepseekService.invoke(prompt)
     } catch (err) {
       console.warn('[SummaryExtractor] LLM 调用失败:', err.message)
       return null

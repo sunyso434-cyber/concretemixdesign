@@ -23,7 +23,9 @@ class KGExtractor {
    * @returns {Promise<{entities: object[], relations: object[], quality: 'high'|'low', droppedRelations?: object[], error?: WorkspaceError}>}
    */
   async extract(content, sourceFile) {
-    if (!this.llmClient) {
+    // 懒加载：优先用 this.llmClient，没有就回退到 global.deepseekService
+    const llmClient = this.llmClient || (typeof global !== 'undefined' && global.deepseekService) || null
+    if (!llmClient) {
       console.warn('[KGExtractor] llmClient 为空，跳过 KG 提取（deepseekService 尚未初始化？）')
       return {
         entities: [], relations: [], quality: 'low',
@@ -33,8 +35,8 @@ class KGExtractor {
     try {
       // 1. 构造 prompt
       const prompt = this._buildPrompt(content)
-      // 2. 调 LLM
-      const raw = await this.llmClient.invoke(prompt)
+      // 2. 调 LLM（llmClient 已在 extract 入口懒加载）
+      const raw = await llmClient.invoke(prompt)
       // 3. 解析 JSON
       const parsed = JSON.parse(raw)
       // 4. 先建索引：name → entity（Crit-5：relation 的 type 从这里反查）
