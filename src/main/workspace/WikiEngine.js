@@ -1384,7 +1384,11 @@ ${segment.text}
     if (!seg.lines || seg.lines.length === 0) return ''
     const firstLine = seg.lines[0].text || ''
     const headingMatch = firstLine.match(/^#{1,6}\s+(.+)/)
-    return headingMatch ? headingMatch[1].trim() : ''
+    if (headingMatch) return headingMatch[1].trim()
+    // 兜底：没有 markdown 标题时，用段落首行前 60 字符作为 heading
+    // PDF 提取的文本通常没有 ## 格式标题，纯按空行切分
+    const fallback = firstLine.trim().slice(0, 60)
+    return fallback || ''
   }
 
   /**
