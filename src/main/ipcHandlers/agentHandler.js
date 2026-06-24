@@ -152,6 +152,10 @@ async function getOrchestrator() {
     if (global.wikiEngine) {
       global.wikiEngine.deepseekService = ds
     }
+    // v8.3.0: 同步更新 SummaryExtractor 的 deepseekService（ingest 摘要生成需要）
+    if (global.summaryExtractor) {
+      global.summaryExtractor.deepseekService = ds
+    }
 
     // 确保 Skill 系统已初始化
     await initSkillSystem()
