@@ -79,6 +79,7 @@
       "package.json",
       "build/**",
       "src/main/**",
+      "src/shared/**",
       "resources/**",
       "node_modules/**"
     ],
