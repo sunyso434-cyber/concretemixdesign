@@ -1,5 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { message } from 'antd'
+import { useAgentStore } from '../components/AgentStore'
+import { handleCompressContextImpl } from './useChatState.compress'
 
 /**
  * useChatState - 聊天公共状态 Hook（非 Agent 状态）
@@ -83,6 +85,23 @@ const useChatState = () => {
     }
   }
 
+  // ===== 上下文压缩（v8.4.x 新增） =====
+  const [isCompressing, setIsCompressing] = useState(false)
+  const [previousSummary, setPreviousSummary] = useState('')
+
+  // 调 IPC，dispatch COMPRESS_MESSAGES + SET_CONTEXT_STATS，更新 previousSummary
+  // 实现拆到 useChatState.compress.js 的 handleCompressContextImpl 方便测试
+  const handleCompressContext = useCallback(async () => {
+    const { state, dispatch } = useAgentStore()
+    return handleCompressContextImpl({
+      dispatch,
+      setIsCompressing,
+      setPreviousSummary,
+      messages: state.messages,
+      previousSummary
+    })
+  }, [previousSummary])
+
   return {
     // 附件
     attachment, setAttachment,
@@ -110,6 +129,11 @@ const useChatState = () => {
     markMaterialPickerDone,
     isMaterialPickerDone,
     handleClearChat,
+
+    // ===== 上下文压缩（v8.4.x 新增） =====
+    isCompressing,
+    previousSummary, setPreviousSummary,
+    handleCompressContext,
   }
 }
 
