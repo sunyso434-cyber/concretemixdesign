@@ -1,3 +1,70 @@
+## v8.3.7 (2026-06-25) - 修复调试日志循环引用导致误熔断
+
+### 版本信息
+- **版本号**: 8.3.7
+- **Electron**: 28.3.3
+- **Node.js**: 20.20.2
+
+### Bug 修复: 调试日志 JSON.stringify 循环引用
+
+v8.3.6 的调试日志代码直接引用了 axios 错误对象（`err.response.data`），该对象包含 TLSSocket 循环引用。
+当 `_notifyProgress` → Electron IPC 序列化时触发 `TypeError: Converting circular structure to JSON`，
+该异常又被外层 catch 捕获并计入 `llmParse`，导致连续 6 次后误触 E-AGENT-001 熔断。
+
+**根因**：调试日志代码自己炸了，不是 DeepSeek API 的问题。
+
+修复：`failLog` 只提取原始值（String/Number/null），不引用 err 对象。
+
+### 改动文件
+- `src/main/agent/strategies/UnifiedStrategy.js` — failLog 安全化，去除 err 对象引用
+
+---
+
+## v8.3.6 (2026-06-25) - Agent 调试日志前端可视化
+
+### 版本信息
+- **版本号**: 8.3.6
+- **Electron**: 28.3.3
+- **Node.js**: 20.20.2
+
+### 优化: 调试日志通过 IPC 推送到前端
+
+v8.3.5 的 console.log 在打包后无法看到（主进程 stdout 不可见）。本版本改用 `_notifyProgress` 通过 IPC 将调试日志推送到前端渲染进程。
+
+新增 `agent:progress` 事件类型 `debug_log`：
+- ✅ `LLM OK` — 每次 LLM 成功返回时推送（content、tool_calls、reasoning_content 摘要）
+- ❌ `LLM 失败` — 每次 LLM 调用失败时推送（错误码、httpStatus、原始错误信息）
+- 🔴 `熔断` — 触发硬熔断时推送完整 debugLog 历史
+
+同时在熔断返回的错误对象 `details.debugLog` 中附加完整调用日志，前端可直接读取。
+
+### 改动文件
+- `src/main/agent/strategies/UnifiedStrategy.js` — 用 _notifyProgress 替换 console.log，错误对象附加 debugLog
+
+---
+
+## v8.3.5 (2026-06-25) - Agent LLM 调用日志增强
+
+### 版本信息
+- **版本号**: 8.3.5
+- **Electron**: 28.3.3
+- **Node.js**: 20.20.2
+
+### 优化: UnifiedStrategy LLM 调用日志
+
+为排查 `E-AGENT-001`（AI 连续失败次数超限）问题，在 UnifiedStrategy 主循环中增加 3 处调试日志：
+
+1. ✅ **LLM 成功返回日志**：记录每轮 LLM 返回的 content（前500字）、tool_calls（名称+参数）、reasoning_content（前300字）
+2. ❌ **LLM 调用失败日志**：记录错误码、httpStatus、原始错误信息、响应体、堆栈、当前失败计数器
+3. 🔴 **熔断触发日志**：记录计数器最终值、阈值、sessionId、总轮数
+
+所有日志统一使用 `[UnifiedStrategy]` 前缀，方便在 DevTools Console 中过滤查看。
+
+### 改动文件
+- `src/main/agent/strategies/UnifiedStrategy.js` — 增加 3 处 console.log/error 调试日志
+
+---
+
 ## v8.3.4 (2026-06-25) - 修复主进程 require 渲染层模块导致打包后崩溃
 
 ### 版本信息

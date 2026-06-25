@@ -120,6 +120,8 @@ class UnifiedStrategy {
     // 注意：用户消息已由前端 agentActions.js 保存，此处不再重复保存
 
     let finalResult = null
+    // [DEBUG] 累积每轮 LLM 调用日志，熔断时附加到错误对象返回前端
+    const debugLog = []
 
     // 2. 主循环（流式）
     const toolSchemas = this.skillRegistry.getToolSchemas()
@@ -185,7 +187,30 @@ class UnifiedStrategy {
             }
           }
         )
+
+        // [DEBUG] 记录 LLM 成功返回
+        const successLog = {
+          round: roundIndex, status: 'ok',
+          content: response.content?.slice(0, 500),
+          tool_calls: response.tool_calls?.map(tc => ({ id: tc.id, name: tc.function?.name, args: tc.function?.arguments?.slice(0, 300) })),
+          reasoning_content: response.reasoning_content?.slice(0, 300),
+        }
+        debugLog.push(successLog)
+        this._notifyProgress(webContents, { type: 'debug_log', tag: '✅ LLM OK', data: successLog, roundIndex, mode })
+
       } catch (err) {
+        // [DEBUG] 记录 LLM 调用失败 → 推送前端 + 累积到 debugLog
+        // ⚠️ 只提取安全的原始值，不引用 err 对象（含循环引用的 TLSSocket）
+        const failLog = {
+          round: roundIndex, status: 'error',
+          message: String(err.message || ''),
+          code: String(err.code || ''),
+          httpStatus: err.details?.httpStatus || err.response?.status || null,
+          rawMessage: String(err.details?.rawMessage || ''),
+        }
+        debugLog.push(failLog)
+        this._notifyProgress(webContents, { type: 'debug_log', tag: '❌ LLM 失败', data: failLog, roundIndex, mode })
+
         this._notifyProgress(webContents, {
           type: 'reasoning_error',
           error: err.message,
@@ -228,11 +253,19 @@ class UnifiedStrategy {
         }
 
         if (failureCounters.llmParse >= HARD_FUSE_THRESHOLD || failureCounters.llmNetwork >= LLN_NETWORK_FUSE) {
+          // [DEBUG] 熔断 → 推送完整 debugLog 给前端
+          this._notifyProgress(webContents, {
+            type: 'debug_log', tag: '🔴 熔断',
+            data: { counters: { ...failureCounters }, totalRounds: step + 1, debugLog },
+            roundIndex, mode,
+          })
           errorHandler.fatal('orchestrator', { counters: failureCounters })
           const classifiedError = classifyError(new Error('max_failures_exceeded: LLM parse/network failures exceeded threshold'), {
             callSite: 'UnifiedStrategy.llmLoop',
             sessionId,
           })
+          // 把 debugLog 附加到错误对象，前端可直接读取
+          if (classifiedError.details) classifiedError.details.debugLog = debugLog
           this._notifyProgress(webContents, { type: 'error', error: classifiedError, mode })
           return { success: false, error: classifiedError }
         }

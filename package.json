@@ -1,6 +1,6 @@
 {
   "name": "concrete-mixdesign",
-  "version": "8.3.3",
+  "version": "8.3.7",
   "description": "混凝土配合比设计软件",
   "main": "main.js",
   "scripts": {
