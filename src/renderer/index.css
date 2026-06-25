@@ -2270,3 +2270,9 @@ body {
   vertical-align: middle;
   color: var(--color-text-secondary);
 }
+
+/* ContextIndicator loading 状态旋转动画（Task 7 集成） */
+@keyframes context-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

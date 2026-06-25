@@ -26,6 +26,8 @@ import { AgentStoreProvider, useAgentStore } from './AgentStore'
 import useAgentMode from './AgentMode'
 import { sendMessage, abortAgent, createSession, loadSessionList, switchSession, useAssistantPersistence } from './agentActions'
 import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
+import ContextIndicator from './ContextIndicator'
+import { getContextPercent, DEFAULT_CONTEXT_LIMIT } from '../utils/contextStats'
 import { AnalysisReport } from '../pages/AIAnalysisPage_Results'
 import { getAllMaterials } from '../services/MaterialService'
 import { buildAnalysisData, MATERIAL_TYPE_MAP } from '../pages/AIAnalysisPage_Upload'
@@ -728,6 +730,18 @@ const SmartDesignChat = () => {
         ...next,
         { type: 'error', classifiedError, _dedupKey: dupKey, timestamp: Date.now() }
       ]})
+      return
+    }
+
+    if (payload.type === 'usage') {
+      // 主进程在 chatWithAIStream 完成后回传的 token 用量
+      // 真实 tokens 优先于前端估算，触发 ContextIndicator 刷新圆环
+      if (typeof payload.realTokens === 'number' && payload.realTokens >= 0) {
+        dispatch({
+          type: 'SET_CONTEXT_STATS',
+          payload: { realTokens: payload.realTokens }
+        })
+      }
     }
   }
 
@@ -1553,6 +1567,20 @@ const SmartDesignChat = () => {
               disabled={state.messages.length === 0}
               title="清空对话"
             />
+            {(() => {
+              const percent = getContextPercent({
+                realTokens: state.contextRealTokens,
+                messages: state.messages,
+                contextLimit: DEFAULT_CONTEXT_LIMIT
+              })
+              return (
+                <ContextIndicator
+                  percent={percent}
+                  loading={chatState.isCompressing}
+                  onClick={chatState.handleCompressContext}
+                />
+              )
+            })()}
           </Space>
           <Button
             type="primary"
