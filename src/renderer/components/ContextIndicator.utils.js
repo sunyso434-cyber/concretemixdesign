@@ -12,23 +12,23 @@
 
 // ============== 常量 ==============
 
-const BUTTON_DIAMETER = 22
-const STROKE_WIDTH = 2
-const RADIUS = (BUTTON_DIAMETER - STROKE_WIDTH) / 2  // = 10
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS          // ≈ 62.8319
+export const BUTTON_DIAMETER = 22
+export const STROKE_WIDTH = 2
+export const RADIUS = (BUTTON_DIAMETER - STROKE_WIDTH) / 2  // = 10
+export const CIRCUMFERENCE = 2 * Math.PI * RADIUS          // ≈ 62.8319
 
-const VISIBILITY_THRESHOLD = 0.5
-const RED_THRESHOLD = 0.8
+export const VISIBILITY_THRESHOLD = 0.5
+export const RED_THRESHOLD = 0.8
 
-const COLOR_BLUE = '#1890ff'
-const COLOR_RED = '#ff4d4f'
+export const COLOR_BLUE = '#1890ff'
+export const COLOR_RED = '#ff4d4f'
 
 // ============== 工具函数 ==============
 
 /**
  * clamp percent 到 [0, 1]
  */
-function clampPercent(percent) {
+export function clampPercent(percent) {
   if (typeof percent !== 'number' || Number.isNaN(percent)) return 0
   return Math.min(1, Math.max(0, percent))
 }
@@ -37,7 +37,7 @@ function clampPercent(percent) {
  * 是否应该渲染组件
  * @returns {'hidden' | 'visible'}
  */
-function getIndicatorVisibility(percent) {
+export function getIndicatorVisibility(percent) {
   return percent < VISIBILITY_THRESHOLD ? 'hidden' : 'visible'
 }
 
@@ -45,7 +45,7 @@ function getIndicatorVisibility(percent) {
  * 根据 percent 返回填充环颜色
  * @returns {string} '#1890ff' 或 '#ff4d4f'
  */
-function getIndicatorColor(percent) {
+export function getIndicatorColor(percent) {
   const safe = clampPercent(percent)
   return safe >= RED_THRESHOLD ? COLOR_RED : COLOR_BLUE
 }
@@ -59,7 +59,7 @@ function getIndicatorColor(percent) {
  * @param {number} circumference 圆周长（由调用方提供，便于复用）
  * @returns {number}
  */
-function getIndicatorDashOffset(percent, circumference) {
+export function getIndicatorDashOffset(percent, circumference) {
   const safe = clampPercent(percent)
   return circumference * (1 - safe)
 }
@@ -71,7 +71,7 @@ function getIndicatorDashOffset(percent, circumference) {
  *
  * @returns {string}
  */
-function getIndicatorTooltip(percent) {
+export function getIndicatorTooltip(percent) {
   const safe = clampPercent(percent)
   const pct = Math.round(safe * 100)
   if (safe >= RED_THRESHOLD) {
@@ -89,7 +89,7 @@ function getIndicatorTooltip(percent) {
  *
  * @returns {{ disabled: boolean, onClick: function }}
  */
-function getIndicatorButtonProps(percent, loading, onClick) {
+export function getIndicatorButtonProps(percent, loading, onClick) {
   const safeOnClick = typeof onClick === 'function' ? onClick : () => {}
   if (loading) {
     return {
@@ -101,23 +101,4 @@ function getIndicatorButtonProps(percent, loading, onClick) {
     disabled: false,
     onClick: safeOnClick
   }
-}
-
-module.exports = {
-  // 常量
-  BUTTON_DIAMETER,
-  STROKE_WIDTH,
-  RADIUS,
-  CIRCUMFERENCE,
-  VISIBILITY_THRESHOLD,
-  RED_THRESHOLD,
-  COLOR_BLUE,
-  COLOR_RED,
-  // 函数
-  clampPercent,
-  getIndicatorVisibility,
-  getIndicatorColor,
-  getIndicatorDashOffset,
-  getIndicatorTooltip,
-  getIndicatorButtonProps
 }
