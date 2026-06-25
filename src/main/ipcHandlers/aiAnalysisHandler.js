@@ -36,8 +36,8 @@ let deepSeekService = null
 let cachedApiKey = null
 const CHAT_STREAM_EVENT = 'aiAnalysis:chatStream:event'
 
-// 获取或创建DeepSeek服务实例
-const getDeepSeekService = async () => {
+// 默认的 getDeepSeekService 实现：懒加载 + API key 缓存
+const defaultGetDeepSeekService = async () => {
   const apiKey = await getDeepSeekApiKey()
   if (!apiKey) {
     return null
@@ -48,6 +48,9 @@ const getDeepSeekService = async () => {
   }
   return deepSeekService
 }
+
+// 允许通过依赖注入覆盖（测试用）。生产代码无需关心。
+let getDeepSeekService = defaultGetDeepSeekService
 
 /**
  * 分析配合比数据
@@ -783,6 +786,18 @@ const chatWithAIStream = async (event, { requestId, message, context }) => {
       onEvent: sendStreamEvent
     })
 
+    // v8.4.x：流式结束后下发真实 token 用量（DeepSeek 最后一个 chunk 会带 usage 字段）。
+    // 渲染端 contextStats 用于校准 token 显示比例。
+    if (result && result.usage) {
+      const u = result.usage
+      const realTokens = (u.prompt_tokens || 0) + (u.completion_tokens || 0) || u.total_tokens || 0
+      sendStreamEvent({
+        type: 'usage',
+        realTokens,
+        usage: u
+      })
+    }
+
     sendStreamEvent({ type: 'done', result })
     return result
   } catch (error) {
@@ -835,17 +850,42 @@ const prepareAnalysis = async (event, { data, customPrompt, selectedContrastMate
 
 /**
  * 注册IPC处理器
+ * @param {object} [deps] - 依赖注入（测试用）
+ * @param {Function} [deps.getDeepSeekService] - 自定义 getDeepSeekService（覆盖默认懒加载实现）
+ * @param {object} [deps.ipcMain] - 自定义 ipcMain（测试时可注入 mock）。默认从 electron 取
  */
-const registerHandlers = (ipcMain) => {
-  ipcMain.handle('aiAnalysis:analyze', analyzeMixDesign)
-  ipcMain.handle('analysis:prepare', prepareAnalysis)
-  ipcMain.handle('aiAnalysis:checkStatus', checkApiStatus)
-  ipcMain.handle('aiAnalysis:chat', chatWithAI)
-  ipcMain.handle('aiAnalysis:chatStream', chatWithAIStream)
-  ipcMain.handle('aiAnalysis:clearHistory', clearChatHistory)
+const registerAiAnalysisHandlers = (deps = {}) => {
+  if (typeof deps.getDeepSeekService === 'function') {
+    getDeepSeekService = deps.getDeepSeekService
+  }
+  const targetIpcMain = deps.ipcMain || require('electron').ipcMain
+
+  targetIpcMain.handle('aiAnalysis:analyze', analyzeMixDesign)
+  targetIpcMain.handle('analysis:prepare', prepareAnalysis)
+  targetIpcMain.handle('aiAnalysis:checkStatus', checkApiStatus)
+  targetIpcMain.handle('aiAnalysis:chat', chatWithAI)
+  targetIpcMain.handle('aiAnalysis:chatStream', chatWithAIStream)
+  targetIpcMain.handle('aiAnalysis:clearHistory', clearChatHistory)
+
+  // ===== 上下文压缩（v8.4.x 新增） =====
+  // 渲染端 handleCompressContextImpl 通过 aiAnalysis:compressContext 调用。
+  // 返回 {success, data: {summary, recentMessages, realTokens}} 或 {success: false, error}。
+  targetIpcMain.handle('aiAnalysis:compressContext', async (event, { messages, previousSummary }) => {
+    try {
+      const service = await getDeepSeekService()
+      if (!service) {
+        return { success: false, error: 'DeepSeek 服务未初始化，请检查 API 密钥配置' }
+      }
+      const data = await service.compressContext(messages || [], previousSummary || '')
+      return { success: true, data }
+    } catch (error) {
+      console.error('[aiAnalysis:compressContext] failed:', error)
+      return { success: false, error: error.message || '压缩失败' }
+    }
+  })
 
   // P3 commit 2: 流式聊天错误路径 — 渲染端 catch 块回传原始错误，主进程分类后下发
-  ipcMain.handle('aiAnalysis:chatStream:reportError', async (event, { sessionId, requestId, rawErrorMessage, rawErrorStack }) => {
+  targetIpcMain.handle('aiAnalysis:chatStream:reportError', async (event, { sessionId, requestId, rawErrorMessage, rawErrorStack }) => {
     try {
       const classified = classifyError(
         { message: rawErrorMessage || 'unknown', stack: rawErrorStack },
@@ -873,12 +913,15 @@ const registerHandlers = (ipcMain) => {
   console.log('AI Analysis IPC handlers registered')
 }
 
-// 自动注册处理器
-const { ipcMain } = require('electron')
-registerHandlers(ipcMain)
+// 自动注册处理器（生产环境）。测试可通过 deps.ipcMain 注入 mock。
+if (process.env.NODE_ENV !== 'test') {
+  const { ipcMain } = require('electron')
+  registerAiAnalysisHandlers({ ipcMain })
+}
 
 module.exports = {
-  register: registerHandlers,
+  register: registerAiAnalysisHandlers,
+  registerAiAnalysisHandlers,
   analyzeMixDesign,
   checkApiStatus,
   chatWithAI,

@@ -608,6 +608,10 @@ class DeepSeekService {
         }
 
         const delta = parsed.choices?.[0]?.delta || {}
+        // v8.4.x：提取 DeepSeek 流式最后一个 chunk 的 usage 字段（prompt_tokens / completion_tokens / total_tokens）
+        if (parsed.usage) {
+          finalMessage.usage = parsed.usage
+        }
         if (delta.reasoning_content) {
           finalMessage.reasoning_content = (finalMessage.reasoning_content || '') + delta.reasoning_content
           if (onEvent) {
