@@ -14,6 +14,7 @@ export const initialState = {
   messages: [],
   input: '',
   attachment: null,
+  contextRealTokens: 0,
   agent: {
     status: 'idle',         // idle | thinking | streaming | tool_calling | done | error | aborted
     timeline: [],
@@ -79,6 +80,25 @@ export function agentReducer(state, action) {
     }
     case 'CLEAR_MESSAGES': {
       return { ...state, messages: [] }
+    }
+    case 'COMPRESS_MESSAGES': {
+      const { summary, recentMessages } = action.payload
+      const compactedMessage = {
+        role: 'assistant',
+        content: summary || '',
+        _compacted: true,
+        time: { created: Date.now() }
+      }
+      return {
+        ...state,
+        messages: [compactedMessage, ...(recentMessages || [])]
+      }
+    }
+    case 'SET_CONTEXT_STATS': {
+      return {
+        ...state,
+        contextRealTokens: action.payload.realTokens || 0
+      }
     }
     case 'REASONING_START': {
       return {

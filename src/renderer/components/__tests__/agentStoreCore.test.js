@@ -207,3 +207,66 @@ describe('mergeReplyToMessages', () => {
     expect(next[0].stopReason).toBe('aborted')
   })
 })
+
+describe('agentReducer - COMPRESS_MESSAGES', () => {
+  test('用 summary + recentMessages 替换原 messages', () => {
+    const state = {
+      ...initialState,
+      messages: [
+        { role: 'user', content: 'old1' },
+        { role: 'assistant', content: 'reply1' },
+        { role: 'user', content: 'old2' },
+        { role: 'assistant', content: 'reply2' }
+      ]
+    }
+    const summary = '## Goal\n测试目标'
+    const recent = [
+      { role: 'user', content: 'recent' },
+      { role: 'assistant', content: 'recent reply' }
+    ]
+    const next = agentReducer(state, {
+      type: 'COMPRESS_MESSAGES',
+      payload: { summary, recentMessages: recent }
+    })
+    expect(next.messages).toHaveLength(3)
+    expect(next.messages[0]).toMatchObject({
+      role: 'assistant',
+      content: summary,
+      _compacted: true
+    })
+    expect(next.messages[1]).toMatchObject({ role: 'user', content: 'recent' })
+    expect(next.messages[2]).toMatchObject({ role: 'assistant', content: 'recent reply' })
+  })
+
+  test('空 messages 时 summary 单独入列', () => {
+    const state = { ...initialState, messages: [] }
+    const next = agentReducer(state, {
+      type: 'COMPRESS_MESSAGES',
+      payload: { summary: 's', recentMessages: [] }
+    })
+    expect(next.messages).toHaveLength(1)
+    expect(next.messages[0]._compacted).toBe(true)
+  })
+})
+
+describe('agentReducer - SET_CONTEXT_STATS', () => {
+  test('写入 contextRealTokens', () => {
+    const next = agentReducer(initialState, {
+      type: 'SET_CONTEXT_STATS',
+      payload: { realTokens: 12345 }
+    })
+    expect(next.contextRealTokens).toBe(12345)
+  })
+
+  test('realTokens 为 0 时清空', () => {
+    const stateWithTokens = {
+      ...initialState,
+      contextRealTokens: 100
+    }
+    const next = agentReducer(stateWithTokens, {
+      type: 'SET_CONTEXT_STATS',
+      payload: { realTokens: 0 }
+    })
+    expect(next.contextRealTokens).toBe(0)
+  })
+})
