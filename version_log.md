@@ -3967,3 +3967,61 @@ PDF/Excel 解析后写入的 `frontmatter.sections` 充满"假标题"，BM25 检
 ### 未来工作（备查）
 - `_splitIntoSegments` 在 PDF 文本里检测页脚作为分页点（彻底解决"段跨页"问题，**非紧急**）
 - xlsx reader 输出 `## Sheet: <name>` 改成不写 `##`（避免下游 `_extractHeading` 误识别，**非紧急**）
+
+---
+
+## v8.3.2 (2026-06-25) - 替换应用 logo（黑白线稿风格）
+
+### 版本信息
+- **版本号**: 8.3.2（patch 升级：仅替换视觉资源，无代码逻辑变更）
+- **Electron**: 28.3.3
+- **Node.js**: 20.20.2
+- **commit**: 本次变更
+- **导航栏**: v8.3.1 → v8.3.2
+
+### 变更内容
+老板提供新 logo `newlogo.png`（黑白线稿风格 AI 字母 + 电路纹理），替换原彩色混凝土质感版 logo。
+
+#### 涉及文件
+| 文件 | 变更前 | 变更后 |
+|------|--------|--------|
+| `LOGO.png` | 5.4MB 彩色混凝土版 | 1.94MB 黑白线稿版 |
+| `public/logo.png` | 5.4MB 彩色版 | 1.94MB 黑白版 |
+| `public/icon.png` | 5.4MB 彩色版 | 1.94MB 黑白版 |
+| `public/icon.ico` | 208KB（旧彩色 6 尺寸） | 361KB（新黑白 6 尺寸） |
+| `temp_icons/icon_{16,32,48,64,128,256}.png` | 旧彩色各尺寸 | 新黑白各尺寸 |
+
+#### icon.ico 验证（多尺寸齐全）
+```
+文件大小: 370070 bytes
+ICO header magic: ✓ 有效ICO
+图像数量: 6
+  16x16   1128 bytes
+  32x32   4264 bytes
+  48x48   9640 bytes
+  64x64   16936 bytes
+  128x128 67624 bytes
+  256x256 270376 bytes
+```
+
+#### 工具脚本
+- `scripts/update-logo.js`（新增）：用 sharp + png-to-ico 自动生成全套图标
+  - 支持 `--dry-run` 演练模式
+  - 自动备份原文件到 `backups/logo-original-<时间戳>/`
+  - 依赖用 `npm install --no-save` 临时安装，**不进 package.json**
+
+#### 代码引用一致性（无需修改）
+- `main.js:159` → `public/logo.png`（BrowserWindow icon）
+- `index.html:5` → `/logo.png`（favicon）
+- `package.json` → `public/icon.ico`（win/nsis icon）
+
+#### 备份
+- `backups/logo-original-20260625-141411/`：原始彩色版 logo 全套（10 个文件）
+
+#### 未来构建
+- 下次 `npm run electron:build` 时 electron-builder 自动使用新 `public/icon.ico`
+- `build/renderer/` 是 vite 输出目录，下次 build 自动从 public/ 同步，无需手动改
+
+### 注意事项
+- 新 logo 是黑白线稿风格，缩到 16x16 时细节会模糊（1128 bytes，含电路纹理）——Windows 任务栏 16x16 仍可识别整体形状，桌面快捷方式 32x32+ 清晰
+- `--no-save` 安装的 sharp/png-to-ico 仍在 `node_modules`，可重复运行 `node scripts/update-logo.js`
