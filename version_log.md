@@ -1,3 +1,26 @@
+## v8.3.4 (2026-06-25) - 修复主进程 require 渲染层模块导致打包后崩溃
+
+### 版本信息
+- **版本号**: 8.3.4
+- **Electron**: 28.3.3
+- **Node.js**: 20.20.2
+
+### Bug 修复: 主进程跨进程模块引用导致打包后启动崩溃
+
+`DeepSeekService.js`（主进程）通过 `require('../../renderer/utils/contextStats')` 引入了渲染层模块。
+打包后主进程和渲染层的文件路径完全不同，`../../renderer/...` 相对路径断裂，导致启动即报错：
+`Cannot find module '../../renderer/utils/contextStats'`
+
+修复：将纯函数工具 `contextStats` 提取到 `src/shared/utils/` 共享层（CJS 格式），主进程从共享层引入。
+渲染层保留原有 ESM 版本不变，Vite 构建正常。
+
+### 改动文件
+- `src/shared/utils/contextStats.js` — 新建，CJS 版本，主进程专用
+- `src/main/services/DeepSeekService.js` — require 路径改为 `../../shared/utils/contextStats`
+- `src/renderer/utils/__tests__/contextStats.test.js` — 测试指向 shared CJS 模块
+
+---
+
 ## v8.3.3 (2026-06-25) - Agent 失败软提醒 + 硬熔断阈值 5→6 + 原始 axios 错误码补全
 
 ### 版本信息

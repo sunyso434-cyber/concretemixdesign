@@ -1,19 +1,16 @@
-// src/renderer/utils/contextStats.js
+// src/shared/utils/contextStats.js
 /**
- * contextStats - 上下文统计纯函数工具
+ * contextStats - 上下文统计纯函数工具（共享层）
  *
  * 职责：
  * 1. estimateTokens - 估算 messages 的 token 数（每 4 字符 ≈ 1 token）
  * 2. getContextPercent - 计算已用上下文比例（优先 realTokens，降级估算）
  * 3. messagesToText - 把 messages 数组拼成 LLM 可读文本
  *
- * 不依赖任何外部状态（无 IO、无副作用），可在渲染层和测试中自由调用。
- *
- * 注意：主进程使用 src/shared/utils/contextStats.js（CJS 版本），
- *       本文件是渲染层 ESM 版本，逻辑完全一致。
+ * 不依赖任何外部状态（无 IO、无副作用），主进程和渲染进程均可调用。
  */
 
-export const DEFAULT_CONTEXT_LIMIT = 800000
+const DEFAULT_CONTEXT_LIMIT = 800000
 const CHARS_PER_TOKEN = 4
 
 /**
@@ -38,7 +35,7 @@ function extractContent(message) {
  * @param {Array<{role, content}>} messages
  * @returns {number} ceil(totalChars / 4)
  */
-export function estimateTokens(messages) {
+function estimateTokens(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return 0
   const totalChars = messages.reduce((sum, m) => sum + extractContent(m).length, 0)
   return Math.ceil(totalChars / CHARS_PER_TOKEN)
@@ -52,7 +49,7 @@ export function estimateTokens(messages) {
  * @param {number} [input.contextLimit=800000] - 上下文上限
  * @returns {number} 0-1 范围（clamp 后）
  */
-export function getContextPercent({ realTokens, messages, contextLimit = DEFAULT_CONTEXT_LIMIT }) {
+function getContextPercent({ realTokens, messages, contextLimit = DEFAULT_CONTEXT_LIMIT }) {
   if (typeof realTokens === 'number' && realTokens > 0) {
     return Math.min(1, Math.max(0, realTokens / contextLimit))
   }
@@ -66,10 +63,17 @@ export function getContextPercent({ realTokens, messages, contextLimit = DEFAULT
  * @param {Array} messages
  * @returns {string}
  */
-export function messagesToText(messages) {
+function messagesToText(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return ''
   return messages
     .filter(m => m && m.role && !m._compacted)
     .map(m => `[${m.role}]\n${extractContent(m)}`)
     .join('\n\n')
+}
+
+module.exports = {
+  DEFAULT_CONTEXT_LIMIT,
+  estimateTokens,
+  getContextPercent,
+  messagesToText,
 }

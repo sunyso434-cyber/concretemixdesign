@@ -1728,7 +1728,7 @@ ${schemaBody}
 
 // ========== Task 4: 压缩相关常量与辅助函数 ==========
 
-const { messagesToText, DEFAULT_CONTEXT_LIMIT } = require('../../renderer/utils/contextStats')
+const { messagesToText, DEFAULT_CONTEXT_LIMIT } = require('../../shared/utils/contextStats')
 
 const MIN_PRESERVE_RECENT_TOKENS = 2000
 const MAX_PRESERVE_RECENT_TOKENS = 8000

@@ -1,10 +1,11 @@
 // src/renderer/utils/__tests__/contextStats.test.js
+// 直接测试共享层源码（CJS），避免经过 renderer ESM 中转
 const {
   estimateTokens,
   getContextPercent,
   messagesToText,
   DEFAULT_CONTEXT_LIMIT
-} = require('../contextStats')
+} = require('../../../shared/utils/contextStats')
 
 describe('estimateTokens', () => {
   test('空数组返回 0', () => {
