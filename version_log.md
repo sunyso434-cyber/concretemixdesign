@@ -3850,3 +3850,120 @@ v1.5.2 标 57 → v1.5.3 实际 **55**（拆 ChatHistoryExporter 后从 8 task �
 - 提交前用 `grep` 反查所有新引入的文件名是否在文件结构总览
 - 用 `grep` 反查所有版本号是否被新版本覆盖
 - 提交前用 `wc -l` 对比章节行数突变
+
+---
+
+## v8.3.1 (2026-06-25) - wiki sections 假标题清洗 + 空段整合
+
+### 版本信息
+- **版本号**: 8.3.1（patch 升级：bug 修复 + 索引质量提升）
+- **Electron**: 28.3.3
+- **Node.js**: 20.20.2
+- **构建产物**:
+  - `dist-8.3.1/混凝土配合比设计软件 Setup 8.3.1.exe` (NSIS 安装包)
+  - `dist-8.3.1/混凝土配合比设计软件-8.3.1-x64.exe` (绿色便携版)
+- **commit**: 24656f6
+- **导航栏**: v8.1.0 → v8.3.1
+
+### 问题描述
+PDF/Excel 解析后写入的 `frontmatter.sections` 充满"假标题"，BM25 检索严重污染：
+- PDF 页眉（期刊名+卷期号）每页重复 19 次
+- PDF 页脚（`-- 1 of 19 --`）每页重复 19 次
+- XLSX Sheet 名（`## Sheet: 适应性`）被当章节标题
+- XLSX 合并单元格标题行（`| (中心)试验室试配表 | | |...`）被当章节标题
+
+实际效果（newtest workspace 3 个文件，sections 总数 71 → 16，↓77%）：
+- `1-s20-s095894652200302x-main.md`: 29 → 8 sections
+- `1-s20-s2352710223019186-main.md`: 38 → 8 sections
+- `20260316谢冰倩uhpc试验-65e2ce.md`: 4 → 0 sections
+
+### 核心改动
+
+#### WikiEngine.js (src/main/workspace/WikiEngine.js)
+
+**新增常量**：
+- `FAKE_HEADING_PATTERNS`：15 条黑名单正则
+  - `^Sheet:\s+` (XLSX Sheet 名)
+  - `^_?\(空\s*(sheet|_)?\)?_?$` (XLSX 占位符)
+  - `^--?\s*\d+\s*of\s*\d+\s*--?$` / `^Page\s+\d+\s+of\s+\d+$` (PDF 页脚)
+  - `^(Journal|Proceedings|Transactions)\s+of\s+` (期刊名)
+  - `^.*?\d+\s*\(\d{4}\)\s+\d+[-\d]*$` (期刊卷期号，匹配 `Cement and Concrete Composites 133 (2022) 104709`)
+  - `^https?:\/\/(doi|www\.)` / `^Contents\s+lists\s+available` / `^Available\s+online` / `^Received\s+\d+\s+\w+\s+\d{4}` (ScienceDirect 元信息)
+  - `^\d+\s+(of|for)\s+\d+$` (孤立页码)
+  - `^E-?mail\s+addresses?:` / `^\*\s*(Corresponding\s+author\.?)` (期刊模板标记)
+  - `^Z\.\s+\w+\s+et\s+al\.?$` (作者引用行)
+  - `^[\s\S]*?[\x00-\x08\x0B-\x1F\x7F]` (PDF 提取的二进制垃圾)
+- `TABLE_HEADING_LINE_RE` = `/^\s*\|.*\|.*\|/` (合并单元格标题行识别)
+- `REAL_HEADING_PATTERNS`：5 条真标题规则
+  - 编号式（`^\d+\.\s+[A-Z][a-zA-Z一-龥]/`、`^\d+\.\d+\.?\s+[A-Z]/`）
+  - 全大写（`^[A-Z][A-Z\s]{5,}$/`，匹配 `A B S T R A C T`）
+  - `^Keywords:`、`^#{1,6}\s+\S+`、TitleCase 短语
+- `MAX_HEADING_SEARCH_LINES = 100` (段内搜索深度，覆盖 PDF 跨页长段)
+
+**修改方法 `_extractHeading`**：
+- 先用 markdown 标题或首行 60 字符
+- 命中黑名单 → 回退到 `_findRealHeadingInSegment`
+
+**新增方法 `_isFakeHeading`**：判定 heading 是否为假标题（黑名单 + 表格行）
+
+**新增方法 `_findRealHeadingInSegment`**：段内搜索真标题（4 遍扫描）
+- 第 1 遍：编号式（最强信号；选"编号最深 + 最晚出现"）
+- 第 2 遍：markdown ## 标题
+- 第 3 遍：全大写 / TitleCase
+- 第 4 遍：`Keywords:`（兜底）
+
+**新增方法 `_looksLikeBodyText`**：过滤明显正文
+- 超长（> 100 字符）、引文标记 `[N]`、行尾 `.?!` 句末标点
+- 公式行（`=` `+` `−` `×` `÷` + 数字）
+- CamelCase 短变量（≤ 8 字符、无空格：`Dmax`、`Dmin`、`C3S`）
+- **关键修复**：用 `/[.?!]$/` 替代 `/[.?,;][^.?,;]*$/`，避免 `2.2. Mixture proportions...` 误判
+
+**新增方法 `_mergeEmptySections`**：空 section 整合
+- 1-2 行空 section（页脚/页眉残留）→ 删除
+- 多行空 section（跨页正文）→ 合并到上一个 section（扩展 endLine）
+- 文件开头空 section → 丢弃
+- id 重新分配为 0, 1, 2, ...
+
+**修改方法 `computeSections`**：末尾调用 `_mergeEmptySections`
+
+#### scripts/clean-existing-sections.js (新增)
+
+一次性回扫脚本，支持：
+- DRY-RUN 模式（默认）：只打印 diff，不写文件
+- `--apply` 模式：备份原文件为 `.bak`，写入新 frontmatter，刷 `sections_version: 2`
+- `--verbose`：打印每条丢弃/新增的 heading
+
+#### 单元测试 src/main/workspace/__tests__/WikiEngine.cleanHeadings.test.js (新增)
+
+**51 个测试用例**，覆盖：
+- `_isFakeHeading`：PDF 页眉/页脚、Sheet 名、合并单元格、ScienceDirect 元信息、二进制垃圾、作者引用行、期刊名 + 卷期号（带前缀）
+- `_extractHeading`：假标题返回 ""、真标题保留、markdown `##` 形式
+- 段内搜索：编号式优先、`Keywords:` 优先于 1. Introduction 错、深度最深 + 同级取晚
+- `_mergeEmptySections`：空数组、无空 section、单/多行空段、连续空段、文末空段、文件开头空段、id 重新分配、混合场景
+- `computeSections` 回归：清洗后 PDF/XLSX sections 不含假标题
+
+测试结果：51/51 通过
+
+### 验证
+
+#### 单元测试
+- `npx jest src/main/workspace/__tests__/WikiEngine.cleanHeadings.test.js`：51/51 ✅
+- `npx jest src/main/workspace/__tests__/`：111/116（5 失败为 pre-existing，与本改动无关）
+
+#### 实际效果（newtest 3 个文件）
+| 文件 | 旧 sections | 新 sections | 真标题 |
+|---|---|---|---|
+| `1-s20-s095894652200302x-main.md` (PDF 1) | 29（全假） | 8（-72%） | 1. Introduction, 2.2. Mix design, 2.3. Test method, 3.1. Wet packing density, 3.2. Mechanical property, 3.3. Pore distribution, 4. Modeling, 5. Conclusion |
+| `1-s20-s2352710223019186-main.md` (PDF 2) | 38（全假） | 8（-79%） | 1. Introduction, 2.2. Mixture proportions and samples preparation, 2.3. Testing methods, 3.1. Mechanical properties, 3.3. Hydration kinetics, 3.4. Hydration production, 4. Conclusion, Acknowledgements |
+| `20260316谢冰倩uhpc试验-65e2ce.md` (XLSX) | 4（全假） | 0 | (无章节) |
+
+### 文件清单
+- `package.json`: 8.3.0 → 8.3.1, output `dist-8.3.0` → `dist-8.3.1`
+- `src/main/workspace/WikiEngine.js`: 核心修复（+206 行）
+- `src/main/workspace/__tests__/WikiEngine.cleanHeadings.test.js`: 51 个测试（新增）
+- `scripts/clean-existing-sections.js`: 回扫脚本（新增）
+- `src/renderer/pages/WorkspacePage.jsx`: 导航栏 v8.1.0 → v8.3.1
+
+### 未来工作（备查）
+- `_splitIntoSegments` 在 PDF 文本里检测页脚作为分页点（彻底解决"段跨页"问题，**非紧急**）
+- xlsx reader 输出 `## Sheet: <name>` 改成不写 `##`（避免下游 `_extractHeading` 误识别，**非紧急**）
