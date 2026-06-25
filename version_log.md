@@ -3970,6 +3970,80 @@ PDF/Excel 解析后写入的 `frontmatter.sections` 充满"假标题"，BM25 检
 
 ---
 
+## v8.4.0 (2026-06-25) - 上下文监控圆环 + 压缩功能
+
+### 版本信息
+- **版本号**: 8.4.0
+- **Electron**: 28.3.3
+- **Node.js**: 20.20.2
+- **构建产物**:
+  - `混凝土配合比设计软件 Setup 8.3.2.exe`（NSIS 安装包，版本号未升，需手动改 package.json）
+  - `混凝土配合比设计软件-8.3.2-x64.exe`（绿色便携版）
+- **commits**: `1b4ecf0..9a20326`（8 个 commit，+1402/-15 行）
+
+### 功能概述
+
+在 SmartDesignChat 输入框工具栏"清空对话"按钮右侧新增 **22px 圆环按钮**：
+- 实时显示已用上下文比例（基于 token 估算 / 后端真实 token）
+- **≥ 50% 才显示**（< 50% 完全隐藏，不占位）
+- **≥ 80% 变红**（视觉预警 + tooltip 追加"建议压缩"）
+- **点击触发上下文压缩**：调 DeepSeek API 把旧消息总结为 5 段结构化摘要（Goal / Instructions / Discoveries / Accomplished / Relevant data），保留最近 2 轮原文
+- **增量总结**：每次压缩带上次摘要，避免重复总结丢信息
+- **真实 token 优先**：后端 stream 完成后下发 `type: 'usage'` 事件，前端用真实值覆盖估算值
+
+### 参考实现
+
+基于 **opencode** 开源项目的 SessionCompaction 模块（两个版本：V1 + V2 风格），核心算法复用：
+- `selectTail` 按 token 预算选保留轮（min(8k, max(2k, 800k×25%))）
+- 5 段 prompt 模板（中文化 + 混凝土行业定制）
+- 增量总结（previousSummary 注入 prompt）
+- 跳过已压缩轮（`_compacted: true` 标志）
+
+### 新增文件（6 个）
+
+| 文件 | 职责 |
+|------|------|
+| `src/renderer/utils/contextStats.js` | 纯函数：token 估算 / 比例计算 / 消息拼接 |
+| `src/renderer/components/ContextIndicator.jsx` | 22px SVG 圆环按钮组件 |
+| `src/renderer/components/ContextIndicator.utils.js` | 圆环纯逻辑（可见性 / 颜色 / dashoffset / tooltip） |
+| `src/renderer/hooks/useChatState.compress.js` | 压缩核心实现（调 IPC + dispatch + 错误处理） |
+| `src/main/services/__tests__/DeepSeekService.compress.test.js` | 压缩方法 6 个单元测试 |
+| `src/renderer/components/__tests__/ContextIndicator.utils.test.js` | 圆环逻辑 20 个单元测试 |
+
+### 修改文件（6 个）
+
+| 文件 | 改动 |
+|------|------|
+| `src/main/services/DeepSeekService.js` | +`compressContext` / `_callSummaryAPI` / `selectTail` / `buildCompressUserPrompt` / 5 段 prompt |
+| `src/main/ipcHandlers/aiAnalysisHandler.js` | +`aiAnalysis:compressContext` IPC handler + stream `usage` event |
+| `src/renderer/components/agentStoreCore.js` | +`COMPRESS_MESSAGES` / `SET_CONTEXT_STATS` reducer actions |
+| `src/renderer/hooks/useChatState.js` | +`isCompressing` / `previousSummary` / `handleCompressContext` |
+| `src/renderer/components/SmartDesignChat.jsx` | 工具栏插入 ContextIndicator + 捕获 usage event |
+| `src/renderer/index.css` | +`@keyframes context-spin` 旋转动画 |
+
+### 测试
+
+| 测试文件 | 用例数 | 状态 |
+|----------|--------|------|
+| `contextStats.test.js` | 15 | ✅ 全过 |
+| `agentStoreCore.test.js` | 67 | ✅ 全过（含 4 个新增） |
+| `useChatState.compress.test.js` | 4 | ✅ 全过 |
+| `DeepSeekService.compress.test.js` | 6 | ✅ 全过 |
+| `aiAnalysisHandler.compress.test.js` | 3 | ✅ 全过 |
+| `ContextIndicator.utils.test.js` | 20 | ✅ 全过 |
+| **合计** | **115** | **✅ 全过** |
+
+### 已知偏差（已记入 ledger）
+
+| Task | 偏差 | 原因 |
+|------|------|------|
+| 3 | 拆 `useChatState.compress.js` | 项目无 @testing-library/react，抽纯函数可测 |
+| 4 | class method / `_callSummaryAPI` 返回对象 / 测试数据规模调整 | 更符合文件实际 / 让真实 token 可传 |
+| 5 | 重构 `registerHandlers` + `_callAPIStream` 加 usage 提取 | 依赖注入让 IPC 可测 / usage 数据必须先存到 finalMessage |
+| 6 | 方案 C（utils 抽离 + JSX 不单测） | 项目无 jsdom，纯函数覆盖核心逻辑 |
+
+---
+
 ## v8.3.2 (2026-06-25) - 替换应用 logo（黑白线稿风格）
 
 ### 版本信息
