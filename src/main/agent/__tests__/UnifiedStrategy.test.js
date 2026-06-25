@@ -71,7 +71,7 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     expect(mocks.deepseekService.chatWithToolsStream).toHaveBeenCalledTimes(2)
   })
 
-  test('场景 3: 连续 5 次 LLM 失败 → 终止', async () => {
+  test('场景 3: 连续 6 次 LLM 失败 → 终止', async () => {
     const mocks = makeMocks()
     mocks.deepseekService.chatWithToolsStream.mockRejectedValue(new Error('LLM down'))
 
@@ -79,8 +79,8 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     const result = await strategy.execute({ sessionId: 's1', message: 'hi' })
 
     expect(result.success).toBe(false)
-    // 验证 chatWithToolsStream 调用 ≤ 5 次（v8.2.3: threshold 2 → 5）
-    expect(mocks.deepseekService.chatWithToolsStream.mock.calls.length).toBeLessThanOrEqual(5)
+    // v8.2.5: 硬熔断阈值 5 → 6（llmParse 路径），给 LLM 看到软提醒后多 1 次纠错机会
+    expect(mocks.deepseekService.chatWithToolsStream.mock.calls.length).toBeLessThanOrEqual(6)
   })
 
   test('场景 4: LLM 触发 429 → 退避重试', async () => {
@@ -214,5 +214,122 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     // 主循环应跑满 10 次（DEFAULT_AGENT_MAX_STEPS）
     expect(mocks.deepseekService.chatWithToolsStream.mock.calls.length).toBeLessThanOrEqual(10)
     expect(result).toBeDefined()
+  })
+
+  // ============== v8.2.5 软提醒相关测试 ==============
+
+  /**
+   * 工具函数：统计软提醒被注入的次数（而非出现次数）
+   *
+   * trimmedMessages 是共享数组，注入后软提醒会出现在所有后续 LLM 调用的 messages 里，
+   * 所以不能简单统计"包含软提醒的调用数"。
+   * 正确做法：检测软提醒在哪一次调用中首次出现 → 即为注入次数。
+   *
+   * 判断"首次出现"：当前调用包含软提醒，且前一次调用不包含。
+   * 因为 mock.calls[i][0] 和 mock.calls[i+1][0] 是同一个 trimmedMessages 引用，
+   * 所以 mock.calls 记录的是每次调用时数组的"快照引用"，但数组内容会变化。
+   * 实际上 jest.fn() 记录的是调用时的参数值，对于数组来说是引用。
+   * 但因为我们是在调用结束后统一检查，所有引用都指向同一个已累积的数组。
+   *
+   * 因此采用更可靠的方案：统计包含软提醒的调用中，软提醒角色为 'user' 的消息数量。
+   * 因为软提醒注入为 {role:'user', content:'⚠️ ...'}，而正常 user 消息只有 1 条。
+   * 如果软提醒被注入了 N 次，trimmedMessages 中会有 N 条这样的消息。
+   */
+  const countSoftWarnInjections = (mocks) => {
+    // 取最后一次调用的 messages（此时 trimmedMessages 已包含所有注入的软提醒）
+    const calls = mocks.deepseekService.chatWithToolsStream.mock.calls
+    if (calls.length === 0) return 0
+    const msgs = calls[calls.length - 1][0] || []
+    return msgs.filter(m =>
+      typeof m.content === 'string' && m.content.includes('已在这条路径上连续失败 3 次')
+    ).length
+  }
+
+  test('场景 11 (v8.2.5): 工具连续失败 3 次触发软提醒', async () => {
+    const mocks = makeMocks()
+    mocks.deepseekService.chatWithToolsStream.mockResolvedValue({
+      content: null,
+      tool_calls: [{ id: 'c1', function: { name: 'q', arguments: '{}' } }]
+    })
+    mocks.skillRegistry.getSkill.mockReturnValue({ name: 'q', parameters: {} })
+    // 前 3 次工具失败
+    mocks.skillExecutor.execute
+      .mockResolvedValueOnce({ success: false, error: { title: '错误1' } })
+      .mockResolvedValueOnce({ success: false, error: { title: '错误2' } })
+      .mockResolvedValueOnce({ success: false, error: { title: '错误3' } })
+      // 第 4 次成功（验证重置）
+      .mockResolvedValueOnce({ success: true, data: 'ok' })
+
+    const strategy = new UnifiedStrategy(mocks)
+    await strategy.execute({ sessionId: 's', message: 'q' })
+
+    // 软提醒应出现 1 次（在第 3 次失败后注入）
+    expect(countSoftWarnInjections(mocks)).toBe(1)
+  })
+
+  test('场景 12 (v8.2.5): 工具连续失败 5 次，软提醒只触发 1 次', async () => {
+    const mocks = makeMocks()
+    mocks.deepseekService.chatWithToolsStream.mockResolvedValue({
+      content: null,
+      tool_calls: [{ id: 'c1', function: { name: 'q', arguments: '{}' } }]
+    })
+    mocks.skillRegistry.getSkill.mockReturnValue({ name: 'q', parameters: {} })
+    mocks.skillExecutor.execute.mockResolvedValue({ success: false, error: { title: 'x' } })
+
+    const strategy = new UnifiedStrategy(mocks)
+    await strategy.execute({ sessionId: 's', message: 'q' })
+
+    // 不管失败多少次，软提醒只注入 1 次
+    expect(countSoftWarnInjections(mocks)).toBe(1)
+  })
+
+  test('场景 13 (v8.2.5): 工具成功 → 软提醒重置，下次再失败从 1 重来', async () => {
+    const mocks = makeMocks()
+    mocks.deepseekService.chatWithToolsStream.mockResolvedValue({
+      content: null,
+      tool_calls: [{ id: 'c1', function: { name: 'q', arguments: '{}' } }]
+    })
+    mocks.skillRegistry.getSkill.mockReturnValue({ name: 'q', parameters: {} })
+    // 失败 2 次 → 成功 1 次 → 失败 2 次 → 不应触发软提醒（第二轮未到 3 次）
+    mocks.skillExecutor.execute
+      .mockResolvedValueOnce({ success: false, error: { title: 'e1' } })
+      .mockResolvedValueOnce({ success: false, error: { title: 'e2' } })
+      .mockResolvedValueOnce({ success: true, data: 'ok' })
+      .mockResolvedValueOnce({ success: false, error: { title: 'e3' } })
+      .mockResolvedValueOnce({ success: false, error: { title: 'e4' } })
+
+    const strategy = new UnifiedStrategy(mocks)
+    await strategy.execute({ sessionId: 's', message: 'q' })
+
+    // 软提醒一次都不该注入（成功重置了计数器）
+    expect(countSoftWarnInjections(mocks)).toBe(0)
+  })
+
+  test('场景 14 (v8.2.5): llmNetwork 连续失败不触发软提醒', async () => {
+    const mocks = makeMocks()
+    // 模拟 LLM 网络错误（连续 ECONNABORTED）
+    mocks.deepseekService.chatWithToolsStream.mockImplementation(() => {
+      const err = new Error('timeout')
+      err.code = 'ECONNABORTED'  // 触发 isNetworkError 分支
+      return Promise.reject(err)
+    })
+
+    const strategy = new UnifiedStrategy(mocks)
+    await strategy.execute({ sessionId: 's', message: 'q' })
+
+    // llmNetwork 走单独路径，不注入软提醒
+    expect(countSoftWarnInjections(mocks)).toBe(0)
+  })
+
+  test('场景 15 (v8.2.5): LLM 解析失败 3 次触发软提醒', async () => {
+    const mocks = makeMocks()
+    // 模拟 LLM 解析失败（普通 Error，没有 code，isNetworkError = false）
+    mocks.deepseekService.chatWithToolsStream.mockRejectedValue(new Error('JSON parse error'))
+
+    const strategy = new UnifiedStrategy(mocks)
+    await strategy.execute({ sessionId: 's', message: 'q' })
+
+    // llmParse 路径在第 3 次失败时注入软提醒
+    expect(countSoftWarnInjections(mocks)).toBe(1)
   })
 })

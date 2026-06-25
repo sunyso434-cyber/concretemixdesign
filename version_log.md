@@ -1,3 +1,45 @@
+## v8.3.3 (2026-06-25) - Agent 失败软提醒 + 硬熔断阈值 5→6 + 原始 axios 错误码补全
+
+### 版本信息
+- **版本号**: 8.3.3
+- **Electron**: 28.3.3
+- **Node.js**: 20.20.2
+
+### 优化: Agent 主循环失败处理 — 软提醒机制
+
+LLM 工具/解析连续失败时，不再"默默计数到阈值直接熔断"，而是在中途主动提醒 LLM 换路径。
+
+- **软提醒**：连续失败 3 次时，向 LLM 注入一次 `⚠️ 你已在这条路径上连续失败 3 次...换一种工具/换一套参数/换条路径` 提示（emoji + 加粗格式）
+- **覆盖范围**：`skillExec`（工具执行失败）+ `llmParse`（LLM 解析错误）
+- **硬熔断阈值**：`llmParse` / `skillExec` 5 → 6（给 LLM 看到软提醒后多 1 次自我纠错机会）
+- **llmNetwork 行为不变**：网络错误仍由 429 退避机制 + 阈值 5 熔断
+- **计数器归零即重置**：LLM 正常返回 / 工具成功 → 计数器清零 → 软提醒标志同步重置
+
+### Bug 修复: isNetworkError 漏判原始 axios 错误码
+
+v8.2.1 的 `isNetworkError` 只检查分类后的语义错误码（`E-LLM-429` / `E-NET-408` / `E-NET-500`），漏掉了原始 axios 错误码（`ECONNABORTED` / `ECONNRESET` / `ETIMEDOUT` / `ENOTFOUND` / `ECONNREFUSED`）。
+
+当 DeepSeekService 未对异常做分类时（直接透传 axios 错误），这些原始网络错误会被误判为 `llmParse`（解析错误），导致：
+1. 网络超时/断连被计入解析失败计数器（错误归因）
+2. 软提醒被错误注入（网络错误换路径无意义）
+3. 429 退避重试逻辑被跳过
+
+修复：`isNetworkError` 条件增加 5 个原始 axios 错误码。
+
+### 改动文件
+- `src/main/agent/strategies/UnifiedStrategy.js` — 主逻辑：软提醒注入 + 阈值 + axios 错误码补全
+- `src/main/agent/__tests__/UnifiedStrategy.test.js` — 新增 5 个 case（场景 11-15），场景 3 阈值更新
+- `docs/superpowers/specs/2026-06-25-agent-failure-soft-warn-design.md` — 设计文档
+- `docs/superpowers/plans/2026-06-25-agent-failure-soft-warn-plan.md` — 实施计划
+- `version_log.md`
+
+### 测试
+- 原有 10 个 case 全部通过（场景 3 阈值 5→6）
+- 新增 5 个 case 全部通过（场景 11-15）
+- 总计 15/15 通过（UnifiedStrategy 本项目）
+
+---
+
 ## v8.3.0 (2026-06-24) - workspace 混合 ingest + 三层 readPage 检索
 
 ### 版本信息

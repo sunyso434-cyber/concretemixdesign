@@ -73,8 +73,17 @@ class UnifiedStrategy {
       llmNetwork: 0,
       skillExec: 0
     }
+    // v8.2.5: 软提醒标志 — 连续失败 3 次后向 LLM 注入"换路"提示
+    // 计数器归零时同步重置（见 execute 主体两处）
+    const softWarnSent = { llmParse: false, skillExec: false }
+    const SOFT_WARN_THRESHOLD = 3
+    // v8.2.5: 硬熔断阈值 5 → 6（llmParse / skillExec 路径），给 LLM 看到软提醒后多 1 次纠错机会
     // v8.2.3: 失败阈值 2 → 5，给 LLM 更多自适应重试机会（换路径/换工具），避免触发误熔断
-    const threshold = 5
+    const HARD_FUSE_THRESHOLD = 6
+    // v8.2.5: 网络错误熔断保持 5（不在本次软提醒覆盖范围）
+    const LLN_NETWORK_FUSE = 5
+    // 旧变量名保留：原 threshold 现指向 HARD_FUSE_THRESHOLD（兼容旧断言）
+    const threshold = HARD_FUSE_THRESHOLD
 
     // 1. 构造 messages
     const memoryContext = await this.agentMemoryService.buildMemoryContext(sessionId, {
@@ -191,12 +200,26 @@ class UnifiedStrategy {
           err.code === 'E-LLM-429' ||
           err.code === 'E-NET-408' ||
           err.code === 'E-NET-500' ||
-          err.details?.httpStatus === 429
+          err.details?.httpStatus === 429 ||
+          // v8.2.5: 补充原始 axios 错误码（DeepSeekService 未分类时直接透传）
+          err.code === 'ECONNABORTED' ||
+          err.code === 'ECONNRESET' ||
+          err.code === 'ETIMEDOUT' ||
+          err.code === 'ENOTFOUND' ||
+          err.code === 'ECONNREFUSED'
         )
         if (isNetworkError) {
           failureCounters.llmNetwork++
         } else {
           failureCounters.llmParse++
+
+          // v8.2.5: 软提醒 — 连续失败 3 次后向 LLM 注入"换路"提示
+          // 仅触发 1 次（用 softWarnSent 标志防重复），成功时计数器清零 → 标志重置
+          if (failureCounters.llmParse === SOFT_WARN_THRESHOLD && !softWarnSent.llmParse) {
+            const warnMsg = '⚠️ 你已在这条路径上连续失败 3 次（LLM 解析错误）。请停下分析：失败原因是什么？换一种工具 / 换一套参数 / 换条路径，而不是重试同样的方法。'
+            trimmedMessages.push({ role: 'user', content: warnMsg })
+            softWarnSent.llmParse = true
+          }
         }
 
         if (err.code === 'E-LLM-429' && failureCounters.llmNetwork < threshold) {
@@ -204,7 +227,7 @@ class UnifiedStrategy {
           continue
         }
 
-        if (failureCounters.llmParse >= threshold || failureCounters.llmNetwork >= threshold) {
+        if (failureCounters.llmParse >= HARD_FUSE_THRESHOLD || failureCounters.llmNetwork >= LLN_NETWORK_FUSE) {
           errorHandler.fatal('orchestrator', { counters: failureCounters })
           const classifiedError = classifyError(new Error('max_failures_exceeded: LLM parse/network failures exceeded threshold'), {
             callSite: 'UnifiedStrategy.llmLoop',
@@ -218,6 +241,8 @@ class UnifiedStrategy {
 
       failureCounters.llmParse = 0
       failureCounters.llmNetwork = 0
+      // v8.2.5: LLM 正常返回 → 计数器清零 → 同步重置软提醒标志
+      softWarnSent.llmParse = false
 
       // 通知前端：本轮思考完成
       this._notifyProgress(webContents, { type: 'reasoning_done', roundIndex, mode, status: 'running' })
@@ -300,6 +325,14 @@ class UnifiedStrategy {
                 : String(execResult.error || '未知错误')
               failureCounters.skillExec++
 
+              // v8.2.5: 软提醒 — 连续失败 3 次后向 LLM 注入"换路"提示
+              // 仅触发 1 次（用 softWarnSent 标志防重复）
+              if (failureCounters.skillExec === SOFT_WARN_THRESHOLD && !softWarnSent.skillExec) {
+                const warnMsg = `⚠️ 你已在这条路径上连续失败 3 次（工具 "${name}" 执行失败）。请停下分析：失败原因是什么？换一种工具 / 换一套参数 / 换条路径，而不是重试同样的方法。`
+                trimmedMessages.push({ role: 'user', content: warnMsg })
+                softWarnSent.skillExec = true
+              }
+
               this._notifyProgress(webContents, {
                 type: 'tool_error',
                 toolCallId: tc.id,
@@ -311,7 +344,7 @@ class UnifiedStrategy {
                 status: 'running'
               })
 
-              if (failureCounters.skillExec >= threshold) {
+              if (failureCounters.skillExec >= HARD_FUSE_THRESHOLD) {
                 errorHandler.fatal('orchestrator', { counters: failureCounters })
                 const toolErrContent1 = JSON.stringify(execResult)
                 trimmedMessages.push({ role: 'tool', content: toolErrContent1, tool_call_id: tc.id })
@@ -329,6 +362,8 @@ class UnifiedStrategy {
               try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: JSON.stringify(execResult), toolCallId: tc.id }) } catch (_) {}
             } else {
               failureCounters.skillExec = 0
+              // v8.2.5: 工具成功 → 计数器清零 → 同步重置软提醒标志
+              softWarnSent.skillExec = false
               this._notifyProgress(webContents, {
                 type: 'tool_done',
                 toolCallId: tc.id,
