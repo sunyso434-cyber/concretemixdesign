@@ -154,7 +154,7 @@ export default function WorkspacePage() {
           <Tooltip title="系统设置">
             <span className="topbar-icon" onClick={() => setDrawerOpen('settings')}><SettingOutlined /></span>
           </Tooltip>
-          <span className="topbar-version">v8.1.0</span>
+          <span className="topbar-version">v8.3.1</span>
         </div>
       </div>
       {renderMiddleContent()}
