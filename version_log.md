@@ -1,3 +1,197 @@
+## v8.3.9 (2026-06-26) - 修复 v8.3.8 头像资源路径导致的内存爆炸 + 头像空白
+
+### 问题（v8.3.8 引入）
+
+老板反馈 8.3.8 版本改动后，应用出现两个严重问题：
+1. 主进程内存异常占用（最高达 3.7GB），应用闪退
+2. 智能设计助手头像为空白
+
+老板确认 8.3.7 没问题，定位问题在 v8.3.8 改动中。
+
+### 根因
+
+`src/renderer/components/SmartDesignChat.jsx` 第 38 行用绝对路径字符串引用 public 资源：
+
+```js
+const ASSISTANT_AVATAR_SRC = '/assistant-avatar.png'
+```
+
+Electron 生产模式以 `file://` 协议加载页面，绝对路径被解析为 `file:///C:/assistant-avatar.png`（C 盘根目录），404。
+
+Ant Design `<Avatar>` 加载失败后反复重试；消息列表每条 assistant 消息都创建一个 Avatar 实例。Chromium 内部累积大量失败图片请求 → 主进程内存爆炸 → 应用闪退。
+
+同时 v8.3.8 移除了 `icon={<RobotOutlined />}` 兜底，图片 404 后 Avatar 直接显示空白。
+
+### 修复方案
+
+用 `new URL(..., import.meta.url).href` 方式引用资源：
+
+```js
+const ASSISTANT_AVATAR_SRC = new URL('../assets/assistant-avatar.png', import.meta.url).href
+```
+
+让 Vite 把图片作为模块资源处理（hash 化输出到 assets 目录），运行时通过 `import.meta.url`（当前 chunk 的 file:// URL）拼接出正确的相对 file:// URL。
+
+### 改动文件
+
+- `src/renderer/components/SmartDesignChat.jsx` — Avatar src 引用方式改用 `new URL`
+- `src/renderer/assets/assistant-avatar.png` — 新增（Vite 模块资源副本，源图来自 `public/`）
+- `package.json` — 版本号 8.3.8 → 8.3.9
+
+---
+
+## v8.3.8 (2026-06-26) - 修复 ECONNRESET 误判导致 E-AGENT-001 误熔断
+
+### 问题（v8.3.7 引入未根治）
+
+2026-06-26 凌晨老板多次提问触发熔断：6 轮 LLM 调用全部失败，debugLog 每轮都是 `Converting circular structure to JSON\n...TLSSocket...HTTPParser...socket`，最终返回 `E-AGENT-001: AI 连续失败次数超限`。
+
+但老板同 session 第 3 次请求（"继续"）成功返回 2340 字符，证明是 DeepSeek 服务端瞬时 TLS 不稳定，不是老板本地网络问题。
+
+### 根因（老板纠正后）
+
+`src/main/services/DeepSeekService.js:382-386`（v8.3.7 时）：
+
+```js
+const data = error && error.response && error.response.data
+const rawMessage = (data && data.error && data.error.message)
+  || (data && typeof data === 'object' ? JSON.stringify(data).slice(0, 500) : '')
+  || (error && error.message)
+  || ''
+```
+
+**`responseType:'stream'` 模式下，axios 对 HTTP 错误（含 ECONNRESET）的 `error.response.data` 是 ReadableStream，不是 JSON。** `typeof stream === 'object'` 为 true，`JSON.stringify(stream)` 触发 TLSSocket 循环引用 TypeError，原始错误码（ECONNRESET）丢失。
+
+老板最初以为是 axios 内部 bug。老板纠正后定位：是 DeepSeekService 自己代码做 JSON.stringify。
+
+调用链：
+1. DeepSeek API 服务端 TLS reset → ECONNRESET
+2. axios 抛 `AxiosError(code='ECONNRESET', response={status:undefined, data:<ReadableStream>})`
+3. `_buildClassifiedError` 走 370-380 行的 code 映射：ECONNRESET 不在映射表 → 兜底 'E-SYS-999'
+4. 第 384 行 `JSON.stringify(data)` 抛 TypeError → 整个 _buildClassifiedError 抛出循环引用错误
+5. UnifiedStrategy catch 到 TypeError：`message='Converting circular structure to JSON'`, `code=''`, `details=undefined`
+6. `isNetworkError` 全 false → 6 次 llmParse++ → 熔断 `E-AGENT-001`
+
+### 修复方案
+
+#### 核心修复：_buildClassifiedError 改 async + 用现有 _readErrorBody 处理 stream
+
+`_buildClassifiedError` 由同步改为 async：
+
+```js
+async _buildClassifiedError(error, callSite) {
+  // ...
+  const data = error && error.response && error.response.data
+  let rawMessage = ''
+  if (data && typeof data.on === 'function') {
+    // stream 对象 → 用 _readErrorBody 异步消费 chunks（不会触发循环引用）
+    try {
+      const body = await this._readErrorBody(data)
+      if (body != null) {
+        if (typeof body === 'string') {
+          rawMessage = body.slice(0, 500)
+        } else if (body.error && body.error.message) {
+          rawMessage = body.error.message  // DeepSeek API 错误结构
+        } else {
+          try { rawMessage = JSON.stringify(body).slice(0, 500) } catch (_) {}
+        }
+      }
+    } catch (_) { /* stream 读取失败 → 兜底 */ }
+  } else if (data && data.error && data.error.message) {
+    rawMessage = data.error.message
+  } else if (data && typeof data === 'object') {
+    try { rawMessage = JSON.stringify(data).slice(0, 500) } catch (_) {}
+  }
+  if (!rawMessage && error && error.message) rawMessage = String(error.message)
+  // ...
+}
+```
+
+复用 `_readErrorBody`（DeepSeekService.js:659 已写好但从未调用），不改架构。
+
+调用方 3 处加 `await`：
+- chatWithToolsStream 第 553 行
+- chat 第 967 行
+- analyzeMixDesign 第 1359 行
+
+#### Part A：网络错误码映射补全
+
+```js
+if (error && ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'ERR_NETWORK', 'ECONNRESET'].includes(error.code)) {
+  return 'E-NET-500'
+}
+```
+
+与 `errorClassifier.js:52` 对齐，单点定义避免漂移。
+
+ECONNRESET 走 `E-NET-500`（不是 E-NET-408）：对端主动断连不是本端超时。
+ECONNABORTED 仍走 `E-NET-408`（超时专属），回归保护。
+
+#### Part B：errorClassifier.truncateDetails 循环引用兜底
+
+```js
+let totalSize = 0
+try {
+  totalSize = JSON.stringify(details).length
+} catch (_) {
+  // 含循环引用 / BigInt / Symbol → 兜底为 0，走软截断路径而非抛 TypeError
+  totalSize = 0
+}
+```
+
+`buildPayload` 第 105 行把 `rawError.response.data` 放进 details，同样可能含 stream 循环引用。
+
+### 改动文件
+
+- `src/main/services/DeepSeekService.js` — `_buildClassifiedError` 改 async + 用 `_readErrorBody` 处理 stream；3 个调用方加 await；网络错误码映射补全
+- `src/main/agent/errorClassifier.js` — `truncateDetails` 加 try/catch 兜底
+- `src/main/agent/__tests__/DeepSeekService.test.js` — 新增 12 个 `_buildClassifiedError` 用例（含 ECONNRESET/ETIMEDOUT/ERR_NETWORK 映射 + stream 响应体读取）
+- `src/main/agent/__tests__/errorClassifier.test.js` — 新建，8 个 truncateDetails 用例（含循环引用兜底）
+
+### 修复后行为
+
+- ECONNRESET 走 `E-NET-500`（E-NET 类，归 llmNetwork 5 次熔断 + 429 指数退避）
+- 前端 `SystemErrorBubble` 显示「网络连接失败（E-NET-500）」而非「AI 连续失败次数超限」
+- 6 次 ECONNRESET 熔断（不是 6 次 llmParse 熔断），阈值正确
+- stream 响应体能被 `_readErrorBody` 读取到真实错误信息（如 "rate limit exceeded"）
+
+### 测试
+
+- 新增测试：30 个全过（DeepSeekService 12 + errorClassifier 18）
+- 回归测试：60 个全过（UnifiedStrategy + ErrorCodes + errorHandler）
+- 合计 90/0 通过/失败
+
+### 老板纠正记录（避免再犯）
+
+- ❌ 初版描述："axios 1.15.x 内部某处对 axios error 做 JSON.stringify"
+- ✅ 老板纠正：`JSON.stringify(stream)` 是 DeepSeekService.js 自己的代码（384 行），不是 axios 内部
+- 教训：写根因分析时，先验证"是谁在做这个操作"，不要默认是第三方库
+
+### 计划文档
+
+- spec/plan: `C:\Users\sunys\.claude\plans\sorted-sleeping-planet.md`
+
+### 验证
+
+- `npm run build`：通过
+- 单元测试 64/64 通过（SmartDesignChat / UnifiedStrategy / DeepSeek 相关）
+- 打包产物：`build/renderer/assets/assistant-avatar-{hash}.png` 存在
+- JS bundle 中：`new URL("/assets/assistant-avatar-xxx.png", import.meta.url).href`
+
+### 手动验证（老板必做）
+
+启动应用后：
+1. 智能设计助手头像是否正常显示
+2. 多轮对话后主进程内存是否稳定（应 < 500MB）
+3. 重启应用头像依然正常
+
+### 构建产物
+
+- `dist-8.3.9/砼智 Setup 8.3.9.exe`（NSIS 安装包，147 MB）
+- `dist-8.3.9/砼智-8.3.9-x64.exe`（绿色便携版，147 MB）
+
+---
+
 ## v8.3.8 (2026-06-26) - 应用品牌更名为砼智 + 智能设计助手头像
 
 ### 版本信息

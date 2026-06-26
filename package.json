@@ -71,7 +71,7 @@
     "productName": "砼智",
     "copyright": "Copyright © 2026",
     "directories": {
-      "output": "dist-8.3.8",
+      "output": "dist-8.3.9",
       "buildResources": "public"
     },
     "files": [

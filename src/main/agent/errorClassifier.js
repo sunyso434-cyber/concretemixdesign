@@ -140,7 +140,15 @@ const HARD_LIMIT = 50 * 1024  // 整体硬截断 50KB
  */
 function truncateDetails(details) {
   if (!details || typeof details !== 'object') return details
-  const totalSize = JSON.stringify(details).length
+  // v8.3.8: 用 try/catch 兜底循环引用 / BigInt / Symbol 等不可序列化场景
+  // axios 错误 response.data 可能是 stream，含 TLSSocket.parser.socket 循环引用 → JSON.stringify 抛 TypeError
+  // 兜底为 0：走软截断路径而非抛错，不破坏现有逻辑
+  let totalSize = 0
+  try {
+    totalSize = JSON.stringify(details).length
+  } catch (_) {
+    totalSize = 0
+  }
   if (totalSize > HARD_LIMIT) {
     return {
       _truncated: true,

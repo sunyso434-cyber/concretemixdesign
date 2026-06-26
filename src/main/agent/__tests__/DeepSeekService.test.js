@@ -1,4 +1,5 @@
 // src/main/agent/__tests__/DeepSeekService.test.js
+const { Readable } = require('stream')
 const DeepSeekService = require('../../services/DeepSeekService')
 
 describe('DeepSeekService 配置', () => {
@@ -90,6 +91,102 @@ describe('DeepSeekService 配置', () => {
       const cfg = await svc._getConfig()
       expect(cfg.maxSteps).toBe(15)  // agentMaxSteps 透传
       expect(cfg.model).toBe('deepseek-v4-pro')
+    })
+  })
+
+  // v8.3.8: 网络错误码映射补全 + stream 响应体安全读取
+  describe('_buildClassifiedError（v8.3.8 网络错误码 + stream 安全）', () => {
+    test('ECONNRESET 应映射为 E-NET-500（核心修复：DeepSeek 服务端 TLS reset 走 llmNetwork 5 次熔断路径）', async () => {
+      const err = new Error('read ECONNRESET')
+      err.code = 'ECONNRESET'
+      const classified = await service._buildClassifiedError(err, 'DeepSeekService.chat')
+      expect(classified.code).toBe('E-NET-500')
+      expect(classified.success).toBe(false)
+      expect(classified.details.callSite).toBe('DeepSeekService.chat')
+      expect(classified.details.httpStatus).toBeUndefined()
+      expect(classified.details.rawMessage).toBe('read ECONNRESET')
+    })
+
+    test('ETIMEDOUT 应映射为 E-NET-500', async () => {
+      const err = new Error('connect ETIMEDOUT')
+      err.code = 'ETIMEDOUT'
+      const classified = await service._buildClassifiedError(err, 'DeepSeekService.chat')
+      expect(classified.code).toBe('E-NET-500')
+    })
+
+    test('ERR_NETWORK 应映射为 E-NET-500', async () => {
+      const err = new Error('Network Error')
+      err.code = 'ERR_NETWORK'
+      const classified = await service._buildClassifiedError(err, 'DeepSeekService.chat')
+      expect(classified.code).toBe('E-NET-500')
+    })
+
+    test('ENOTFOUND 仍映射为 E-NET-500（回归保护）', async () => {
+      const err = new Error('getaddrinfo ENOTFOUND')
+      err.code = 'ENOTFOUND'
+      const classified = await service._buildClassifiedError(err, 'DeepSeekService.chat')
+      expect(classified.code).toBe('E-NET-500')
+    })
+
+    test('ECONNREFUSED 仍映射为 E-NET-500（回归保护）', async () => {
+      const err = new Error('connect ECONNREFUSED')
+      err.code = 'ECONNREFUSED'
+      const classified = await service._buildClassifiedError(err, 'DeepSeekService.chat')
+      expect(classified.code).toBe('E-NET-500')
+    })
+
+    test('ECONNABORTED 仍映射为 E-NET-408（回归保护：超时专属）', async () => {
+      const err = new Error('timeout of 120000ms exceeded')
+      err.code = 'ECONNABORTED'
+      const classified = await service._buildClassifiedError(err, 'DeepSeekService.chat')
+      expect(classified.code).toBe('E-NET-408')
+    })
+
+    test('未知 code 仍兜底为 E-SYS-999（回归保护）', async () => {
+      const err = new Error('weird thing')
+      err.code = 'EGIBBERISH'
+      const classified = await service._buildClassifiedError(err, 'DeepSeekService.chat')
+      expect(classified.code).toBe('E-SYS-999')
+    })
+
+    test('HTTP 429 仍映射为 E-LLM-429（回归保护）', async () => {
+      const err = new Error('Request failed with status code 429')
+      err.response = { status: 429, data: { error: { message: 'rate limit' } } }
+      const classified = await service._buildClassifiedError(err, 'DeepSeekService.chat')
+      expect(classified.code).toBe('E-LLM-429')
+      expect(classified.details.httpStatus).toBe(429)
+      expect(classified.details.rawMessage).toBe('rate limit')
+    })
+
+    // 核心修复：stream 响应体不能 JSON.stringify（TLSSocket 循环引用）
+    test('response.data 是 stream 时用 _readErrorBody 读取，不抛循环引用', async () => {
+      const stream = Readable.from(['{"error":{"message":"rate limit exceeded"}}'])
+      const err = new Error('Request failed with status code 429')
+      err.response = { status: 429, data: stream }
+      const classified = await service._buildClassifiedError(err, 'DeepSeekService.chat')
+      expect(classified.code).toBe('E-LLM-429')
+      expect(classified.details.rawMessage).toBe('rate limit exceeded')
+    })
+
+    test('response.data 是 stream 且内容非 JSON 时，rawMessage 退回到字符串本身', async () => {
+      const stream = Readable.from(['plain text error body'])
+      const err = new Error('Request failed with status code 500')
+      err.response = { status: 500, data: stream }
+      const classified = await service._buildClassifiedError(err, 'DeepSeekService.chat')
+      expect(classified.code).toBe('E-LLM-500')
+      expect(classified.details.rawMessage).toBe('plain text error body')
+    })
+
+    test('response.data 是 stream 但读取失败时，rawMessage 退回到 error.message', async () => {
+      const stream = Readable.from([])  // 空 stream
+      stream.destroy(new Error('stream read failed'))
+      const err = new Error('socket hang up')
+      err.code = 'ECONNRESET'
+      err.response = { status: undefined, data: stream }
+      const classified = await service._buildClassifiedError(err, 'DeepSeekService.chat')
+      expect(classified.code).toBe('E-NET-500')
+      // stream 读取失败 → rawMessage 用 error.message
+      expect(classified.details.rawMessage).toBe('socket hang up')
     })
   })
 })

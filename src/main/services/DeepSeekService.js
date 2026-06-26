@@ -358,14 +358,17 @@ class DeepSeekService {
   /**
    * 把任意 axios / network 异常归一为 createError 标准结构（方向 A：直接构造，不走 classifyError）。
    * 拆 HTTP 400/401/402/403/413/429/503 → 各自 E-LLM-xxx；其他 5xx → E-LLM-500；
-   * ECONNABORTED → E-NET-408；ENOTFOUND / ECONNREFUSED → E-NET-500；
+   * ECONNABORTED → E-NET-408；ENOTFOUND / ECONNREFUSED / ETIMEDOUT / ERR_NETWORK / ECONNRESET → E-NET-500；
    * 其余未知错误 → E-SYS-999 兜底。
+   *
+   * v8.3.8: 错误响应体可能是 stream（responseType:'stream' 模式下），
+   * 直接 JSON.stringify 会触发 TLSSocket 循环引用 → 改用 _readErrorBody 异步读取。
    *
    * @param {Error|object} error  原始异常（axios reject / Error）
    * @param {string} callSite     发生位置，如 'DeepSeekService.chat'
-   * @returns {object} createError 标准结构（6 字段：success/code/title/hint/recovery/details）
+   * @returns {Promise<object>} createError 标准结构（6 字段：success/code/title/hint/recovery/details）
    */
-  _buildClassifiedError(error, callSite) {
+  async _buildClassifiedError(error, callSite) {
     const status = error && error.response && error.response.status
     const code = (() => {
       const httpToCode = {
@@ -375,15 +378,42 @@ class DeepSeekService {
       if (status && httpToCode[status]) return httpToCode[status]
       if (status && status >= 500) return 'E-LLM-500'  // 其他 5xx 兜底
       if (error && error.code === 'ECONNABORTED') return 'E-NET-408'
-      if (error && (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED')) return 'E-NET-500'
+      if (error && ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'ERR_NETWORK', 'ECONNRESET'].includes(error.code)) {
+        return 'E-NET-500'
+      }
       return 'E-SYS-999'  // 兜底
     })()
 
     const data = error && error.response && error.response.data
-    const rawMessage = (data && data.error && data.error.message)
-      || (data && typeof data === 'object' ? JSON.stringify(data).slice(0, 500) : '')
-      || (error && error.message)
-      || ''
+    let rawMessage = ''
+    if (data && typeof data.on === 'function') {
+      // v8.3.8: stream 对象（responseType:'stream' 模式下 HTTP 错误的 response.data）
+      // 不能 JSON.stringify（TLSSocket.parser.socket 循环引用），
+      // 用 _readErrorBody 异步消费 chunks；读取失败时退回 error.message
+      try {
+        const body = await this._readErrorBody(data)
+        if (body != null) {
+          if (typeof body === 'string') {
+            rawMessage = body.slice(0, 500)
+          } else if (body.error && body.error.message) {
+            // DeepSeek API 错误结构：{ error: { message: '...' } }
+            rawMessage = body.error.message
+          } else {
+            // 其他结构：尝试 JSON.stringify（加 try/catch 兜底循环引用）
+            try { rawMessage = JSON.stringify(body).slice(0, 500) } catch (_) {}
+          }
+        }
+      } catch (_) { /* stream 读取失败 → 兜底 */ }
+    } else if (data && data.error && data.error.message) {
+      rawMessage = data.error.message
+    } else if (data && typeof data === 'object') {
+      try {
+        rawMessage = JSON.stringify(data).slice(0, 500)
+      } catch (_) {
+        // 循环引用 / BigInt 不可序列化 → 兜底
+      }
+    }
+    if (!rawMessage && error && error.message) rawMessage = String(error.message)
 
     return createError(code, null, null, {
       httpStatus: status,
@@ -529,7 +559,7 @@ class DeepSeekService {
     try {
       return await this._callAPIStream(messages, true, onEvent, tools)
     } catch (error) {
-      throw this._buildClassifiedError(error, 'DeepSeekService.chatWithToolsStream')
+      throw await this._buildClassifiedError(error, 'DeepSeekService.chatWithToolsStream')
     }
   }
 
@@ -942,7 +972,7 @@ class DeepSeekService {
         messages // Return full message list for frontend to extract tool_call display data
       }
     } catch (error) {
-      throw this._buildClassifiedError(error, 'DeepSeekService.chat')
+      throw await this._buildClassifiedError(error, 'DeepSeekService.chat')
     }
   }
 
@@ -1334,7 +1364,7 @@ ${diagnosisText}
       const content = response.data.choices[0].message.content
       return this.parseResponse(content)
     } catch (error) {
-      throw this._buildClassifiedError(error, 'DeepSeekService.analyzeMixDesign')
+      throw await this._buildClassifiedError(error, 'DeepSeekService.analyzeMixDesign')
     }
   }
 
