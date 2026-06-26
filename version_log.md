@@ -315,7 +315,103 @@ asar 内部路径格式与系统 shell 不同：
 
 ---
 
-## v8.3.8 (2026-06-26) - 应用品牌更名为砼智 + 智能设计助手头像
+## v8.4.1 打包记录（2026-06-26 15:57）
+
+### 版本信息
+- **版本号**: 8.4.0 → 8.4.1（patch 升级）
+- **commits**: `f0e2f0b` → `5ec2216`（4 个 commit）
+
+### 包含改动
+
+| commit | 类型 | 说明 |
+|--------|------|------|
+| `61dfecc` | fix(agent) | tool 消息孤儿救援，防止 DeepSeek API E-LLM-400 熔断 |
+| `7a5ffc1` | feat(ui) | 圆环一直显示，不区分 50%（老板约束变更） |
+
+### 改动 1 详解：fix(agent) tool 孤儿救援
+
+**老板反馈**：问"材料库中原材料类型有个'其他'你可以看到吗？" → 6 轮全部 `E-LLM-400 httpStatus=400` "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'" → 熔断 `E-AGENT-001`。
+
+**根因**：DeepSeek API 硬性要求 `role='tool'` 消息必须紧跟在带 `tool_calls` 的 assistant 消息之后。但数据库 `ChatHistory.toolCalls` 字段可能为 null（老数据、空数组被存为 null、Sequelize JSON 序列化丢失），导致 `buildHistoryMessages` 输出"孤儿"tool 消息。
+
+**修复**：`AgentMemoryService.buildHistoryMessages` 出口对每条 tool 消息做孤儿救援
+- 向前找最近 assistant（遇到 user 就停）
+- 父含匹配 `tool_call_id` → 正常配对
+- 父缺/不匹配 `tool_calls` → 补占位 `{ id, type: 'function', function: { name: 'unknown_recovered', arguments: '{}' } }`
+- 找不到父（session 第一条就是 tool）→ 标记 `_drop`，过滤时丢弃
+
+**测试**：3 个新回归测试覆盖所有场景（缺 tool_calls / 孤儿丢弃 / 多 tool 共用父）
+
+### 改动 2 详解：feat(ui) 圆环一直显示
+
+**老板反馈**：圆环在 context < 50% 时不显示，导致用户看不到这个功能。
+
+**改动**：
+- `ContextIndicator.utils.js`：删 `VISIBILITY_THRESHOLD` 常量（不写兼容性代码），`getIndicatorVisibility` 永远返回 `'visible'`
+- `ContextIndicator.utils.test.js`：删 `< 0.5 hidden` 测试，加"任何 percent 都返回 visible"测试
+- `ContextIndicator.jsx`：不改（仍调用 `getIndicatorVisibility`，但返回值恒为 `'visible'`，原有的 `=== 'hidden'` 检查永远 false，自动不 return null）
+
+**保留约束**：>= 80% 仍变红，22px 圆环 + 点击触发压缩逻辑不变。
+
+### 打包命令
+
+`npm run electron:build`
+
+### 产物清单
+
+| 类型 | 文件 | 大小 |
+|------|------|------|
+| NSIS 安装包 | `dist-8.4.1/砼智 Setup 8.4.1.exe` | 147 MB（153921994 B） |
+| 便携版 | `dist-8.4.1/砼智-8.4.1-x64.exe` | 146 MB（153475283 B） |
+| 解压目录 | `dist-8.4.1/win-unpacked/` | 656 MB |
+| 顶层 | `dist-8.4.1/` | 950 MB |
+
+### 构建耗时
+
+- vite build: 13.66s（3947 modules transformed）
+- electron-builder 整体: ~5 分钟
+- 最大 chunk：`AIAnalysisPage-DpfELjS_.js` = 1.4 MB
+
+### 验证项
+
+- [x] `scripts/verify-v8.4.1-build.js` 8/8 项全部通过：
+  - [x] `\src\main\services\DeepSeekService.js` 含 compressContext / _callSummaryAPI / selectTail / buildCompressUserPrompt
+  - [x] `\src\main\ipcHandlers\aiAnalysisHandler.js` 含 aiAnalysis:compressContext + type: 'usage'
+  - [x] `\src\shared\utils\contextStats.js` 含 DEFAULT_CONTEXT_LIMIT / getContextPercent / messagesToText
+  - [x] `build/renderer/assets/AIAnalysisPage-DpfELjS_.js` chunk 含 handleCompressContext / isCompressing
+  - [x] `build/renderer/assets/index-DY7vtXWE.css` 含 @keyframes context-spin
+  - [x] **`\src\main\services\AgentMemoryService.js` 含 unknown_recovered + _drop（v8.4.1 新增）**
+  - [x] **渲染 bundle 已不含 VISIBILITY_THRESHOLD（v8.4.1 新增）**
+- [x] 全量相关单测 **96/96 全过、零回归**（buildHistoryMessages 18 + AgentMemoryService + UnifiedStrategy + Orchestrator.integration + agentHandler + ContextIndicator.utils 18）
+
+### 待发布
+
+将 `dist-8.4.1/砼智 Setup 8.4.1.exe` 上传到发布渠道；更新 README/CHANGELOG 标注 v8.4.1。
+
+### 手动验证（老板必做，v8.4.1 升级版）
+
+启动 `dist-8.4.1/砼智-8.4.1-x64.exe` 后：
+
+1. 智能设计助手头像是否正常显示（v8.3.9 已修）
+2. **工具栏"清空对话"按钮右侧是否能看到 22px 圆环按钮（v8.4.1 新增：context < 50% 也显示，包括 0%）**
+3. 发约 50 条消息或粘贴长文 → 圆环蓝色填充增加，tooltip "已使用 N%"
+4. 继续加消息到 80%+ → 圆环变红，tooltip 追加"建议压缩"
+5. 点击圆环 → 圆环显示 loading（半透明 + 旋转）→ 5-10 秒后顶部出现 5 段结构化摘要消息（role=assistant, _compacted=true）
+6. 弹成功 toast "上下文已压缩"，圆环比例下降到 30% 以下
+7. **v8.4.1 修复验证**：重启 App → 加载历史 session → 问个老问题，**不应再出现 E-LLM-400 熔断**
+
+### 构建产物
+
+- `dist-8.4.1/砼智 Setup 8.4.1.exe`（NSIS 安装包，147 MB）
+- `dist-8.4.1/砼智-8.4.1-x64.exe`（绿色便携版，146 MB）
+
+### 关联脚本
+
+- `scripts/verify-v8.4.1-build.js` — asar 内含 v8.4.0 + v8.4.1 新功能验证（CI 用 / 手动 verify 用）
+
+---
+
+## v8.3.8 (2026-06-26) - 应用品牌更名为硷智 + 智能设计助手头像
 
 ### 版本信息
 - **版本号**: 8.3.8
