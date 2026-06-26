@@ -232,6 +232,89 @@ try {
 
 ---
 
+## v8.4.0 打包记录（2026-06-26 12:28）
+
+### 背景
+
+老板反馈 "上下文压缩和圆环未出现"。查 `bug.png` 显示 4 个"硷智"进程（一个无响应、内存 3.8GB）。
+
+排查发现：**v8.4.0 新功能的所有代码（ContextIndicator 圆环 + compressContext 压缩）已经在源码中实现、115 个单元测试全部通过，但 `package.json` 版本号还停在 8.3.9，没有重新跑 `npm run electron:build` 打新包**。老板测试的 `dist-8.3.9/` 包的 asar 里没有 `build/renderer/assets/*SmartDesignChat*`、没有 `aiAnalysis:compressContext` handler、也没有 `@keyframes context-spin`，自然看不到圆环和压缩按钮。
+
+### 修复
+
+1. `package.json` 版本号 `8.3.9` → `8.4.0`
+2. `package.json` 中 `directories.output` `dist-8.3.9` → `dist-8.4.0`
+3. 跑 `npm run electron:build` 重新构建并打包
+4. 写 `scripts/verify-v8.4.0-build.js` 验证 asar 含 v8.4.0 新功能（5/5 通过）
+
+### 打包命令
+
+`npm run electron:build`（即 `cross-env NODE_ENV=production vite build && electron-builder`）
+
+### 产物清单
+
+| 类型 | 文件 | 大小 |
+|------|------|------|
+| NSIS 安装包 | `dist-8.4.0/砼智 Setup 8.4.0.exe` | 147 MB（153918000 B） |
+| 便携版 | `dist-8.4.0/砼智-8.4.0-x64.exe` | 146 MB（153471280 B） |
+| 解压目录 | `dist-8.4.0/win-unpacked/` | 656 MB |
+| 顶层 | `dist-8.4.0/` | 950 MB |
+
+### 平台/架构
+
+- electron: 28.3.3
+- 平台: win32 / x64
+- electron-builder: 24.13.3
+
+### 构建耗时
+
+- vite build: 14.84s（3947 modules transformed）
+- electron-builder 整体: ~5 分钟（含 sqlite3 native rebuild）
+- 最大 chunk：`AIAnalysisPage-D56Q7cvd.js` = 1.4 MB（含 v8.4.0 新增 ContextIndicator + useChatState.compress）
+
+### 验证项
+
+- [x] `npm run electron:build` 无错误，3947 模块全部转换成功
+- [x] `scripts/verify-v8.4.0-build.js` 5/5 项全部通过：
+  - [x] `\src\main\services\DeepSeekService.js` 含 `compressContext` / `_callSummaryAPI` / `selectTail` / `buildCompressUserPrompt`
+  - [x] `\src\main\ipcHandlers\aiAnalysisHandler.js` 含 `aiAnalysis:compressContext` IPC handler + `type: 'usage'` 流式事件
+  - [x] `\src\shared\utils\contextStats.js` 含 `DEFAULT_CONTEXT_LIMIT` / `getContextPercent` / `messagesToText`
+  - [x] `build/renderer/assets/AIAnalysisPage-D56Q7cvd.js` chunk 含 `handleCompressContext` / `isCompressing`（Vite 已 tree-shake 进 AIAnalysisPage chunk）
+  - [x] `build/renderer/assets/index-DY7vtXWE.css` 含 `@keyframes context-spin` 动画
+- [x] 单测全过：v8.4.0 新增 6 套测试 115 个用例（contextStats / agentStoreCore / useChatState.compress / DeepSeekService.compress / aiAnalysisHandler.compress / ContextIndicator.utils）
+
+### 路径格式踩坑（已记录）
+
+asar 内部路径格式与系统 shell 不同：
+- `asar.listPackage()` 返回的路径以**单反斜杠**开头（虚拟根标识符），且分隔符是单反斜杠，如 `\src\main\services\DeepSeekService.js`
+- `asar.extractFile()` 必须**去掉前导反斜杠**：`src\main\services\DeepSeekService.js`
+- 用 `npx asar extract-file` 命令行版本对路径处理不一致，**推荐直接用 `@electron/asar` 库的 Node API**
+
+### 待发布
+
+将 `dist-8.4.0/砼智 Setup 8.4.0.exe` 上传到发布渠道；更新 README/CHANGELOG 标注 v8.4.0。
+
+### 手动验证（老板必做）
+
+启动 `dist-8.4.0/砼智-8.4.0-x64.exe` 后：
+1. 智能设计助手头像是否正常显示（v8.3.9 已修）
+2. 工具栏"清空对话"按钮右侧是否能看到 22px 圆环按钮（context < 50% 不显示）
+3. 发约 50 条消息或粘贴长文，让估算 token 达到 400k+ → 圆环应出现，蓝色，tooltip "已使用 50%"
+4. 继续加消息到 80%+ → 圆环变红，tooltip 追加"建议压缩"
+5. 点击圆环 → 圆环显示 loading（半透明 + 旋转）→ 5-10 秒后顶部出现 5 段结构化摘要消息（role=assistant, _compacted=true）
+6. 弹成功 toast "上下文已压缩"，圆环比例下降到 30% 以下
+
+### 构建产物
+
+- `dist-8.4.0/砼智 Setup 8.4.0.exe`（NSIS 安装包，147 MB）
+- `dist-8.4.0/砼智-8.4.0-x64.exe`（绿色便携版，146 MB）
+
+### 关联脚本
+
+- `scripts/verify-v8.4.0-build.js` — asar 内含 v8.4.0 新功能验证（CI 用 / 手动 verify 用）
+
+---
+
 ## v8.3.8 (2026-06-26) - 应用品牌更名为砼智 + 智能设计助手头像
 
 ### 版本信息
