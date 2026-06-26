@@ -35,7 +35,12 @@ import { parseMixedMessage, isInCommandMode, tabComplete, buildAllCommandNames }
 
 const { Text } = Typography
 const { Content } = Layout
-const ASSISTANT_AVATAR_SRC = '/assistant-avatar.png'
+// [v8.3.9 fix] 用 new URL + import.meta.url 让 Vite 输出**相对路径**：
+// 普通 `import xxx from '...png'` 在 Vite 下输出绝对路径 /assets/xxx.png，
+// 在 Electron file:// 协议下会被解析为 file:///C:/assets/xxx.png（C盘根目录），
+// 触发 AntD Avatar 反复 404 → 主进程内存暴涨 + 头像空白。
+// 用 new URL(..., import.meta.url).href 强制 Vite 编译时插入相对路径 ./assets/xxx.png。
+const ASSISTANT_AVATAR_SRC = new URL('../assets/assistant-avatar.png', import.meta.url).href
 
 const ANALYSIS_RESULT_KEYS = [
   'materialInfluenceAnalysis',
