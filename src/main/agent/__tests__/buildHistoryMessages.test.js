@@ -89,4 +89,69 @@ describe('buildHistoryMessages (spec 8.1 回归测试)', () => {
     expect(msgs[0].role).toBe('assistant')
     expect(msgs[0].content).toBe('')
   })
+
+  // === v8.4.x 新增：tool 消息孤儿救援（防止 DeepSeek API 400） ===
+  // DeepSeek API 规则：role='tool' 消息必须紧跟在带 tool_calls 的 assistant 之后
+  // 根因：数据库中 toolCalls 字段可能为 null（老数据、空数组被存为 null 等），
+  //      导致 buildHistoryMessages 输出"孤儿"tool 消息，LLM 返回 E-LLM-400
+  // 修复：buildHistoryMessages 出口对 tool 消息做"父 assistant 补占位 + 孤儿丢弃"
+
+  test('修复 1: assistant 缺 tool_calls 但后续有 tool(tool_call_id) → 补占位 tool_calls', async () => {
+    // 时间正序: [user, assistant(只 content 无 tool_calls，模拟脏数据), tool(tool_call_id)]
+    ChatHistory.findAll.mockResolvedValue([
+      { role: 'tool', content: '{"result":1}', toolCallId: 'call_1', toolCalls: null, metadata: null },
+      { role: 'assistant', content: '好的我来算', toolCallId: null, toolCalls: null, metadata: null },  // ← toolCalls=null（脏数据）
+      { role: 'user', content: '帮我算C30', toolCallId: null, toolCalls: null, metadata: null }
+    ])
+
+    const msgs = await AgentMemoryService.buildHistoryMessages('sess-1')
+
+    expect(msgs).toHaveLength(3)
+    // assistant 消息被补上占位 tool_calls
+    expect(msgs[1]).toMatchObject({
+      role: 'assistant',
+      content: '好的我来算',
+      tool_calls: [{
+        id: 'call_1',
+        type: 'function',
+        function: { name: 'unknown_recovered', arguments: '{}' }
+      }]
+    })
+    // tool 消息保留
+    expect(msgs[2]).toMatchObject({ role: 'tool', tool_call_id: 'call_1' })
+  })
+
+  test('修复 2: session 第一条就是 tool 消息 → 丢弃孤儿', async () => {
+    // 时间正序: [tool(tool_call_id), user, assistant]
+    ChatHistory.findAll.mockResolvedValue([
+      { role: 'assistant', content: '好的', toolCallId: null, toolCalls: null, metadata: null },
+      { role: 'user', content: '继续', toolCallId: null, toolCalls: null, metadata: null },
+      { role: 'tool', content: '{"r":1}', toolCallId: 'orphan_1', toolCalls: null, metadata: null }  // ← 第一条，无父
+    ])
+
+    const msgs = await AgentMemoryService.buildHistoryMessages('sess-1')
+
+    // 孤儿 tool 应被丢弃；末尾孤立 user 也应被移除
+    expect(msgs).toHaveLength(2)
+    expect(msgs.find(m => m.role === 'tool')).toBeUndefined()
+    expect(msgs[0]).toMatchObject({ role: 'user', content: '继续' })
+    expect(msgs[1]).toMatchObject({ role: 'assistant', content: '好的' })
+  })
+
+  test('修复 3: 多个 tool 消息共用同一父 → 父 tool_calls 包含多个占位', async () => {
+    // 时间正序: [user, assistant(无 tool_calls), tool(call_1), tool(call_2)]
+    ChatHistory.findAll.mockResolvedValue([
+      { role: 'tool', content: '{"r":1}', toolCallId: 'call_2', toolCalls: null, metadata: null },
+      { role: 'tool', content: '{"r":2}', toolCallId: 'call_1', toolCalls: null, metadata: null },
+      { role: 'assistant', content: '好的', toolCallId: null, toolCalls: null, metadata: null },
+      { role: 'user', content: '帮我做两件事', toolCallId: null, toolCalls: null, metadata: null }
+    ])
+
+    const msgs = await AgentMemoryService.buildHistoryMessages('sess-1')
+
+    expect(msgs).toHaveLength(4)
+    expect(msgs[1].tool_calls).toHaveLength(2)
+    const ids = msgs[1].tool_calls.map(tc => tc.id).sort()
+    expect(ids).toEqual(['call_1', 'call_2'])
+  })
 })

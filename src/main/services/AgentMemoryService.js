@@ -209,12 +209,54 @@ ${history}
       messages.push(msg)
     }
 
-    // 确保最后一条是 assistant 消息（如果最后一条是 user，说明上次 run 中断了，移除它避免 LLM 回答过时问题）
-    if (messages.length > 0 && messages[messages.length - 1].role === 'user') {
-      messages.pop()
+    // v8.4.x：tool 消息孤儿救援（DeepSeek API 硬性要求 tool 消息必须紧跟带 tool_calls 的 assistant）
+    // 根因：数据库 ChatHistory.toolCalls 字段可能为 null（老数据无字段、空数组被存为 null、
+    //      Sequelize JSON 字段序列化丢失等），buildHistoryMessages 输出"孤儿"tool 消息
+    //      → DeepSeek API 返回 E-LLM-400 "Messages with role 'tool' must be a response to a preceding message with 'tool_calls'"
+    // 修复：对每条 tool 消息向前找最近 assistant（不跨过 user），按需补占位或标记丢弃
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i]
+      if (m.role !== 'tool' || !m.tool_call_id) continue
+
+      // 向前找最近的 assistant（遇到 user 就停 — 中间隔 user 说明这条 tool 已是孤儿）
+      let parentIdx = -1
+      for (let j = i - 1; j >= 0; j--) {
+        if (messages[j].role === 'user') break
+        if (messages[j].role === 'assistant') {
+          parentIdx = j
+          break
+        }
+      }
+
+      if (parentIdx < 0) {
+        // 找不到父 assistant（session 第一条就是 tool）→ 标记丢弃
+        m._drop = true
+        continue
+      }
+
+      const parent = messages[parentIdx]
+      if (!Array.isArray(parent.tool_calls)) parent.tool_calls = []
+      const hasMatch = parent.tool_calls.some(tc => tc && tc.id === m.tool_call_id)
+      if (!hasMatch) {
+        // 父 assistant 缺对应 tool_calls → 补占位让 API 接受
+        // name='unknown_recovered' + arguments='{}' 让 LLM 知道这是历史数据补全的占位
+        parent.tool_calls.push({
+          id: m.tool_call_id,
+          type: 'function',
+          function: { name: 'unknown_recovered', arguments: '{}' }
+        })
+      }
     }
 
-    return messages
+    // 过滤掉孤儿 tool 消息
+    const filtered = messages.filter(m => !m._drop)
+
+    // 确保最后一条是 assistant 消息（如果最后一条是 user，说明上次 run 中断了，移除它避免 LLM 回答过时问题）
+    if (filtered.length > 0 && filtered[filtered.length - 1].role === 'user') {
+      filtered.pop()
+    }
+
+    return filtered
   }
 
   /**
