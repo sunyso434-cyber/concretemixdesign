@@ -5,7 +5,7 @@
  * 便于 jest 在 node 环境下直接 require 测试，无需 jsdom。
  *
  * 设计要点：
- * - 可见性阈值 < 50%（老板约束：不渲染 = 不占位）
+ * - v8.4.1：圆环一直显示，不区分 50%（老板约束 — 让用户始终能看到上下文占用进度）
  * - 红色阈值 >= 80%（提示压缩）
  * - percent 超出 [0, 1] 自动 clamp
  */
@@ -17,7 +17,6 @@ export const STROKE_WIDTH = 2
 export const RADIUS = (BUTTON_DIAMETER - STROKE_WIDTH) / 2  // = 10
 export const CIRCUMFERENCE = 2 * Math.PI * RADIUS          // ≈ 62.8319
 
-export const VISIBILITY_THRESHOLD = 0.5
 export const RED_THRESHOLD = 0.8
 
 export const COLOR_BLUE = '#1890ff'
@@ -35,10 +34,10 @@ export function clampPercent(percent) {
 
 /**
  * 是否应该渲染组件
- * @returns {'hidden' | 'visible'}
+ * @returns {'visible'}  v8.4.1: 圆环一直显示，不区分 50%
  */
-export function getIndicatorVisibility(percent) {
-  return percent < VISIBILITY_THRESHOLD ? 'hidden' : 'visible'
+export function getIndicatorVisibility(_percent) {
+  return 'visible'
 }
 
 /**

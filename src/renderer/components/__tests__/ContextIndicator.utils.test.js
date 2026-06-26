@@ -1,11 +1,9 @@
 /**
  * ContextIndicator 纯函数测试
  *
- * 覆盖（来自 Task 6 brief）：
- * - percent < 0.5 不渲染（visible='hidden'）
- * - percent = 0.5 渲染（visible='visible'）
- * - 0.5-0.8 蓝色（#1890ff）
- * - >= 0.8 红色（#ff4d4f）
+ * 覆盖：
+ * - v8.4.1 老板约束：圆环一直显示，不区分 50%（任何 percent 都返回 visible）
+ * - < 0.8 蓝色（#1890ff）；>= 0.8 红色（#ff4d4f）
  * - percent > 1 clamp 到 1，dashoffset = 0
  * - loading 时禁用点击（buttonProps.disabled = true）
  * - tooltip 显示正确百分比（已使用 N%）
@@ -18,7 +16,6 @@
  */
 
 const {
-  VISIBILITY_THRESHOLD,
   RED_THRESHOLD,
   getIndicatorVisibility,
   getIndicatorColor,
@@ -35,10 +32,6 @@ describe('ContextIndicator.utils', () => {
       expect(BUTTON_DIAMETER).toBe(22)
     })
 
-    test('VISIBILITY_THRESHOLD = 0.5（< 50% 不渲染）', () => {
-      expect(VISIBILITY_THRESHOLD).toBe(0.5)
-    })
-
     test('RED_THRESHOLD = 0.8（>= 80% 变红）', () => {
       expect(RED_THRESHOLD).toBe(0.8)
     })
@@ -50,13 +43,11 @@ describe('ContextIndicator.utils', () => {
   })
 
   describe('getIndicatorVisibility', () => {
-    test('percent < 0.5 返回 hidden', () => {
-      expect(getIndicatorVisibility(0.3)).toBe('hidden')
-      expect(getIndicatorVisibility(0)).toBe('hidden')
-      expect(getIndicatorVisibility(0.49)).toBe('hidden')
-    })
-
-    test('percent >= 0.5 返回 visible', () => {
+    // v8.4.1：老板约束 — 圆环一直显示，不区分 50%
+    test('任何 percent 都返回 visible（包括 0 和 < 0.5）', () => {
+      expect(getIndicatorVisibility(0)).toBe('visible')
+      expect(getIndicatorVisibility(0.3)).toBe('visible')
+      expect(getIndicatorVisibility(0.49)).toBe('visible')
       expect(getIndicatorVisibility(0.5)).toBe('visible')
       expect(getIndicatorVisibility(0.65)).toBe('visible')
       expect(getIndicatorVisibility(0.85)).toBe('visible')
