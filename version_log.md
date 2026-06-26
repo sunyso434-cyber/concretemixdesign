@@ -171,6 +171,46 @@ try {
 
 - spec/plan: `C:\Users\sunys\.claude\plans\sorted-sleeping-planet.md`
 
+---
+
+## v8.3.9 打包记录（2026-06-26 12:18）
+
+### 打包命令
+
+`npm run electron:build`（即 `cross-env NODE_ENV=production vite build && electron-builder`）
+
+### 产物清单
+
+| 类型 | 文件 | 大小 |
+|------|------|------|
+| NSIS 安装包 | `dist-8.3.9/砼智 Setup 8.3.9.exe` | 147 MB |
+| 便携版 | `dist-8.3.9/砼智-8.3.9-x64.exe` | 147 MB |
+| 解压目录 | `dist-8.3.9/win-unpacked/` | - |
+
+### 平台/架构
+
+- electron: 28.3.3
+- 平台: win32 / x64
+- electron-builder: 24.13.3
+
+### 构建耗时
+
+- vite build: 13.37s（3947 modules transformed）
+- electron-builder 整体: ~5 分钟（含 sqlite3 native rebuild）
+- 增量内容: assistant-avatar-Ssjsm55Z.png（83.68 kB）被正确 hash 化到 assets
+
+### 验证项
+
+- [x] vite build 无错误，3947 模块全部转换成功
+- [x] assistant-avatar.png 通过 Vite 模块资源处理，输出 `build/renderer/assets/assistant-avatar-Ssjsm55Z.png`
+- [x] R1 path resolver 已修复（file:// 协议）
+- [x] electron-builder 成功生成 NSIS + portable 双格式
+- [x] sqlite3 native 模块已 rebuild（适配 electron 28 ABI）
+
+### 待发布
+
+将 `dist-8.3.9/砼智 Setup 8.3.9.exe` 上传到发布渠道；更新 README/CHANGELOG 标注 v8.3.9。
+
 ### 验证
 
 - `npm run build`：通过
