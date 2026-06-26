@@ -1,3 +1,43 @@
+## v8.3.8 (2026-06-26) - 应用品牌更名为砼智 + 智能设计助手头像
+
+### 版本信息
+- **版本号**: 8.3.8
+- **Electron**: 28.3.3
+- **Node.js**: 20.20.2
+
+### 品牌更新
+
+- 应用中文显示名称改为“砼智”。
+- 应用英文描述改为“Concrete Agent”。
+- 安装包、便携版、快捷方式显示名同步改为“砼智”。
+- 保留内部 `name: concrete-mixdesign` 和 `appId: com.concrete.mixdesign`，避免影响老用户数据目录和升级路径。
+
+### 视觉更新
+
+- 智能设计助手顶部标题旁的小机器人图标替换为老板提供的头像。
+- 智能设计助手 AI 回复消息左侧头像替换为同一头像。
+- 源图 `头像.png` 检查为 PNG 2048×2048，已转换为 `public/assistant-avatar.png`：PNG 256×256，约 84KB，适合聊天头像使用并可随 Vite 构建打包。
+
+### 构建产物
+- `dist-8.3.8/砼智 Setup 8.3.8.exe`（NSIS 安装包，146.7 MB，153800650 字节）
+- `dist-8.3.8/砼智-8.3.8-x64.exe`（绿色便携版，146.2 MB，153353926 字节）
+
+### 验证
+- `npm run build`：通过
+- `npm run electron:build`：通过
+- 头像资源检查：`public/assistant-avatar.png` 为 PNG 256×256
+
+### 改动文件
+- `package.json` — 版本号、打包输出目录、productName、shortcutName、description
+- `src/App.jsx` — 顶部应用标题改为“砼智”
+- `index.html` — 页面标题改为“砼智”
+- `doc/prototype.html` — 原型标题改为“砼智”
+- `src/renderer/components/SmartDesignChat.jsx` — 智能设计助手头像引用
+- `src/renderer/index.css` — 智能设计助手头像样式
+- `public/assistant-avatar.png` — 256×256 助手头像资源
+
+---
+
 ## v8.3.7 (2026-06-25) - 修复调试日志循环引用导致误熔断
 
 ### 版本信息

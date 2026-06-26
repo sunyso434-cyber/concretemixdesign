@@ -35,6 +35,7 @@ import { parseMixedMessage, isInCommandMode, tabComplete, buildAllCommandNames }
 
 const { Text } = Typography
 const { Content } = Layout
+const ASSISTANT_AVATAR_SRC = '/assistant-avatar.png'
 
 const ANALYSIS_RESULT_KEYS = [
   'materialInfluenceAnalysis',
@@ -1185,7 +1186,7 @@ const SmartDesignChat = () => {
                 onClick={() => dispatch({ type: 'SET_SIDEBAR_COLLAPSED', payload: !state.session.sidebarCollapsed })}
                 title={state.session.sidebarCollapsed ? '打开对话历史' : '关闭对话历史'}
               />
-              <RobotOutlined style={{ fontSize: 18, color: 'var(--color-primary)' }} />
+              <Avatar src={ASSISTANT_AVATAR_SRC} className="smart-assistant-title-avatar" />
               <Text strong style={{ fontSize: 16 }}>智能设计助手</Text>
             </Space>
             <Space size={8}>
@@ -1267,7 +1268,7 @@ const SmartDesignChat = () => {
               return (
               <List.Item className={item.role === 'user' ? 'smart-chat-item-user' : 'smart-chat-item-assistant'}>
                 <Space align="start" style={{ width: item.role === 'user' ? 'auto' : '100%' }}>
-                  {item.role === 'assistant' && <Avatar icon={<RobotOutlined />} className="chat-avatar" />}
+                  {item.role === 'assistant' && <Avatar src={ASSISTANT_AVATAR_SRC} className="chat-avatar smart-assistant-message-avatar" />}
                   {item.role === 'assistant' ? (
                     <div className="smart-chat-body-assistant" style={{ flex: 1, minWidth: 0 }}>
                       {item.toolCall && item.toolCall.status === 'done' && (

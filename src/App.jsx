@@ -13,7 +13,7 @@ function App() {
     <Layout className="app-container">
       {/* 头部导航 */}
       <Header className="header">
-        <h1 style={{ margin: 0, fontSize: '18px' }}>混凝土配合比设计软件</h1>
+        <h1 style={{ margin: 0, fontSize: '18px' }}>砼智</h1>
         <div>系统设置</div>
       </Header>
       
