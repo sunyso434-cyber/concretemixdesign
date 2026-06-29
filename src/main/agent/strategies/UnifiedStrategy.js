@@ -67,8 +67,58 @@ class UnifiedStrategy {
   }
 
   async execute(input) {
-    const { sessionId, message, webContents, signal, getState, mode } = input
+    const { sessionId, message, webContents, signal, getState, mode, attachments } = input
     this.sessionId = sessionId
+
+    // v9.1.0 修复：处理图片附件
+    // - 渲染端 sendMessage 把 chatState.attachments 通过 IPC 传过来（之前在 IPC handler 被丢）
+    // - 如果有图片，调 analyze_concrete_image 技能识别图片内容，把描述塞进 user message
+    //   这样 LLM 在主循环开始前就"看到"了图片（不依赖 LLM 主动调 analyze_concrete_image）
+    // - 注意：失败时降级（不阻塞 agent），仅记录日志
+    let enhancedMessage = message
+    if (Array.isArray(attachments) && attachments.length > 0) {
+      const imageDescs = []
+      for (const att of attachments) {
+        if (!att || att.type !== 'image' || !att.base64) continue
+        try {
+          const result = await this.skillExecutor.execute('analyze_concrete_image', {
+            imageBase64: att.base64,
+            question: message || '请描述这张图片',
+            context: { source: 'chat_attachment' }
+          })
+          if (result && result.success) {
+            imageDescs.push({
+              originalName: att.originalName || '图片',
+              sizeKB: att.sizeKB,
+              imageType: result.imageType || 'general',
+              description: result.description || '',
+              details: result.details || {}
+            })
+          } else {
+            // 视觉模型未配置或调用失败：降级，把文件名告知 LLM
+            imageDescs.push({
+              originalName: att.originalName || '图片',
+              sizeKB: att.sizeKB,
+              description: '[图片识别失败，请用户检查视觉模型配置]',
+              errorCode: result?.errorCode || result?.code
+            })
+          }
+        } catch (err) {
+          // 单张图片失败不阻塞其他图片
+          console.warn('[UnifiedStrategy] 图片分析失败:', err.message)
+          imageDescs.push({
+            originalName: att.originalName || '图片',
+            description: `[图片分析异常：${err.message}]`
+          })
+        }
+      }
+      if (imageDescs.length > 0) {
+        const imgSummary = imageDescs.map((d, i) =>
+          `【图片${i + 1}：${d.originalName}（${d.sizeKB || '?'}KB）】\n类型：${d.imageType || '?'}\n描述：${d.description}${d.details && Object.keys(d.details).length ? '\n详情：' + JSON.stringify(d.details) : ''}`
+        ).join('\n\n')
+        enhancedMessage = (message ? message + '\n\n' : '') + `📎 老板上传了 ${imageDescs.length} 张图片：\n\n${imgSummary}`
+      }
+    }
 
     const failureCounters = {
       llmParse: 0,

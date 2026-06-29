@@ -16,82 +16,47 @@ class SchemaValidator {
     const errors = []
     const argsObj = args || {}
 
-    for (const [key, schema] of Object.entries(parameters)) {
-      const value = argsObj[key]
+    // 防御：parameters 为 null/undefined 时直接视为通过（避免 Object.entries 报错）
+    if (!parameters || typeof parameters !== 'object') {
+      return { valid: true }
+    }
 
-      // 检查必填参数
-      if (schema.required && (value === undefined || value === null)) {
-        errors.push({
-          param: key,
-          errorCode: ErrorCodes.PARAM_MISSING,
-          message: `缺少必填参数: ${key}`,
-          hint: schema.description || `请提供 ${key}`
-        })
-        continue
-      }
+    // v9.1.0 修复：识别 JSON Schema 嵌套格式（type='object' + properties + required）
+    // - 旧逻辑直接 Object.entries(parameters)，会把 'type'/'properties'/'required' 当字段校验 → bypass
+    // - 新逻辑优先按嵌套格式解析；如无 properties/required 则按 flat schema 校验（向后兼容）
+    const isNestedSchema = parameters && typeof parameters === 'object'
+      && parameters.type === 'object'
+      && parameters.properties && typeof parameters.properties === 'object'
 
-      // 跳过可选的空值
-      if (value === undefined || value === null) continue
+    if (isNestedSchema) {
+      // JSON Schema 嵌套格式：递归校验 properties
+      const flatProperties = parameters.properties
+      const requiredList = Array.isArray(parameters.required) ? parameters.required : []
 
-      // 检查类型
-      if (!this._checkType(value, schema.type)) {
-        errors.push({
-          param: key,
-          errorCode: ErrorCodes.PARAM_INVALID_TYPE,
-          message: `参数 ${key} 类型错误: 期望 ${schema.type}，实际 ${typeof value}`,
-          hint: schema.description
-        })
-        continue
-      }
-
-      // 检查范围 (数值类型)
-      if (schema.type === 'number' || schema.type === 'integer') {
-        if (schema.min !== undefined && value < schema.min) {
+      // 先校验必填
+      for (const key of requiredList) {
+        const value = argsObj[key]
+        if (value === undefined || value === null || value === '') {
+          const schema = flatProperties[key] || {}
           errors.push({
             param: key,
-            errorCode: ErrorCodes.PARAM_OUT_OF_RANGE,
-            message: `参数 ${key} 不能小于 ${schema.min}，当前值: ${value}`,
-            hint: schema.description
-          })
-        }
-        if (schema.max !== undefined && value > schema.max) {
-          errors.push({
-            param: key,
-            errorCode: ErrorCodes.PARAM_OUT_OF_RANGE,
-            message: `参数 ${key} 不能大于 ${schema.max}，当前值: ${value}`,
-            hint: schema.description
+            errorCode: ErrorCodes.PARAM_MISSING,
+            message: `缺少必填参数: ${key}`,
+            hint: schema.description || `请提供 ${key}`
           })
         }
       }
 
-      // 检查数组长度
-      if (schema.type === 'array' && Array.isArray(value)) {
-        if (schema.minItems !== undefined && value.length < schema.minItems) {
-          errors.push({
-            param: key,
-            errorCode: ErrorCodes.PARAM_OUT_OF_RANGE,
-            message: `参数 ${key} 至少需要 ${schema.minItems} 个元素，当前 ${value.length} 个`,
-            hint: schema.description
-          })
-        }
-        if (schema.maxItems !== undefined && value.length > schema.maxItems) {
-          errors.push({
-            param: key,
-            errorCode: ErrorCodes.PARAM_OUT_OF_RANGE,
-            message: `参数 ${key} 最多 ${schema.maxItems} 个元素，当前 ${value.length} 个`,
-            hint: schema.description
-          })
-        }
+      // 再校验每个字段
+      for (const [key, schema] of Object.entries(flatProperties)) {
+        const value = argsObj[key]
+        this._validateField(key, value, schema, errors)
       }
-
-      // 检查枚举值
-      if (schema.enum && !schema.enum.includes(value)) {
-        errors.push({
-          param: key,
-          errorCode: ErrorCodes.PARAM_OUT_OF_RANGE,
-          message: `参数 ${key} 必须是以下值之一: ${schema.enum.join(', ')}`,
-          hint: schema.description
-        })
+    } else {
+      // flat schema 格式（顶层直接是字段定义）
+      for (const [key, schema] of Object.entries(parameters)) {
+        const value = argsObj[key]
+        this._validateField(key, value, schema, errors)
       }
     }
 
@@ -106,6 +71,92 @@ class SchemaValidator {
     }
 
     return { valid: true }
+  }
+
+  /**
+   * 校验单个字段（flat 和 nested 格式共用）
+   * @param {string} key - 字段名
+   * @param {*} value - 字段值
+   * @param {object} schema - 字段 schema
+   * @param {Array} errors - 错误累积数组（直接 push）
+   */
+  _validateField(key, value, schema, errors) {
+    if (!schema || typeof schema !== 'object') return
+
+    // 检查必填（flat schema 用 schema.required，nested schema 已在 validate() 里统一校验过）
+    if (schema.required && (value === undefined || value === null)) {
+      errors.push({
+        param: key,
+        errorCode: ErrorCodes.PARAM_MISSING,
+        message: `缺少必填参数: ${key}`,
+        hint: schema.description || `请提供 ${key}`
+      })
+      return
+    }
+
+    // 跳过可选的空值（undefined/null）
+    if (value === undefined || value === null) return
+
+    // 检查类型
+    if (schema.type && !this._checkType(value, schema.type)) {
+      errors.push({
+        param: key,
+        errorCode: ErrorCodes.PARAM_INVALID_TYPE,
+        message: `参数 ${key} 类型错误: 期望 ${schema.type}，实际 ${typeof value}`,
+        hint: schema.description
+      })
+      return
+    }
+
+    // 检查范围 (数值类型)
+    if (schema.type === 'number' || schema.type === 'integer') {
+      if (schema.min !== undefined && value < schema.min) {
+        errors.push({
+          param: key,
+          errorCode: ErrorCodes.PARAM_OUT_OF_RANGE,
+          message: `参数 ${key} 不能小于 ${schema.min}，当前值: ${value}`,
+          hint: schema.description
+        })
+      }
+      if (schema.max !== undefined && value > schema.max) {
+        errors.push({
+          param: key,
+          errorCode: ErrorCodes.PARAM_OUT_OF_RANGE,
+          message: `参数 ${key} 不能大于 ${schema.max}，当前值: ${value}`,
+          hint: schema.description
+        })
+      }
+    }
+
+    // 检查数组长度
+    if (schema.type === 'array' && Array.isArray(value)) {
+      if (schema.minItems !== undefined && value.length < schema.minItems) {
+        errors.push({
+          param: key,
+          errorCode: ErrorCodes.PARAM_OUT_OF_RANGE,
+          message: `参数 ${key} 至少需要 ${schema.minItems} 个元素，当前 ${value.length} 个`,
+          hint: schema.description
+        })
+      }
+      if (schema.maxItems !== undefined && value.length > schema.maxItems) {
+        errors.push({
+          param: key,
+          errorCode: ErrorCodes.PARAM_OUT_OF_RANGE,
+          message: `参数 ${key} 最多 ${schema.maxItems} 个元素，当前 ${value.length} 个`,
+          hint: schema.description
+        })
+      }
+    }
+
+    // 检查枚举值
+    if (schema.enum && !schema.enum.includes(value)) {
+      errors.push({
+        param: key,
+        errorCode: ErrorCodes.PARAM_OUT_OF_RANGE,
+        message: `参数 ${key} 必须是以下值之一: ${schema.enum.join(', ')}`,
+        hint: schema.description
+      })
+    }
   }
 
   /**

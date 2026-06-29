@@ -46,4 +46,22 @@ describe('Orchestrator.run 集成测试', () => {
     expect(result.success).toBe(true)
     expect(mocks.deepseekService.chatWithToolsStream).toHaveBeenCalledTimes(2)
   })
+
+  // v9.1.0 修复：attachments（图片附件）应透传到 strategy
+  test('attachments 应透传到 strategy.execute', async () => {
+    const att = [{ type: 'image', base64: 'data:image/png;base64,xxx', originalName: 'a.png' }]
+    mocks.deepseekService.chatWithToolsStream.mockResolvedValue({ content: 'hi', tool_calls: null })
+
+    // 探针：捕获 strategy.execute 收到的 input
+    const origExecute = orch.strategy.execute.bind(orch.strategy)
+    let capturedInput = null
+    orch.strategy.execute = jest.fn(async (input) => {
+      capturedInput = input
+      return origExecute(input)
+    })
+
+    await orch.run({ sessionId: 's', message: 'hi', attachments: att })
+    expect(capturedInput).toBeDefined()
+    expect(capturedInput.attachments).toEqual(att)
+  })
 })

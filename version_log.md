@@ -9,6 +9,59 @@
 - **报告格式调整**：workspace_writeFile 支持 style 参数（字体/颜色/页面），默认公文样式
 - **新增模块**：VisionService（OpenAI 兼容视觉 API）、imageIngest（工作区图片 OCR 缓存）、视觉 IPC 接口
 
+### v9.1.0 修复：视觉/工作区/写入三大系统级 bug（老板紧急反馈）
+
+#### Bug 根因（系统级，4 个 bug 同根）
+**SchemaValidator 不识别 JSON Schema 嵌套格式**（`type: 'object' + properties + required`），导致 LLM 漏传/错传参数时校验 bypass，下游静默失败。
+
+#### 修复明细
+1. **SchemaValidator 支持嵌套 schema**
+   - 识别 `type: 'object' + properties + required` 标准 JSON Schema 格式
+   - 嵌套必填字段允许空字符串也被拦截
+   - flat schema 向后兼容（其他 skill 不受影响）
+
+2. **vision-config.js 改 flat schema + 防御校验**
+   - 顶层直接是字段（baseUrl/apiKey/model 等）
+   - execute 开头手动校验必填非空字符串（防 SchemaValidator 被绕过）
+
+3. **workspace_ingest 支持图片**
+   - 检测到 png/jpg/jpeg/webp 走 imageIngest OCR 分支
+   - 调视觉 API 提取文字 + 描述入 wiki 索引
+
+4. **Agent 能看到图片**
+   - agent:run IPC handler 解构 attachments 字段（之前丢弃）
+   - UnifiedStrategy.execute 收到 attachments 后调 analyze_concrete_image 技能
+   - 把图片描述塞进 user message，让 LLM 在主循环前就"看到"图片
+
+5. **writeHandler 防御性报错**
+   - type/filename/payload 缺失时给出清晰 E-PARAM-MISSING 错误（不再 'unknown writer type: undefined'）
+   - payload.sections 非数组时给出 E-PARAM-INVALID-TYPE
+   - 写盘前 mkdir -p reports/ 兜底（防 reports/ 被误删）
+
+#### 老板 DB 验证证据
+- visionApiUrl/Key/Model 的 updatedAt = createdAt（从未被写过）
+- LLM 实际调用 configure_vision_model 的 arguments：`{"type":"openai","properties":{"apiKey":"...","baseUrl":"...","modelId":"..."},"required":[...]}` —— 嵌套 JSON Schema 格式！
+- workspace_writeFile 历史：漏传 type 或 payload 时报 'unknown writer type: undefined'
+
+#### 新增测试（28 个）
+- `src/main/__tests__/agent/SchemaValidator.test.js`：13 个（嵌套/flat schema 双向兼容 + 老板历史 bug 复现）
+- `src/main/__tests__/skills/vision-config.test.js`：新增 3 个防御性测试（共 8 个）
+- `src/main/__tests__/agent/workspaceTools.test.js`：新增 4 个图片 ingest 测试（共 25 个）
+- `src/main/agent/__tests__/Orchestrator.integration.test.js`：1 个 attachments 透传测试
+- `src/main/__tests__/workspace/write-handler.test.js`：6 个防御性测试
+
+#### 修改文件（5 个）
+- `src/main/agent/SchemaValidator.js`：新增嵌套 schema 支持
+- `src/main/skills/vision-config.js`：flat schema + 防御校验
+- `src/main/agent/workspaceTools.js`：workspace_ingest 图片分支
+- `src/main/agent/strategies/UnifiedStrategy.js`：attachments → analyze_concrete_image
+- `src/main/ipcHandlers/agentHandler.js`：attachments 透传
+- `src/main/workspace/write-handler.js`：参数防御 + mkdir 兜底
+
+### 打包信息
+- **版本号**：9.1.0
+- 待打包：`砼智 Setup 9.1.0.exe`
+
 ### 打包信息
 
 - **版本号**：9.0.0（package.json）

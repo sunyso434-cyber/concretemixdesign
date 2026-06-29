@@ -38,6 +38,42 @@ async function writeFile({ workspaceManager, wikiEngine = null, type, filename, 
     throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
   }
 
+  // v9.1.0 防御：手动校验必填参数（SchemaValidator 可能被绕过）
+  // - 老板历史 bug：调 workspace_writeFile 时漏传 type 或 payload，写入失败时报 'unknown writer type: undefined'
+  // - 这里提前给出清晰错误，附带"老板可能漏传"的 hint
+  if (!type || typeof type !== 'string') {
+    throw new WorkspaceError(
+      'E-PARAM-MISSING',
+      '缺少必填参数: type（文件类型，必须是 docx / xlsx / md 之一）',
+      false,
+      { received: { type, hasFilename: !!filename, hasPayload: !!payload } }
+    )
+  }
+  if (!filename || typeof filename !== 'string') {
+    throw new WorkspaceError(
+      'E-PARAM-MISSING',
+      '缺少必填参数: filename（如 "report.docx"）',
+      false,
+      { received: { type, filename, hasPayload: !!payload } }
+    )
+  }
+  if (!payload || typeof payload !== 'object') {
+    throw new WorkspaceError(
+      'E-PARAM-MISSING',
+      '缺少必填参数: payload（报告内容对象，含 title 和 sections 数组）',
+      false,
+      { received: { type, filename, payloadType: typeof payload } }
+    )
+  }
+  if (!Array.isArray(payload.sections)) {
+    throw new WorkspaceError(
+      'E-PARAM-INVALID-TYPE',
+      `payload.sections 必须是数组（实际类型：${payload.sections === null ? 'null' : typeof payload.sections}）`,
+      false,
+      { received: { sectionsType: Array.isArray(payload.sections) ? 'array' : typeof payload.sections } }
+    )
+  }
+
   // 2) 调 dispatcher 生成 Buffer（未知 type 会抛错，下面 catch 包 WRITE_FAIL）
   //    style 透传给 writer：docx writer 用它设字体/字号/颜色/页面；其他 writer 忽略
   let buf
@@ -47,8 +83,15 @@ async function writeFile({ workspaceManager, wikiEngine = null, type, filename, 
     throw new WorkspaceError('WRITE_FAIL', `生成 ${type} 失败：${err.message}`, true, err)
   }
 
-  // 3) 写盘到 <workspacePath>/reports/<filename>
-  const targetPath = path.posix.join(current.path, 'reports', filename)
+  // 3) 写盘到 <workspacePath>/reports/
+  // v9.1.0 防御：mkdir -p reports/ 兜底（工作区 reports/ 被误删时不报错）
+  const reportsDir = path.posix.join(current.path, 'reports')
+  try {
+    await fs.mkdir(reportsDir, { recursive: true })
+  } catch (err) {
+    throw new WorkspaceError('WRITE_FAIL', `创建 reports/ 目录失败：${err.message}`, true, err)
+  }
+  const targetPath = path.posix.join(reportsDir, filename)
   try {
     await fs.writeFile(targetPath, buf)
   } catch (err) {

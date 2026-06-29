@@ -34,16 +34,16 @@ function makeMockKG() {
 }
 
 describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
-  test('返回 7 个伪 Skill，名称集合与 brief 一致', () => {
+  test('返回 8 个伪 Skill，名称集合与 brief 一致', () => {
     const skills = buildWorkspaceSkills({
       workspaceManager: makeMockWM(),
       wikiEngine: makeMockWiki(),
       kgExtractor: null
     })
-    expect(skills).toHaveLength(7)
+    expect(skills).toHaveLength(8)
     const names = skills.map(s => s.name).sort()
     expect(names).toEqual([
-      'workspace_ingest', 'workspace_lint', 'workspace_listFiles',
+      'workspace_grep', 'workspace_ingest', 'workspace_lint', 'workspace_listFiles',
       'workspace_readPage', 'workspace_search', 'workspace_searchGraph', 'workspace_writeFile'
     ].sort())
   })
@@ -114,6 +114,68 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
     const result = await skill.execute({ filename: 'report.pdf' }, {})
     expect(wiki.ingest).toHaveBeenCalledWith({ filename: 'report.pdf' })
     expect(result.status).toBe('ok')
+  })
+
+  // v9.1.0 修复：图片走 imageIngest OCR 分支，不再抛 Unsupported file type
+  test('workspace_ingest 收到 png 文件 → 走 imageIngest 分支', async () => {
+    const wiki = makeMockWiki()
+    const wm = {
+      ...makeMockWM(),
+      current: () => ({ path: '/test-workspace' }),
+      _ingestImageAsync: jest.fn().mockResolvedValue({
+        ocrText: '混凝土配合比',
+        description: 'C30配合比表',
+        imagePath: '/test-workspace/photo.png'
+      })
+    }
+    const skills = buildWorkspaceSkills({ workspaceManager: wm, wikiEngine: wiki, kgExtractor: null })
+    const skill = skills.find(s => s.name === 'workspace_ingest')
+    const result = await skill.execute({ filename: 'photo.png' }, {})
+    expect(wm._ingestImageAsync).toHaveBeenCalledWith('/test-workspace/photo.png')
+    expect(wiki.ingest).not.toHaveBeenCalled()  // 关键：不能走 wiki.ingest
+    expect(result.type).toBe('image')
+    expect(result.ocrText).toBe('混凝土配合比')
+  })
+
+  test('workspace_ingest 收到 jpg 文件 → 走 imageIngest 分支', async () => {
+    const wiki = makeMockWiki()
+    const wm = {
+      ...makeMockWM(),
+      current: () => ({ path: '/test-workspace' }),
+      _ingestImageAsync: jest.fn().mockResolvedValue({ ocrText: 'x', description: 'y' })
+    }
+    const skills = buildWorkspaceSkills({ workspaceManager: wm, wikiEngine: wiki, kgExtractor: null })
+    const skill = skills.find(s => s.name === 'workspace_ingest')
+    await skill.execute({ filename: 'defect.jpg' }, {})
+    expect(wm._ingestImageAsync).toHaveBeenCalledWith('/test-workspace/defect.jpg')
+  })
+
+  test('workspace_ingest 收到 webp 文件 → 走 imageIngest 分支', async () => {
+    const wiki = makeMockWiki()
+    const wm = {
+      ...makeMockWM(),
+      current: () => ({ path: '/test-workspace' }),
+      _ingestImageAsync: jest.fn().mockResolvedValue({ ocrText: 'x', description: 'y' })
+    }
+    const skills = buildWorkspaceSkills({ workspaceManager: wm, wikiEngine: wiki, kgExtractor: null })
+    const skill = skills.find(s => s.name === 'workspace_ingest')
+    await skill.execute({ filename: 'mix-design.webp' }, {})
+    expect(wm._ingestImageAsync).toHaveBeenCalledWith('/test-workspace/mix-design.webp')
+  })
+
+  test('workspace_ingest 收到 png 但工作区未打开 → 返回 NOT_OPEN 错误', async () => {
+    const wiki = makeMockWiki()
+    const wm = {
+      ...makeMockWM(),
+      current: () => null,  // 工作区未开
+      _ingestImageAsync: jest.fn()
+    }
+    const skills = buildWorkspaceSkills({ workspaceManager: wm, wikiEngine: wiki, kgExtractor: null })
+    const skill = skills.find(s => s.name === 'workspace_ingest')
+    const result = await skill.execute({ filename: 'photo.png' }, {})
+    expect(result.success).toBe(false)
+    expect(result.code).toBe('NOT_OPEN')
+    expect(wm._ingestImageAsync).not.toHaveBeenCalled()
   })
 
   test('workspace_lint → wikiEngine.lint()（无参）', async () => {
@@ -204,7 +266,7 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
 
   // ===== 集成：SkillRegistry.register 能成功 =====
 
-  test('所有 7 个伪 Skill 能被 SkillRegistry.register 接受（验证 4 字段协议）', () => {
+  test('所有 8 个伪 Skill 能被 SkillRegistry.register 接受（验证 4 字段协议）', () => {
     const SkillRegistry = require('../../agent/SkillRegistry')
     const reg = new SkillRegistry()
     const skills = buildWorkspaceSkills({
@@ -216,12 +278,12 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
       // 不抛错即通过（register 内部 _validateSkill 检查 name/description/execute）
       reg.register(s, { builtin: true, filePath: '<workspace-pseudo>' })
     }
-    expect(reg.size).toBe(7)
-    // getToolSchemas 包含这 7 个
+    expect(reg.size).toBe(8)
+    // getToolSchemas 包含这 8 个
     const schemas = reg.getToolSchemas()
     const names = schemas.map(sc => sc.function.name).sort()
     expect(names).toEqual([
-      'workspace_ingest', 'workspace_lint', 'workspace_listFiles',
+      'workspace_grep', 'workspace_ingest', 'workspace_lint', 'workspace_listFiles',
       'workspace_readPage', 'workspace_search', 'workspace_searchGraph', 'workspace_writeFile'
     ].sort())
   })

@@ -241,12 +241,12 @@ function registerAgentHandlers() {
     console.error('[AgentHandler] Skill 系统初始化失败:', err)
   })
 
-  ipcMain.handle('agent:run', async (event, { requestId, sessionId, message, mode }) => {
+  ipcMain.handle('agent:run', async (event, { requestId, sessionId, message, mode, attachments }) => {
     // 生成 requestId（如渲染端未传）
     const reqId = requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
     // [DEBUG] 记录请求到达和锁状态（每会话独立锁）
     const lockState = sessionAgents.get(sessionId)
-    _log(`[AgentHandler] 🔵 agent:run 收到请求 sessionId=${sessionId} requestId=${reqId} 该会话锁=${lockState?.running ? Math.round((Date.now() - lockState.startedAt) / 1000) + 's' : '无'}`)
+    _log(`[AgentHandler] 🔵 agent:run 收到请求 sessionId=${sessionId} requestId=${reqId} 该会话锁=${lockState?.running ? Math.round((Date.now() - lockState.startedAt) / 1000) + 's' : '无'} 图片数=${Array.isArray(attachments) ? attachments.length : 0}`)
 
     if (lockState && lockState.running) {
       if (Date.now() - lockState.startedAt > AGENT_LOCK_TIMEOUT) {
@@ -269,8 +269,12 @@ function registerAgentHandlers() {
       sessionAgents.set(sessionId, { orchestrator: ag, running: true, startedAt: Date.now(), requestId: reqId })
       _log(`[AgentHandler] 🔒 agent:run 获取锁 sessionId=${sessionId} requestId=${reqId}`)
 
-      _log(`[AgentHandler] 🚀 agent:run 开始执行 requestId=${reqId} message="${message.slice(0, 50)}" mode=${mode}`)
-      const result = await ag.run({ sessionId, message, mode: mode || 'auto', webContents: event.sender })
+      // v9.1.0 修复：透传 attachments（图片附件）到 Orchestrator
+      // - 渲染端 sendMessage 时把 chatState.attachments 通过 IPC 传进来
+      // - 旧实现解构时丢掉了 attachments 字段，Agent 永远看不到图片
+      // - 现在 attachments 进入 UnifiedStrategy.execute，由 strategy 决定如何用（调 analyze_concrete_image 技能）
+      _log(`[AgentHandler] 🚀 agent:run 开始执行 requestId=${reqId} message="${message.slice(0, 50)}" mode=${mode} attachments=${attachments?.length || 0}`)
+      const result = await ag.run({ sessionId, message, mode: mode || 'auto', webContents: event.sender, attachments: Array.isArray(attachments) ? attachments : [] })
       _log(`[AgentHandler] ✅ agent:run 执行完成 requestId=${reqId}: ${JSON.stringify({ success: result?.success, hasContent: !!result?.content, contentLen: result?.content?.length || 0, error: result?.error })}`)
 
       // UnifiedStrategy 已通过流式事件发送 type: 'done' / type: 'error'，这里不再重复发送

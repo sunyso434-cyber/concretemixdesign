@@ -16,6 +16,7 @@
 const ErrorCodes = require('./ErrorCodes')
 const { WorkspaceError } = require('../workspace/WorkspaceError')
 const writeHandler = require('../workspace/write-handler')
+const imageIngest = require('../workspace/imageIngest')
 
 function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null }) {
   // v1.5.3 决策：每次 execute 都从 global 拿最新引用
@@ -121,11 +122,31 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         depth: args.depth
       })
     ),
-    skill('workspace_ingest', '把工作区根目录的原始文件（PDF/Word/Excel/MD/CSV）ingest 到 wiki。',
+    skill('workspace_ingest', '把工作区根目录的原始文件（PDF/Word/Excel/MD/CSV/图片）ingest 到 wiki。图片走 OCR 分支，自动调用视觉模型提取文字 + 描述后入 wiki 索引。',
       {
-        filename: { type: 'string', description: '工作区根目录下的文件名', required: true }
+        filename: { type: 'string', description: '工作区根目录下的文件名（支持 .pdf .docx .xlsx .xls .md .txt .csv .png .jpg .jpeg .webp）', required: true }
       },
-      (args) => getWiki().ingest(args)
+      async (args, context) => {
+        // v9.1.0 修复：识别图片扩展名，走 imageIngest OCR 分支
+        // - 旧实现直接调 WikiEngine.ingest()，但 WikiEngine 调 reader.read()，
+        //   readers 调度器不支持 png/jpg/jpeg/webp，会抛 "Unsupported file type: .png"
+        // - 新实现：图片走 WorkspaceManager._ingestImageAsync（OCR + 入 wiki），其他文件走原 WikiEngine.ingest
+        if (imageIngest.isImageFile(args.filename)) {
+          const wm = getWM()
+          const current = wm.current()
+          if (!current || !current.path) {
+            throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
+          }
+          const path = require('path')
+          const imagePath = path.posix.join(current.path, args.filename)
+          const result = await wm._ingestImageAsync(imagePath)
+          if (!result) {
+            throw new WorkspaceError('IMAGE_INGEST_FAIL', '图片 ingest 失败（视觉模型未配置或 OCR 失败）', true)
+          }
+          return { success: true, type: 'image', ...result }
+        }
+        return getWiki().ingest(args)
+      }
     ),
     skill('workspace_writeFile', '把报告/数据写入工作区 reports/，支持 docx/xlsx/md 3 种格式。**新增 style 参数**：用户可临时指定报告格式（字体/颜色/页面），不传则使用默认公文样式。payload 结构（必须包含 sections 数组）：{ title: "报告标题", sections: [ { type: "h1"|"h2", content: "标题文字" }, { type: "p", content: "段落正文" }, { type: "list", items: ["项1", "项2"] }, { type: "table", rows: [["列1","列2"],["数据1","数据2"]] }, { type: "code", language: "js", code: "console.log(1)" } ], metadata?: { 任意key: "value" } }。type 字段：docx → 写 .docx；xlsx → 写 .xlsx；md 或 markdown → 写 .md。',
       {
