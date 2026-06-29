@@ -36,6 +36,42 @@ function fnv1a32(str) {
   return h >>> 0
 }
 
+// glob → RegExp 编译（workspace_grep 用）
+// 支持的标准模式：*.md / *.{md,json} / * / sources/*.md / foo-?.md
+// 转义规则：. + ^ $ { } ( ) | [ ] \ 等元字符转义，* → [^/]*，? → [^/]
+function compileGlob(glob) {
+  if (typeof glob !== 'string' || glob.length === 0) {
+    throw new Error('glob 不能为空')
+  }
+  let re = ''
+  let i = 0
+  while (i < glob.length) {
+    const c = glob[i]
+    if (c === '*') {
+      re += '[^/]*'
+    } else if (c === '?') {
+      re += '[^/]'
+    } else if (c === '{') {
+      // {a,b,c} → (a|b|c)
+      const end = glob.indexOf('}', i)
+      if (end < 0) throw new Error('未闭合的 {')
+      const alts = glob.slice(i + 1, end).split(',').map(s => escapeRegex(s)).join('|')
+      re += '(?:' + alts + ')'
+      i = end
+    } else if ('.+^$()|[]\\'.includes(c)) {
+      re += '\\' + c
+    } else {
+      re += c
+    }
+    i++
+  }
+  return new RegExp('^' + re + '$', 'u')
+}
+
+function escapeRegex(s) {
+  return s.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+}
+
 // 本地时间 ISO 格式（北京时间 UTC+8）
 function localISOString(date = new Date()) {
   const tzOffset = -date.getTimezoneOffset()
@@ -486,11 +522,71 @@ class WikiEngine {
     const contextLines = options.contextLines ?? 5
     const depth = options.depth || 'auto'
 
+    // 按行读取（最高优先级）：传 offset 即走按行切片，跳过段过滤/全文截断
+    // 用于配合 workspace_grep：grep 返回 lineNumber 后，readPage 用 offset/limit 精读
+    // 行号 1-based，对齐 grep 返回的 lineNumber
+    if (options.offset != null) {
+      return this._readPageByLines(content, fm, stat, options.offset, options.limit)
+    }
+
     // depth 路由：full 走老 4 阶段管线，其他走 relevant 层
     if (depth === 'full') {
       return this._readPageFull(content, fm, stat, query, contextLines)
     }
     return this._readPageRelevant(content, fm, stat, query, contextLines)
+  }
+
+  /**
+   * 按行切片（offset/limit 模式）
+   * - 行号 1-based，对齐 workspace_grep 返回的 lineNumber
+   * - offset 超出总行数 → 返回空 content（不抛错，让 LLM 自己判断）
+   * - limit 默认 1000，最大 5000（防止单次读取过大）
+   * - 返回 stats.mode = 'lines'，附 totalLines 便于 LLM 决定是否继续翻页
+   */
+  _readPageByLines(content, fm, stat, offset, limit) {
+    const DEFAULT_LIMIT = 1000
+    const MAX_LIMIT = 5000
+    const lines = content.split('\n')
+    const totalLines = lines.length
+
+    const start = Math.max(1, Math.floor(Number(offset) || 1))
+    const lim = Math.max(1, Math.min(MAX_LIMIT, Math.floor(Number(limit) || DEFAULT_LIMIT)))
+
+    // start 超出总行数 → 返回空 content（不抛错，让 LLM 自己判断）
+    if (start > totalLines) {
+      return {
+        content: '',
+        frontmatter: fm,
+        mtime: stat.mtimeMs,
+        size: stat.size,
+        stats: {
+          mode: 'lines',
+          offset: start,
+          limit: lim,
+          returnedLines: 0,
+          totalLines,
+          truncated: false
+        }
+      }
+    }
+
+    const endIdx = Math.min(totalLines, start - 1 + lim)
+    const slice = lines.slice(start - 1, endIdx).join('\n')
+
+    return {
+      content: slice,
+      frontmatter: fm,
+      mtime: stat.mtimeMs,
+      size: stat.size,
+      stats: {
+        mode: 'lines',
+        offset: start,
+        limit: lim,
+        returnedLines: endIdx - start + 1,
+        totalLines,
+        truncated: endIdx < totalLines
+      }
+    }
   }
 
   /**
@@ -1082,6 +1178,156 @@ class WikiEngine {
     enriched.sort((a, b) => b.adjustedScore - a.adjustedScore)
 
     return enriched
+  }
+
+  // workspace_grep - 精确正则匹配 + 行号定位（对齐 ripgrep / claude code grep 工具）
+  // 与 search（BM25 语义模糊匹配）互补：
+  //   - search 找"相关文档"，每页只返回一个 snippet
+  //   - grep 找"具体位置"，每个命中行带行号 + 上下文
+  // 设计参考：Claude Code 的 Grep 工具 / OpenCode 的 grep 工具 / Codex CLI 的 grep 工具
+  //
+  // 关键行为：
+  //   - 只搜 wiki 正文（跳过 frontmatter）
+  //   - 支持正则（精确字符串是正则的特例）；多关键字用 | 分隔
+  //   - 支持 -A/-B 上下文行（默认 2 行）
+  //   - 支持 -i 忽略大小写
+  //   - 支持 glob 文件名过滤
+  //   - 支持 3 种输出模式：content / files_with_matches / count
+  //   - 支持 head_limit 截断（默认 100 条命中）
+  //   - 相邻命中行合并上下文（避免重复输出）
+  async grep(pattern, options = {}) {
+    const current = this.workspace.current()
+    if (!current || current.status !== 'ready') {
+      throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
+    }
+    if (!pattern || typeof pattern !== 'string') {
+      throw new WorkspaceError('READ_FAIL', 'pattern 不能为空', false)
+    }
+
+    const scope = options.path || 'sources'
+    const globPattern = options.glob || '*.md'
+    const outputMode = options.output_mode || 'content'
+    const ignoreCase = options.ignore_case === true
+    const after = Math.max(0, Math.min(50, Number(options.after ?? options.A ?? 2)))
+    const before = Math.max(0, Math.min(50, Number(options.before ?? options.B ?? 2)))
+    const headLimit = Math.max(1, Math.min(1000, Number(options.head_limit ?? 100)))
+
+    // 编译正则（带 u flag 支持中文；g flag 用于 lastIndex 控制；i flag 忽略大小写）
+    let regex
+    try {
+      const flags = ignoreCase ? 'giu' : 'u'
+      regex = new RegExp(pattern, flags)
+    } catch (err) {
+      throw new WorkspaceError('READ_FAIL', `正则表达式无效: ${err.message}`, false)
+    }
+
+    // glob 编译为 RegExp（简单实现：支持 *.md / *.{md,json} / * / sources/*.md）
+    let globRe
+    try {
+      globRe = compileGlob(globPattern)
+    } catch (err) {
+      throw new WorkspaceError('READ_FAIL', `glob 模式无效: ${err.message}`, false)
+    }
+
+    // 决定扫描目录
+    const wikiRoot = path.posix.join(current.path, 'wiki')
+    const scanDirs = []
+    if (scope === 'sources' || scope === 'all') {
+      scanDirs.push({ rel: 'sources', abs: path.join(wikiRoot, 'sources') })
+    }
+    if (scope === 'answers' || scope === 'all') {
+      scanDirs.push({ rel: 'answers', abs: path.join(wikiRoot, 'answers') })
+    }
+
+    // 扫描文件
+    const allMatches = []   // { path, lineNumber, line, before, after }
+    let scannedFiles = 0
+
+    for (const dir of scanDirs) {
+      let entries = []
+      try {
+        entries = await fs.readdir(dir.abs)
+      } catch (err) {
+        if (err.code === 'ENOENT') continue
+        throw err
+      }
+
+      for (const name of entries) {
+        if (!globRe.test(name)) continue
+        const abs = path.join(dir.abs, name)
+        let stat
+        try {
+          stat = await fs.stat(abs)
+        } catch { continue }
+        if (!stat.isFile()) continue
+
+        scannedFiles++
+        let raw
+        try {
+          raw = await fs.readFile(abs, 'utf-8')
+        } catch { continue }
+
+        // 分离 frontmatter，只搜正文
+        const { content } = matter(raw)
+        const lines = content.split('\n')
+        const relPath = `${dir.rel}/${name}`
+
+        for (let i = 0; i < lines.length; i++) {
+          regex.lastIndex = 0
+          if (regex.test(lines[i])) {
+            allMatches.push({
+              path: relPath,
+              lineNumber: i + 1,   // 1-based，对齐 ripgrep
+              line: lines[i],
+              before: lines.slice(Math.max(0, i - before), i),
+              after: lines.slice(i + 1, Math.min(lines.length, i + 1 + after))
+            })
+          }
+        }
+      }
+    }
+
+    // 按 output_mode 返回
+    if (outputMode === 'files_with_matches') {
+      const files = []
+      const seen = new Set()
+      for (const m of allMatches) {
+        if (!seen.has(m.path)) {
+          seen.add(m.path)
+          files.push({ path: m.path, matchCount: allMatches.filter(x => x.path === m.path).length })
+        }
+      }
+      return {
+        matches: files.slice(0, headLimit),
+        total: files.length,
+        truncated: files.length > headLimit,
+        scannedFiles
+      }
+    }
+
+    if (outputMode === 'count') {
+      const counts = {}
+      for (const m of allMatches) {
+        counts[m.path] = (counts[m.path] || 0) + 1
+      }
+      const arr = Object.entries(counts).map(([p, c]) => ({ path: p, count: c }))
+      return {
+        matches: arr.slice(0, headLimit),
+        total: arr.length,
+        truncated: arr.length > headLimit,
+        scannedFiles
+      }
+    }
+
+    // content 模式：截断
+    const total = allMatches.length
+    const truncated = total > headLimit
+    return {
+      matches: allMatches.slice(0, headLimit),
+      total,
+      truncated,
+      scannedFiles
+    }
   }
 
   // Task 2.8: lint - 扫 4 类健康检查 + contradictions 占位（spec §4.2 / §4.5）

@@ -52,27 +52,74 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       },
       (args) => getWiki().search(args.query, args.topK || 5)
     ),
-    skill('workspace_readPage', '读 wiki 页。支持 2 种读取深度：relevant（相关段落原文，~2K tokens）→ full（全文+LLM摘要，~8K tokens）。默认 relevant。注意：search 返回结果已含 summary/keyPoints，大多数情况不需要调 readPage。',
+    skill('workspace_grep', '在 wiki 全文中按正则精确匹配，返回每个命中行的行号 + 上下文（对齐 ripgrep / Claude Code 的 grep 工具）。**与 workspace_search 的区别**：search 是 BM25 语义模糊匹配，找"相关文档"用；grep 是精确字符串/正则匹配，找"具体位置"用。建议工作流：先用 workspace_grep 定位命中行，再用 workspace_readPage 拿完整段落。多关键字用 | 分隔（正则 OR）。',
+      {
+        pattern: { type: 'string', description: '正则表达式（精确字符串是其特例）。多关键字用 | 分隔，如 "水胶比|耐久性"', required: true },
+        path: {
+          type: 'string',
+          description: '搜索范围：sources（wiki/sources 目录，默认）、answers（wiki/answers 目录）、all（两者都搜）',
+          required: false, default: 'sources',
+          enum: ['sources', 'answers', 'all']
+        },
+        glob: { type: 'string', description: '文件名过滤，如 *.md（默认）、*.{md,json}', required: false, default: '*.md' },
+        output_mode: {
+          type: 'string',
+          description: '输出模式：content=返回行号+上下文（默认）；files_with_matches=仅返回命中文件路径；count=返回每文件命中数',
+          required: false, default: 'content',
+          enum: ['content', 'files_with_matches', 'count']
+        },
+        ignore_case: { type: 'boolean', description: '忽略大小写（默认 false）', required: false, default: false },
+        A: { type: 'integer', description: '命中行后保留行数（-A），0-50，默认 2', required: false, min: 0, max: 50, default: 2 },
+        B: { type: 'integer', description: '命中行前保留行数（-B），0-50，默认 2', required: false, min: 0, max: 50, default: 2 },
+        head_limit: { type: 'integer', description: '最多返回多少条命中，1-1000，默认 100', required: false, min: 1, max: 1000, default: 100 }
+      },
+      (args) => getWiki().grep(args.pattern, {
+        path: args.path,
+        glob: args.glob,
+        output_mode: args.output_mode,
+        ignore_case: args.ignore_case,
+        A: args.A,
+        B: args.B,
+        head_limit: args.head_limit
+      })
+    ),
+    skill('workspace_readPage', '读 wiki 页。3 种读取模式：**1. 按行读（推荐配合 grep）**：传 offset+limit 按行切片；**2. 相关段读（默认）**：传 query 走 BM25 相关段落过滤；**3. 全文读**：depth=full。注意：search 返回结果已含 summary/keyPoints，大多数情况不需要调 readPage。',
       {
         wikiPath: { type: 'string', description: 'wiki 页相对路径（如 sources/jgj-55-2011.md）', required: true },
+        offset: {
+          type: 'integer',
+          description: '起始行号（1-based）。传入即启用按行读取模式，跳过段过滤/全文截断。行号对齐 workspace_grep 返回的 lineNumber。不传走 query/depth 模式',
+          required: false, min: 1
+        },
+        limit: {
+          type: 'integer',
+          description: '读取多少行（仅 offset 模式生效）。默认 1000，最大 5000',
+          required: false, min: 1, max: 5000, default: 1000
+        },
         query: {
           type: 'string',
-          description: '相关性关键词。传入后仅返回与查询相关的段落（depth=relevant）。不传则 fallthrough 到 _readPageFull（300KB 截断全文）。',
+          description: '相关性关键词（仅 offset 未传时生效）。传入后仅返回与查询相关的段落（depth=relevant）。不传则 fallthrough 到 _readPageFull（300KB 截断全文）。',
           required: false
         },
         contextLines: {
           type: 'integer',
-          description: '命中段前后保留的上下文行数',
+          description: '命中段前后保留的上下文行数（仅 query 模式生效）',
           required: false, min: 0, max: 50, default: 5
         },
         depth: {
           type: 'string',
-          description: '读取深度。relevant=返回相关段落原文（默认）；full=返回全文+LLM摘要；auto=默认relevant',
+          description: '读取深度（仅 offset 未传时生效）。relevant=返回相关段落原文（默认）；full=返回全文+LLM摘要；auto=默认relevant',
           required: false, default: 'auto',
           enum: ['relevant', 'full', 'auto']
         }
       },
-      (args) => getWiki().readPage(args.wikiPath, { query: args.query, contextLines: args.contextLines, depth: args.depth })
+      (args) => getWiki().readPage(args.wikiPath, {
+        offset: args.offset,
+        limit: args.limit,
+        query: args.query,
+        contextLines: args.contextLines,
+        depth: args.depth
+      })
     ),
     skill('workspace_ingest', '把工作区根目录的原始文件（PDF/Word/Excel/MD/CSV）ingest 到 wiki。',
       {

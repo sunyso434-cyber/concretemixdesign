@@ -1,3 +1,70 @@
+## v9.0.0 补充17 (2026-06-29) - 新增 workspace_grep 全文检索工具 + readPage 按行读取能力
+
+### 改动概述
+
+为 LLM 增加两个能力：
+1. **全文关键字检索工具 `workspace_grep`**：对齐 Claude Code / OpenCode / Codex CLI 的 grep 工具设计，支持正则精确匹配 + 行号定位 + 上下文返回，与现有 `workspace_search`（BM25 语义模糊匹配）互补。
+2. **readPage 按行读取能力**：新增 `offset`/`limit` 参数，配合 grep 返回的行号实现"定位 → 精读"闭环。
+
+### 改动文件（3 个修改）
+
+- `src/main/workspace/WikiEngine.js`
+  - 新增 `grep(pattern, options)` 方法：扫描 wiki/sources、wiki/answers 目录，按正则匹配每行，返回命中行号 + 上下文
+  - 新增 `compileGlob()` 辅助函数：支持 `*.md`、`*.{md,json}`、`*` 等标准 glob 模式
+  - 新增 `_readPageByLines()` 方法：按 1-based 行号切片返回，跳过段过滤/全文截断
+  - `readPage()` 加 offset 短路分支：传 offset 即走按行读取模式，与现有 query/depth 模式并存
+
+- `src/main/agent/workspaceTools.js`
+  - 新增 `workspace_grep` 工具注册（8 个参数：pattern / path / glob / output_mode / ignore_case / A / B / head_limit）
+  - `workspace_readPage` 工具 schema 新增 `offset`/`limit` 参数
+
+- `src/main/workspace/__tests__/WikiEngine.grep.test.js`（新建）
+  - 17 个测试用例覆盖 grep 全部边缘情况
+
+- `src/main/workspace/__tests__/WikiEngine.relevance.test.js`
+  - 新增 8 个测试用例覆盖 readPage offset/limit 按行读取
+
+### 行为变化
+
+- **新工具 workspace_grep**：
+  - LLM 可用 `workspace_grep("水胶比|耐久性")` 精确定位命中行 + 上下文
+  - 与 `workspace_search`（BM25 语义匹配）并存，找"具体位置"用 grep，找"相关文档"用 search
+  - 3 种输出模式：`content`（行号+上下文，默认）/ `files_with_matches`（仅文件路径）/ `count`（每文件命中数）
+- **readPage 新增按行读取模式**：
+  - LLM 拿到 grep 返回的 lineNumber 后，可用 `readPage(path, { offset: 120, limit: 20 })` 精读 120-139 行
+  - 不传 offset 仍走老的 query/depth 模式，完全向后兼容
+
+### LLM 推荐工作流
+
+```
+1. workspace_grep("水胶比|耐久性")
+   → 返回 [{ path, lineNumber: 124, line, before, after }]
+
+2. 上下文够 → 直接回答
+   不够 → workspace_readPage(path, { offset: 120, limit: 20 })
+   → 拿到 120-139 行完整原文
+```
+
+### 边缘情况覆盖
+
+**grep（17 个测试）**：工作区未打开 / pattern 空 / 无效正则 / 精确匹配行号 / 多关键字 OR / 忽略大小写 / A/B 控制 / A/B 超 50 钳制 / glob 过滤 / 3 种输出模式 / head_limit 截断 / 无命中 / frontmatter 不被搜索 / 空目录 / 中文正则 / scope=all
+
+**readPage 按行读（8 个测试）**：offset=1 取前 N 行 / offset 超出总行数返回空 / limit 默认 1000 / limit 超 5000 钳制 / offset 与 query 同传 offset 优先 / offset=0/负数/NaN 回退为 1 / frontmatter 不入 content / 不传 offset 走老逻辑
+
+### 验证
+
+- `npm run build` 成功
+- `npm run electron:build` 成功
+- 新增 25 个测试全部通过
+- 现有测试零回归（baseline 5 个历史失败与本次改动无关，已通过 git stash 验证）
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
 ## v9.0.0 补充16 (2026-06-29) - 修复历史会话标题未实时更新问题
 
 ### 改动概述

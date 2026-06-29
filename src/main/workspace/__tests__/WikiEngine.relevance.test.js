@@ -999,3 +999,110 @@ ${wikiContent}`
     expect(result.stats.elapsedMs).toBeGreaterThanOrEqual(0)
   })
 })
+
+// 按行读取（offset/limit 模式）：配合 workspace_grep 实现"定位 → 精读"闭环
+describe('WikiEngine.readPage - offset/limit 按行读取', () => {
+  const fs = require('fs').promises
+  const path = require('path')
+  const os = require('os')
+  let tmpDir
+  let engine
+
+  async function setupWorkspace(wikiContent) {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-lines-'))
+    const wikiSourcesDir = path.join(tmpDir, 'wiki', 'sources')
+    await fs.mkdir(wikiSourcesDir, { recursive: true })
+    const filePath = path.join(wikiSourcesDir, 'test-page.md')
+    const md = `---
+title: "test-page"
+source: "test.md"
+ingested_at: "2026-01-01T00:00:00Z"
+updated_at: "2026-01-01T00:00:00Z"
+quality: "high"
+---
+
+${wikiContent}`
+    await fs.writeFile(filePath, md, 'utf-8')
+    engine = new WikiEngine({ workspace: { current: () => ({ path: tmpDir, status: 'ready' }) } })
+  }
+
+  afterEach(async () => {
+    if (tmpDir) {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      tmpDir = null
+    }
+  })
+
+  test('offset=1, limit=N → 返回前 N 行，1-based 行号', async () => {
+    // 构造 5 行正文：gray-matter 解析后 content 前有空行 → 总 6 行
+    // line1='', line2='l1', line3='l2', line4='l3', line5='l4', line6='l5'
+    await setupWorkspace('l1\nl2\nl3\nl4\nl5')
+    const r = await engine.readPage('sources/test-page.md', { offset: 1, limit: 3 })
+    expect(r.stats.mode).toBe('lines')
+    expect(r.stats.offset).toBe(1)
+    expect(r.stats.limit).toBe(3)
+    expect(r.stats.returnedLines).toBe(3)
+    expect(r.stats.totalLines).toBe(6)
+    expect(r.stats.truncated).toBe(true)
+    // content 含 line2/3/4（line1 是空行）
+    expect(r.content).toBe('\nl1\nl2')
+  })
+
+  test('offset 超出总行数 → 返回空 content，不抛错', async () => {
+    await setupWorkspace('只有一行')
+    const r = await engine.readPage('sources/test-page.md', { offset: 9999, limit: 10 })
+    expect(r.content).toBe('')
+    expect(r.stats.returnedLines).toBe(0)
+    expect(r.stats.truncated).toBe(false)
+  })
+
+  test('limit 默认 1000，超出文件总行数时返回到末尾', async () => {
+    const lines = Array.from({ length: 50 }, (_, i) => `line${i}`).join('\n')
+    await setupWorkspace(lines)
+    const r = await engine.readPage('sources/test-page.md', { offset: 1 })
+    expect(r.stats.limit).toBe(1000)
+    expect(r.stats.returnedLines).toBe(r.stats.totalLines)
+    expect(r.stats.truncated).toBe(false)
+  })
+
+  test('limit 超过 5000 → 被钳制为 5000', async () => {
+    const lines = Array.from({ length: 100 }, (_, i) => `line${i}`).join('\n')
+    await setupWorkspace(lines)
+    const r = await engine.readPage('sources/test-page.md', { offset: 1, limit: 99999 })
+    expect(r.stats.limit).toBe(5000)
+  })
+
+  test('offset 跳过段过滤/全文截断（即使传了 query 也不走 BM25）', async () => {
+    // gray-matter 解析后 content 前 1 个空行：line1='', line2='强度C30', line3='水胶比0.45', line4='水泥用量'
+    await setupWorkspace('强度C30\n水胶比0.45\n水泥用量')
+    // 同时传 offset 和 query → offset 优先；offset=3 取 line3='水胶比0.45'
+    const r = await engine.readPage('sources/test-page.md', { offset: 3, limit: 1, query: '强度' })
+    expect(r.stats.mode).toBe('lines')
+    expect(r.stats.returnedLines).toBe(1)
+    expect(r.content).toBe('水胶比0.45')
+  })
+
+  test('offset=0 / 负数 / NaN → 回退为 1', async () => {
+    await setupWorkspace('l1\nl2')
+    const r0 = await engine.readPage('sources/test-page.md', { offset: 0 })
+    const rNeg = await engine.readPage('sources/test-page.md', { offset: -5 })
+    const rNaN = await engine.readPage('sources/test-page.md', { offset: 'abc' })
+    expect(r0.stats.offset).toBe(1)
+    expect(rNeg.stats.offset).toBe(1)
+    expect(rNaN.stats.offset).toBe(1)
+  })
+
+  test('frontmatter 仍被正确剥离（不进入 content）', async () => {
+    await setupWorkspace('正文内容')
+    const r = await engine.readPage('sources/test-page.md', { offset: 1, limit: 100 })
+    expect(r.content).not.toContain('ingested_at')
+    expect(r.content).not.toContain('quality')
+    expect(r.frontmatter.title).toBe('test-page')
+  })
+
+  test('不传 offset → 走老逻辑（不进入 lines 模式）', async () => {
+    await setupWorkspace('# 标题\n\n内容。')
+    const r = await engine.readPage('sources/test-page.md', { query: '标题' })
+    expect(r.stats.mode).not.toBe('lines')
+  })
+})
