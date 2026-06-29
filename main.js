@@ -12,14 +12,23 @@ function initLogPath() {
   }
 }
 
+// 日志写入改为异步 buffer 模式（避免同步 IO 阻塞主进程事件循环）
+let _logBuffer = []
+let _logFlushTimer = null
 function logToFile(message) {
   if (!logFilePath) initLogPath()
   const timestamp = new Date().toISOString()
-  const logLine = `[${timestamp}] ${message}\n`
-  try {
-    fs.appendFileSync(logFilePath, logLine, 'utf8')
-  } catch (e) {
-    // 忽略日志写入错误
+  _logBuffer.push(`[${timestamp}] ${message}\n`)
+  // 500ms 批量写入
+  if (!_logFlushTimer) {
+    _logFlushTimer = setTimeout(() => {
+      const data = _logBuffer.join('')
+      _logBuffer = []
+      _logFlushTimer = null
+      try {
+        fs.appendFile(logFilePath, data, 'utf8', () => {})
+      } catch (e) {}
+    }, 500)
   }
 }
 
@@ -193,12 +202,10 @@ async function createWindow() {
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     console.error('页面加载失败:', errorCode, errorDescription, validatedURL)
   })
-  
-  // 监听控制台消息
-  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
-    console.log('渲染进程控制台:', message)
-  })
-  
+
+  // 移除 console-message 转发（原逻辑会把渲染进程每条 console.log 转发到主进程同步 IO 写文件，
+  // 切换会话时大量渲染端日志会阻塞主进程事件循环，拉长 IPC 大对象的 GC 窗口）
+
   // 监听渲染进程崩溃事件 - 尝试恢复
   mainWindow.webContents.on('render-process-crashed', (event, killed) => {
     console.error('渲染进程崩溃:', killed)
@@ -328,39 +335,7 @@ app.whenReady().then(async () => {
   global.wikiEngine = workspaceRefs.wikiEngine
   global.chatHistorySync = workspaceRefs.chatHistorySync
   global.summaryExtractor = summaryExtractor   // 仅在 main 启动时设置一次
-  console.log('[main] P5 阶段：KGExtractor + SummaryExtractor 已实例化（searchGraph + batchUpgrade 启用）')
-
-  // batchUpgrade 触发：监听 WorkspaceManager 'opened' 事件
-  workspaceRefs.workspaceManager.on('opened', (wsPath) => {
-    setTimeout(async () => {
-      try {
-        if (global.wikiEngine && global.summaryExtractor) {
-          const result = await global.wikiEngine.batchUpgrade(wsPath, {
-            summaryExtractor: global.summaryExtractor,
-            computeSections: global.wikiEngine.computeSections.bind(global.wikiEngine)
-          })
-          console.log('[batchUpgrade] 完成:', result)
-        }
-      } catch (err) {
-        console.warn('[batchUpgrade] 后台任务失败:', err.message)
-      }
-    }, 10000)
-  })
-  // 兜底：启动 15s 后如果工作区已通过 workspaceManager.open() 打开（绕过 IPC），也跑一次
-  setTimeout(async () => {
-    try {
-      const wsPath = global.workspaceManager.current()?.path
-      if (wsPath && global.wikiEngine && global.summaryExtractor) {
-        const result = await global.wikiEngine.batchUpgrade(wsPath, {
-          summaryExtractor: global.summaryExtractor,
-          computeSections: global.wikiEngine.computeSections.bind(global.wikiEngine)
-        })
-        console.log('[batchUpgrade] 兜底完成:', result)
-      }
-    } catch (err) {
-      console.warn('[batchUpgrade] 兜底失败:', err.message)
-    }
-  }, 15000)  // 比 'opened' 事件晚 5s，避免重复跑
+  console.log('[main] P5 阶段：KGExtractor + SummaryExtractor 已实例化（searchGraph 启用）')
 
   // 重新注册 7 个 workspace 伪 Skill（searchGraph 闭包现在能拿到 kgExtractor）
   try {

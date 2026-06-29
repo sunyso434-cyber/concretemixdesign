@@ -32,6 +32,44 @@ export default function useAgentMode() {
     const onProgress = (data) => {
       const eventType = data.type
 
+      // ===== 多会话并行：按 sessionId 路由事件 =====
+      // 前台会话：正常 dispatch 到 state（UI 实时更新）
+      // 后台会话：只在 done/error 时 dispatch BACKGROUND_UPDATE（流式过程不 dispatch，避免高频无效更新）
+      const eventSessionId = data.sessionId
+      // 没有 sessionId 的事件无法判断归属，直接丢弃，防止串流到当前焦点会话
+      if (!eventSessionId) return
+      const isForeground = eventSessionId === state.session.currentId
+
+      // 后台会话事件：持续写入缓存，避免切回时内容丢失或状态中断
+      if (!isForeground) {
+        if (eventType === 'text_delta') {
+          dispatch({
+            type: 'BACKGROUND_UPDATE',
+            payload: {
+              sessionId: eventSessionId,
+              agent: { _deltaText: data.content || '' }
+            }
+          })
+          return
+        }
+        if (eventType === 'done' || eventType === 'error') {
+          dispatch({
+            type: 'BACKGROUND_UPDATE',
+            payload: {
+              sessionId: eventSessionId,
+              agent: {
+                status: eventType === 'done' ? 'done' : 'error',
+                requestId: data.requestId,
+                timeline: data.timeline || [],
+                replyText: data.result?.reply || ''
+              }
+            }
+          })
+        }
+        return
+      }
+
+      // ===== 前台会话事件：按原逻辑 dispatch =====
       // 事件 requestId 不匹配当前任务则忽略（spec 8.2 锁超时说明）
       if (data.requestId && data.requestId !== state.agent.requestId) {
         return
@@ -115,7 +153,7 @@ export default function useAgentMode() {
         if (confirmId) window.electronAPI?.removeListener?.(confirmId)
       } catch (_) {}
     }
-  }, [dispatch, state.agent.requestId])
+  }, [dispatch, state.agent.requestId, state.session.currentId])
 
   return { state, dispatch, agentRequestIdRef }
 }

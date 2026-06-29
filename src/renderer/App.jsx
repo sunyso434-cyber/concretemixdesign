@@ -14,10 +14,10 @@ const SplashFallback = () => (
     justifyContent: 'center',
     height: '100vh',
     gap: 16,
-    background: '#f5f5f7'
+    background: '#F5F5F5'
   }}>
     <Spin size="large" />
-    <div style={{ color: '#999', fontSize: 14 }}>加载中，请稍候...</div>
+    <div style={{ color: '#737373', fontSize: 14 }}>加载中，请稍候...</div>
   </div>
 )
 
@@ -27,11 +27,11 @@ function App() {
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: '#0071e3',
+          colorPrimary: '#4B3FE3',
           colorSuccess: '#34C759',
           colorWarning: '#FF9500',
           colorError: '#FF3B30',
-          fontFamily: "'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+          fontFamily: "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
           borderRadius: 8,
         },
         components: {

@@ -1,4 +1,6 @@
-const { ipcMain, dialog } = require('electron')
+const { ipcMain, dialog, shell } = require('electron')
+const fs = require('fs')
+const path = require('path')
 const { wrapWorkspaceCall } = require('../workspace/error-bridge')
 const { WorkspaceError } = require('../workspace/WorkspaceError')
 
@@ -50,8 +52,96 @@ function register(refs) {
     return refs.workspaceManager.current()
   }))
 
-  ipcMain.handle('workspace:listFiles', wrapWorkspaceCall(async (event, { subdir }) => {
+  ipcMain.handle('workspace:listFiles', wrapWorkspaceCall(async (event, { subdir, workspacePath }) => {
+    // 指定 workspacePath 时，直接用 fs 读该路径（用于侧栏按工作区显示文件树）
+    if (workspacePath) {
+      try {
+        const entries = await fs.promises.readdir(workspacePath, { withFileTypes: true })
+        const files = entries
+          .filter(e => !e.name.startsWith('.')) // 过滤隐藏文件
+          .map(e => ({
+            name: e.name,
+            path: path.join(workspacePath, e.name),
+            isDir: e.isDirectory()
+          }))
+        return { files }
+      } catch (err) {
+        throw new WorkspaceError('NOT_OPEN', `读取工作区文件失败: ${err.message}`, false)
+      }
+    }
     return { files: await refs.workspaceManager.listFiles(subdir) }
+  }))
+
+  // 在系统资源管理器中打开指定工作区文件夹
+  ipcMain.handle('workspace:openInExplorer', async (_event, { workspacePath }) => {
+    if (!workspacePath) {
+      return { success: false, error: '路径不能为空' }
+    }
+    try {
+      const errorMessage = await shell.openPath(workspacePath)
+      if (errorMessage) {
+        // shell.openPath 失败时返回错误字符串，成功时返回空字符串
+        return { success: false, error: errorMessage }
+      }
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // 重命名工作区文件夹并同步更新数据库中的 workspacePath
+  ipcMain.handle('workspace:rename', wrapWorkspaceCall(async (_event, { oldPath, newName }) => {
+    if (!oldPath || !newName || newName.trim().length === 0) {
+      throw new WorkspaceError('INVALID_PARAMS', '原路径和新名称不能为空', false)
+    }
+    const trimmedName = newName.trim()
+    // 禁止路径分隔符等非法字符
+    if (/[\\/:*?"<>|]/.test(trimmedName)) {
+      throw new WorkspaceError('INVALID_PARAMS', '名称包含非法字符', false)
+    }
+    const parentDir = path.dirname(oldPath)
+    const newPath = path.join(parentDir, trimmedName)
+    if (newPath === oldPath) {
+      return { success: true, newPath }
+    }
+    try {
+      // 检查目标是否已存在
+      try {
+        await fs.promises.access(newPath)
+        throw new WorkspaceError('ALREADY_EXISTS', '目标文件夹已存在', false)
+      } catch (err) {
+        if (err instanceof WorkspaceError) throw err
+        // access 失败说明目标不存在，继续
+      }
+      await fs.promises.rename(oldPath, newPath)
+    } catch (err) {
+      if (err instanceof WorkspaceError) throw err
+      throw new WorkspaceError('RENAME_FAILED', `重命名失败: ${err.message}`, false)
+    }
+    // 同步更新数据库中所有相关会话的 workspacePath
+    try {
+      const { ChatSession } = require('../db/database')
+      await ChatSession.update(
+        { workspacePath: newPath },
+        { where: { workspacePath: oldPath } }
+      )
+    } catch (err) {
+      console.error('[workspace:rename] 更新 ChatSession 失败:', err)
+      // 即使 DB 更新失败，文件夹已重命名，返回成功但带警告
+    }
+    // 如果当前打开的是这个工作区，同步 workspaceManager 内部状态
+    const current = refs.workspaceManager.current()
+    if (current && current.path === oldPath) {
+      try {
+        await refs.workspaceManager.open(newPath)
+        if (refs.wikiEngine) {
+          refs.workspaceManager.watch(refs.wikiEngine)
+        }
+      } catch (err) {
+        console.warn('[workspace:rename] 重新打开当前工作区失败:', err)
+      }
+    }
+    return { success: true, newPath }
   }))
 
   // Task 1.10: workspace:ingest - 调 WikiEngine.ingest 读源文件 → 写 wiki/sources/<slug>.md
@@ -115,6 +205,7 @@ function register(refs) {
     const { writeFile } = require('../workspace/write-handler')
     return await writeFile({
       workspaceManager: refs.workspaceManager,
+      wikiEngine: refs.wikiEngine,
       type,
       filename,
       payload

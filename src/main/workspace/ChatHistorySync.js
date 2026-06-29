@@ -25,6 +25,10 @@ class ChatHistorySync {
     this.pendingQueue = new Set()
     this.debounceTimer = null
     this.DELAY_MS = 5000
+    // listSessionsGrouped 缓存（避免切换会话时全表扫描）
+    this._groupedCache = null
+    this._groupedCacheAt = 0
+    this._groupedCacheTTL = 30000 // 30 秒
   }
 
   /**
@@ -233,6 +237,27 @@ class ChatHistorySync {
    * @returns {Promise<{workspaces: Array<{path, basename, sessionCount, sessions}>, unclassified: Array}>}
    */
   async listSessionsGrouped() {
+    // 自动修复默认标题：把"新会话-/新对话 /对话 MM-DD HH:mm/对话 YYYY-MM-DD HH:mm"
+    // 等历史遗留标题替换为第一条用户消息前 15 字
+    const isDefaultName = (name) =>
+      !name ||
+      name.startsWith('新会话-') ||
+      name.startsWith('新对话 ') ||
+      /^对话 \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(name) ||
+      /^对话 \d{2}-\d{2} \d{2}:\d{2}$/.test(name)
+
+    // 缓存命中：30 秒内直接返回缓存（避免切换会话时全表扫描）
+    // 但缓存中若仍包含默认标题，则跳过缓存继续执行修复
+    const now = Date.now()
+    if (this._groupedCache && (now - this._groupedCacheAt) < this._groupedCacheTTL) {
+      const hasDefault = this._groupedCache.workspaces.some(ws =>
+        ws.sessions.some(s => isDefaultName(s.title))
+      ) || this._groupedCache.unclassified.some(s => isDefaultName(s.title))
+      if (!hasDefault) {
+        return this._groupedCache
+      }
+    }
+
     const { ChatSession, ChatHistory } = require('../db/database')
     const { fn, col } = require('sequelize')
 
@@ -241,9 +266,10 @@ class ChatHistorySync {
     // v8.1.0 hotfix-6: 直接从 ChatSession 表查询所有会话，不再依赖文件系统扫描
     // 之前的问题：listSessions 依赖文件系统扫描 + 60s 窗口，导致重命名后会话丢失
     try {
-      // 1. 查询所有 ChatSession 记录（不再 group by workspacePath）
+      // 1. 查询 ChatSession 记录（limit 100，避免全表扫描）
       const allSessions = await ChatSession.findAll({
         order: [['lastActivity', 'DESC']],
+        limit: 100,
         raw: true
       })
 
@@ -263,6 +289,25 @@ class ChatHistorySync {
         activityMap = Object.fromEntries(
           activityRows.map(r => [r.sessionId, r.lastActivity])
         )
+      }
+
+      for (const s of allSessions) {
+        if (isDefaultName(s.sessionName)) {
+          try {
+            const firstUser = await ChatHistory.findOne({
+              where: { sessionId: s.sessionId, role: 'user' },
+              order: [['createdAt', 'ASC'], ['id', 'ASC']],
+              raw: true
+            })
+            if (firstUser?.content) {
+              const title = [...firstUser.content.trim()].slice(0, 15).join('')
+              await ChatSession.update({ sessionName: title }, { where: { sessionId: s.sessionId } })
+              s.sessionName = title
+            }
+          } catch (titleErr) {
+            console.warn('[listSessionsGrouped] 自动生成标题失败:', s.sessionId, titleErr.message)
+          }
+        }
       }
 
       // 3. 按 workspacePath 分组
@@ -309,11 +354,23 @@ class ChatHistorySync {
       // 按 basename 排序
       workspaces.sort((a, b) => a.basename.localeCompare(b.basename, 'zh-CN'))
 
-      return { workspaces, unclassified }
+      const result = { workspaces, unclassified }
+      // 写入缓存
+      this._groupedCache = result
+      this._groupedCacheAt = Date.now()
+      return result
     } catch (err) {
       console.error('[ChatHistorySync.listSessionsGrouped] 失败:', err.message)
       return { workspaces: [], unclassified: [] }
     }
+  }
+
+  /**
+   * 失效 listSessionsGrouped 缓存（创建/删除/重命名会话时调用）
+   */
+  invalidateGroupedCache() {
+    this._groupedCache = null
+    this._groupedCacheAt = 0
   }
 
   /**

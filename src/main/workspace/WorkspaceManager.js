@@ -61,7 +61,7 @@ class WorkspaceManager extends EventEmitter {
         console.error('[WorkspaceManager.close] onWorkspaceChange 失败:', err.message)
       )
     }
-    this.unwatch()
+    await this.unwatch()
     this._state = { path: null, status: 'idle', lastError: null }
   }
 
@@ -72,7 +72,11 @@ class WorkspaceManager extends EventEmitter {
   attachSync(sync) { this._sync = sync }
 
   watch(wikiEngine) {
-    if (this._watcher) this._watcher.close()
+    // 先清理旧 watcher（await close 避免新旧 watcher 并存导致重复 ingest）
+    // 注意：这里用同步清理只是兜底，正式清理应通过 close() 走 await unwatch()
+    if (this._watcher) {
+      this._watcher.close().catch(() => {})
+    }
     const watchPath = this._state.path
     console.log('[WorkspaceManager.watch] starting chokidar on:', watchPath)
     this._watcher = chokidar.watch(watchPath, {
@@ -90,22 +94,35 @@ class WorkspaceManager extends EventEmitter {
       usePolling: true,
       interval: 1000,
       binaryInterval: 2000,
+      // ignoreInitial: 打开工作区时不触发历史文件的 'add' 事件
+      // 历史文件已通过 ingest 导入并生成元数据，无需重新 ingest
+      // 避免 N 个并发 ingest 全量重建 BM25 导致内存爆炸
+      ignoreInitial: true,
       awaitWriteFinish: { stabilityThreshold: 1000, pollInterval: 100 }  // 1 秒去抖
     })
     this._watcher.on('ready', () => {
       console.log('[chokidar] ready, watching:', watchPath)
     })
-    this._watcher.on('add', async (fp) => {
+    // 串行队列：前一个 ingest 完成才处理下一个，避免并发 ingest 全量 rebuild BM25 导致 N² readFile
+    this._ingestQueue = Promise.resolve()
+    this._watcher.on('add', (fp) => {
       // v2026-06-19 hotfix (v4.9.1)：Windows 路径修正
       const rel = path.relative(watchPath, fp).replace(/\\/g, '/')
       console.log('[chokidar] add:', rel)
       if (/\.(pdf|md|docx|xlsx|xls|txt|csv)$/i.test(rel)) {
-        try {
-          const result = await wikiEngine.ingest({ filename: rel })
-          console.log('[chokidar] ingest OK:', rel, '→', result.pagesCreated)
-        } catch (err) {
-          console.error('[chokidar] Auto-ingest failed:', rel, err.message)
-        }
+        this._ingestQueue = this._ingestQueue
+          .then(async () => {
+            try {
+              const result = await wikiEngine.ingest({ filename: rel })
+              console.log('[chokidar] ingest OK:', rel, '→', result.pagesCreated)
+            } catch (err) {
+              console.error('[chokidar] Auto-ingest failed:', rel, err.message)
+            }
+          })
+          .catch((err) => {
+            // 队列内错误已被 then 内 try/catch 吞掉，这里兜底防止队列断裂
+            console.error('[chokidar] ingest queue error:', err.message)
+          })
       }
     })
     this._watcher.on('error', (err) => {
@@ -113,10 +130,18 @@ class WorkspaceManager extends EventEmitter {
     })
   }
 
-  unwatch() {
+  async unwatch() {
     if (this._watcher) {
-      this._watcher.close()
+      await this._watcher.close()
       this._watcher = null
+    }
+    // 等待队列内剩余 ingest 完成（不阻塞过久，最多等 30s）
+    if (this._ingestQueue) {
+      await Promise.race([
+        this._ingestQueue,
+        new Promise((resolve) => setTimeout(resolve, 30000))
+      ]).catch(() => {})
+      this._ingestQueue = Promise.resolve()
     }
   }
 

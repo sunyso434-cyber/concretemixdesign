@@ -66,14 +66,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     open: (path) => ipcRenderer.invoke('workspace:open', { path }),
     close: () => ipcRenderer.invoke('workspace:close'),
     current: () => ipcRenderer.invoke('workspace:current'),
-    listFiles: (subdir) => ipcRenderer.invoke('workspace:listFiles', { subdir }),
+    listFiles: (subdir, options) => ipcRenderer.invoke('workspace:listFiles', { subdir, ...(options || {}) }),
+    openInExplorer: (workspacePath) => ipcRenderer.invoke('workspace:openInExplorer', { workspacePath }),
+    rename: (oldPath, newName) => ipcRenderer.invoke('workspace:rename', { oldPath, newName }),
     readPage: (wikiPath) => ipcRenderer.invoke('workspace:readPage', { wikiPath }),
     pickFolder: () => ipcRenderer.invoke('workspace:pickFolder'),
     // P1 补全：源文件→wiki 入库（v4.8.3）
     ingest: (filename) => ipcRenderer.invoke('workspace:ingest', { filename }),
     // Task 2.8：wiki 健康检查（5 类问题：orphans/missingFrontmatter/staleSummaries/missingCrossRef/contradictions）
-    lint: () => ipcRenderer.invoke('workspace:lint')
-    // 后续 task 加：search / writeFile / searchGraph
+    lint: () => ipcRenderer.invoke('workspace:lint'),
+    // Task 3.2：写报告到 reports/ 并同步生成 wiki 版本
+    writeFile: (type, filename, payload) => ipcRenderer.invoke('workspace:writeFile', { type, filename, payload })
+    // 后续 task 加：search / searchGraph
   }
 })
 

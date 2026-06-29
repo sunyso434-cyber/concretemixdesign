@@ -18,6 +18,9 @@ import { handleCompressContextImpl } from './useChatState.compress'
  *      已迁到 AgentStore 的 reducer 中统一管理。
  */
 const useChatState = () => {
+  // ===== AgentStore（顶层调用，供压缩等回调使用） =====
+  const { state, dispatch } = useAgentStore()
+
   // ===== 附件（暂留 useChatState） =====
   const [attachment, setAttachment] = useState(null)
 
@@ -92,7 +95,6 @@ const useChatState = () => {
   // 调 IPC，dispatch COMPRESS_MESSAGES + SET_CONTEXT_STATS，更新 previousSummary
   // 实现拆到 useChatState.compress.js 的 handleCompressContextImpl 方便测试
   const handleCompressContext = useCallback(async () => {
-    const { state, dispatch } = useAgentStore()
     return handleCompressContextImpl({
       dispatch,
       setIsCompressing,
@@ -100,7 +102,7 @@ const useChatState = () => {
       messages: state.messages,
       previousSummary
     })
-  }, [previousSummary])
+  }, [dispatch, state.messages, previousSummary])
 
   return {
     // 附件

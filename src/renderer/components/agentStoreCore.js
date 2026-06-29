@@ -27,19 +27,33 @@ export const initialState = {
     list: [],
     sidebarCollapsed: true
   },
+  // 会话状态缓存：key=sessionId, value={ messages, agent, ts }
+  // 用于切换会话时保留后台 agent 的流式输出，支持多会话并行
+  sessionsCache: {},
   confirmation: null
 }
+
+// sessionsCache LRU 上限（避免内存无限增长）
+// 注：原值 20 会导致大对象累积（含 analysisReport/preprocessedData），改为 3 控内存
+const SESSIONS_CACHE_LIMIT = 3
 
 export function mergeReplyToMessages(messages, reply, requestId, timeline, stopReason) {
   // 用 `=== true` 严格匹配：历史消息的 _streaming 是 undefined（spec 6.3），
   // 不会被误判为 falsy 跳过；只有当前正在流式输出的消息才是 true
-  const idx = messages.findIndex(m => m._agentRequestId === requestId && m._streaming === true)
+  let idx = -1
+  if (requestId) {
+    idx = messages.findIndex(m => m._agentRequestId === requestId && m._streaming === true)
+  }
+  // 无 requestId 或精确匹配失败时，兜底查找任意正在流式输出的 assistant 消息
+  if (idx < 0) {
+    idx = messages.findIndex(m => m.role === 'assistant' && m._streaming === true)
+  }
   if (idx >= 0) {
     const next = [...messages]
     next[idx] = {
       role: 'assistant',
       content: reply || '',
-      _agentRequestId: requestId,
+      _agentRequestId: requestId || next[idx]._agentRequestId,
       timeline,
       stopReason: stopReason || null,
       _streaming: false
@@ -256,6 +270,121 @@ export function agentReducer(state, action) {
           requestId: null,
           runMode: state.agent.runMode
         }
+      }
+    }
+    case 'CACHE_SESSION': {
+      // 切出当前会话：把当前 messages + agent 快照存入 sessionsCache
+      // ⚠️ 精简副本：只保留 role/content/timeline/stopReason 等必要字段，
+      //    丢弃 analysisReport/preprocessedData/materialPicker 等大对象（切回时从 DB 重新加载）
+      const sid = action.payload?.sessionId || state.session.currentId
+      if (!sid) return state
+      const slimMessages = state.messages.map(m => ({
+        role: m.role,
+        content: m.content,
+        timeline: m.timeline,
+        stopReason: m.stopReason,
+        _streaming: m._streaming,
+        _agentRequestId: m._agentRequestId,
+        type: m.type,
+        classifiedError: m.classifiedError
+      }))
+      const newCache = {
+        ...state.sessionsCache,
+        [sid]: {
+          messages: slimMessages,
+          agent: state.agent,
+          ts: Date.now()
+        }
+      }
+      // LRU 淘汰：超过上限删除最旧的
+      const keys = Object.keys(newCache)
+      if (keys.length > SESSIONS_CACHE_LIMIT) {
+        keys.sort((a, b) => newCache[a].ts - newCache[b].ts)
+        for (let i = 0; i < keys.length - SESSIONS_CACHE_LIMIT; i++) {
+          delete newCache[keys[i]]
+        }
+      }
+      return { ...state, sessionsCache: newCache }
+    }
+    case 'RESTORE_SESSION': {
+      // 切入目标会话：从 sessionsCache 恢复 messages + agent
+      const sid = action.payload?.sessionId
+      if (!sid) return state
+      const cached = state.sessionsCache[sid]
+      if (cached) {
+        let messages = cached.messages || []
+        // 若恢复时后台仍在流式输出，把已累积的 replyText 写回流式占位消息，
+        // 保留 _streaming=true，确保切回后继续追加新 token
+        if (
+          cached.agent?.replyText &&
+          (cached.agent.status === 'streaming' || cached.agent.status === 'thinking')
+        ) {
+          messages = messages.map(m =>
+            m.role === 'assistant' && m._streaming
+              ? { ...m, content: cached.agent.replyText }
+              : m
+          )
+        }
+        return {
+          ...state,
+          messages,
+          agent: cached.agent || initialState.agent,
+          session: { ...state.session, currentId: sid }
+        }
+      }
+      // 无缓存：清空 state，让 switchSession 走 DB 加载流程
+      return {
+        ...state,
+        messages: [],
+        agent: { ...initialState.agent, runMode: state.agent.runMode },
+        session: { ...state.session, currentId: sid }
+      }
+    }
+    case 'BACKGROUND_UPDATE': {
+      // 后台会话事件：更新 sessionsCache 中目标会话的 messages/agent
+      const { sessionId, messages, agent } = action.payload || {}
+      if (!sessionId) return state
+      const existing = state.sessionsCache[sessionId]
+      if (!existing) {
+        // 缓存里没有该会话，可能是会话已被 LRU 淘汰或未缓存过，忽略
+        return state
+      }
+
+      let updatedAgent = existing.agent
+      let updatedMessages = existing.messages
+
+      if (agent) {
+        // text_delta：增量追加 replyText（后台持续累积，避免切回时丢失已生成内容）
+        if (agent._deltaText !== undefined) {
+          updatedAgent = {
+            ...existing.agent,
+            replyText: (existing.agent.replyText || '') + agent._deltaText
+          }
+        } else {
+          updatedAgent = { ...existing.agent, ...agent }
+        }
+      }
+
+      // 后台会话完成：把最终回复合并到缓存的 messages 里
+      if (updatedAgent.status === 'done' && updatedAgent.replyText) {
+        updatedMessages = mergeReplyToMessages(
+          updatedMessages,
+          updatedAgent.replyText,
+          updatedAgent.requestId,
+          updatedAgent.timeline || [],
+          null
+        )
+      }
+
+      const updated = {
+        ...existing,
+        messages: messages !== undefined ? messages : updatedMessages,
+        agent: updatedAgent,
+        ts: Date.now()
+      }
+      return {
+        ...state,
+        sessionsCache: { ...state.sessionsCache, [sessionId]: updated }
       }
     }
     default:

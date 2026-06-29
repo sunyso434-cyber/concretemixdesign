@@ -116,10 +116,11 @@ export async function sendMessage({ dispatch, sessionId, message: userMessage, r
  * @param {Object} args
  * @param {Function} args.dispatch - reducer 的 dispatch
  * @param {string} [args.requestId] - 当前请求 ID（用于后端终止）
+ * @param {string} [args.sessionId] - 当前会话 ID（多会话并行时按 sessionId 路由 abort）
  */
-export function abortAgent({ dispatch, requestId }) {
+export function abortAgent({ dispatch, requestId, sessionId }) {
   if (requestId) {
-    window.electronAPI.invoke('agent:abort', { requestId }).catch(() => {})
+    window.electronAPI.invoke('agent:abort', { requestId, sessionId }).catch(() => {})
   }
   dispatch({ type: 'ABORT' })
 }
@@ -149,45 +150,82 @@ export async function loadSessionList({ dispatch }) {
  * @param {Function} args.dispatch - reducer 的 dispatch
  * @param {string} args.sessionId - 目标会话 ID
  */
-export async function switchSession({ dispatch, sessionId }) {
-  dispatch({ type: 'RESET_AGENT' })
+// 模块级竞态 token：每次 switchSession 递增，IPC 完成后对比 token，避免旧请求覆盖新会话状态
+let _switchToken = 0
 
+export async function switchSession({ dispatch, sessionId, state }) {
+  const myToken = ++_switchToken
+
+  // 1. 切出当前会话：把当前 messages + agent 快照存入 sessionsCache（不打断后台 agent）
+  const currentId = state?.session?.currentId
+  if (currentId && currentId !== sessionId) {
+    dispatch({ type: 'CACHE_SESSION', payload: { sessionId: currentId } })
+  }
+
+  // 2. 切入目标会话：优先从 sessionsCache 恢复（保留后台 agent 流式状态）
+  //    无缓存则进入空状态，由下面 DB 加载流程填充
+  dispatch({ type: 'RESTORE_SESSION', payload: { sessionId } })
+
+  // 3. 如果 RESTORE_SESSION 恢复了缓存（messages 非空），跳过 DB 加载，避免覆盖后台流式状态
+  //    缓存命中判定：恢复后 state.messages.length > 0
+  //    注意：RESTORE_SESSION 是同步 reducer，下一个 dispatch 周期即可读取
+  //    这里用 await Promise.resolve() 让 reducer 先应用，再通过 dispatch 闭包读取最新状态
+  await Promise.resolve()
+
+  // 切换工作区（与消息加载解耦）
   try {
-    // 1. 获取目标会话的信息（包括 workspacePath）
-    const sessionInfo = await window.electronAPI.invoke('agent:getSessionInfo', { sessionId })
+    const sessionInfo = await window.electronAPI.invoke('agent:getSessionInfo', { sessionId }).catch(() => null)
 
     if (sessionInfo && sessionInfo.workspacePath) {
-      // 2. 获取当前工作区
-      const currentWorkspace = await window.electronAPI.workspace.current()
-      const currentPath = currentWorkspace?.path?.replace(/\\/g, '/') || null
-      const targetPath = sessionInfo.workspacePath.replace(/\\/g, '/')
+      try {
+        const currentWorkspace = await window.electronAPI.workspace.current()
+        const currentPath = currentWorkspace?.path?.replace(/\\/g, '/') || null
+        const targetPath = sessionInfo.workspacePath.replace(/\\/g, '/')
 
-      // 3. 如果工作区不同，切换工作区
-      if (currentPath !== targetPath) {
-        console.log('[switchSession] 切换工作区:', targetPath)
-        await window.electronAPI.workspace.open(targetPath)
+        if (currentPath !== targetPath) {
+          console.log('[switchSession] 切换工作区:', targetPath)
+          await window.electronAPI.workspace.open(targetPath)
+        }
+      } catch (wsErr) {
+        console.warn('[switchSession] 工作区切换失败（不阻塞消息加载）:', wsErr?.message || wsErr)
       }
     }
+  } catch (e) {
+    // workspace 切换整体失败不阻塞
+  }
 
-    // 4. 加载会话消息
+  // 4. 从 DB 加载消息（仅当缓存未命中时）
+  //    缓存命中时跳过，避免覆盖后台 agent 的流式输出
+  //    通过查询 state.sessionsCache[sessionId] 是否存在且 messages 非空判断
+  //    注意：这里通过 dispatch 一个特殊 action 来读取最新 state 不优雅，
+  //    改为直接调用 IPC 加载，加载后由调用方根据 state 决定是否 SET_MESSAGES
+  //    简化方案：调用方传入 getState 函数
+  try {
     const r = await window.electronAPI.invoke('agent:getSessionMessages', { sessionId })
-    if (r && r.messages) {
-      dispatch({
-        type: 'SET_MESSAGES',
-        payload: r.messages.map(m => ({
-          role: m.role,
-          content: m.content,
-          toolCalls: m.toolCalls,
-          timeline: (m.metadata && m.metadata.timeline) || [],
-          stopReason: m.stopReason || null
-        }))
-      })
+    if (myToken !== _switchToken) {
+      console.log('[switchSession] 已被新会话切换抢占，放弃本次消息加载')
+      return
+    }
+    if (r && r.messages && r.messages.length > 0) {
+      // 仅在当前 state.messages 为空时才覆盖（避免覆盖缓存中的后台流式状态）
+      // 调用方需传入最新 state，否则总是覆盖（降级为旧行为）
+      const currentMessages = state?.messages || []
+      if (currentMessages.length === 0) {
+        dispatch({
+          type: 'SET_MESSAGES',
+          payload: r.messages.map(m => ({
+            role: m.role,
+            content: m.content,
+            toolCalls: m.toolCalls,
+            timeline: (m.metadata && m.metadata.timeline) || [],
+            stopReason: m.stopReason || null
+          }))
+        })
+      }
     }
   } catch (e) {
-    console.error('加载会话消息失败:', e)
-    // IPC 失败仍然切换 sessionId，让 UI 进入"空消息"状态
+    console.error('[switchSession] 加载会话消息失败:', e)
   }
-  dispatch({ type: 'SET_SESSION_ID', payload: sessionId })
 }
 
 /**
@@ -202,10 +240,10 @@ export function createSession({ dispatch }) {
   dispatch({ type: 'RESET_AGENT' })
 
   // 立即在数据库中创建 ChatSession 记录，这样会话会立即出现在列表中
-  // 默认名称会在用户发送第一条消息时被 AI 摘要覆盖
+  // 默认标题为空；用户发送第一条消息时由后端用消息内容截取或 AI 摘要生成可读标题
   window.electronAPI.invoke('agent:createSession', {
     sessionId: newId,
-    sessionName: `新对话 ${new Date().toLocaleString('zh-CN', { hour12: false })}`
+    sessionName: null
   }).catch(err => console.error('创建会话记录失败:', err))
 
   // loadSessionList 内部已 try/catch，但仍加 .catch 兜底防止未来重构去掉
@@ -230,7 +268,7 @@ export function createSession({ dispatch }) {
  * - 终态本身不发持久化（done→done 不触发；aborted→aborted 不触发）
  */
 export function useAssistantPersistence() {
-  const { state } = useAgentStore()
+  const { state, dispatch } = useAgentStore()
   const lastStatusRef = useRef(null)
 
   useEffect(() => {
@@ -268,5 +306,8 @@ export function useAssistantPersistence() {
       metadata: { timeline: state.agent.timeline },
       stopReason
     }).catch(e => console.error('持久化 assistant 消息失败:', e))
-  }, [state.agent.status, state.messages, state.agent.requestId, state.session.currentId, state.agent.timeline])
+
+    // agent 完成后刷新会话列表（此时后端 AI 摘要大概率已生成，可更新标题）
+    loadSessionList({ dispatch }).catch(() => {})
+  }, [state.agent.status, state.messages, state.agent.requestId, state.session.currentId, state.agent.timeline, dispatch])
 }

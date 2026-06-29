@@ -24,6 +24,18 @@ const { queryBM25, buildBM25 } = require('./bm25')
 const { tokenize } = require('./tokenizer')
 const { tokenizeQuery, scoreSegment, computeIdf } = require('./relevance')
 
+// FNV-1a 32-bit（与前端 src/renderer/utils/workspaceFile.js toSlug 保持完全一致）
+// 原因：跨平台同步实现，避免 SHA-1 Web Crypto 异步 API 问题
+function fnv1a32(str) {
+  const bytes = Buffer.from(str, 'utf-8')
+  let h = 0x811c9dc5
+  for (const b of bytes) {
+    h = h ^ b
+    h = Math.imul(h, 0x01000193)
+  }
+  return h >>> 0
+}
+
 // 本地时间 ISO 格式（北京时间 UTC+8）
 function localISOString(date = new Date()) {
   const tzOffset = -date.getTimezoneOffset()
@@ -106,6 +118,52 @@ class WikiEngine {
     this.kgExtractor = kgExtractor
     this.deepseekService = deepseekService
     this.summaryExtractor = summaryExtractor
+    // BM25 全量重建串行锁（Promise 链）
+    // 并发 ingest 时多个全量 rebuild 重叠会导致 N² readFile 内存叠加，
+    // 用链式锁让 BM25 重建部分串行排队执行
+    this._bm25Lock = Promise.resolve()
+  }
+
+  /**
+   * 根据文件名生成 wiki slug（spec §4.10：含中文的文件名追加 FNV-1a(filename) 前 6 位 hex）
+   * @param {string} filename - 相对工作区的源文件名
+   * @returns {string}
+   */
+  _buildSlug(filename) {
+    const baseName = path.parse(filename).name
+    const slugBase = baseName
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^\w一-龥-]/g, '')
+    const hasChinese = /[一-龥]/.test(baseName)
+    return hasChinese
+      ? `${slugBase}-${fnv1a32(filename).toString(16).padStart(8, '0').substring(0, 6)}`
+      : slugBase
+  }
+
+  /**
+   * v2026-06-29：BM25 全量重建（带串行锁）
+   * - 多个并发 ingest 不会重叠执行 BM25 rebuild 部分
+   * - 当前 ingest 的文件直接用已读的 content，避免重复读盘
+   * - 单文件 ingest 内存可接受，串行锁仅控制并发全量 rebuild 不叠加
+   */
+  async _rebuildBM25(index, current, filename, content) {
+    const run = async () => {
+      const allDocs = []
+      for (const [name, info] of Object.entries(index.files)) {
+        const absSrc = path.posix.join(current.path, name)
+        try {
+          const c = name === filename ? content : await fs.readFile(absSrc, 'utf-8')
+          allDocs.push({ path: info.wikiPage, content: c })
+        } catch {
+          // 源文件不存在（已删除？）跳过，不影响其他 doc
+        }
+      }
+      index.bm25Index = buildBM25(allDocs)
+    }
+    // 链式锁：then(run, run) 保证上一个失败也不影响下一个进入
+    this._bm25Lock = this._bm25Lock.then(run, run)
+    await this._bm25Lock
   }
 
   // Task 2.1: 原子性 ingest (P2a 升级)
@@ -125,17 +183,6 @@ class WikiEngine {
     const crypto = require('crypto')
     const uuid = crypto.randomUUID()
     const tmpDir = path.join(current.path, 'wiki', '.tmp', `ingest-${uuid}`)
-    // FNV-1a 32-bit（与前端 src/renderer/utils/workspaceFile.js toSlug 保持完全一致）
-    // 原因：跨平台同步实现，避免 SHA-1 Web Crypto 异步 API 问题
-    function fnv1a32(str) {
-      const bytes = Buffer.from(str, 'utf-8')
-      let h = 0x811c9dc5
-      for (const b of bytes) {
-        h = h ^ b
-        h = Math.imul(h, 0x01000193)
-      }
-      return h >>> 0
-    }
 
     try {
       // ===== 1. 准备阶段：在 .tmp/ 下生成所有目标文件 =====
@@ -161,15 +208,7 @@ class WikiEngine {
       }
 
       // 1c. slug 化（spec §4.10：含中文的文件名 → 追加 FNV-1a(filename) 前 6 位 hex）
-      const baseName = path.parse(filename).name
-      const slugBase = baseName
-        .toLowerCase()
-        .replace(/\s+/g, '-')
-        .replace(/[^\w一-龥-]/g, '')
-      const hasChinese = /[一-龥]/.test(baseName)
-      const slug = hasChinese
-        ? `${slugBase}-${fnv1a32(filename).toString(16).padStart(8, '0').substring(0, 6)}`
-        : slugBase
+      const slug = this._buildSlug(filename)
 
       // 1d. 并行执行：KG 提取 + 摘要生成
       // - existingPages 从 index.bm25Index.docLengths 推导（wiki 页面列表），不是 index.files
@@ -311,19 +350,9 @@ class WikiEngine {
         ingestVersion: 2
       }
       index.updatedAt = localISOString()
-      // 5c. 重新构建 BM25 索引（v1 简单实现：全量 rebuild + add new doc）
-      const allDocs = []
-      for (const [name, info] of Object.entries(index.files)) {
-        const absSrc = path.posix.join(current.path, name)
-        try {
-          const c = await fs.readFile(absSrc, 'utf-8')
-          allDocs.push({ path: info.wikiPage, content: c })
-        } catch {
-          // 源文件不存在（已删除？）跳过，不影响其他 doc
-        }
-      }
+      // 5c. 重新构建 BM25 索引（带串行锁：并发 ingest 不会重叠 rebuild）
       const tokensAdded = tokenize(content).length
-      index.bm25Index = buildBM25(allDocs)
+      await this._rebuildBM25(index, current, filename, content)
       // 5d. 写回 .workspace-index.json（v4.9.4 M-3：saveIndex 失败 → WRITE_FAIL 而非 ATOMIC_FAIL）
       try {
         await saveIndex(current.path, index)
@@ -356,6 +385,70 @@ class WikiEngine {
       if (err instanceof WorkspaceError) throw err
       throw new WorkspaceError('ATOMIC_FAIL', err.message, true, err)
     }
+  }
+
+  /**
+   * 将生成的报告内容直接 ingest 为 wiki 页面（不保留源 md 文件）
+   * - 用于 write-handler 写入 docx/xlsx 时同步生成可搜索的 wiki 版本
+   * - frontmatter 类型为 report，source 指向原报告文件
+   * @param {Object} args
+   * @param {string} args.filename - 原报告文件名（相对工作区），如 'reports/report.docx'
+   * @param {string} args.content - markdown 格式正文
+   * @param {string} [args.title] - 页面标题，默认使用 slug
+   * @returns {Promise<{wikiPage: string}>}
+   */
+  async ingestReport({ filename, content, title }) {
+    const current = this.workspace.current()
+    if (!current || current.status !== 'ready') {
+      throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
+    }
+    const slug = this._buildSlug(filename)
+    const targetRel = `sources/${slug}.md`
+    const sourcesDir = path.join(current.path, 'wiki', 'sources')
+    const targetAbs = path.join(sourcesDir, `${slug}.md`)
+    const nowIso = localISOString()
+    const sections = this.computeSections(content)
+    const fmObj = {
+      type: 'report',
+      title: title || slug,
+      source: filename,
+      tags: [],
+      ingested_at: nowIso,
+      updated_at: nowIso,
+      quality: 'high',
+      summary: null,
+      keyPoints: [],
+      confidence: 0.85,
+      supersedes: [],
+      entities: [],
+      concepts: [],
+      relatedPages: [],
+      sections_version: 1,
+      sections
+    }
+    const md = matter.stringify(content, fmObj)
+    await fs.mkdir(sourcesDir, { recursive: true })
+    await fs.writeFile(targetAbs, md.replace(/\r\n/g, '\n'), 'utf-8')
+
+    // 更新 .workspace-index.json
+    const index = await loadIndex(current.path)
+    const crypto = require('crypto')
+    const contentHash = crypto.createHash('sha256').update(content, 'utf-8').digest('hex')
+    const nowMs = Date.now()
+    index.files[filename] = {
+      hash: `sha256:${contentHash}`,
+      mtime: nowMs,
+      size: Buffer.byteLength(content, 'utf-8'),
+      wikiPage: targetRel,
+      lastIngestAt: nowMs,
+      quality: 'high',
+      ingestVersion: 2
+    }
+    index.updatedAt = localISOString()
+    await this._rebuildBM25(index, current, filename, content)
+    await saveIndex(current.path, index)
+
+    return { wikiPage: targetRel }
   }
 
   // Task 2.7: readPage 加固 - 加 SIZE_EXCEEDED 检查（> 5MB 抛错，避免内存爆）
@@ -1603,137 +1696,6 @@ ${segment.text}
     // 表格首行（至少 2 个 |）一律不当 heading
     if (TABLE_HEADING_LINE_RE.test(firstLine)) return true
     return false
-  }
-
-  /**
-   * 后台批量升级旧页面（补 summary/keyPoints/sections）
-   * @param {string} workspacePath
-   * @param {Object} options
-   * @param {Object} options.summaryExtractor - SummaryExtractor 实例
-   * @param {Function} options.computeSections - computeSections 方法
-   */
-  async batchUpgrade(workspacePath, { summaryExtractor, computeSections }) {
-    // O_EXCL 原子锁（不是 fs.access 礼貌锁）
-    const lockPath = path.posix.join(workspacePath, 'wiki', '.batch-upgrade.lock')
-    let fd
-    try {
-      fd = await fs.open(lockPath, 'wx')  // O_EXCL: 已存在则抛错
-      await fd.close()
-    } catch (err) {
-      if (err.code === 'EEXIST') {
-        // 锁老化：超过 5 分钟视为孤儿（PID 死了锁没删）
-        try {
-          const lockStat = await fs.stat(lockPath)
-          if (Date.now() - lockStat.mtimeMs > 5 * 60 * 1000) {
-            await fs.rm(lockPath, { force: true })
-            fd = await fs.open(lockPath, 'wx')  // 重试
-            await fd.close()
-            // 继续执行（锁已清理）
-          } else {
-            console.log('[batchUpgrade] 另一个升级任务正在运行，跳过')
-            return { upgraded: 0, failed: 0, skipped: 'locked' }
-          }
-        } catch {
-          console.log('[batchUpgrade] 另一个升级任务正在运行，跳过')
-          return { upgraded: 0, failed: 0, skipped: 'locked' }
-        }
-      } else {
-        throw err
-      }
-    }
-
-    try {
-      const sourcesDir = path.posix.join(workspacePath, 'wiki', 'sources')
-      const entries = await fs.readdir(sourcesDir).catch(() => [])
-      const mdFiles = entries.filter(n => n.endsWith('.md'))
-
-      // 过滤掉 ingest 不到 5 分钟的新文件（避免和并发 ingest 竞争）
-      const FIVE_MIN = 5 * 60 * 1000
-      const pendingFiles = []
-      for (const file of mdFiles) {
-        const absPath = path.posix.join(sourcesDir, file)
-        const stat = await fs.stat(absPath).catch(() => null)
-        if (stat && (Date.now() - stat.mtimeMs) < FIVE_MIN) continue
-        pendingFiles.push(file)
-      }
-
-      // 并发控制：≤20 文件串行，>20 文件开 5 并发（spec §5.4）
-      const CONCURRENCY = pendingFiles.length > 20 ? 5 : 1
-      let upgraded = 0, failed = 0
-
-      // sections 预计算必须串行（避免文件锁竞争），只并发 extract
-      const processOne = async (file) => {
-        const absPath = path.posix.join(sourcesDir, file)
-        const raw = await fs.readFile(absPath, 'utf-8')
-        const { data: fm, content } = matter(raw)
-
-        // 半写检测：三个字段任一缺失 → 强制重跑
-        const needsUpgrade = !fm.summary
-          || !fm.sections || fm.sections.length === 0
-          || !fm.keyPoints || fm.keyPoints.length === 0
-        if (!needsUpgrade) return false
-
-        const summaryResult = await (summaryExtractor ? summaryExtractor.extract(content, file) : null)
-        fm.summary = summaryResult ? summaryResult.summary : null
-        fm.keyPoints = summaryResult ? (summaryResult.keyPoints || []) : []
-        fm.tags = summaryResult ? (summaryResult.tags || []) : []
-        fm.sections = computeSections(content)
-        fm.sections_version = (fm.sections_version || 0) + 1
-
-        const updated = matter.stringify(content, fm)
-        await fs.writeFile(absPath, updated.replace(/\r\n/g, '\n'), 'utf-8')
-        return true
-      }
-
-      // 批量处理（串行或并发）
-      for (let i = 0; i < pendingFiles.length; i += CONCURRENCY) {
-        const batch = pendingFiles.slice(i, i + CONCURRENCY)
-        const results = await Promise.allSettled(batch.map(f => processOne(f)))
-        for (const r of results) {
-          if (r.status === 'fulfilled' && r.value) upgraded++
-          else if (r.status === 'rejected') failed++
-        }
-      }
-
-      // 关联页面：同一批次只调用一次，传完整 pendingFiles 列表
-      if (upgraded > 0) {
-        await this._batchUpdateRelatedPages(workspacePath, pendingFiles)
-      }
-
-      return { upgraded, failed, total: pendingFiles.length }
-    } finally {
-      await fs.rm(lockPath, { force: true }).catch(() => {})
-    }
-  }
-
-  /**
-   * 批量更新关联页面（第二阶段 wikilinks：BM25 机器搜索 + frontmatter 去重）
-   * @param {string} workspacePath
-   * @param {string[]} mdFiles - 文件名列表（不含路径前缀）
-   */
-  async _batchUpdateRelatedPages(workspacePath, mdFiles) {
-    const sourcesDir = path.posix.join(workspacePath, 'wiki', 'sources')
-    for (const file of mdFiles) {
-      const absPath = path.posix.join(sourcesDir, file)
-      const raw = await fs.readFile(absPath, 'utf-8').catch(() => null)
-      if (!raw) continue
-      const { data: fm, content } = matter(raw)
-      const existingRelated = (fm.relatedPages || []).map(r => r.page)
-
-      const searchQuery = [file, ...(fm.keyPoints || [])].join(' ')
-      const hits = await this.search(searchQuery, 5).catch(() => [])
-      const newRelated = hits
-        .filter(h => h.path !== `sources/${file}` && !existingRelated.includes(h.path))
-        .slice(0, 3)
-        .map(h => ({ page: h.path, relation: '相关' }))
-
-      if (newRelated.length > 0) {
-        fm.relatedPages = [...(fm.relatedPages || []), ...newRelated]
-        const links = fm.relatedPages.map(r => `- [[${r.page}]]`).join('\n')
-        const updated = matter.stringify(content + `\n\n---\n> **关联页面**\n${links}\n`, fm)
-        await fs.writeFile(absPath, updated.replace(/\r\n/g, '\n'), 'utf-8')
-      }
-    }
   }
 }
 

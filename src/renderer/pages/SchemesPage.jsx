@@ -1,19 +1,49 @@
-import React, { useState, useEffect, useCallback } from 'react'
-import { Card, Button, Table, Space, message, Modal, Form, Input, Select, Tag, Switch } from 'antd'
+import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react'
+import { Card, Button, Table, Space, message, Modal, Form, Input, Select, Tag } from 'antd'
+import { AppstoreOutlined, DollarOutlined, ThunderboltOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import extractErrorMessage from '../utils/extractErrorMessage'
+import BasicMixTab from '../components/BasicMixTab'
 
 
 const { Option } = Select
 
-const SchemesPage = () => {
+const SchemesPage = forwardRef((props, ref) => {
   const [schemes, setSchemes] = useState([])
   const [loading, setLoading] = useState(false)
   const [selectedSchemes, setSelectedSchemes] = useState([])
   const [showDrafts, setShowDrafts] = useState(false)
+  const [statusFilter, setStatusFilter] = useState(null) // 外部导航过滤：null=全部
+  const [viewMode, setViewMode] = useState('schemes') // 'schemes' | 'basicMix'
   const [viewModalVisible, setViewModalVisible] = useState(false)
   const [currentScheme, setCurrentScheme] = useState(null)
   const [editModalVisible, setEditModalVisible] = useState(false)
   const [editForm] = Form.useForm()
+
+  // 暴露给父组件的方法
+  useImperativeHandle(ref, () => ({
+    filterScheme: (type) => {
+      // 基准方案：切换到 basicMix 视图
+      if (type === '基准方案') {
+        setViewMode('basicMix')
+        return
+      }
+      // 其余分类：切回 schemes 视图并设置过滤
+      setViewMode('schemes')
+      if (type === '全部方案') {
+        setShowDrafts(true)
+        setStatusFilter(null)
+      } else if (type === '正式方案') {
+        setShowDrafts(false)
+        setStatusFilter(null)
+      } else if (type === '草稿方案') {
+        setShowDrafts(true)
+        setStatusFilter('草稿')
+      } else if (type === '已对比') {
+        setShowDrafts(true)
+        setStatusFilter('已使用')
+      }
+    }
+  }), [])
 
   // 加载方案列表
   const loadSchemes = async (options = {}) => {
@@ -286,59 +316,111 @@ const SchemesPage = () => {
     onChange: handleSchemeSelect
   }
 
+  // 应用 statusFilter 前端过滤
+  const filteredSchemes = statusFilter
+    ? schemes.filter(s => s.status === statusFilter)
+    : schemes
+
+  // 统计卡片数据
+  const totalSchemes = filteredSchemes.length
+  const costValues = filteredSchemes.map(s => {
+    const costs = s.materialCosts || {}
+    // 复用规范化总成本计算
+    const hasSandDetail = Object.keys(costs).some(k => k.startsWith('sand_'))
+    const hasStoneDetail = Object.keys(costs).some(k => k.startsWith('stone_'))
+    let total = 0
+    Object.entries(costs).forEach(([k, v]) => {
+      if (k === 'sand' && hasSandDetail) return
+      if (k === 'stone' && hasStoneDetail) return
+      if (k === 'totalCost') return
+      total += v || 0
+    })
+    return total
+  }).filter(c => !isNaN(c) && c > 0)
+  const avgCost = costValues.length ? (costValues.reduce((s, c) => s + c, 0) / costValues.length).toFixed(1) : '0.0'
+  const strengthNums = filteredSchemes.map(s => parseInt(String(s.strength || '').replace('C', '')) || 0).filter(n => n > 0)
+  const maxStrength = strengthNums.length ? 'C' + Math.max(...strengthNums) : '--'
+  const dateList = filteredSchemes.map(s => s.createdAt).filter(Boolean).sort()
+  const latestDate = dateList.length ? new Date(dateList[dateList.length - 1]).toLocaleDateString() : '--'
+
   return (
     <div className="fade-in">
       <div className="page-container">
       </div>
 
-      <div className="action-bar">
-        <Button
-          type="primary"
-          className="custom-btn"
-        >
-          新建方案
-        </Button>
-        <Space style={{ marginLeft: 16 }}>
-          <Switch
-            checked={showDrafts}
-            onChange={(checked) => setShowDrafts(checked)}
-            checkedChildren="显示草稿"
-            unCheckedChildren="隐藏草稿"
-          />
-        </Space>
-      </div>
-
-      <div className="custom-card">
-        <Table 
-          className="custom-table"
-          dataSource={schemes.map(s => ({ ...s, key: s.id }))} 
-          columns={columns} 
-          loading={loading}
-          rowSelection={rowSelection}
-          pagination={{ 
-            pageSize: 10,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (total) => `共 ${total} 条记录`
-          }}
-        />
-      </div>
-
-      <div className="mt-lg">
-        <div className="custom-card">
-          <div className="selected-schemes-bar">
-            <p>已选择 <strong>{selectedSchemes.length}</strong> 个方案</p>
+      {/* 统计卡片（两种视图都保留） */}
+      <div className="mat-stats">
+        <div className="mat-stat-card">
+          <div className="mat-stat-icon blue"><AppstoreOutlined /></div>
+          <div className="mat-stat-info">
+            <div className="mat-stat-value">{totalSchemes}</div>
+            <div className="mat-stat-label">方案总数</div>
           </div>
-          <Button 
-            type="primary" 
-            className="custom-btn"
-            onClick={compareSchemes} 
-            disabled={selectedSchemes.length < 2}
-          >
-            对比选中方案
-          </Button>
+        </div>
+        <div className="mat-stat-card">
+          <div className="mat-stat-icon green"><DollarOutlined /></div>
+          <div className="mat-stat-info">
+            <div className="mat-stat-value">{avgCost}</div>
+            <div className="mat-stat-label">平均成本 (元/m³)</div>
+          </div>
+        </div>
+        <div className="mat-stat-card">
+          <div className="mat-stat-icon amber"><ThunderboltOutlined /></div>
+          <div className="mat-stat-info">
+            <div className="mat-stat-value">{maxStrength}</div>
+            <div className="mat-stat-label">最高强度</div>
+          </div>
+        </div>
+        <div className="mat-stat-card">
+          <div className="mat-stat-icon purple"><ClockCircleOutlined /></div>
+          <div className="mat-stat-info">
+            <div className="mat-stat-value">{latestDate}</div>
+            <div className="mat-stat-label">最近更新</div>
+          </div>
         </div>
       </div>
+
+      {viewMode === 'basicMix' ? (
+        /* 基准方案视图 */
+        <div className="custom-card">
+          <BasicMixTab />
+        </div>
+      ) : (
+        /* 普通方案视图 */
+        <>
+          <div className="custom-card">
+            <Table
+              className="custom-table"
+              dataSource={filteredSchemes.map(s => ({ ...s, key: s.id }))}
+              columns={columns}
+              loading={loading}
+              rowSelection={rowSelection}
+              pagination={{
+                pageSize: 10,
+                showSizeChanger: true,
+                showQuickJumper: true,
+                showTotal: (total) => `共 ${total} 条记录`
+              }}
+            />
+          </div>
+
+          <div className="mt-lg">
+            <div className="custom-card">
+              <div className="selected-schemes-bar">
+                <p>已选择 <strong>{selectedSchemes.length}</strong> 个方案</p>
+              </div>
+              <Button 
+                type="primary" 
+                className="custom-btn"
+                onClick={compareSchemes} 
+                disabled={selectedSchemes.length < 2}
+              >
+                对比选中方案
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* 查看方案模态框 */}
       <Modal
@@ -587,6 +669,6 @@ const SchemesPage = () => {
       </Modal>
     </div>
   )
-}
+})
 
 export default SchemesPage

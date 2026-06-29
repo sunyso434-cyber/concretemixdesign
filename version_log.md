@@ -1,3 +1,749 @@
+## v9.0.0 补充16 (2026-06-29) - 修复历史会话标题未实时更新问题
+
+### 改动概述
+
+修复历史会话标题仍显示默认标题（如“新会话-...”、“新对话 ...”）的问题：
+- 会话第一条消息生成/更新标题后，没有失效 `listSessionsGrouped` 的 30 秒缓存；
+- 前端收到 `agent:sessionUpdated` 事件后拉列表，仍命中旧缓存，导致标题不刷新；
+- 缓存命中时，`listSessionsGrouped` 不会执行历史默认标题自动修复；
+- `agent:createSession` 生成的 `新对话 2026/6/29 09:30:00` 等日期格式未被识别为默认标题。
+
+### 改动文件（2 个修改）
+
+- `src/main/ipcHandlers/agentHandler.js`
+  - 异步标题更新成功后，调用 `global.chatHistorySync.invalidateGroupedCache()`，确保前端下次拉取拿到最新标题
+  - 放宽 `isDefaultName` 判断注释，明确覆盖 `createSession` 生成的日期格式
+
+- `src/main/workspace/ChatHistorySync.js`
+  - 将 `isDefaultName` 提到缓存检查之前复用
+  - 缓存命中时，若缓存中仍包含默认标题，跳过缓存继续执行修复逻辑
+
+### 行为变化
+
+- **新会话标题立即刷新**：发送第一条消息后，历史会话列表会立即显示 AI 摘要或消息前 15 字标题
+- **历史默认标题自动修复**：打开历史列表时，若缓存中仍有默认标题，会自动用第一条用户消息修复
+- **不阻塞发消息**：标题生成仍保持 fire-and-forget，不影响消息发送响应
+
+### 验证
+
+- `npm run build` 成功
+- `npm run electron:build` 成功
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
+## v9.0.0 补充15 (2026-06-29) - 修复切换会话时后台 LLM 输出被打断/丢失
+
+### 改动概述
+
+修复补充14后出现的后台输出"中断"问题：
+- 会话 A 中 LLM 正在流式输出时，切换到会话 B；
+- 会话 A 的后台 `text_delta` 事件被前端忽略，无法累积到缓存；
+- 切回 A 时，缓存中的占位消息仍是空的，用户误以为 LLM 被打断或输出丢失。
+
+### 改动文件（2 个修改）
+
+- `src/renderer/components/agentStoreCore.js`
+  - `mergeReplyToMessages` 在无 `requestId` 或精确匹配失败时，兜底查找任意 `_streaming=true` 的 assistant 消息
+  - `BACKGROUND_UPDATE` 支持 `text_delta` 增量累积 `replyText`；后台 `done` 时把 `replyText` 合并到缓存 messages
+  - `RESTORE_SESSION` 恢复缓存时，若后台会话仍在流式输出，把已累积的 `replyText` 写回 placeholder 消息，保留 `_streaming=true`
+
+- `src/renderer/components/AgentMode.jsx`
+  - 后台 `text_delta` 不再丢弃，而是 dispatch `BACKGROUND_UPDATE` 把增量写入对应会话缓存
+  - 后台 `done` 事件携带 `data.result.reply` 和 `data.timeline` 写入缓存
+
+### 行为变化
+
+- **后台 LLM 持续累积**：会话 A 在后台运行时，每个 token 都会写入 A 的缓存
+- **切回会话内容完整**：切回 A 时，placeholder 消息会显示后台已生成的全部内容，并继续追加新 token
+- **后台完成后自动固化**：A 在后台生成 done 后，缓存中的 messages 已包含完整最终回复
+- **后台 reasoning/tool 事件仍不累积**：目前只保留最终 replyText，timeline 在 done 时写入
+
+### 验证
+
+- `npm run build` 成功
+- `npm test` 相关用例全部通过（write-handler、workspaceHandler.writeFile、workspaceTools、WikiEngine、integration、agentStoreCore，共 118 个测试）
+- `npm run electron:build` 成功
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
+## v9.0.0 补充14 (2026-06-29) - 修复多会话并行时 LLM 输出串扰
+
+### 改动概述
+
+修复多会话并行场景下的一个严重串扰问题：
+- 会话 A 中 LLM 正在流式输出时，切换到会话 B 并发送消息；
+- 由于 `agent:progress` 事件未携带 `sessionId`，会话 A 的后台输出被错误地渲染到当前焦点会话 B 中；
+- 切回会话 A 时，看到的仍是会话 B 的内容。
+
+### 改动文件（2 个修改）
+
+- `src/main/agent/strategies/UnifiedStrategy.js`
+  - `_notifyProgress` 发送事件时自动附加 `sessionId: this.sessionId`
+  - `execute` 方法开头保存 `this.sessionId = sessionId`，确保所有进度事件（text_delta/reasoning/tool/done/error）都携带正确的会话标识
+
+- `src/renderer/components/AgentMode.jsx`
+  - 丢弃没有 `sessionId` 的 `agent:progress` 事件，避免无法判断归属的事件串流到当前焦点会话
+  - 前台事件判断由 `!eventSessionId || eventSessionId === currentId` 改为严格匹配 `eventSessionId === currentId`
+
+### 行为变化
+
+- **后台会话不再干扰前台**：会话 A 在后台流式输出时，切换到会话 B，B 只显示自己的内容
+- **切回原会话显示正确内容**：返回会话 A 时，继续渲染 A 的流式输出或从数据库加载 A 的完整结果
+- **无 sessionId 的事件被丢弃**：旧版本或不规范的事件不再影响 UI
+
+### 验证
+
+- `npm run build` 成功
+- `npm test` 相关用例全部通过（write-handler、workspaceHandler.writeFile、workspaceTools、WikiEngine、integration，共 51 个测试）
+- `npm run electron:build` 成功
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
+## v9.0.0 补充13 (2026-06-29) - 修复跨工作区会话切换与侧边栏标题刷新
+
+### 改动概述
+
+修复补充12交付后发现的两个交互问题：
+1. 点击左侧历史会话中属于其他工作区的会话时，顶栏工作区没有同步切换；
+2. 会话标题被 AI 摘要更新后，左侧历史会话列表没有实时刷新。
+
+### 改动文件（1 个修改）
+
+- `src/renderer/components/MemorySidebar.jsx`
+  - `handleLoadSession` 改为异步，接收会话所属 `workspacePath`；与当前工作区不一致时先调用 `workspace:open` 切换工作区，再加载会话
+  - 工作区下的会话点击时传入 `ws.path`，未分类旧数据传入 `null`
+  - 新增 `agent:sessionUpdated` 事件监听，收到后端标题更新通知后立即刷新分组会话列表
+
+### 行为变化
+
+- **跨工作区切换会话**：点击左侧任意历史会话，如果该会话不属于当前工作区，会自动先切换工作区，再加载会话内容和标题
+- **侧边栏标题实时刷新**：AI 生成或后端更新会话标题后，左侧列表会同步显示新标题，不再显示旧的 "对话 MM-DD HH:mm"
+
+### 验证
+
+- `npm run build` 成功
+- `npm test` 相关用例全部通过（write-handler、workspaceHandler.writeFile、workspaceTools、WikiEngine、integration，共 51 个测试）
+- `npm run electron:build` 成功
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
+## v9.0.0 补充12 (2026-06-29) - 工作区下拉切换、会话复制/删除修复、工作区重命名、标题优化、报告同步 wiki
+
+### 改动概述
+
+本次补充围绕交互效率、数据完整性和 wiki 复用三个方向：
+1. 工作区切换从系统对话框改为下拉菜单，提升操作效率；
+2. 修复删除会话不彻底的问题，并新增会话复制功能；
+3. 支持重命名工作区；
+4. 新会话标题不再显示"新会话-"，改为用第一条消息内容截取；
+5. 写入 docx/xlsx/md 报告时，自动在 wiki 中生成可搜索版本，按 wiki 模式添加元数据。
+
+### 改动文件（10 个修改）
+
+- `src/renderer/components/SmartDesignChat.jsx` — 顶栏工作区按钮改为 Dropdown，列出所有已知工作区并支持快速切换
+- `src/main/services/AgentMemoryService.js` — `deleteSession` 同时删除 `ChatSession` + `ChatHistory`；新增 `duplicateSession`
+- `src/main/ipcHandlers/agentHandler.js` — 新增 `agent:duplicateSession` IPC；`createSession` 允许保存空标题；`isFirstMessage` 兼容空标题和"新对话"前缀
+- `src/renderer/components/agentActions.js` — 新建会话时默认标题传 `null`
+- `src/renderer/components/MemorySidebar.jsx` — 会话右键菜单增加"复制会话"；删除会话前加确认弹窗；工作区菜单增加"重命名工作区"及 Modal
+- `src/main/ipcHandlers/workspaceHandler.js` — 新增 `workspace:rename` IPC；`workspace:writeFile` 调用时传入 `wikiEngine`
+- `src/main/workspace/WikiEngine.js` — 提取 `fnv1a32` 和 `_buildSlug` 公共方法；新增 `ingestReport` 方法，直接生成 `wiki/sources/<slug>.md` 并更新索引
+- `src/main/workspace/write-handler.js` — 写原文件后同步生成 wiki 可搜索版本（docx/xlsx 用 `ingestReport`，md 用 `ingest`）
+- `src/main/agent/workspaceTools.js` — `workspace_writeFile` skill 调用时传入 `wikiEngine`
+- `src/main/preload.js` — 暴露 `workspace.rename` 和 `workspace.writeFile`
+
+### 行为变化
+
+- **工作区下拉切换**：点击顶栏工作区名展开下拉，显示所有已知工作区（当前高亮），点击切换；底部保留"+ 添加工作区"
+- **删除会话彻底**：删除时同时清理 `ChatSession` 和 `ChatHistory`，列表立即消失；删除前弹窗确认
+- **复制会话**：右键菜单可复制任意历史会话，副本标题带"(副本)"，消息完整保留
+- **重命名工作区**：左侧工作区分组三点菜单新增"重命名工作区"，会同步重命名文件夹并更新数据库中的 `workspacePath`
+- **会话标题优化**：新会话发送第一条消息后，标题立即变成消息前 15 字；AI 摘要成功后替换为更精炼的标题；不再出现"新会话-..."
+- **报告同步 wiki**：调用 `workspace_writeFile` 写 docx/xlsx/md 时，自动在 `wiki/sources/<slug>.md` 生成带 wiki frontmatter 的版本，支持 `workspace_readPage` 读取和 `workspace_search` 搜索
+
+### 验证
+
+- `npm test` 相关用例全部通过（write-handler、workspaceHandler.writeFile、workspaceTools、WikiEngine、integration、DynamicContextProvider.workspace，共 57 个测试）
+- `npm run build` 成功
+- `npm run electron:build` 成功
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
+## v9.0.0 补充11 (2026-06-29) - 切换工作区内存爆炸根治（batchUpgrade 删除 + chokidar ignoreInitial + BM25 串行锁）
+
+### 改动概述
+
+补充10 修复后用户反馈"切换不同工作区的会话时内存异常占用"。深度排查发现真正根因：打开工作区时 batchUpgrade 全量扫描所有文件 + chokidar 初始 'add' 事件触发 N 个并发 ingest + 每个 ingest 全量重建 BM25 导致 N² readFile 内存叠加（100 文件 → 10000 次读盘）。
+
+经确认 batchUpgrade 是历史遗留补救机制：ingest（导入）已完整创建 summary/keyPoints/tags/sections/entities 等所有元数据，batchUpgrade 从未真正需要。如发现旧文件缺元数据，重新导入即可解决，LLM 已有导入技能。
+
+### P0 级修复（核心爆炸点）
+
+**1. 删除 batchUpgrade 自动触发**：[main.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/main.js)
+- 删除 `workspaceManager.on('opened', ...)` 中的 batchUpgrade 监听
+- 删除 15s 兜底 batchUpgrade 定时器
+- console.log 文案更新：移除"batchUpgrade 启用"
+
+**2. chokidar ignoreInitial + 串行 ingest 队列**：[WorkspaceManager.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/main/workspace/WorkspaceManager.js)
+- `watch()` 加 `ignoreInitial: true`：打开工作区不触发历史文件 'add' 事件
+- `close()` 改为 `await this.unwatch()`（旧版同步清理只是兜底）
+- `unwatch()` 改为 async：`await watcher.close()` + 等待 `_ingestQueue` 排空（最多 30s 超时兜底）
+- 'add' 事件改串行队列 `_ingestQueue`：前一个 ingest 完成才处理下一个，避免并发 ingest 全量 rebuild BM25 导致 N² readFile
+
+**3. ingest BM25 全量重建串行锁**：[WikiEngine.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/main/workspace/WikiEngine.js)
+- 抽取 `_rebuildBM25(index, current, filename, content)` 方法
+- constructor 初始化 `this._bm25Lock = Promise.resolve()`（链式锁）
+- 链式锁 `this._bm25Lock = this._bm25Lock.then(run, run)`：并发 ingest 的 BM25 重建部分串行排队，避免多个全量 rebuild 重叠
+- 当前 ingest 的文件直接用已读的 `content`，避免重复读盘
+- 单文件 ingest 内存可接受，串行锁仅控制并发全量 rebuild 不叠加
+
+**4. 删除 batchUpgrade 冗余代码**：[WikiEngine.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/main/workspace/WikiEngine.js)
+- 删除 `batchUpgrade` 方法（原 L1608-1707）
+- 删除 `_batchUpdateRelatedPages` 方法（原 L1709-1737）
+- 删除测试文件 `src/main/__tests__/workspace/WikiEngine.batchUpgrade.test.js`
+
+### 改动文件（3 个修改 + 1 个删除）
+
+- `main.js` — 删除 batchUpgrade 自动触发（'opened' 监听 + 15s 兜底定时器）
+- `src/main/workspace/WorkspaceManager.js` — watch ignoreInitial + close await unwatch + unwatch async + 'add' 串行队列
+- `src/main/workspace/WikiEngine.js` — 删除 batchUpgrade/_batchUpdateRelatedPages；ingest BM25 重建抽取为 _rebuildBM25 + _bm25Lock 链式串行锁
+- `src/main/__tests__/workspace/WikiEngine.batchUpgrade.test.js` — 删除
+
+### 行为变化
+
+- **打开工作区不再触发 batchUpgrade**：如需补全旧文件元数据，重新导入即可（LLM 已有导入技能）
+- **chokidar 打开工作区不对历史文件触发 ingest**：ignoreInitial:true，历史文件已通过 ingest 生成元数据
+- **新增/修改文件触发 ingest 串行排队**：避免并发 ingest 全量 rebuild BM25 导致 N² readFile
+- **并发 ingest 的 BM25 重建串行执行**：链式锁保证多个全量 rebuild 不重叠
+- **切工作区先 await watcher.close + 等 ingest 队列排空**：避免新旧 watcher 并存重复 ingest
+
+### 预期内存占用
+
+- 打开有很多文件的新工作区不再内存爆炸（无 batchUpgrade 全量扫描 + 无 chokidar 初始 add N² ingest）
+- 常态：300-600MB（与补充10 持平）
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包，146.66 MB）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版，146.23 MB）
+
+---
+
+## v9.0.0 补充10 (2026-06-28) - 内存泄漏深度修复（切换会话 3.4GB 降回 500MB-1GB）
+
+### 改动概述
+
+补充9 修复后用户反馈"仅切换会话不发送消息，内存依然高达 3.4GB"。深度排查发现真正根因：切换会话加载 100 条消息含完整 timeline 大对象（单次 IPC 5-50MB）+ listSessionsGrouped 全表扫描 + 主进程同步 IO 阻塞。
+
+### P0 级修复（核心泄漏点）
+
+**1. agent:getSessionMessages 加载量过大 + timeline 大对象**：[agentHandler.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/main/ipcHandlers/agentHandler.js#L464-L475)
+- `limit: 100` → `limit: 20`（只加载最近 20 条消息）
+- 剥离 `metadata.timeline`（含 reasoning + tool 结果，单条可达 MB 级）
+- DB 仍保留 timeline 写入（useAssistantPersistence 不动），需要时可单独查询
+- 影响范围（方案A 确认）：历史消息切回时不回放思考过程，只剩纯文本；流式过程不受影响（用 state.agent.timeline）；当前会话发完消息切走再切回不受影响（走 sessionsCache 前端内存）
+
+**2. listSessionsGrouped 全表扫描 + 无缓存**：[ChatHistorySync.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/main/workspace/ChatHistorySync.js#L239-L332)
+- `ChatSession.findAll` 加 `limit: 100`（避免全表扫描）
+- 新增 30 秒缓存：`_groupedCache` + `_groupedCacheAt` + `_groupedCacheTTL`
+- 切换会话时 30 秒内直接返回缓存，不再触发 DB 查询
+- 新增 `invalidateGroupedCache()` 方法，在 createSession/deleteSession/renameSession 时主动失效
+
+### P1 级修复（放大器）
+
+**3. 主进程同步 IO 阻塞**：[main.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/main.js#L15-L33)
+- `logToFile` 从 `fs.appendFileSync`（同步阻塞）改为异步 buffer 模式：500ms 批量 `fs.appendFile`
+- 移除 `mainWindow.webContents.on('console-message', ...)` 转发逻辑
+- 原逻辑：渲染进程每条 console.log 转发到主进程同步写文件，切换会话时大量日志阻塞主进程事件循环，拉长 IPC 大对象的 GC 窗口
+
+### 改动文件（4 个）
+
+- `src/main/ipcHandlers/agentHandler.js` — getSessionMessages limit 100→20 + 剥离 timeline；createSession/deleteSession/renameSession 调用 invalidateGroupedCache
+- `src/main/workspace/ChatHistorySync.js` — listSessionsGrouped limit 100 + 30秒缓存 + invalidateGroupedCache 方法
+- `main.js` — logToFile 改异步 buffer；移除 console-message 转发
+- （SmartDesignChat.jsx 的 workspace.current useEffect 经评估非内存主因，保留不动）
+
+### 行为变化
+
+- **历史消息只加载 20 条**：超过 20 条的老消息不显示（需要查看更早消息的场景暂未实现"加载更多"按钮，留作后续优化）
+- **历史消息无思考过程回放**：切到老会话只看到 AI 的纯文本回复，看不到 reasoning/tool 时间线（DB 数据未删，后续可加"展开思考过程"按钮按需加载）
+- **会话列表 30 秒缓存**：新建/删除/重命名会话立即刷新，切换会话不触发列表刷新
+- **主进程日志异步写入**：不再因日志 IO 阻塞 IPC 响应
+
+### 预期内存占用
+
+- 切换会话峰值：3.4GB → 500MB-1GB
+- 常态：300-600MB
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
+## v9.0.0 补充9 (2026-06-28) - 内存泄漏修复（常态内存 >2GB 降回 500-800MB）
+
+### 改动概述
+
+修复"仅切换会话不启动 agent，内存占用就异常增长到 2GB+ 甚至无响应"的问题。排查发现 3 个 P0 级 + 2 个 P1 级泄漏点。
+
+### P0 级修复（致命，单点贡献数百 MB）
+
+**1. sessionsCache 累积大对象无法 GC**：[agentStoreCore.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/renderer/components/agentStoreCore.js)
+- `SESSIONS_CACHE_LIMIT` 从 20 改为 3（控制缓存会话数）
+- `CACHE_SESSION` reducer 改为存精简副本：只保留 role/content/timeline/stopReason 等必要字段，丢弃 analysisReport/preprocessedData/materialPicker 等大对象
+- 切回会话时若需要完整 analysisReport，从 DB 重新加载
+
+**2. removeListener 调用方式错误（历史遗留 bug）**：3 个文件
+- [BackgroundTaskBar.jsx](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/renderer/components/BackgroundTaskBar.jsx#L59-L62)
+- [MaterialsPage.jsx](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/renderer/pages/MaterialsPage.jsx#L48-L51)
+- [WorkspacePage.jsx](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/renderer/pages/WorkspacePage.jsx#L72-L75)
+- 根因：preload.js 的 `removeListener(id)` 接收 id，但上述文件调用 `removeListener('channel', handler)`，传入的 channel 字符串被当作 id，listenerCache.get(id) 返回 undefined，listener 永不移除
+- 修复：保存 `on()` 返回的 listenerId，`removeListener(listenerId)` 正确移除
+
+**3. sessionAgents Map 永不清理 Orchestrator**：[agentHandler.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/main/ipcHandlers/agentHandler.js#L291-L299)
+- agent:run finally 块原只重置 `running=false`，orchestrator 实例保留在 Map 中
+- 修复：finally 块加 `s.orchestrator = null` 释放 Orchestrator 实例（下次重新创建）
+
+### P1 级修复（高危，放大 P0 泄漏）
+
+**4. BACKGROUND_UPDATE 高频无效 dispatch**：[AgentMode.jsx](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/renderer/components/AgentMode.jsx#L41-L55)
+- 原逻辑：后台 agent 每个事件（text_delta/reasoning/tool 等每秒几十次）都 dispatch BACKGROUND_UPDATE，但 payload 没传 messages/agent，reducer 只更新 ts，触发全量 re-render
+- 修复（方案A）：只在 done/error 事件时 dispatch BACKGROUND_UPDATE，流式过程不 dispatch
+- 后台 agent 完成后由后端 saveMessage 持久化，切回会话时从 DB 加载完整结果
+
+**5. AgentMode.jsx useEffect 依赖缺失**：[AgentMode.jsx](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/renderer/components/AgentMode.jsx#L141)
+- 原依赖数组 `[dispatch, state.agent.requestId]` 缺少 `state.session.currentId`
+- 切换会话时 onProgress 闭包用旧 currentId 判断 isForeground，可能误判后台事件为前台
+- 修复：依赖数组加 `state.session.currentId`
+
+### 改动文件（6 个）
+
+- `src/renderer/components/agentStoreCore.js` — LIMIT 20→3 + CACHE_SESSION 精简副本
+- `src/renderer/components/BackgroundTaskBar.jsx` — removeListener 修复
+- `src/renderer/pages/MaterialsPage.jsx` — removeListener 修复
+- `src/renderer/pages/WorkspacePage.jsx` — removeListener 修复
+- `src/main/ipcHandlers/agentHandler.js` — finally 块释放 Orchestrator
+- `src/renderer/components/AgentMode.jsx` — BACKGROUND_UPDATE 节流 + useEffect 依赖修复
+
+### 边缘情况
+
+- **sessionsCache 缓存淘汰**：超过 3 个会话时 LRU 删除最旧，切回时走 DB 加载（1-2 秒）
+- **后台 agent 流式过程切回**：只看到切换瞬间快照，agent 完成后 DB 有完整结果，再切回能加载
+- **Orchestrator 释放后立即 abort**：finally 块已设 running=false，abort 时 sessionAgents.get(sessionId).orchestrator 为 null，跳过 abort 不报错
+- **listener 正确移除**：组件卸载后闭包可被 GC，不再累积
+
+### 预期内存占用
+
+- 常态：500-800MB（原 2GB+）
+- 切换会话不再爆涨
+- 后台 agent 流式过程不触发高频 dispatch
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
+## v9.0.0 补充8 (2026-06-28) - 多会话并行：切换不打断 LLM + 多 agent 同时执行
+
+### 改动概述
+
+支持多会话并行执行：LLM 流式输出过程中切换会话，原会话输出保留不变；切换到新会话也能立即发消息启动新 agent，两个会话的 agent 真正并行运行。
+
+### 核心改动
+
+**1. 后端锁机制重构**：[agentHandler.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/main/ipcHandlers/agentHandler.js)
+- `agentRunning` 单变量全局锁 → `sessionAgents = Map<sessionId, {running, startedAt}>` 每会话独立锁
+- `orchestrator` 单例 → `getOrchestratorForSession(sessionId)` 每会话独立 Orchestrator 实例
+- agent:run 只检查目标 sessionId 是否已锁，不管其他会话
+- pause/resume/abort 按 sessionId 路由到对应 Orchestrator
+
+**2. 前端会话状态缓存**：[agentStoreCore.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/renderer/components/agentStoreCore.js)
+- initialState 新增 `sessionsCache: {}` 字段
+- 新增 3 个 reducer：
+  - `CACHE_SESSION`：切出会话时把 messages + agent 快照存入缓存（LRU 上限 20）
+  - `RESTORE_SESSION`：切入会话时从缓存恢复（保留后台流式状态）
+  - `BACKGROUND_UPDATE`：后台会话事件写入缓存
+
+**3. 事件按 sessionId 路由**：[AgentMode.jsx](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/renderer/components/AgentMode.jsx)
+- onProgress 判断 `data.sessionId === state.session.currentId`：
+  - 前台会话 → 原逻辑 dispatch（UI 实时更新）
+  - 后台会话 → dispatch BACKGROUND_UPDATE 写入缓存（不打扰前台 UI）
+
+**4. switchSession 缓存+恢复**：[agentActions.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/renderer/components/agentActions.js)
+- 切出：`dispatch CACHE_SESSION` 保存当前会话快照（不打断后台 agent，移除 RESET_AGENT）
+- 切入：`dispatch RESTORE_SESSION` 优先从缓存恢复
+- 缓存命中时跳过 DB 加载，避免覆盖后台流式状态
+- 缓存未命中时从 DB 加载历史消息
+- abortAgent 新增 sessionId 参数，按会话路由 abort 请求
+
+### 改动文件（4 个）
+
+- `src/main/ipcHandlers/agentHandler.js` — 多会话独立锁 + 每会话 Orchestrator + abort 按 sessionId 路由
+- `src/renderer/components/agentStoreCore.js` — sessionsCache + CACHE_SESSION/RESTORE_SESSION/BACKGROUND_UPDATE reducer
+- `src/renderer/components/AgentMode.jsx` — onProgress 按 sessionId 路由到前台 state 或后台缓存
+- `src/renderer/components/agentActions.js` — switchSession 缓存+恢复 + abortAgent 传 sessionId
+
+### 辅助改动（2 个）
+
+- `src/renderer/components/MemorySidebar.jsx` — switchSession 调用传入 state 参数
+- `src/renderer/components/SmartDesignChat.jsx` — 5 处 abortAgent 调用传入 sessionId 参数
+
+### 边缘情况
+
+- **快速连续切换 A→B→C**：`_switchToken` 竞态保护，只有 C 的消息被 dispatch
+- **后台 agent 完成**：done 事件写入缓存，切回会话能看到完整输出
+- **后台 agent 出错**：error 事件写入缓存，切回能看到错误气泡
+- **缓存淘汰**：sessionsCache 超过 20 个会话时 LRU 删除最旧的
+- **同一会话重复发消息**：每会话锁仍生效，返回"该会话已有任务在执行"
+- **会话被删除**：sessionsCache 中对应条目不主动清理（下次 LRU 自然淘汰）
+- **DeepSeek API 并发**：两个 agent 并行调 DeepSeek，请求独立无冲突
+- **Orchestrator 内存**：sessionAgents Map 保留实例供复用，不主动清理（单实例内存占用小）
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
+## v9.0.0 补充7 (2026-06-28) - Bug 修复：历史会话标题被覆盖 + 切换会话无响应
+
+### 改动概述
+
+修复两个 bug：(1) 历史会话的标题被最近消息覆盖（应为第一条消息的摘要保持不变）；(2) 切换会话容易无响应（workspace.open 阻塞 + 无竞态保护 + UI 不立即响应）。
+
+### Bug 1：历史会话标题被最近消息覆盖
+
+**根源**：[agentHandler.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/main/ipcHandlers/agentHandler.js) saveMessage 的异步 IIFE 中，当 `isFirstMessage` 为 false（已有标题）时，`sessionName` 变量保持 undefined，进入 fallback 分支用**最近一条消息**前 15 字赋值，然后 upsert 覆盖了原 sessionName。导致历史会话标题随每条新消息变化。
+
+**修复**：在 `isFirstMessage` 判断后立即分流：
+- `isFirstMessage === true`：生成 AI 摘要或截取标题，upsert sessionName + lastActivity
+- `isFirstMessage === false`：只 `update({ lastActivity })`，sessionName 字段不动
+
+### Bug 2：切换会话容易无响应
+
+**根源**：[agentActions.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/renderer/components/agentActions.js) `switchSession` 三个问题：
+1. **无竞态保护**：用户快速点击多个会话，多个 switchSession 并发执行，workspace.open 互相阻塞，后到的请求覆盖先到的状态
+2. **UI 不立即响应**：所有 IPC 都 `await` 完才 dispatch SET_SESSION_ID，UI 一直显示旧会话直到全部 IPC 完成
+3. **workspace 切换失败阻塞消息加载**：workspace.open 抛错会 catch 整个 try，导致消息也不加载
+
+**修复**：
+1. 立即 dispatch `SET_SESSION_ID` + `CLEAR_MESSAGES` + `RESET_AGENT`，UI 瞬间响应切换
+2. 模块级 `_switchToken` 防竞态：每次进入递增 token，IPC 完成后对比 token，不一致就放弃 dispatch（避免旧请求覆盖新会话）
+3. workspace 切换单独 try/catch，失败仅 console.warn 不阻塞消息加载
+4. getSessionInfo 用 `.catch(() => null)` 兜底，会话表无记录时跳过 workspace 切换
+
+### 改动文件（2 个）
+
+- `src/main/ipcHandlers/agentHandler.js` — IIFE 中 isFirstMessage 为 false 时只 update lastActivity，不动 sessionName
+- `src/renderer/components/agentActions.js` — switchSession 重构：立即响应 + 竞态保护 + workspace 切换容错
+
+### 边缘情况
+
+- 第一条消息发到一半用户重命名：重命名 update 在前，IIFE upsert 在后 → 用 upsert 会覆盖重命名。**当前保持原 isFirstMessage 判断逻辑**：重命名后标题不以"新会话-"开头，下次发消息时 isFirstMessage 为 false，不会触发 upsert，安全
+- 快速连续切换 A→B→C：C 的 token 最大，A、B 的 IPC 完成后 token 不匹配被放弃，只有 C 的消息被 dispatch
+- workspace 切换失败但消息加载成功：用户看到新会话消息但工作区仍是旧的（可接受降级，不阻塞核心功能）
+- getSessionInfo 失败（会话表无记录）：跳过 workspace 切换，仍尝试加载消息
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
+## v9.0.0 补充6 (2026-06-28) - Bug 修复：会话标题不刷新 + 上下文压缩
+
+### 改动概述
+
+修复两个 bug：(1) 对话区标题仍显示"新会话-时间"不更新（异步 AI 摘要晚于前端 loadSessionList 完成的时序问题）；(2) 上下文压缩按钮点击无效（React Hooks 规则违规导致回调拿不到最新 state）。
+
+### Bug 1：会话标题不刷新
+
+**根源**：后端 AI 摘要是异步 IIFE（fire-and-forget），`saveMessage` 立即返回。前端 `useAssistantPersistence` 在 agent done 后调用 `loadSessionList`，但此时 IIFE 大概率还在跑（DeepSeek 调用需要数秒到十几秒），DB 里 sessionName 仍是"新会话-时间"。IIFE 完成 upsert 后没有任何机制通知前端，前端永远拿不到新标题。
+
+**修复**：后端 IIFE 完成 `ChatSession.upsert` 后主动通知前端；前端组件挂载时监听该事件并刷新列表。
+
+- 后端 [agentHandler.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/main/ipcHandlers/agentHandler.js)：IIFE 中 upsert 成功后调用 `_event.sender.send('agent:sessionUpdated', { sessionId, sessionName })`，带 `isDestroyed` guard 防止窗口已关闭
+- 前端 [SmartDesignChat.jsx](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/renderer/components/SmartDesignChat.jsx)：新增 useEffect 监听 `agent:sessionUpdated` 事件，收到后调用 `loadSessionList({ dispatch })` 刷新；卸载时 removeListener
+
+### Bug 2：上下文压缩按钮无效
+
+**根源**：[useChatState.js](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/renderer/hooks/useChatState.js) 中 `useAgentStore()` 在 `useCallback` 内部调用，违反 React Hooks 规则（hooks 不能在回调/条件里调用），导致拿不到 dispatch 和 state.messages，压缩流程中断。
+
+**修复**：将 `useAgentStore()` 提到 hook 顶层调用，useCallback 依赖数组补上 `dispatch` 和 `state.messages`。
+
+### 改动文件（3 个）
+
+- `src/main/ipcHandlers/agentHandler.js` — saveMessage 异步 IIFE 中 upsert 成功后发送 `agent:sessionUpdated` 事件通知前端
+- `src/renderer/components/SmartDesignChat.jsx` — 新增 useEffect 监听 `agent:sessionUpdated` 事件刷新会话列表
+- `src/renderer/hooks/useChatState.js` — `useAgentStore()` 提到顶层，修复 React Hooks 规则违规
+
+### 边缘情况
+
+- AI 摘要生成失败时（IIFE 内 catch）：不发送 sessionUpdated 事件，标题停留在"新会话-时间"（fallback 行为不变）
+- 用户切换工作区时旧窗口事件回调：通过 `isDestroyed` guard 跳过
+- 用户重命名后再次发消息：`isFirstMessage` 判断为 false（标题不以"新会话-"开头），不触发 AI 摘要，不发送通知
+- 组件卸载后事件到达：useEffect 清理函数已 removeListener
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
+## v9.0.0 (2026-06-27) - UI 改造：TRAE Work 品牌风格
+
+### 改动概述
+
+参照 `concrete-agent-prototype.html`（v9.0 设计原型），对项目 UI 进行整体改造，从 Apple 蓝风格升级为 TRAE Work 品牌紫风格。保持智能设计助手全部功能不变。
+
+### 核心变化
+
+1. **品牌色**：`#0071e3`（Apple 蓝）→ `#4B3FE3`（TRAE Work 紫）
+2. **TopBar**：深色毛玻璃40px → 白色简洁44px，标题"砼智 Concrete Agent"
+3. **左侧面板**：原材料管理 → 历史会话列表（固定260px，选中项紫色高亮+左边框）
+4. **右侧面板**：移除 Tab 切换，SmartDesignChat 直接作为主区域
+5. **欢迎页**：居中标题 + 2x2 卡片式快捷技能
+6. **原材料/方案/设置**：改为 TopBar 按钮触发的全屏覆盖页面
+7. **消息气泡**：用户消息改为品牌紫圆角气泡
+8. **上下文圆环**：配色从蓝改为品牌紫
+9. **工具调用卡片**：左侧品牌紫边框 + 浅紫背景
+
+### 改动文件
+
+- `src/renderer/App.jsx` — AntD 主题色更新
+- `src/renderer/index.css` — CSS 变量全面更新 + 新增 v9 布局/侧边栏/欢迎页/气泡样式
+- `src/renderer/pages/WorkspacePage.jsx` — 重构为 TopBar + SmartDesignChat + 覆盖页面
+- `src/renderer/components/SmartDesignChat.jsx` — 简化 header，欢迎页改为卡片式
+- `src/renderer/components/MemorySidebar.jsx` — 固定宽度，会话项紫色高亮
+- `src/renderer/components/ContextIndicator.jsx` — 圆环背景色适配
+- `src/renderer/components/ContextIndicator.utils.js` — `COLOR_BLUE` 改为 `#4B3FE3`
+- `package.json` — 版本号 8.4.1 → 9.0.0，输出目录 dist-9.0.0
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+### 功能保留
+
+- SmartDesignChat 的 Agent 交互、工具调用、消息流不变
+- MemorySidebar 三个点菜单（重命名/删除）完整保留
+- 协作/全自动切换、规则设置、Wiki检查等功能按钮保留
+
+---
+
+## v9.0.0 补充5 (2026-06-27) - Bug 修复：资源管理器打开 + 会话标题刷新
+
+### 改动概述
+
+修复两个 bug：(1) "在资源管理器中打开"只弹出路径字符串而非真正打开文件夹；(2) 会话标题未自动替换为 AI 摘要（时序问题导致前端不刷新）。
+
+### Bug 1：资源管理器打开无效
+
+**根源**：[MemorySidebar.jsx](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/renderer/components/MemorySidebar.jsx) 调用 `invoke('shell:openPath', ...)`，但项目里没有注册这个 IPC handler，调用失败后 fallback 到 `message.info('路径：' + ws.path)`，变成只显示路径字符串。
+
+**修复**：新增专用 IPC handler 真正调用 `shell.openPath`。
+
+### Bug 2：会话标题不刷新
+
+**根源**：时序问题——发消息时 dispatch assistant 占位消息触发 loadSessionList（此时后端 AI 摘要还没生成完），之后 AI 摘要生成完但前端消息数没变化，effect 不再触发，列表不刷新。
+
+**修复**：
+1. 后端 AI 摘要改为异步 IIFE（fire-and-forget），`saveMessage` 立即返回不阻塞发消息流程
+2. 前端 `useAssistantPersistence` 在 agent done 保存 assistant 消息后调用 `loadSessionList` 刷新会话列表（此时 AI 摘要大概率已完成）
+
+### 改动文件（4 个）
+
+- `src/main/ipcHandlers/workspaceHandler.js` — 新增 `workspace:openInExplorer` IPC handler，调用 `shell.openPath(workspacePath)` 真正打开资源管理器
+- `src/main/preload.js` — workspace 对象新增 `openInExplorer: (workspacePath) => ipcRenderer.invoke('workspace:openInExplorer', { workspacePath })`
+- `src/renderer/components/MemorySidebar.jsx` — "在资源管理器中打开"改用 `window.electronAPI.workspace.openInExplorer(ws.path)`，失败时给出明确错误提示
+- `src/main/ipcHandlers/agentHandler.js` — `agent:saveMessage` 里 AI 摘要 + upsert 改为异步 IIFE（fire-and-forget），不阻塞 saveMessage 返回
+- `src/renderer/components/agentActions.js` — `useAssistantPersistence` 在 agent done 后调用 `loadSessionList` 刷新会话列表
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
+## v9.0.0 补充4 (2026-06-27) - 会话标题动态生成（AI 摘要）
+
+### 改动概述
+
+实现会话标题的动态生成：新建会话默认"新会话-{MM-DD HH:mm}"，第一条消息后用 AI 摘要覆盖，用户重命名后不再被覆盖。无需新增 LLM 接口，复用已有逻辑。
+
+### 实现原理
+
+发现后端 `agent:saveMessage` handler 已有完整的 AI 摘要逻辑（第一条消息时调 deepseekService.invoke 生成 ≤20 字标题），但 bug 在于前端 createSession 创建时就设置了非空 sessionName，导致后端 `isFirstMessage` 判断（`!existingSession.sessionName`）永远为 false，AI 摘要从未触发。
+
+### 修复
+
+1. **前端默认标题**：`新对话 xxx` → `新会话-{MM-DD HH:mm}`（符合需求"新会话-时间"）
+2. **后端判断逻辑**：`isFirstMessage` 从"sessionName 为空"改为"sessionName 为空 或 以'新会话-'开头"
+   - 默认标题（"新会话-"开头）→ 第一条消息时被 AI 摘要覆盖
+   - 用户重命名后的标题（不以"新会话-"开头）→ 不被覆盖
+
+### 改动文件（2 个）
+
+- `src/renderer/components/agentActions.js` — `createSession` 默认 sessionName 改为 `新会话-{MM-DD HH:mm}` 格式
+- `src/main/ipcHandlers/agentHandler.js` — `isFirstMessage` 判断改为 `!currentName || currentName.startsWith('新会话-')`
+
+### 行为说明
+
+1. 新建会话 → 标题"新会话-06-27 15:30"
+2. 发送第一条消息 → AI 生成 ≤20 字摘要作为标题（如"C35 混凝土配合比设计"）
+3. AI 摘要失败 → fallback 用消息前 15 字
+4. 用户重命名后 → 标题不以"新会话-"开头，后续消息不再触发自动更新
+5. 旧会话无 title → 显示 formatSessionFallback 结果（"对话 MM-DD HH:mm"），不自动更新
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
+## v9.0.0 补充3 (2026-06-27) - Bug 修复：文件树工作区隔离 + 会话标题
+
+### 改动概述
+
+修复两个 bug：(1) 工作区文件树三个工作区显示同一份（都显示当前活动工作区的文件）；(2) 标题栏和侧栏所有会话都显示 "session-"（fallback 逻辑取 sessionId 前 8 位正好是 "session-"）。
+
+### Bug 1：文件树工作区隔离
+
+**根源**：[MemorySidebar.jsx](file:///D:/C-c/NEWConcrete-mixdesign%20-%20副本/src/renderer/components/MemorySidebar.jsx) 调用 `listFiles('root')`，该 API 只作用于 workspaceManager 的当前活动工作区（单例），无法指定其他工作区路径。
+
+**修复**：扩展后端 IPC 支持 `workspacePath` 参数，传入时直接用 fs 读该路径。
+
+### Bug 2：会话标题显示 "session-"
+
+**根源**：sessionId 格式为 `session-{timestamp}-{random}`，fallback 逻辑用 `substring(0, 8)` 正好取到 `"session-"`。
+
+**修复**：fallback 改为从 sessionId 中提取时间戳，格式化为 `对话 MM-DD HH:mm`，可读且能区分不同会话。
+
+### 改动文件（4 个）
+
+- `src/main/ipcHandlers/workspaceHandler.js` — `listFiles` handler 增加可选 `workspacePath` 参数，传入时用 fs.promises.readdir 直接读取，过滤隐藏文件，返回 `{ name, path, isDir }`
+- `src/main/preload.js` — `listFiles(subdir, options)` 签名扩展，options 可含 `workspacePath`
+- `src/renderer/components/MemorySidebar.jsx` — 调用改为 `listFiles('root', { workspacePath: wsPath })`；新增 `formatSessionFallback` 函数；两处会话项 fallback 同步替换
+- `src/renderer/components/SmartDesignChat.jsx` — 会话标题 fallback 改用 `formatSessionFallback`
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
+## v9.0.0 补充2 (2026-06-27) - 管理页面深度改造 + 基准方案迁移
+
+### 改动概述
+
+按原型对三个管理页面进行深度改造：系统设置补充销售报价/系统设置两个板块并移除顶部 Tab；原材料管理按原型实现搜索框+图标按钮布局；方案管理移除新建/草稿按钮，新增"基准方案"视图（从销售报价迁移基础配合比库）。
+
+### 核心变化
+
+1. **系统设置页面**
+   - 左侧导航增加"销售报价""系统设置"两项，共 7 项
+   - 移除顶部 Tabs 切换条，右侧内容完全由左侧导航控制（switchTab 切换 activeTab，条件渲染对应内容）
+2. **原材料管理页面**
+   - 移除内部 action-bar（新增/刷新文字按钮）
+   - 左侧面板顶部增加：搜索框（按名称/规格/厂家模糊搜索）+ 两个图标按钮（刷新普通、新增品牌紫底白字），完全按原型布局
+   - 搜索与类型过滤叠加生效，统计卡片随过滤实时变化
+3. **方案管理页面**
+   - 移除"新建方案"按钮和"显示草稿"Switch（方案新增均来自 AI 对话，草稿切换通过左侧导航）
+   - 左侧导航增加"基准方案"项（放最下方）
+   - 点击"基准方案"切换到 BasicMixTab 视图；统计卡片两种视图都保留
+4. **基准方案迁移**
+   - 新建 BasicMixTab.jsx，从 SalesQuoteSettings 抽取"基础配合比库"完整逻辑
+   - 表格标题"基础配合比库" → "基准方案"
+   - SalesQuoteSettings 移除 mixes Tab 及相关状态/方法/模态框，保留报价规则/泵送费清单/报价历史 3 个 Tab
+
+### 改动文件（6 个 + 1 个新建）
+
+- `src/renderer/components/BasicMixTab.jsx` — **新建**，基准方案独立组件
+- `src/renderer/components/SalesQuoteSettings.jsx` — 移除基础配合比库 Tab 及相关代码
+- `src/renderer/pages/SchemesPage.jsx` — 接入 BasicMixTab 视图；移除新建/草稿按钮；filterScheme 扩展支持"基准方案"
+- `src/renderer/pages/MaterialsPage.jsx` — 移除 action-bar；新增 searchKeyword 状态 + setSearchKeyword 方法；dataSource 叠加搜索过滤
+- `src/renderer/pages/WorkspacePage.jsx` — 原材料左侧增加搜索框+图标按钮；方案左侧增加"基准方案"；设置左侧增加"销售报价""系统设置"
+- `src/renderer/pages/SettingsPage.jsx` — 移除 Tabs，改为 renderActiveContent 按 activeTab 条件渲染
+- `src/renderer/index.css` — 新增 `.v9-mat-search` / `.v9-mat-search-icon` / `.v9-mat-search-input` / `.v9-mat-actions` / `.v9-mat-icon-btn(.primary)` 样式
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
+## v9.0.0 补充 (2026-06-27) - 左侧导航实际功能 + 统计卡片
+
+### 改动概述
+
+让三个覆盖页面（原材料管理/方案管理/系统设置）的左侧导航不再只是视觉分类，而是真正控制右侧内容。同时按照原型补充统计卡片和按钮布局。
+
+### 核心变化
+
+1. **左侧导航实际功能**：采用 `forwardRef + useImperativeHandle` 模式，WorkspacePage 通过 ref 调用三个页面的方法
+   - 原材料管理：点击材料类型 → 调用 `filterByType(type)` 过滤表格
+   - 方案管理：点击方案分类 → 调用 `filterScheme(type)` 控制正式/草稿/已对比筛选
+   - 系统设置：点击设置分类 → 调用 `switchTab(tab)` 切换页面内 Tab
+2. **统计卡片**（按原型 `.mat-stats` / `.mat-stat-card` 布局）：
+   - 原材料管理：4 个卡片（材料总数/材料类型/生产厂家/平均单价），数据随过滤实时变化
+   - 方案管理：4 个卡片（方案总数/平均成本/最高强度/最近更新），数据随筛选实时变化
+3. **方案管理筛选逻辑**：
+   - 全部方案 → 显示所有（含草稿）
+   - 正式方案 → 排除草稿
+   - 草稿方案 → 仅草稿
+   - 已对比 → 暂用 `status === '已使用'` 近似（后端暂无"已对比"字段）
+
+### 改动文件
+
+- `src/renderer/index.css` — 新增 `.mat-stats` / `.mat-stat-card` / `.mat-stat-icon(.blue/.green/.amber/.purple)` / `.mat-stat-info` / `.mat-stat-value` / `.mat-stat-label` 样式
+- `src/renderer/pages/MaterialsPage.jsx` — 添加统计卡片行；Table dataSource 应用 `typeFilter` 过滤
+- `src/renderer/pages/SchemesPage.jsx` — 包裹 `forwardRef`；添加 `statusFilter` + `filterScheme` 方法；添加统计卡片行；Table dataSource 应用 `statusFilter` 过滤
+- `src/renderer/pages/SettingsPage.jsx` — 包裹 `forwardRef`；添加 `switchTab` 方法
+- `src/renderer/pages/WorkspacePage.jsx` — 新增 3 个 ref（materialsRef/schemesRef/settingsRef）；导航 onClick 同时更新高亮状态 + 调用 ref 方法
+
+### 打包产物
+
+- `dist-9.0.0/砼智 Setup 9.0.0.exe`（NSIS 安装包）
+- `dist-9.0.0/砼智-9.0.0-x64.exe`（便携版）
+
+---
+
 ## v8.3.9 (2026-06-26) - 修复 v8.3.8 头像资源路径导致的内存爆炸 + 头像空白
 
 ### 问题（v8.3.8 引入）

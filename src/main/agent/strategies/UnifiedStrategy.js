@@ -35,11 +35,12 @@ class UnifiedStrategy {
 
   /**
    * 向渲染进程推送进度事件
+   * 始终携带 sessionId，让前端能按会话路由，避免多会话并行时串流到当前焦点会话
    */
   _notifyProgress(webContents, data) {
     if (webContents && !webContents.isDestroyed?.()) {
       try {
-        webContents.send('agent:progress', data)
+        webContents.send('agent:progress', { ...data, sessionId: this.sessionId })
       } catch (_) {}
     }
   }
@@ -67,6 +68,7 @@ class UnifiedStrategy {
 
   async execute(input) {
     const { sessionId, message, webContents, signal, getState, mode } = input
+    this.sessionId = sessionId
 
     const failureCounters = {
       llmParse: 0,

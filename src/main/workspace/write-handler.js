@@ -14,6 +14,7 @@
 //   - 单元测试直接调本模块，不必 mock electron.ipcMain
 const path = require('path')
 const fs = require('fs').promises
+const matter = require('gray-matter')
 const writers = require('./writers')
 const { WorkspaceError } = require('./WorkspaceError')
 
@@ -22,12 +23,13 @@ const { WorkspaceError } = require('./WorkspaceError')
  *
  * @param {Object} args
  * @param {Object} args.workspaceManager - WorkspaceManager 实例（需有 current() 方法）
+ * @param {Object} [args.wikiEngine] - WikiEngine 实例；传入时会把报告同步 ingest 为 wiki 页面
  * @param {string} args.type - 'docx' | 'xlsx' | 'markdown' | 'md'
  * @param {string} args.filename - 落盘文件名（不含路径），如 'report.docx'
  * @param {Object} args.payload - writer payload（spec §4.4）
- * @returns {Promise<{path: string, size: number, savedAt: string}>}
+ * @returns {Promise<{path: string, size: number, savedAt: string, wikiPage?: string}>}
  */
-async function writeFile({ workspaceManager, type, filename, payload }) {
+async function writeFile({ workspaceManager, wikiEngine = null, type, filename, payload }) {
   // 1) 工作区未开 → NOT_OPEN
   const current = workspaceManager.current()
   if (!current || !current.path) {
@@ -50,10 +52,36 @@ async function writeFile({ workspaceManager, type, filename, payload }) {
     throw new WorkspaceError('WRITE_FAIL', `写入文件失败：${err.message}`, true, err)
   }
 
+  // 4) 同步生成 wiki 可搜索版本
+  // - docx/xlsx：原文件不是文本，生成 md 内容后通过 ingestReport 直接写 wiki/sources/
+  // - md/markdown：原文件可直接 ingest，走 wikiEngine.ingest(reports/<filename>)
+  let wikiPage = null
+  if (wikiEngine) {
+    try {
+      if (type === 'md' || type === 'markdown') {
+        const ingestResult = await wikiEngine.ingest({ filename: `reports/${filename}` })
+        wikiPage = ingestResult.pagesCreated?.[0] || null
+      } else {
+        const mdBuf = await writers.write('md', payload)
+        const parsed = matter(mdBuf.toString('utf-8'))
+        const ingestResult = await wikiEngine.ingestReport({
+          filename: `reports/${filename}`,
+          content: parsed.content,
+          title: parsed.data.title || payload.title
+        })
+        wikiPage = ingestResult.wikiPage
+      }
+    } catch (err) {
+      // wiki 同步失败不影响原文件写入，仅记录日志
+      console.warn('[write-handler] 同步 wiki 版本失败:', err.message)
+    }
+  }
+
   return {
     path: targetPath,
     size: buf.length,
-    savedAt: new Date().toISOString()
+    savedAt: new Date().toISOString(),
+    wikiPage
   }
 }
 

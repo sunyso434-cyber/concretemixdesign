@@ -86,7 +86,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         filename: { type: 'string', description: '文件名（含后缀）', required: true },
         payload: { type: 'object', description: 'payload 结构由 type 决定', required: true }
       },
-      (args) => writeHandler.writeFile({ workspaceManager: getWM(), type: args.type, filename: args.filename, payload: args.payload })
+      (args) => writeHandler.writeFile({ workspaceManager: getWM(), wikiEngine: getWiki(), type: args.type, filename: args.filename, payload: args.payload })
     ),
     skill('workspace_listFiles', '列出工作区指定子目录下的条目。返回 [{ name, path, size, type: "file"|"dir", ingested?, wikiPage?, lastIngestAt?, quality? }]。**关键：当 subdir="root" 且 withIngestStatus=true 时，每条记录带 ingested:true/false — 用这个字段判断文件是否已摄入到 wiki**，避免凭空猜测。',
       {

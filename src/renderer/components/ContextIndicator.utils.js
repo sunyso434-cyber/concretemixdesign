@@ -19,7 +19,7 @@ export const CIRCUMFERENCE = 2 * Math.PI * RADIUS          // ≈ 62.8319
 
 export const RED_THRESHOLD = 0.8
 
-export const COLOR_BLUE = '#1890ff'
+export const COLOR_BLUE = '#4B3FE3'
 export const COLOR_RED = '#ff4d4f'
 
 // ============== 工具函数 ==============

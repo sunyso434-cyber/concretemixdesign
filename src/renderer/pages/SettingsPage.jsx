@@ -1,7 +1,7 @@
 // src/renderer/pages/SettingsPage.jsx
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { downloadTemplate, TEMPLATES } from '../utils/templateDownloader'
-import { Card, Button, Tabs, message, Space, Typography, Alert, Divider, List, Tag } from 'antd'
+import { Card, Button, message, Space, Typography, Alert, Divider, List, Tag } from 'antd'
 import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined, BookOutlined, ExperimentOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, AppstoreOutlined, WarningOutlined } from '@ant-design/icons'
 import ParamCard from '../components/ParamCard'
 import ExportWizard from '../components/ExportWizard'
@@ -15,7 +15,7 @@ const { Text, Paragraph } = Typography
 
 const PARAM_TAB_KEYS = ['使用帮助', 'JGJ55标准', '备份设置', 'AI设置', '技能管理']
 
-const SettingsPage = () => {
+const SettingsPage = forwardRef((props, ref) => {
   const [params, setParams] = useState([])
   const [modifiedParams, setModifiedParams] = useState({})
   const [loading, setLoading] = useState(false)
@@ -26,6 +26,13 @@ const SettingsPage = () => {
   const [importWizardVisible, setImportWizardVisible] = useState(false)
   const [restoreModalVisible, setRestoreModalVisible] = useState(false)
   const [selectedBackupPath, setSelectedBackupPath] = useState('')
+
+  // 暴露给父组件的方法：切换标签页
+  useImperativeHandle(ref, () => ({
+    switchTab: (tab) => {
+      setActiveTab(tab)
+    }
+  }), [])
 
   useEffect(() => {
     const loadParams = async () => {
@@ -178,98 +185,88 @@ const SettingsPage = () => {
     )
   }
 
+  // 根据 activeTab 渲染对应内容（不再使用 Tabs 顶部切换，由左侧导航控制）
+  const renderActiveContent = () => {
+    if (activeTab === '使用帮助') return <HelpContent />
+    if (activeTab === '技能管理') return <SkillManager />
+    if (activeTab === '销售报价') return <SalesQuoteSettings />
+    if (activeTab === '系统设置') {
+      return (
+        <div>
+          <Card title="数据管理">
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Text type="secondary">操作会覆盖现有数据，建议操作前先备份数据库</Text>
+              <Space wrap>
+                <Button type="primary" icon={<SaveOutlined />} onClick={handleBackup}>
+                  备份数据库
+                </Button>
+                <Button icon={<ReloadOutlined />} onClick={handleRestore}>
+                  恢复数据库
+                </Button>
+                <Button icon={<DownloadOutlined />} onClick={() => setExportWizardVisible(true)}>
+                  导出数据
+                </Button>
+                <Button icon={<UploadOutlined />} onClick={() => setImportWizardVisible(true)}>
+                  导入数据
+                </Button>
+              </Space>
+            </Space>
+          </Card>
+          <Card title="关于系统" style={{ marginTop: 16 }}>
+            <AppVersionInfo />
+          </Card>
+        </div>
+      )
+    }
+    // JGJ55标准 / 备份设置 / AI设置：参数卡片 + 备份设置额外模板下载
+    return (
+      <div>
+        {renderParamCards()}
+        {activeTab === '备份设置' && (
+          <>
+            <Divider>模板下载</Divider>
+            <Space direction="vertical" style={{ width: '100%' }}>
+              {Object.values(TEMPLATES).map(template => (
+                <Card key={template.key} size="small" className="template-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{template.name}</div>
+                      <div style={{ color: '#999', fontSize: 12 }}>{template.description}</div>
+                      <div style={{ marginTop: 4 }}>
+                        {template.sheets.map(sheet => (
+                          <Tag key={sheet} size="small">{sheet}</Tag>
+                        ))}
+                      </div>
+                    </div>
+                    <Button
+                      type="primary"
+                      icon={<DownloadOutlined />}
+                      onClick={() => downloadTemplate(template.key)}
+                    >
+                      下载
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+            </Space>
+          </>
+        )}
+        <div className="param-actions">
+          <Button icon={<ReloadOutlined />} onClick={handleResetCurrentTab}>
+            重置当前页
+          </Button>
+          <Button type="primary" icon={<SaveOutlined />} loading={saveLoading} onClick={handleSaveCurrentTab}>
+            保存当前页
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="page-container settings-page">
       <Card className="custom-card mb-lg">
-        <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          items={[
-          ...PARAM_TAB_KEYS.map(key => ({
-            key,
-            label: key,
-            children: key === '使用帮助' ? <HelpContent /> : key === '技能管理' ? <SkillManager /> : (
-              <div>
-                {renderParamCards()}
-                {key === '备份设置' && (
-                  <>
-                    <Divider>模板下载</Divider>
-                    <Space direction="vertical" style={{ width: '100%' }}>
-                      {Object.values(TEMPLATES).map(template => (
-                        <Card key={template.key} size="small" className="template-card">
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{template.name}</div>
-                              <div style={{ color: '#999', fontSize: 12 }}>{template.description}</div>
-                              <div style={{ marginTop: 4 }}>
-                                {template.sheets.map(sheet => (
-                                  <Tag key={sheet} size="small">{sheet}</Tag>
-                                ))}
-                              </div>
-                            </div>
-                            <Button
-                              type="primary"
-                              icon={<DownloadOutlined />}
-                              onClick={() => downloadTemplate(template.key)}
-                            >
-                              下载
-                            </Button>
-                          </div>
-                        </Card>
-                      ))}
-                    </Space>
-                  </>
-                )}
-                <div className="param-actions">
-                  <Button icon={<ReloadOutlined />} onClick={handleResetCurrentTab}>
-                    重置当前页
-                  </Button>
-                  <Button type="primary" icon={<SaveOutlined />} loading={saveLoading} onClick={handleSaveCurrentTab}>
-                    保存当前页
-                  </Button>
-                </div>
-              </div>
-            ),
-          })),
-          // 销售报价标签页
-          {
-            key: '销售报价',
-            label: '销售报价',
-            children: <SalesQuoteSettings />,
-          },
-          // 系统设置标签页 - 包含数据管理和关于系统
-          {
-            key: '系统设置',
-            label: '系统设置',
-            children: (
-              <div>
-                <Card title="数据管理">
-                  <Space direction="vertical" style={{ width: '100%' }}>
-                    <Text type="secondary">操作会覆盖现有数据，建议操作前先备份数据库</Text>
-                    <Space wrap>
-                      <Button type="primary" icon={<SaveOutlined />} onClick={handleBackup}>
-                        备份数据库
-                      </Button>
-                      <Button icon={<ReloadOutlined />} onClick={handleRestore}>
-                        恢复数据库
-                      </Button>
-                      <Button icon={<DownloadOutlined />} onClick={() => setExportWizardVisible(true)}>
-                        导出数据
-                      </Button>
-                      <Button icon={<UploadOutlined />} onClick={() => setImportWizardVisible(true)}>
-                        导入数据
-                      </Button>
-                    </Space>
-                  </Space>
-                </Card>
-                <Card title="关于系统" style={{ marginTop: 16 }}>
-                  <AppVersionInfo />
-                </Card>
-              </div>
-            ),
-          },
-        ]}
-        />
+        {renderActiveContent()}
       </Card>
 
       {exportWizardVisible && (
@@ -287,7 +284,7 @@ const SettingsPage = () => {
       )}
     </div>
   )
-}
+})
 
 const AppVersionInfo = () => {
   const [version, setVersion] = useState('1.0.0')

@@ -71,13 +71,13 @@ const ContextIndicator = ({ percent = 0, loading = false, onClick = () => {} }) 
           viewBox={`0 0 ${BUTTON_DIAMETER} ${BUTTON_DIAMETER}`}
           style={{ transform: 'rotate(-90deg)' }}
         >
-          {/* 背景白色描边圆 */}
+          {/* 背景描边圆 */}
           <circle
             cx={BUTTON_DIAMETER / 2}
             cy={BUTTON_DIAMETER / 2}
             r={RADIUS}
             fill="none"
-            stroke="rgba(255,255,255,0.6)"
+            stroke="rgba(115,115,115,0.12)"
             strokeWidth={STROKE_WIDTH}
           />
           {/* 填充进度环 */}
@@ -101,7 +101,7 @@ const ContextIndicator = ({ percent = 0, loading = false, onClick = () => {} }) 
               position: 'absolute',
               width: 8,
               height: 8,
-              border: '1.5px solid #1890ff',
+              border: '1.5px solid #4B3FE3',
               borderTopColor: 'transparent',
               borderRadius: '50%',
               animation: 'context-spin 0.8s linear infinite'

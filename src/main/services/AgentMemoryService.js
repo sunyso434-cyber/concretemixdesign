@@ -1,4 +1,4 @@
-const { ChatHistory, CorrectionRule } = require('../db/database')
+const { ChatHistory, CorrectionRule, ChatSession } = require('../db/database')
 const Sequelize = require('sequelize')
 const { Op } = Sequelize
 
@@ -107,7 +107,37 @@ class AgentMemoryService {
   }
 
   async deleteSession(sessionId) {
+    await ChatSession.destroy({ where: { sessionId } })
     return ChatHistory.destroy({ where: { sessionId } })
+  }
+
+  async duplicateSession(sessionId) {
+    const session = await ChatSession.findOne({ where: { sessionId } })
+    if (!session) throw new Error('会话不存在')
+    const messages = await ChatHistory.findAll({
+      where: { sessionId },
+      order: [['createdAt', 'ASC'], ['id', 'ASC']]
+    })
+    const newSessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const newName = `${session.sessionName || '未命名对话'} (副本)`
+    await ChatSession.create({
+      sessionId: newSessionId,
+      workspacePath: session.workspacePath,
+      sessionName: newName,
+      lastActivity: new Date()
+    })
+    for (const msg of messages) {
+      await ChatHistory.create({
+        sessionId: newSessionId,
+        role: msg.role,
+        content: msg.content,
+        toolCalls: msg.toolCalls,
+        toolCallId: msg.toolCallId,
+        attachments: msg.attachments,
+        metadata: msg.metadata
+      })
+    }
+    return { sessionId: newSessionId, sessionName: newName }
   }
 
   // ===== 修正规则 =====

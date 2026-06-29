@@ -24,15 +24,19 @@ const agentMemoryService = require('../services/AgentMemoryService')
 const SystemService = require('../services/SystemService')
 const { classifyError } = require('../agent/errorClassifier')
 
-// 缓存实例
-let orchestrator = null
+// 缓存实例（Skill 系统全局共享，无状态安全）
 let skillRegistry = null
 let skillExecutor = null
 let skillDebugger = null
 let cachedApiKey = null
-let agentRunning = false
-let agentRunningAt = 0
+
+// 每会话独立的 Orchestrator 实例（多会话并行）
+// key: sessionId, value: { orchestrator, running: bool, startedAt: number, requestId: string }
+const sessionAgents = new Map()
 const AGENT_LOCK_TIMEOUT = 120000 // 2 分钟超时自动释放（spec 8.2）
+
+// 兼容旧代码引用的全局 orchestrator（取最近一次创建的实例，仅供 getOrchestrator 内部使用）
+let orchestrator = null
 
 const { getInstance: getAgentMdService, agentMdPath } = require('../agent/agentMd')
 const { AgentMdParser } = require('../agent/agentMd/AgentMdParser')
@@ -188,6 +192,40 @@ async function getOrchestrator() {
   return orchestrator
 }
 
+/**
+ * 为指定 sessionId 获取/创建独立的 Orchestrator 实例
+ * 每会话独立锁，多会话并行不冲突
+ */
+async function getOrchestratorForSession(sessionId) {
+  const apiKey = await getDeepSeekApiKey()
+  if (!apiKey) return null
+
+  // 复用已缓存的 DeepSeekService + Skill 系统（避免每次新建）
+  if (!orchestrator || cachedApiKey !== apiKey) {
+    await getOrchestrator()
+  }
+  if (!orchestrator) return null
+
+  // 复用最近创建的 deepseekService（无状态，多 Orchestrator 共享安全）
+  const ds = global.deepseekService
+
+  // 每会话独立 Orchestrator（避免会话间内部状态污染）
+  const existing = sessionAgents.get(sessionId)
+  if (existing && existing.orchestrator && cachedApiKey === apiKey) {
+    return existing.orchestrator
+  }
+
+  const ag = Orchestrator.create('unified', {
+    deepseekService: ds,
+    skillRegistry,
+    skillExecutor,
+    agentMemoryService,
+    systemService: SystemService
+  })
+
+  return ag
+}
+
 // 注册 IPC 处理器
 function registerAgentHandlers() {
   // 启动时初始化 Skill 系统
@@ -198,27 +236,31 @@ function registerAgentHandlers() {
   ipcMain.handle('agent:run', async (event, { requestId, sessionId, message, mode }) => {
     // 生成 requestId（如渲染端未传）
     const reqId = requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
-    // [DEBUG] 记录请求到达和锁状态
-    _log(`[AgentHandler] 🔵 agent:run 收到请求 sessionId=${sessionId} requestId=${reqId} agentRunning=${agentRunning} 锁持有=${agentRunning ? Math.round((Date.now() - agentRunningAt) / 1000) + 's' : '无'}`)
+    // [DEBUG] 记录请求到达和锁状态（每会话独立锁）
+    const lockState = sessionAgents.get(sessionId)
+    _log(`[AgentHandler] 🔵 agent:run 收到请求 sessionId=${sessionId} requestId=${reqId} 该会话锁=${lockState?.running ? Math.round((Date.now() - lockState.startedAt) / 1000) + 's' : '无'}`)
 
-    if (agentRunning) {
-      if (Date.now() - agentRunningAt > AGENT_LOCK_TIMEOUT) {
-        _log(`[AgentHandler] ⚠️ agent:run 锁超时自动释放 sessionId=${sessionId} requestId=${reqId} (held ${Math.round((Date.now() - agentRunningAt) / 1000)}s)`)
-        agentRunning = false
+    if (lockState && lockState.running) {
+      if (Date.now() - lockState.startedAt > AGENT_LOCK_TIMEOUT) {
+        _log(`[AgentHandler] ⚠️ agent:run 锁超时自动释放 sessionId=${sessionId} requestId=${reqId} (held ${Math.round((Date.now() - lockState.startedAt) / 1000)}s)`)
+        lockState.running = false
       } else {
-        _log(`[AgentHandler] 🚫 agent:run 被锁拒绝 sessionId=${sessionId} requestId=${reqId}`)
-        return { success: false, error: '上一个任务还在执行中，请稍等' }
+        _log(`[AgentHandler] 🚫 agent:run 被锁拒绝（同一会话已有任务在跑）sessionId=${sessionId} requestId=${reqId}`)
+        return { success: false, error: '该会话已有任务在执行，请稍等' }
       }
     }
-    agentRunning = true
-    agentRunningAt = Date.now()
-    _log(`[AgentHandler] 🔒 agent:run 获取锁 requestId=${reqId}`)
+
     try {
-      const ag = await getOrchestrator()
+      const ag = await getOrchestratorForSession(sessionId)
       if (!ag) {
         _log(`[AgentHandler] ❌ agent:run Orchestrator 未初始化 requestId=${reqId}`)
         return { success: false, error: 'DeepSeek API未配置，请在系统设置中配置API密钥' }
       }
+
+      // 注册会话锁
+      sessionAgents.set(sessionId, { orchestrator: ag, running: true, startedAt: Date.now(), requestId: reqId })
+      _log(`[AgentHandler] 🔒 agent:run 获取锁 sessionId=${sessionId} requestId=${reqId}`)
+
       _log(`[AgentHandler] 🚀 agent:run 开始执行 requestId=${reqId} message="${message.slice(0, 50)}" mode=${mode}`)
       const result = await ag.run({ sessionId, message, mode: mode || 'auto', webContents: event.sender })
       _log(`[AgentHandler] ✅ agent:run 执行完成 requestId=${reqId}: ${JSON.stringify({ success: result?.success, hasContent: !!result?.content, contentLen: result?.content?.length || 0, error: result?.error })}`)
@@ -247,23 +289,37 @@ function registerAgentHandlers() {
 
       return { success: false, error: classified }
     } finally {
-      agentRunning = false
-      _log(`[AgentHandler] 🔓 agent:run 释放锁 requestId=${reqId}`)
+      // 释放该会话锁 + 释放 Orchestrator 实例（避免内存累积，下次重新创建）
+      const s = sessionAgents.get(sessionId)
+      if (s) {
+        s.orchestrator = null
+        s.running = false
+        s.startedAt = 0
+      }
+      _log(`[AgentHandler] 🔓 agent:run 释放锁 sessionId=${sessionId} requestId=${reqId}`)
     }
   })
 
-  ipcMain.handle('agent:pause', async (_event, { requestId }) => {
-    if (orchestrator) orchestrator.pause()
+  ipcMain.handle('agent:pause', async (_event, { requestId, sessionId }) => {
+    const s = sessionId ? sessionAgents.get(sessionId) : null
+    if (s?.orchestrator) s.orchestrator.pause()
     return { success: true }
   })
 
-  ipcMain.handle('agent:resume', async (_event, { requestId }) => {
-    if (orchestrator) orchestrator.resume()
+  ipcMain.handle('agent:resume', async (_event, { requestId, sessionId }) => {
+    const s = sessionId ? sessionAgents.get(sessionId) : null
+    if (s?.orchestrator) s.orchestrator.resume()
     return { success: true }
   })
 
-  ipcMain.handle('agent:abort', async (_event, { requestId }) => {
-    if (orchestrator) orchestrator.abort()
+  ipcMain.handle('agent:abort', async (_event, { requestId, sessionId }) => {
+    // 优先按 sessionId 定位（新协议）；fallback 到旧的单例 orchestrator
+    if (sessionId) {
+      const s = sessionAgents.get(sessionId)
+      if (s?.orchestrator) s.orchestrator.abort()
+    } else if (orchestrator) {
+      orchestrator.abort()
+    }
     return { success: true }
   })
 
@@ -277,21 +333,35 @@ function registerAgentHandlers() {
     try {
       await agentMemoryService.saveMessage({ sessionId, role, content, metadata, stopReason })
 
-      // upsert ChatSession：取 user 消息前 15 字作为 sessionName
+      // upsert ChatSession：异步生成标题（不阻塞 saveMessage，避免发消息卡顿）
       if (role === 'user' && content && sessionId) {
-        const { ChatSession } = require('../db/database')
-
-        // 检查是否是第一条用户消息
-        const existingSession = await ChatSession.findOne({ where: { sessionId } })
-        const isFirstMessage = !existingSession || !existingSession.sessionName
-
-        let sessionName
-        if (isFirstMessage) {
-          // 尝试使用 AI 生成摘要
+        // 异步 IIFE：fire-and-forget，saveMessage 立即返回
+        ;(async () => {
           try {
-            const ag = await getOrchestrator()
-            if (ag && ag.deepseekService) {
-              const prompt = `请从以下用户消息中提取关键信息，生成一个简短的会话标题（不超过20个字符）。
+            const { ChatSession } = require('../db/database')
+
+            // 检查是否是第一条用户消息（空标题或默认标题开头时可被 AI 摘要覆盖；用户重命名后不覆盖）
+            const existingSession = await ChatSession.findOne({ where: { sessionId } })
+            const currentName = existingSession?.sessionName || ''
+            // 把历史遗留的默认标题都视为可重新生成：
+            // - 空标题
+            // - 以 "新会话-" / "新对话 " 开头（包含 createSession 生成的日期格式）
+            // - "对话 YYYY-MM-DD HH:mm" / "对话 MM-DD HH:mm"
+            const isDefaultName = (name) =>
+              !name ||
+              name.startsWith('新会话-') ||
+              name.startsWith('新对话 ') ||
+              /^对话 \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(name) ||
+              /^对话 \d{2}-\d{2} \d{2}:\d{2}$/.test(name)
+            const isFirstMessage = isDefaultName(currentName)
+
+            let sessionName
+            if (isFirstMessage) {
+              // 尝试使用 AI 生成摘要
+              try {
+                const ag = await getOrchestrator()
+                if (ag && ag.deepseekService) {
+                  const prompt = `请从以下用户消息中提取关键信息，生成一个简短的会话标题（不超过20个字符）。
 要求：
 1. 保留核心意图
 2. 去除语气词和无关信息
@@ -299,31 +369,57 @@ function registerAgentHandlers() {
 4. 只返回标题文本，不要添加引号或其他格式
 
 用户消息：${content.trim()}`
-              sessionName = await ag.deepseekService.invoke(prompt)
-              sessionName = sessionName.trim().substring(0, 20)
-              _log(`[AgentHandler] AI摘要生成成功: "${sessionName}"`)
+                  sessionName = await ag.deepseekService.invoke(prompt)
+                  sessionName = sessionName.trim().substring(0, 20)
+                  _log(`[AgentHandler] AI摘要生成成功: "${sessionName}"`)
+                }
+              } catch (err) {
+                _log(`[AgentHandler] AI摘要生成失败，使用截取方式: ${err.message}`)
+              }
             }
+
+            // 后续消息（已有非默认标题）：只更新 lastActivity，不动 sessionName
+            // 这样历史会话的标题保持为用户第一条消息生成的摘要，不会被最近消息覆盖
+            const currentWorkspacePath = global.workspaceManager ? global.workspaceManager.current()?.path : null
+
+            if (!isFirstMessage) {
+              await ChatSession.update(
+                { lastActivity: new Date() },
+                { where: { sessionId } }
+              )
+              _log(`[AgentHandler] 后续消息，仅更新 lastActivity（标题保持不变）`)
+              return
+            }
+
+            // 第一条消息：AI 摘要失败时使用消息内容前 15 字（grapheme-safe），不再 fallback 到时间格式
+            if (!sessionName) {
+              const trimmed = content.trim()
+              sessionName = trimmed ? [...trimmed].slice(0, 15).join('') : '新会话'
+            }
+
+            await ChatSession.upsert({
+              sessionId,
+              sessionName,
+              workspacePath: currentWorkspacePath,
+              lastActivity: new Date()
+            })
+            _log(`[AgentHandler] 会话标题已更新: "${sessionName}"`)
+
+            // 标题变更后立即失效 listSessionsGrouped 缓存，确保前端刷新拿到最新标题
+            if (global.chatHistorySync?.invalidateGroupedCache) {
+              global.chatHistorySync.invalidateGroupedCache()
+            }
+
+            // 通知前端刷新会话列表（解决异步 AI 摘要晚于 loadSessionList 完成的时序问题）
+            try {
+              if (_event && _event.sender && !_event.sender.isDestroyed()) {
+                _event.sender.send('agent:sessionUpdated', { sessionId, sessionName })
+              }
+            } catch (_) {}
           } catch (err) {
-            _log(`[AgentHandler] AI摘要生成失败，使用截取方式: ${err.message}`)
+            _log(`[AgentHandler] 异步更新会话标题失败: ${err.message}`)
           }
-        }
-
-        // 如果 AI 摘要失败或是后续消息，使用截取方式
-        if (!sessionName) {
-          // grapheme-safe 截取（用 spread 操作符避免 surrogate pair 截断）
-          const truncated = [...content.trim()].slice(0, 15).join('')
-          sessionName = truncated || `对话 ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`
-        }
-
-        // 获取当前工作区路径
-        const currentWorkspacePath = global.workspaceManager ? global.workspaceManager.current()?.path : null
-
-        await ChatSession.upsert({
-          sessionId,
-          sessionName,
-          workspacePath: currentWorkspacePath,
-          lastActivity: new Date()
-        })
+        })()
       }
 
       return { success: true }
@@ -381,13 +477,28 @@ function registerAgentHandlers() {
   })
 
   ipcMain.handle('agent:getSessionMessages', async (_event, { sessionId }) => {
-    const messages = await agentMemoryService.getHistory(sessionId, { limit: 100 })
-    return { success: true, messages }
+    const messages = await agentMemoryService.getHistory(sessionId, { limit: 20 })
+    // 剥离 metadata.timeline（大对象，含 reasoning + tool 结果）
+    // 历史消息切回时不回放思考过程，只显示纯文本（DB 仍保留 timeline，需要时可单独查询）
+    // 流式过程中的 timeline 来自 state.agent.timeline，不受影响
+    const slimMessages = messages.map(m => {
+      if (!m.metadata) return m
+      const { timeline, ...restMetadata } = m.metadata
+      return { ...m, metadata: restMetadata }
+    })
+    return { success: true, messages: slimMessages }
   })
 
   ipcMain.handle('agent:deleteSession', async (_event, { sessionId }) => {
     await agentMemoryService.deleteSession(sessionId)
+    if (global.chatHistorySync?.invalidateGroupedCache) global.chatHistorySync.invalidateGroupedCache()
     return { success: true }
+  })
+
+  ipcMain.handle('agent:duplicateSession', async (_event, { sessionId }) => {
+    const result = await agentMemoryService.duplicateSession(sessionId)
+    if (global.chatHistorySync?.invalidateGroupedCache) global.chatHistorySync.invalidateGroupedCache()
+    return { success: true, sessionId: result.sessionId, sessionName: result.sessionName }
   })
 
   ipcMain.handle('agent:createSession', async (_event, { sessionId, sessionName }) => {
@@ -395,10 +506,12 @@ function registerAgentHandlers() {
     const currentWorkspacePath = global.workspaceManager ? global.workspaceManager.current()?.path : null
     await ChatSession.upsert({
       sessionId,
-      sessionName: sessionName || `新对话 ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+      // 显式传 null 时允许空标题；undefined 时保留旧行为兜底
+      sessionName: sessionName === undefined ? `新对话 ${new Date().toLocaleString('zh-CN', { hour12: false })}` : sessionName,
       workspacePath: currentWorkspacePath,
       lastActivity: new Date()
     })
+    if (global.chatHistorySync?.invalidateGroupedCache) global.chatHistorySync.invalidateGroupedCache()
     return { success: true }
   })
 
@@ -419,6 +532,7 @@ function registerAgentHandlers() {
       { sessionName },
       { where: { sessionId } }
     )
+    if (global.chatHistorySync?.invalidateGroupedCache) global.chatHistorySync.invalidateGroupedCache()
     return { success: true }
   })
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react'
 import { Table, Button, Modal, Form, Input, InputNumber, Select, Space, message, Row, Col, Divider } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, DatabaseOutlined, AppstoreOutlined, HomeOutlined, DollarOutlined } from '@ant-design/icons'
 import { getFieldsForType, calculateFinenessModulus, autoMatchGrading } from '../utils/materialFieldsConfig'
 import extractErrorMessage from '../utils/extractErrorMessage'
 
@@ -16,6 +16,8 @@ const MaterialsPage = forwardRef((props, ref) => {
   const [saving, setSaving] = useState(false)
   const [selectedType, setSelectedType] = useState(null)
   const [pageSize, setPageSize] = useState(10)
+  const [typeFilter, setTypeFilter] = useState(null) // 外部导航过滤：null=全部
+  const [searchKeyword, setSearchKeyword] = useState('') // 外部搜索框关键词
 
   const loadMaterials = async () => {
     setLoading(true)
@@ -43,9 +45,9 @@ const MaterialsPage = forwardRef((props, ref) => {
         console.error('MaterialsPage data refresh failed:', err)
       }
     }
-    window.electron.ipcRenderer.on('data-refresh', handleDataRefresh)
+    const listenerId = window.electron.ipcRenderer.on('data-refresh', handleDataRefresh)
     return () => {
-      window.electron.ipcRenderer.removeListener('data-refresh', handleDataRefresh)
+      window.electron.ipcRenderer.removeListener(listenerId)
     }
   }, [])
 
@@ -58,6 +60,12 @@ const MaterialsPage = forwardRef((props, ref) => {
     },
     refresh: () => {
       loadMaterials()
+    },
+    filterByType: (type) => {
+      setTypeFilter(type === '全部' ? null : type)
+    },
+    setSearchKeyword: (keyword) => {
+      setSearchKeyword(keyword || '')
     }
   }), [])
 
@@ -314,23 +322,65 @@ const MaterialsPage = forwardRef((props, ref) => {
     }
   ]
 
+  // 应用外部导航过滤 + 搜索关键词过滤
+  let filteredMaterials = materials
+  if (typeFilter) {
+    filteredMaterials = filteredMaterials.filter(m => m.type === typeFilter)
+  }
+  if (searchKeyword && searchKeyword.trim()) {
+    const kw = searchKeyword.trim().toLowerCase()
+    filteredMaterials = filteredMaterials.filter(m =>
+      String(m.name || '').toLowerCase().includes(kw) ||
+      String(m.specification || '').toLowerCase().includes(kw) ||
+      String(m.manufacturer || '').toLowerCase().includes(kw)
+    )
+  }
+
+  // 统计卡片数据（基于当前过滤后的数据）
+  const totalMaterials = filteredMaterials.length
+  const typeCount = new Set(filteredMaterials.map(m => m.type).filter(Boolean)).size
+  const manufacturerCount = new Set(filteredMaterials.map(m => m.manufacturer).filter(Boolean)).size
+  const priceValues = filteredMaterials.map(m => Number(m.price)).filter(p => !isNaN(p) && p > 0)
+  const avgPrice = priceValues.length ? Math.round(priceValues.reduce((s, p) => s + p, 0) / priceValues.length) : 0
+
   return (
     <div className="page-container">
-      {!hideActionBar && (
-        <div className="action-bar">
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleAddNew} className="custom-btn">
-            新增材料
-          </Button>
-          <Button icon={<ReloadOutlined />} onClick={loadMaterials} loading={loading} className="custom-btn">
-            刷新
-          </Button>
+      {/* 统计卡片 */}
+      <div className="mat-stats">
+        <div className="mat-stat-card">
+          <div className="mat-stat-icon blue"><DatabaseOutlined /></div>
+          <div className="mat-stat-info">
+            <div className="mat-stat-value">{totalMaterials}</div>
+            <div className="mat-stat-label">材料总数</div>
+          </div>
         </div>
-      )}
+        <div className="mat-stat-card">
+          <div className="mat-stat-icon green"><AppstoreOutlined /></div>
+          <div className="mat-stat-info">
+            <div className="mat-stat-value">{typeCount}</div>
+            <div className="mat-stat-label">材料类型</div>
+          </div>
+        </div>
+        <div className="mat-stat-card">
+          <div className="mat-stat-icon amber"><HomeOutlined /></div>
+          <div className="mat-stat-info">
+            <div className="mat-stat-value">{manufacturerCount}</div>
+            <div className="mat-stat-label">生产厂家</div>
+          </div>
+        </div>
+        <div className="mat-stat-card">
+          <div className="mat-stat-icon purple"><DollarOutlined /></div>
+          <div className="mat-stat-info">
+            <div className="mat-stat-value">{avgPrice}</div>
+            <div className="mat-stat-label">均价 (元/吨)</div>
+          </div>
+        </div>
+      </div>
 
       <div className="custom-card">
         <Table
           columns={columns}
-          dataSource={materials}
+          dataSource={filteredMaterials}
           loading={loading}
           rowKey="id"
           pagination={{

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip } from 'antd'
-import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, ProfileOutlined, HeartOutlined } from '@ant-design/icons'
+import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip, Dropdown } from 'antd'
+import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, ProfileOutlined, HeartOutlined, DownOutlined, CheckOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
@@ -260,6 +260,7 @@ const SmartDesignChat = () => {
 
   // ===== 工作区抽屉 =====
   const [workspacePath, setWorkspacePath] = useState(null)
+  const [workspacesList, setWorkspacesList] = useState([])
 
   // 加载当前工作区状态
   useEffect(() => {
@@ -276,7 +277,23 @@ const SmartDesignChat = () => {
     loadWorkspace()
   }, [])
 
-  const handleWorkspaceClick = async () => {
+  // 加载所有已知工作区列表（用于下拉切换）
+  const loadWorkspacesList = useCallback(async () => {
+    try {
+      const result = await window.electronAPI.invoke('agent:listSessionsGrouped')
+      if (result && result.workspaces) {
+        setWorkspacesList(result.workspaces)
+      }
+    } catch (err) {
+      console.warn('[SmartDesignChat] 加载工作区列表失败:', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadWorkspacesList()
+  }, [loadWorkspacesList, state.session.list])
+
+  const handleAddWorkspace = async () => {
     try {
       const result = await window.electronAPI.workspace.pickFolder()
       if (result.canceled) return
@@ -285,8 +302,26 @@ const SmartDesignChat = () => {
       createSession({ dispatch })
       // 刷新侧栏分组列表
       await loadSessionList({ dispatch })
+      await loadWorkspacesList()
     } catch (err) {
       console.error('[WorkspaceIndicator] 选择工作区失败:', err)
+      message.error('添加工作区失败: ' + err.message)
+    }
+  }
+
+  const handleSwitchWorkspace = async (wsPath) => {
+    if (wsPath === workspacePath) return
+    try {
+      await window.electronAPI.workspace.open(wsPath)
+      setWorkspacePath(wsPath)
+      // 切工作区后自动新建会话
+      createSession({ dispatch })
+      // 刷新侧栏分组列表
+      await loadSessionList({ dispatch })
+      await loadWorkspacesList()
+    } catch (err) {
+      console.error('[SmartDesignChat] 切换工作区失败:', err)
+      message.error('切换工作区失败: ' + err.message)
     }
   }
 
@@ -294,6 +329,40 @@ const SmartDesignChat = () => {
   const workspaceBasename = workspacePath
     ? workspacePath.split(/[\\/]/).filter(Boolean).pop()
     : null
+
+  // 当前会话标题
+  const currentSession = state.session.list.find(s => s.sessionId === state.session.currentId)
+  // fallback：从 sessionId（格式 session-{timestamp}-{random}）提取时间戳生成可读名称
+  const formatSessionFallback = (sid) => {
+    if (!sid) return '新对话'
+    const match = sid.match(/^session-(\d+)-/)
+    if (match) {
+      const ts = parseInt(match[1], 10)
+      if (!isNaN(ts)) {
+        const d = new Date(ts)
+        const pad = (n) => String(n).padStart(2, '0')
+        return `对话 ${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+      }
+    }
+    return '未命名对话'
+  }
+  const currentSessionTitle = currentSession?.sessionName || formatSessionFallback(state.session.currentId)
+
+  // 监听后端"会话标题已更新"事件：异步 AI 摘要晚于 loadSessionList 完成时，主动刷新列表
+  useEffect(() => {
+    if (!window.electronAPI?.on) return
+    const listenerId = window.electronAPI.on('agent:sessionUpdated', ({ sessionId: updatedSid } = {}) => {
+      // 仅刷新列表（标题来自最新 DB 状态），不强制切换会话
+      if (updatedSid) {
+        loadSessionList({ dispatch }).catch(() => {})
+      }
+    })
+    return () => {
+      if (window.electronAPI?.removeListener && listenerId) {
+        window.electronAPI.removeListener(listenerId)
+      }
+    }
+  }, [dispatch])
 
   // 加载可用技能
   const loadSkills = useCallback(async () => {
@@ -423,7 +492,7 @@ const SmartDesignChat = () => {
   // "Cannot access 'X' before initialization" 并导致白屏。
   const handleClearChat = async () => {
     if (state.agent.requestId) {
-      abortAgent({ dispatch, requestId: state.agent.requestId })
+      abortAgent({ dispatch, requestId: state.agent.requestId, sessionId: state.session.currentId })
     }
     await chatState.handleClearChat()
     dispatch({ type: 'CLEAR_MESSAGES' })
@@ -434,14 +503,14 @@ const SmartDesignChat = () => {
   const handleKeyDown = (e) => {
     if (e.key === 'Escape' && isAgentBusy) {
       e.preventDefault()
-      abortAgent({ dispatch, requestId: state.agent.requestId })
+      abortAgent({ dispatch, requestId: state.agent.requestId, sessionId: state.session.currentId })
       return
     }
 
     if (e.key === 'Enter' && !e.shiftKey) {
       if (isAgentBusy && !state.input.trim()) {
         e.preventDefault()
-        abortAgent({ dispatch, requestId: state.agent.requestId })
+        abortAgent({ dispatch, requestId: state.agent.requestId, sessionId: state.session.currentId })
       }
     }
   }
@@ -583,13 +652,13 @@ const SmartDesignChat = () => {
     }
     if (e.key === 'Escape' && isAgentBusy) {
       e.preventDefault()
-      abortAgent({ dispatch, requestId: state.agent.requestId })
+      abortAgent({ dispatch, requestId: state.agent.requestId, sessionId: state.session.currentId })
       return
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       if (isAgentBusy && !state.input.trim()) {
-        abortAgent({ dispatch, requestId: state.agent.requestId })
+        abortAgent({ dispatch, requestId: state.agent.requestId, sessionId: state.session.currentId })
       } else {
         handleSend()
       }
@@ -1180,21 +1249,68 @@ const SmartDesignChat = () => {
         />
       )}
 
-      <Content style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '0 var(--space-md)' }}>
+      <Content style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <div className="smart-design-chat">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <Space>
-              <Button
-                size="small"
-                type="text"
-                icon={<HistoryOutlined />}
-                onClick={() => dispatch({ type: 'SET_SIDEBAR_COLLAPSED', payload: !state.session.sidebarCollapsed })}
-                title={state.session.sidebarCollapsed ? '打开对话历史' : '关闭对话历史'}
-              />
-              <Avatar src={ASSISTANT_AVATAR_SRC} className="smart-assistant-title-avatar" />
-              <Text strong style={{ fontSize: 16 }}>智能设计助手</Text>
-            </Space>
-            <Space size={8}>
+          <div className="smart-chat-toolbar v9-chat-header">
+            <div className="v9-chat-header-left">
+              {/* 工作区选择器 */}
+              <Dropdown
+                menu={{
+                  items: [
+                    ...workspacesList.map((ws) => ({
+                      key: ws.path,
+                      label: (
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '2px 0',
+                            opacity: ws.path === workspacePath ? 1 : 0.9
+                          }}
+                        >
+                          {ws.path === workspacePath && (
+                            <CheckOutlined style={{ fontSize: 12, color: 'var(--primary-color)' }} />
+                          )}
+                          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
+                            <span style={{ fontWeight: ws.path === workspacePath ? 600 : 400 }}>
+                              {ws.basename}
+                            </span>
+                            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{ws.path}</span>
+                          </div>
+                        </div>
+                      ),
+                      onClick: () => handleSwitchWorkspace(ws.path)
+                    })),
+                    { type: 'divider' },
+                    {
+                      key: 'add',
+                      label: (
+                        <span style={{ color: 'var(--primary-color)' }}>
+                          <PlusOutlined style={{ marginRight: 6 }} />
+                          添加工作区
+                        </span>
+                      ),
+                      onClick: handleAddWorkspace
+                    }
+                  ]
+                }}
+                trigger={['click']}
+                placement="bottomLeft"
+              >
+                <button
+                  className="v9-ws-selector"
+                  title={workspacePath || '点击选择工作区'}
+                >
+                  <FolderOpenOutlined className="v9-ws-selector-icon" />
+                  <span className="v9-ws-selector-name">{workspaceBasename || '打开工作区'}</span>
+                  <DownOutlined style={{ fontSize: 10, marginLeft: 6, opacity: 0.7 }} />
+                </button>
+              </Dropdown>
+              {/* 会话标题 */}
+              <span className="v9-chat-title">{currentSessionTitle}</span>
+            </div>
+            <div className="v9-chat-header-right">
               <Segmented
                 size="small"
                 value={state.agent.runMode}
@@ -1212,7 +1328,7 @@ const SmartDesignChat = () => {
                   onClick={() => setRulesModalOpen(true)}
                 />
               </Tooltip>
-              <Tooltip title="🩺 Wiki 健康检查（扫描 5 类问题）">
+              <Tooltip title="🩺 Wiki 健康检查">
                 <Button
                   type="text"
                   size="small"
@@ -1220,29 +1336,47 @@ const SmartDesignChat = () => {
                   onClick={() => setLintModalOpen(true)}
                 />
               </Tooltip>
-            </Space>
+              {(() => {
+                const percent = getContextPercent({
+                  realTokens: state.contextRealTokens,
+                  messages: state.messages,
+                  contextLimit: DEFAULT_CONTEXT_LIMIT
+                })
+                return (
+                  <ContextIndicator
+                    percent={percent}
+                    loading={chatState.isCompressing}
+                    onClick={chatState.handleCompressContext}
+                  />
+                )
+              })()}
+            </div>
           </div>
 
           <div className="smart-chat-list">
         {state.messages.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-            <BulbOutlined style={{ fontSize: 48, color: '#faad14', marginBottom: 16 }} />
-            <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: 'var(--color-text)' }}>智能设计助手</div>
-            <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>
-              用自然语言描述你的需求，AI 将帮你完成配合比设计和优化
-            </Text>
-            <Space wrap>
+          <div className="v9-welcome">
+            <div className="v9-welcome-title">
+              <span className="topbar-title-cn">砼智</span> Concrete Agent
+            </div>
+            <div className="v9-welcome-subtitle">
+              智能混凝土配合比设计助手
+            </div>
+            <div className="v9-welcome-cards">
               {QUICK_PROMPTS.map((item, i) => (
-                <Button
+                <button
                   key={i}
+                  className="v9-welcome-card"
                   onClick={() => handleQuickPrompt(item.message)}
-                  className={item.isSlash ? 'slash-quick-btn' : ''}
-                  icon={item.isSlash ? <AppstoreOutlined /> : null}
+                  type="button"
                 >
-                  {item.label}
-                </Button>
+                  <div className="v9-welcome-card-icon">
+                    {item.isSlash ? <AppstoreOutlined /> : <BulbOutlined />}
+                  </div>
+                  <div className="v9-welcome-card-title">{item.label}</div>
+                </button>
               ))}
-            </Space>
+            </div>
           </div>
         ) : (
           <List
@@ -1529,18 +1663,7 @@ const SmartDesignChat = () => {
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
           <Space size={0}>
-            {/* 工作区指示器（左侧）- 选择/切换工作区 */}
-            <Button
-              type="text"
-              size="small"
-              icon={<FolderOpenOutlined />}
-              onClick={handleWorkspaceClick}
-              style={{ color: workspacePath ? 'var(--color-primary)' : undefined }}
-              title={workspacePath || '点击选择工作区'}
-            >
-              {workspaceBasename ? `📁 ${workspaceBasename}` : '📁 打开工作区'}
-            </Button>
-            {/* 工作区文件列表（已选工作区才显示）- P1 补全 v4.8.3 */}
+            {/* 工作区文件列表（已选工作区才显示） */}
             {workspacePath && (
               <WorkspaceFilePopover workspacePath={workspacePath}>
                 <Button
@@ -1573,20 +1696,6 @@ const SmartDesignChat = () => {
               disabled={state.messages.length === 0}
               title="清空对话"
             />
-            {(() => {
-              const percent = getContextPercent({
-                realTokens: state.contextRealTokens,
-                messages: state.messages,
-                contextLimit: DEFAULT_CONTEXT_LIMIT
-              })
-              return (
-                <ContextIndicator
-                  percent={percent}
-                  loading={chatState.isCompressing}
-                  onClick={chatState.handleCompressContext}
-                />
-              )
-            })()}
           </Space>
           <Button
             type="primary"
@@ -1616,6 +1725,9 @@ const SmartDesignChat = () => {
     </Layout>
   )
 }
+
+// 命名导出：不带 Provider，供已提升 Provider 的父组件使用
+export { SmartDesignChat }
 
 export default function SmartDesignChatWrapper(props) {
   return (
