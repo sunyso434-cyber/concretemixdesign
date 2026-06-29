@@ -53,21 +53,30 @@ class VisionService {
         raw: response.data
       }
     } catch (error) {
-      throw await this._classifyError(error)
+      throw this._classifyError(error)
     }
   }
 
-  async _classifyError(error) {
+  _classifyError(error) {
     const status = error?.response?.status
     const code = (() => {
-      const httpToCode = { 400: 'E-LLM-400', 401: 'E-LLM-401', 403: 'E-LLM-403', 413: 'E-LLM-413', 429: 'E-LLM-429', 503: 'E-LLM-503' }
+      const httpToCode = { 400: 'E-LLM-400', 401: 'E-LLM-401', 402: 'E-LLM-402', 403: 'E-LLM-403', 413: 'E-LLM-413', 429: 'E-LLM-429', 503: 'E-LLM-503' }
       if (status && httpToCode[status]) return httpToCode[status]
       if (status && status >= 500) return 'E-LLM-500'
       if (error?.code === 'ECONNABORTED') return 'E-NET-408'
       if (['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'ERR_NETWORK', 'ECONNRESET'].includes(error?.code)) return 'E-NET-500'
       return 'E-SYS-999'
     })()
-    const rawMessage = error?.response?.data?.error?.message || error?.message || ''
+    const rawMessage = (() => {
+      if (error?.response?.data?.error?.message) return error.response.data.error.message
+      if (error?.response?.data?.message) return error.response.data.message
+      const data = error?.response?.data
+      if (data) {
+        if (typeof data === 'string') return data
+        try { return JSON.stringify(data).slice(0, 500) } catch (_) { /* ignore */ }
+      }
+      return error?.message || ''
+    })()
     return createError(code, null, null, {
       httpStatus: status,
       endpoint: this.apiUrl,
