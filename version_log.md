@@ -1,3 +1,52 @@
+## v9.0.0 补充20 (2026-06-29) - agent.md 编辑从弹窗改为右侧页面
+
+### 改动概述
+
+将"agent.md 编辑"功能从 antd Modal 弹窗改造为系统设置页面的右侧内容区直接渲染，不再弹窗，操作更直观，编辑空间更大。
+
+### 改动文件（3 个：1 新增 1 删除 1 修改）
+
+- 🆕 新增 `src/renderer/components/AgentRulesPanel.jsx`
+  - 由原 `AgentRulesModal.jsx` 改造而来，删除外层 `<Modal>` 包装
+  - 顶部新增固定标题栏：左侧 "🤖 智能助手规则"，右侧放置 [外部编辑] [保存] 两个按钮
+  - 取消 3 个 Tab 切换（我的规则 / 建议 / 文件），改为垂直展开 7 个区块：
+    1. 💬 回复风格
+    2. 🧱 选材偏好（含新增/编辑/删除表单）
+    3. 📐 设计方法偏好
+    4. ⚙️ 工作流程（可增删步骤）
+    5. 📚 自定义知识
+    6. 📋 偏好建议（**放在自定义知识下方**，标题含橙色 Badge 角标显示数量）
+    7. 📄 原始 Markdown（只读 + 区块内"刷新"按钮）
+  - 保留所有原有功能：偏好建议订阅（`onSuggestionsNew`）、chokidar 外部文件监听、采纳/忽略/黑名单、IPC 链路（`agentMd:load` / `agent:rules:upsert` / `shell:openAgentMd` / `agentMd:reload`）
+  - 加载中状态改为内联占位符，不再包 Modal
+
+- 🗑 删除 `src/renderer/components/AgentRulesModal.jsx`
+  - 由 `AgentRulesPanel.jsx` 完全替代，旧文件彻底移除
+
+- ✏️ 修改 `src/renderer/pages/SettingsPage.jsx`
+  - `import AgentRulesModal` → `import AgentRulesPanel`
+  - 删掉 `rulesModalOpen` state 及 setter
+  - `switchTab` 中 `tab === 'agent.md 编辑'` 改为普通 `setActiveTab(tab)`，不再走 Modal
+  - `renderActiveContent()` 加分支：`activeTab === 'agent.md 编辑'` 时返回 `<AgentRulesPanel />`
+  - 末尾 `<AgentRulesModal>` 挂载移除
+
+### 行为变化
+
+- 系统设置 → 点击"agent.md 编辑" → 右侧直接显示完整编辑页面，**不再弹窗**
+- 顶部右侧 [保存] 按钮：保存整个 rules 对象到 agent.md，**保存后页面保留不消失**
+- 顶部 [外部编辑] 按钮：在系统编辑器打开 `~/.concrete-mixdesign/agent.md`，外部修改后 1s 内 chokidar 自动同步到页面
+- "📋 偏好建议"区块 Badge：实时显示当前待处理建议数量（橙色 `#fa8c16`）
+- 切换到别的左侧导航项后再切回：组件会重新挂载，自动重新加载最新数据
+
+### 边缘情况
+
+- `rules` 为 null 时显示"加载中..."占位符，避免空白闪烁
+- 偏好建议 Badge 仅在数量 > 0 时显示，避免视觉噪音
+- 工作流程为空时显示引导文字"暂无步骤，点击右上角添加步骤开始"
+- 外部编辑器修改 + 1s 内自动同步：chokidar 监听 + `awaitWriteFinish` (stabilityThreshold 200ms)，避免读到半写状态
+
+---
+
 ## v9.0.0 补充19 (2026-06-29) - 修复 LLM 输出时 Esc / 停止按钮无法中断输出的问题
 
 ### 改动概述

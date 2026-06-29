@@ -9,7 +9,7 @@ import ImportWizard from '../components/ImportWizard'
 import RestoreConfirmModal from '../components/RestoreConfirmModal'
 import SalesQuoteSettings from '../components/SalesQuoteSettings'
 import SkillManager from '../components/SkillManager'
-import AgentRulesModal from '../components/AgentRulesModal'
+import AgentRulesPanel from '../components/AgentRulesPanel'
 import { PARAM_CONFIG, PARAM_TABS } from '../config/paramConfig'
 
 const { Text, Paragraph } = Typography
@@ -27,16 +27,11 @@ const SettingsPage = forwardRef((props, ref) => {
   const [importWizardVisible, setImportWizardVisible] = useState(false)
   const [restoreModalVisible, setRestoreModalVisible] = useState(false)
   const [selectedBackupPath, setSelectedBackupPath] = useState('')
-  const [rulesModalOpen, setRulesModalOpen] = useState(false)
 
   // 暴露给父组件的方法：切换标签页
   useImperativeHandle(ref, () => ({
     switchTab: (tab) => {
-      if (tab === 'agent.md 编辑') {
-        setRulesModalOpen(true)
-        // 不切换 activeTab，保持用户之前在的页面内容
-        return
-      }
+      // agent.md 编辑直接渲染为右侧页面，不再弹窗（v9.0.0 补充20）
       setActiveTab(tab)
     }
   }), [])
@@ -197,6 +192,7 @@ const SettingsPage = forwardRef((props, ref) => {
     if (activeTab === '使用帮助') return <HelpContent />
     if (activeTab === '技能管理') return <SkillManager />
     if (activeTab === '销售报价') return <SalesQuoteSettings />
+    if (activeTab === 'agent.md 编辑') return <AgentRulesPanel />
     if (activeTab === '系统设置') {
       return (
         <div>
@@ -289,10 +285,6 @@ const SettingsPage = forwardRef((props, ref) => {
           onCancel={() => setRestoreModalVisible(false)}
         />
       )}
-      <AgentRulesModal
-        visible={rulesModalOpen}
-        onClose={() => setRulesModalOpen(false)}
-      />
     </div>
   )
 })
