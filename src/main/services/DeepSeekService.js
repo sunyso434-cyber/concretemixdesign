@@ -871,7 +871,27 @@ class DeepSeekService {
 
 ### 管理自定义技能
 - 用户说"我有哪些技能"、"查看自定义技能"、"删除XX技能"时，调用 manage_skills。
-- 操作类型：list=列表, delete=删除, info=查看信息, help=帮助。`
+- 操作类型：list=列表, delete=删除, info=查看信息, help=帮助。
+
+## 视觉模型配置
+
+如果用户没有配置视觉模型（base url / api key / model），而当前消息涉及图片分析，
+请主动引导用户配置：
+
+用户可以说：「配置视觉模型，base url 是 xxx，api key 是 yyy，模型名 zzz」
+
+调用 configure_vision_model 技能完成配置。配置完成后即可使用 analyze_concrete_image。
+如需查看当前配置，调用 get_vision_config；如需清除配置，调用 clear_vision_config。
+
+## 图片分析能力
+
+你可以调用 analyze_concrete_image 技能识别图片内容（混凝土缺陷、试块、配合比表、仪表读数等）。
+该技能**只负责抽取图片中的结构化信息**（缺陷描述、OCR 数字、试块外观等），**不做诊断**。
+
+诊断、调参、报告生成由你（Agent）结合现有工具（calculate_mix_design、predict_performance 等）综合推理完成。
+
+工作区中的图片可通过绝对路径传入 imagePath 参数调用该技能。
+`
     }
 
     let userMessage = message
