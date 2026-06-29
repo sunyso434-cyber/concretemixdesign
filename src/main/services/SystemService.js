@@ -260,6 +260,42 @@ class SystemService {
           paramValue: 'collaborative',
           paramType: 'ai',
           description: 'Agent 默认模式：chat/collaborative/auto'
+        },
+        {
+          paramName: 'visionEnabled',
+          paramValue: 'false',
+          paramType: 'ai',
+          description: '视觉模型功能开关'
+        },
+        {
+          paramName: 'visionApiUrl',
+          paramValue: '',
+          paramType: 'ai',
+          description: '视觉模型 API 基础地址（OpenAI 兼容）'
+        },
+        {
+          paramName: 'visionApiKey',
+          paramValue: '',
+          paramType: 'ai',
+          description: '视觉模型 API 密钥'
+        },
+        {
+          paramName: 'visionModel',
+          paramValue: '',
+          paramType: 'ai',
+          description: '视觉模型名称（如 qwen-vl-plus）'
+        },
+        {
+          paramName: 'visionMaxDimension',
+          paramValue: '1024',
+          paramType: 'ai',
+          description: '图片最大边长(px)'
+        },
+        {
+          paramName: 'visionMaxSizeMb',
+          paramValue: '10',
+          paramType: 'ai',
+          description: '图片最大文件大小(MB)'
         }
       ]
 
@@ -840,6 +876,72 @@ class SystemService {
 
     onProgress(100)
     return { count }
+  }
+
+  /**
+   * 读取视觉模型配置
+   * @returns {Promise<{enabled: boolean, apiUrl: string|null, apiKey: string|null, model: string|null, maxDimension: number, maxSizeMb: number}>}
+   */
+  async getVisionConfig() {
+    const [enabled, apiUrl, apiKey, model, maxDim, maxSize] = await Promise.all([
+      this.getParamByName('visionEnabled'),
+      this.getParamByName('visionApiUrl'),
+      this.getParamByName('visionApiKey'),
+      this.getParamByName('visionModel'),
+      this.getParamByName('visionMaxDimension'),
+      this.getParamByName('visionMaxSizeMb')
+    ])
+    return {
+      enabled: enabled?.value === 'true',
+      apiUrl: apiUrl?.value || null,
+      apiKey: apiKey?.value || null,
+      model: model?.value || null,
+      maxDimension: maxDim?.value ? parseInt(maxDim.value, 10) : 1024,
+      maxSizeMb: maxSize?.value ? parseInt(maxSize.value, 10) : 10
+    }
+  }
+
+  /**
+   * 保存视觉模型配置（仅写入传入的字段，其他字段保留不变）
+   * @param {object} cfg - {enabled?, apiUrl?, apiKey?, model?, maxDimension?, maxSizeMb?}
+   * @returns {Promise<void>}
+   */
+  async saveVisionConfig(cfg = {}) {
+    const writes = []
+    if (cfg.enabled !== undefined) {
+      writes.push(this.setParam('visionEnabled', String(!!cfg.enabled), 'ai', '视觉模型功能开关'))
+    }
+    if (cfg.apiUrl !== undefined) {
+      writes.push(this.setParam('visionApiUrl', cfg.apiUrl || '', 'ai', '视觉模型 API 基础地址'))
+    }
+    if (cfg.apiKey !== undefined) {
+      writes.push(this.setParam('visionApiKey', cfg.apiKey || '', 'ai', '视觉模型 API 密钥'))
+    }
+    if (cfg.model !== undefined) {
+      writes.push(this.setParam('visionModel', cfg.model || '', 'ai', '视觉模型名称'))
+    }
+    if (cfg.maxDimension !== undefined) {
+      writes.push(this.setParam('visionMaxDimension', String(cfg.maxDimension), 'ai', '图片最大边长(px)'))
+    }
+    if (cfg.maxSizeMb !== undefined) {
+      writes.push(this.setParam('visionMaxSizeMb', String(cfg.maxSizeMb), 'ai', '图片最大文件大小(MB)'))
+    }
+    await Promise.all(writes)
+  }
+
+  /**
+   * 清除视觉模型配置（重置为默认值）
+   * @returns {Promise<void>}
+   */
+  async clearVisionConfig() {
+    await this.saveVisionConfig({
+      enabled: false,
+      apiUrl: '',
+      apiKey: '',
+      model: '',
+      maxDimension: 1024,
+      maxSizeMb: 10
+    })
   }
 }
 
