@@ -155,10 +155,13 @@ module.exports = {
       const filePath = path.join(dir, file)
 
       if (file.endsWith('.js')) {
-        // JS格式技能
+        // JS格式技能（支持单技能对象或技能数组）
         try {
-          const skill = require(filePath)
-          this.register(skill, { builtin, filePath })
+          const mod = require(filePath)
+          const list = Array.isArray(mod) ? mod : [mod]
+          for (const skill of list) {
+            this.register(skill, { builtin, filePath })
+          }
         } catch (error) {
           console.error(`[SkillRegistry] 加载 JS skill 失败: ${file}`, error.message)
         }
