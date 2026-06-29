@@ -23,6 +23,8 @@ const { buildWorkspaceSkills } = require('../agent/workspaceTools')
 const agentMemoryService = require('../services/AgentMemoryService')
 const SystemService = require('../services/SystemService')
 const { classifyError } = require('../agent/errorClassifier')
+// v9.0.0 补充21：会话业务封装（ensureSession / discardSessionIfEmpty / listRecentSessionsWithMeta）
+const SessionService = require('../db/services/SessionService')
 
 // 缓存实例（Skill 系统全局共享，无状态安全）
 let skillRegistry = null
@@ -333,27 +335,28 @@ function registerAgentHandlers() {
     try {
       await agentMemoryService.saveMessage({ sessionId, role, content, metadata, stopReason })
 
-      // upsert ChatSession：异步生成标题（不阻塞 saveMessage，避免发消息卡顿）
+      // v9.0.0 补充21：首条消息触达时通过 SessionService.ensureSession 创建 ChatSession 记录
+      // 之前的 createSession IPC 已在渲染端移除（未发送消息的会话不再写库）
       if (role === 'user' && content && sessionId) {
         // 异步 IIFE：fire-and-forget，saveMessage 立即返回
         ;(async () => {
           try {
-            const { ChatSession } = require('../db/database')
+            const currentWorkspacePath = global.workspaceManager ? global.workspaceManager.current()?.path : null
+            const { created, session } = await SessionService.ensureSession({
+              sessionId,
+              sessionName: null,
+              workspacePath: currentWorkspacePath
+            })
 
-            // 检查是否是第一条用户消息（空标题或默认标题开头时可被 AI 摘要覆盖；用户重命名后不覆盖）
-            const existingSession = await ChatSession.findOne({ where: { sessionId } })
-            const currentName = existingSession?.sessionName || ''
-            // 把历史遗留的默认标题都视为可重新生成：
-            // - 空标题
-            // - 以 "新会话-" / "新对话 " 开头（包含 createSession 生成的日期格式）
-            // - "对话 YYYY-MM-DD HH:mm" / "对话 MM-DD HH:mm"
+            // 检查 sessionName 是否是默认名（兼容历史遗留：空 / 新会话- / 新对话 / 对话 YYYY-MM-DD HH:mm）
+            const currentName = session?.sessionName || ''
             const isDefaultName = (name) =>
               !name ||
               name.startsWith('新会话-') ||
               name.startsWith('新对话 ') ||
               /^对话 \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(name) ||
               /^对话 \d{2}-\d{2} \d{2}:\d{2}$/.test(name)
-            const isFirstMessage = isDefaultName(currentName)
+            const isFirstMessage = created || isDefaultName(currentName)
 
             let sessionName
             if (isFirstMessage) {
@@ -380,13 +383,7 @@ function registerAgentHandlers() {
 
             // 后续消息（已有非默认标题）：只更新 lastActivity，不动 sessionName
             // 这样历史会话的标题保持为用户第一条消息生成的摘要，不会被最近消息覆盖
-            const currentWorkspacePath = global.workspaceManager ? global.workspaceManager.current()?.path : null
-
             if (!isFirstMessage) {
-              await ChatSession.update(
-                { lastActivity: new Date() },
-                { where: { sessionId } }
-              )
               _log(`[AgentHandler] 后续消息，仅更新 lastActivity（标题保持不变）`)
               return
             }
@@ -397,11 +394,10 @@ function registerAgentHandlers() {
               sessionName = trimmed ? [...trimmed].slice(0, 15).join('') : '新会话'
             }
 
-            await ChatSession.upsert({
+            await SessionService.ensureSession({
               sessionId,
               sessionName,
-              workspacePath: currentWorkspacePath,
-              lastActivity: new Date()
+              workspacePath: currentWorkspacePath
             })
             _log(`[AgentHandler] 会话标题已更新: "${sessionName}"`)
 
@@ -502,17 +498,46 @@ function registerAgentHandlers() {
   })
 
   ipcMain.handle('agent:createSession', async (_event, { sessionId, sessionName }) => {
-    const { ChatSession } = require('../db/database')
+    // v9.0.0 补充21：改为调用 SessionService.ensureSession
+    // 旧行为：立即写入默认时间戳标题。新行为：仅当调用方显式传 sessionName（非 null/undefined）时创建，否则保留空标题等首条消息摘要。
+    // 旧渲染端 createSession 已不再调用本 IPC（首条消息才落库），保留 handler 仅作向后兼容。
     const currentWorkspacePath = global.workspaceManager ? global.workspaceManager.current()?.path : null
-    await ChatSession.upsert({
+    let finalName = sessionName
+    if (finalName === undefined) {
+      // 显式未指定 → 用历史兜底（兼容旧调用方）
+      finalName = `新对话 ${new Date().toLocaleString('zh-CN', { hour12: false })}`
+    }
+    // null 透传：保留空标题，由首条消息触发 AI 摘要生成
+    await SessionService.ensureSession({
       sessionId,
-      // 显式传 null 时允许空标题；undefined 时保留旧行为兜底
-      sessionName: sessionName === undefined ? `新对话 ${new Date().toLocaleString('zh-CN', { hour12: false })}` : sessionName,
-      workspacePath: currentWorkspacePath,
-      lastActivity: new Date()
+      sessionName: finalName,
+      workspacePath: currentWorkspacePath
     })
     if (global.chatHistorySync?.invalidateGroupedCache) global.chatHistorySync.invalidateGroupedCache()
     return { success: true }
+  })
+
+  // v9.0.0 补充21：渲染端主动丢弃空会话（用户切换/关闭时清理）
+  ipcMain.handle('agent:discardSession', async (_event, { sessionId }) => {
+    try {
+      const result = await SessionService.discardSessionIfEmpty(sessionId)
+      if (result.discarded && global.chatHistorySync?.invalidateGroupedCache) {
+        global.chatHistorySync.invalidateGroupedCache()
+      }
+      return { success: true, ...result }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // v9.0.0 补充21：欢迎页获取最近会话列表（含消息数 + 工作区路径）
+  ipcMain.handle('agent:listRecentSessions', async (_event, { limit = 10 } = {}) => {
+    try {
+      const sessions = await SessionService.listRecentSessionsWithMeta(limit)
+      return { success: true, sessions }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
   })
 
   ipcMain.handle('agent:getSessionInfo', async (_event, { sessionId }) => {

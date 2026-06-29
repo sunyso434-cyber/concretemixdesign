@@ -1,3 +1,94 @@
+## v9.0.0 补充21 (2026-06-29) - 启动欢迎页 + 未发送消息的会话不写库 + 工作区路径持久化
+
+### 改动概述
+
+3 个相关改造一起发版：
+1. **未发送消息的会话不写库**：用户点"+"新建但未发消息就切换/关闭，该 sessionId 在 DB 中完全不留痕迹
+2. **启动总是显示欢迎页**：左侧最近会话列表（卡片式）+ 右侧欢迎语 + 顶部工作区状态条
+3. **工作区路径持久化**：应用关闭时记住当前工作区，下次启动自动恢复
+
+### 改动文件（12 个：3 新 9 改）
+
+**🆕 新增（3 个）**
+
+- `src/main/workspace/lastWorkspaceStore.js`
+  - 工作区路径持久化（`userData/last-workspace.json`，原子写 tmp+rename）
+  - 暴露 `init(userDataDir) / get() / set(p) / clear()`
+
+- `src/main/db/services/SessionService.js`
+  - 会话业务封装：`ensureSession`（不存在则创建，存在则更新 lastActivity）、`discardSessionIfEmpty`（无消息则删除）、`listRecentSessionsWithMeta`（最近 N 个会话含消息数）
+  - 之前散落在 `agentHandler.js` 的 `agent:createSession` 和 `agent:saveMessage` 内，难以复用测试，本服务统一封装
+
+- `src/renderer/components/WelcomeScreen.jsx`
+  - 新欢迎页组件：顶部工作区状态条 + 主区域（左侧最近会话卡片列表 + 右侧欢迎语+4 个快捷按钮+中央新建会话按钮）
+  - 所有交互通过 props 回调，组件不直接依赖 AgentStore（方便单测）
+  - 含时间格式化（"刚刚/X 分钟前/昨天/X 天前/YYYY-MM-DD"）和工作区 basename 提取
+
+**✏️ 修改（9 个）**
+
+- `main.js`
+  - WorkspaceManager 实例化后调用 `lastWorkspaceStore.init(app.getPath('userData'))`
+  - 读 lastWorkspaceStore.get()，若存在路径则异步 `workspaceManager.open(path)`，失败时 catch 并 clear 持久化
+
+- `src/main/workspace/WorkspaceManager.js`
+  - `open()` 成功后调用 `lastWorkspaceStore.set(newPath)` 实时持久化
+  - `close()` 调用 `lastWorkspaceStore.clear()` 清除记忆
+
+- `src/main/ipcHandlers/workspaceHandler.js`
+  - 新增 `workspace:getLastWorkspace` / `workspace:clearLastWorkspace` IPC
+
+- `src/main/ipcHandlers/agentHandler.js`
+  - `agent:saveMessage` 异步 IIFE 改为调用 `SessionService.ensureSession` 替代直接 ChatSession.upsert
+  - `agent:createSession` 改为调用 SessionService（向后兼容）
+  - 新增 `agent:discardSession` / `agent:listRecentSessions` IPC
+
+- `src/renderer/components/agentActions.js`
+  - `createSession` 改为仅 SET_SESSION_ID + CLEAR_MESSAGES + RESET_AGENT，**不再调** agent:createSession IPC，不再调 loadSessionList
+  - `switchSession` 加 `dispatch SET_WELCOME_VISIBLE false`
+
+- `src/renderer/components/agentStoreCore.js`
+  - `initialState.session` 加 `welcomeVisible: true`（启动默认显示欢迎页）
+  - reducer 加 `SET_WELCOME_VISIBLE` action
+
+- `src/renderer/components/SmartDesignChat.jsx`
+  - 去掉 `initSessions` 中的自动恢复逻辑（不再 switchSession 到最近会话）
+  - `welcomeVisible` 从 store 读取（让 MemorySidebar 也能控制）
+  - `handleSendChat` 发送成功后 `setWelcomeVisible(false)`
+  - 加 `handleWelcomeNewSession / OpenSession / PickWorkspace / ClearWorkspace` 回调
+  - 渲染区 `state.messages.length === 0` 改为 `welcomeVisible ? <WelcomeScreen /> : <List />`
+  - 加 `loadRecentSessions` useCallback + 监听 `agent:sessionUpdated` 事件刷新
+
+- `src/renderer/components/MemorySidebar.jsx`
+  - `handleNewSession` 加 `dispatch SET_WELCOME_VISIBLE true`（侧栏新建后回到欢迎页）
+
+- `src/renderer/index.css`
+  - 追加欢迎页完整样式（约 200 行）：`.welcome-screen / .welcome-workspace-bar / .welcome-main / .welcome-left / .welcome-session-card / .welcome-right / .welcome-quick-grid` 等
+
+### 行为变化
+
+- **启动行为**：每次启动都先显示欢迎页，不再自动 switchSession 恢复最近会话（即便 DB 中有历史会话）
+- **新建会话**：
+  - 渲染端：内存生成 sessionId + 清空消息 + 重置 agent + welcomeVisible=true，**不**调 IPC
+  - 主端：DB 中**不**新增 ChatSession 记录
+  - 侧栏列表：**不**立即出现新卡片（等首条消息触发 sessionUpdated 事件）
+- **发送首条消息**：
+  - 渲染端：welcomeVisible=false
+  - 主端：ChatHistory 写入消息，SessionService.ensureSession 创建 ChatSession 记录，异步 AI 摘要生成标题
+  - 侧栏列表：sessionUpdated 事件触发后刷新，新卡片出现
+- **切换到已有会话**：switchSession 自动 setWelcomeVisible(false)
+- **关闭工作区**：WorkspaceManager.close() 清空持久化，欢迎页顶部工作区状态变空
+- **重启应用**：main.js 自动 open 上次工作区路径，渲染端显示欢迎页（顶部工作区名已填充）
+
+### 边缘情况
+
+- lastWorkspace 路径被外部删除/移动 → main.js catch 后清空持久化，欢迎页显示"未选择工作区"
+- 空会话应用崩溃 → 该 sessionId 完全丢失，DB 无记录（符合"不留痕"原则）
+- 侧栏新建会话 → welcomeVisible=true，仍显示欢迎页（虽然消息已清空），用户可看到新建会话的输入框
+- 快捷按钮（"帮我设计C30配合比"等）→ 触发 handleQuickPrompt 填入输入框，welcomeVisible=true（保留欢迎页）
+- 欢迎页"选择工作区"按钮 → 复用现有 handleAddWorkspace（pickFolder + open + 自动 createSession + loadSessionList）
+
+---
+
 ## v9.0.0 补充20 (2026-06-29) - agent.md 编辑从弹窗改为右侧页面
 
 ### 改动概述

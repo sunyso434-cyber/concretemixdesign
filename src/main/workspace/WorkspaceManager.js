@@ -3,6 +3,7 @@ const fs = require('fs').promises
 const path = require('path')
 const chokidar = require('chokidar')
 const { WorkspaceError } = require('./WorkspaceError')
+const lastWorkspaceStore = require('./lastWorkspaceStore')
 
 class WorkspaceManager extends EventEmitter {
   constructor() {
@@ -42,6 +43,8 @@ class WorkspaceManager extends EventEmitter {
       }
       // 再覆盖 _state 切入新工作区
       this._state = { path: newPath, status: 'ready', lastError: null }
+      // v9.0.0 补充21：open 成功 → 持久化"上次工作区"路径，启动时自动恢复
+      try { lastWorkspaceStore.set(newPath) } catch (_) { /* store 未 init 时静默 */ }
       // emit 'opened' 事件（供 main.js batchUpgrade 监听）
       this.emit('opened', newPath)
     } catch (err) {
@@ -63,6 +66,8 @@ class WorkspaceManager extends EventEmitter {
     }
     await this.unwatch()
     this._state = { path: null, status: 'idle', lastError: null }
+    // v9.0.0 补充21：close → 清除持久化的"上次工作区"（用户主动关闭，下次启动显示欢迎页）
+    try { lastWorkspaceStore.clear() } catch (_) { /* store 未 init 时静默 */ }
   }
 
   /**

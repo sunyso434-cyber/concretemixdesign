@@ -2963,3 +2963,232 @@ body {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* ====================================================================
+ * v9.0.0 补充21：欢迎页（WelcomeScreen）样式
+ * 布局：顶部工作区状态条 + 主区域（左侧会话列表 + 右侧欢迎语+快捷按钮+新建）
+ * ==================================================================== */
+.welcome-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 24px;
+  gap: 16px;
+  background: var(--color-bg-container, #fff);
+  overflow: auto;
+}
+
+/* 顶部工作区状态条 */
+.welcome-workspace-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--color-bg-elevated, #fafafa);
+  border: 1px solid var(--color-border, #e8e8e8);
+  border-radius: 8px;
+}
+.welcome-workspace-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.welcome-workspace-label {
+  color: var(--color-text-secondary, #666);
+  font-size: 13px;
+}
+.welcome-workspace-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text, #333);
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.welcome-workspace-empty {
+  color: var(--color-text-tertiary, #999);
+  font-style: italic;
+  font-size: 13px;
+}
+.welcome-workspace-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 主区域：左侧 + 右侧 */
+.welcome-main {
+  display: flex;
+  flex: 1;
+  gap: 24px;
+  min-height: 0;
+}
+
+/* 左侧：最近会话 */
+.welcome-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 16px;
+  background: var(--color-bg-elevated, #fafafa);
+  border: 1px solid var(--color-border, #e8e8e8);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.welcome-section-header {
+  display: flex;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
+.welcome-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text, #333);
+}
+.welcome-section-count {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--color-text-tertiary, #999);
+}
+.welcome-session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+.welcome-session-card {
+  padding: 12px 14px;
+  background: var(--color-bg-container, #fff);
+  border: 1px solid var(--color-border, #e8e8e8);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.welcome-session-card:hover {
+  border-color: var(--color-primary, #1677ff);
+  box-shadow: 0 2px 6px rgba(22, 119, 255, 0.12);
+  transform: translateY(-1px);
+}
+.welcome-session-card:focus-visible {
+  outline: 2px solid var(--color-primary, #1677ff);
+  outline-offset: 2px;
+}
+.welcome-session-card-row1 {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text, #333);
+  margin-bottom: 6px;
+}
+.welcome-session-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.welcome-session-card-row2 {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--color-text-tertiary, #999);
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.welcome-session-time {
+  display: inline-flex;
+  align-items: center;
+}
+.welcome-session-msgcount {
+  margin-left: auto;
+}
+.welcome-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 右侧：欢迎语 + 快捷按钮 + 新建会话 */
+.welcome-right {
+  flex: 1.2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 24px;
+  min-width: 0;
+}
+.welcome-hero {
+  text-align: center;
+}
+.welcome-hero-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--color-text, #333);
+  margin-bottom: 8px;
+}
+.welcome-hero-cn {
+  color: var(--color-primary, #1677ff);
+}
+.welcome-hero-en {
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #666);
+}
+.welcome-hero-subtitle {
+  font-size: 14px;
+  color: var(--color-text-secondary, #666);
+}
+
+.welcome-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  max-width: 480px;
+}
+.welcome-quick-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 12px;
+  background: var(--color-bg-container, #fff);
+  border: 1px solid var(--color-border, #e8e8e8);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font: inherit;
+  color: inherit;
+}
+.welcome-quick-card:hover {
+  border-color: var(--color-primary, #1677ff);
+  background: var(--color-primary-bg, #e6f4ff);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(22, 119, 255, 0.15);
+}
+.welcome-quick-card-icon {
+  font-size: 24px;
+  color: var(--color-primary, #1677ff);
+}
+.welcome-quick-card-label {
+  font-size: 13px;
+  color: var(--color-text, #333);
+  font-weight: 500;
+}
+
+.welcome-cta {
+  margin-top: 4px;
+}

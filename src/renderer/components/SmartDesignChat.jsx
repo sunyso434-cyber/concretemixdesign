@@ -19,6 +19,7 @@ import LintReportModal from './LintReportModal'
 import DecisionGate from './DecisionGate'
 import MemorySidebar from './MemorySidebar'
 import SlashCommandMenu from './SlashCommandMenu'
+import WelcomeScreen from './WelcomeScreen'
 import WorkspaceFilePopover from './WorkspaceFilePopover'
 import useChatState from '../hooks/useChatState'
 import { AgentStoreProvider, useAgentStore } from './AgentStore'
@@ -258,6 +259,25 @@ const SmartDesignChat = () => {
   const [workspacePath, setWorkspacePath] = useState(null)
   const [workspacesList, setWorkspacesList] = useState([])
 
+  // v9.0.0 补充21：欢迎页显隐状态（从 store 读，让 MemorySidebar 也能控制）
+  const welcomeVisible = state.session.welcomeVisible !== false  // 默认 true
+  const setWelcomeVisible = (v) => dispatch({ type: 'SET_WELCOME_VISIBLE', payload: !!v })
+  // 最近会话列表（欢迎页左侧显示）
+  const [recentSessions, setRecentSessions] = useState([])
+
+  // 加载最近会话列表（欢迎页 + 侧栏兜底）
+  const loadRecentSessions = useCallback(async () => {
+    try {
+      const r = await window.electronAPI.invoke('agent:listRecentSessions', { limit: 10 })
+      if (r && r.success && Array.isArray(r.sessions)) {
+        // 过滤掉空消息会话（兜底：万一历史数据里有未清理的）
+        setRecentSessions(r.sessions.filter(s => s.messageCount > 0))
+      }
+    } catch (err) {
+      console.warn('[SmartDesignChat] 加载最近会话列表失败:', err)
+    }
+  }, [])
+
   // 加载当前工作区状态
   useEffect(() => {
     const loadWorkspace = async () => {
@@ -378,31 +398,38 @@ const SmartDesignChat = () => {
   // 初始加载
   useEffect(() => {
     loadSkills()
-    // 初始化加载会话列表并恢复上次的会话
+    // v9.0.0 补充21：启动时总是显示欢迎页，不再自动 switchSession 恢复最近会话
+    // 但仍加载会话列表（侧栏分组显示 + 欢迎页左侧卡片）
     const initSessions = async () => {
       try {
-        const sessions = await loadSessionList({ dispatch })
-        if (sessions && sessions.length > 0) {
-          // 恢复最近的会话
-          const latestSession = sessions[0]
-          await switchSession({ dispatch, sessionId: latestSession.sessionId })
-
-          // 更新工作区状态
-          try {
-            const current = await window.electronAPI.workspace.current()
-            if (current && current.path) {
-              setWorkspacePath(current.path)
-            }
-          } catch (err) {
-            console.warn('[SmartDesignChat] 更新工作区状态失败:', err)
+        await loadSessionList({ dispatch })
+        await loadRecentSessions()
+        // 同步更新工作区状态（main.js 启动时可能已自动 open 了上次工作区）
+        try {
+          const current = await window.electronAPI.workspace.current()
+          if (current && current.path) {
+            setWorkspacePath(current.path)
           }
+        } catch (err) {
+          console.warn('[SmartDesignChat] 更新工作区状态失败:', err)
         }
       } catch (error) {
         console.warn('[SmartDesignChat] 初始化加载会话失败:', error)
       }
     }
     initSessions()
-  }, [loadSkills, dispatch])
+  }, [loadSkills, dispatch, loadRecentSessions])
+
+  // 监听 agent:sessionUpdated 事件，刷新欢迎页会话列表
+  useEffect(() => {
+    if (!window.electronAPI?.on) return
+    const handlerId = window.electronAPI.on('agent:sessionUpdated', () => {
+      loadRecentSessions()
+    })
+    return () => {
+      try { window.electronAPI.removeListener?.(handlerId) } catch (_) {}
+    }
+  }, [loadRecentSessions])
 
   // 当菜单打开时重新加载（确保最新）
   useEffect(() => {
@@ -574,6 +601,8 @@ const SmartDesignChat = () => {
     const userMessage = state.input.trim()
     dispatch({ type: 'SET_INPUT', payload: '' })
     chatState.setAttachment(null)
+    // v9.0.0 补充21：发送首条消息后隐藏欢迎页
+    setWelcomeVisible(false)
 
     await sendMessage({
       dispatch,
@@ -1236,6 +1265,34 @@ const SmartDesignChat = () => {
     }
   }
 
+  // v9.0.0 补充21：欢迎页回调
+  // 新建会话：仅内存生成 ID，**不**调 IPC；保持欢迎页（输入框已聚焦）
+  const handleWelcomeNewSession = () => {
+    createSession({ dispatch })
+    setWelcomeVisible(true)
+  }
+  // 打开已有会话：switchSession 后隐藏欢迎页
+  const handleWelcomeOpenSession = async (sessionId) => {
+    await switchSession({ dispatch, sessionId, state })
+    setWelcomeVisible(false)
+  }
+  // 欢迎页"选择工作区"按钮：复用现有 handleAddWorkspace（pickFolder + open）
+  const handleWelcomePickWorkspace = async () => {
+    await handleAddWorkspace()
+    setWelcomeVisible(true)  // 切工作区后仍在欢迎页，让用户看到变化
+  }
+  // 欢迎页"关闭工作区"按钮
+  const handleWelcomeClearWorkspace = async () => {
+    try {
+      await window.electronAPI.workspace.close()
+      setWorkspacePath(null)
+      setWelcomeVisible(true)
+    } catch (err) {
+      console.error('[SmartDesignChat] 关闭工作区失败:', err)
+      message.error('关闭工作区失败: ' + err.message)
+    }
+  }
+
   return (
     <Layout style={{ height: '100%', background: 'transparent' }}>
       {/* 记忆侧栏 — 折叠时不渲染；state 由 MemorySidebar 内部从 AgentStore 读 */}
@@ -1342,30 +1399,17 @@ const SmartDesignChat = () => {
           </div>
 
           <div className="smart-chat-list">
-        {state.messages.length === 0 ? (
-          <div className="v9-welcome">
-            <div className="v9-welcome-title">
-              <span className="topbar-title-cn">砼智</span> Concrete Agent
-            </div>
-            <div className="v9-welcome-subtitle">
-              智能混凝土配合比设计助手
-            </div>
-            <div className="v9-welcome-cards">
-              {QUICK_PROMPTS.map((item, i) => (
-                <button
-                  key={i}
-                  className="v9-welcome-card"
-                  onClick={() => handleQuickPrompt(item.message)}
-                  type="button"
-                >
-                  <div className="v9-welcome-card-icon">
-                    {item.isSlash ? <AppstoreOutlined /> : <BulbOutlined />}
-                  </div>
-                  <div className="v9-welcome-card-title">{item.label}</div>
-                </button>
-              ))}
-            </div>
-          </div>
+        {welcomeVisible ? (
+          // v9.0.0 补充21：欢迎页（左侧最近会话 + 右侧欢迎语 + 顶部工作区状态条）
+          <WelcomeScreen
+            workspacePath={workspacePath}
+            recentSessions={recentSessions}
+            onPickWorkspace={handleWelcomePickWorkspace}
+            onClearWorkspace={handleWelcomeClearWorkspace}
+            onNewSession={handleWelcomeNewSession}
+            onOpenSession={handleWelcomeOpenSession}
+            onQuickPrompt={handleQuickPrompt}
+          />
         ) : (
           <List
             dataSource={state.messages}

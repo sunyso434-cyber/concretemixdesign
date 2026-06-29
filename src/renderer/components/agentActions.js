@@ -165,6 +165,8 @@ export async function switchSession({ dispatch, sessionId, state }) {
   // 2. 切入目标会话：优先从 sessionsCache 恢复（保留后台 agent 流式状态）
   //    无缓存则进入空状态，由下面 DB 加载流程填充
   dispatch({ type: 'RESTORE_SESSION', payload: { sessionId } })
+  // v9.0.0 补充21：切到已有会话 → 隐藏欢迎页
+  dispatch({ type: 'SET_WELCOME_VISIBLE', payload: false })
 
   // 3. 如果 RESTORE_SESSION 恢复了缓存（messages 非空），跳过 DB 加载，避免覆盖后台流式状态
   //    缓存命中判定：恢复后 state.messages.length > 0
@@ -230,6 +232,13 @@ export async function switchSession({ dispatch, sessionId, state }) {
 
 /**
  * 创建新会话（spec 5.1）
+ *
+ * v9.0.0 补充21：未发送消息的会话不写库
+ * - 旧实现：立即调 agent:createSession IPC 把 ChatSession 记录写入 DB，会话立即出现在侧栏列表中
+ * - 新实现：仅在内存中生成 sessionId + 清空 messages + 重置 agent，**不**调 IPC
+ *   首条消息发送时由 agent:saveMessage → SessionService.ensureSession 创建 ChatSession 记录
+ *   这样用户点 "+" 后没发消息就切换/关闭，该 session 在 DB 中完全不留痕迹
+ *
  * @param {Object} args
  * @param {Function} args.dispatch - reducer 的 dispatch
  */
@@ -238,16 +247,7 @@ export function createSession({ dispatch }) {
   dispatch({ type: 'SET_SESSION_ID', payload: newId })
   dispatch({ type: 'CLEAR_MESSAGES' })
   dispatch({ type: 'RESET_AGENT' })
-
-  // 立即在数据库中创建 ChatSession 记录，这样会话会立即出现在列表中
-  // 默认标题为空；用户发送第一条消息时由后端用消息内容截取或 AI 摘要生成可读标题
-  window.electronAPI.invoke('agent:createSession', {
-    sessionId: newId,
-    sessionName: null
-  }).catch(err => console.error('创建会话记录失败:', err))
-
-  // loadSessionList 内部已 try/catch，但仍加 .catch 兜底防止未来重构去掉
-  loadSessionList({ dispatch }).catch(() => {})
+  // 不再调 agent:createSession IPC；列表刷新推迟到首条消息发送后（由 sendMessage → saveMessage → sessionUpdated 触发）
 }
 
 /**

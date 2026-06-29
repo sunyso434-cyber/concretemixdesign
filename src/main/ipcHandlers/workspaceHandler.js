@@ -3,6 +3,7 @@ const fs = require('fs')
 const path = require('path')
 const { wrapWorkspaceCall } = require('../workspace/error-bridge')
 const { WorkspaceError } = require('../workspace/WorkspaceError')
+const lastWorkspaceStore = require('../workspace/lastWorkspaceStore')
 
 /**
  * 注册 workspace IPC handlers（v1.5.3 多实例 + 命名统一）
@@ -51,6 +52,25 @@ function register(refs) {
   ipcMain.handle('workspace:current', wrapWorkspaceCall(async () => {
     return refs.workspaceManager.current()
   }))
+
+  // v9.0.0 补充21：渲染端读取上次工作区路径（启动时显示"上次打开的是 XX"提示用）
+  ipcMain.handle('workspace:getLastWorkspace', async () => {
+    try {
+      return { success: true, path: lastWorkspaceStore.get() }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
+
+  // v9.0.0 补充21：渲染端主动清除"上次工作区"记忆
+  ipcMain.handle('workspace:clearLastWorkspace', async () => {
+    try {
+      lastWorkspaceStore.clear()
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err.message }
+    }
+  })
 
   ipcMain.handle('workspace:listFiles', wrapWorkspaceCall(async (event, { subdir, workspacePath }) => {
     // 指定 workspacePath 时，直接用 fs 读该路径（用于侧栏按工作区显示文件树）

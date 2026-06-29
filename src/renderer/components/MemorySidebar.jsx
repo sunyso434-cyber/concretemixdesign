@@ -113,6 +113,8 @@ const MemorySidebar = ({ onToggle }) => {
 
   const handleNewSession = () => {
     createSession({ dispatch })
+    // v9.0.0 补充21：从侧栏新建会话后回到欢迎页（欢迎页可看到新建的会话卡片浮现）
+    dispatch({ type: 'SET_WELCOME_VISIBLE', payload: true })
   }
 
   const handleLoadSession = async (sessionId, sessionWorkspacePath) => {

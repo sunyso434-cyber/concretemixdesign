@@ -314,6 +314,25 @@ app.whenReady().then(async () => {
   })
   workspaceRefs.workspaceManager.attachSync(workspaceRefs.chatHistorySync)
 
+  // v9.0.0 补充21：初始化工作区路径持久化 store，启动时自动恢复上次工作区
+  try {
+    const lastWorkspaceStore = require('./src/main/workspace/lastWorkspaceStore')
+    lastWorkspaceStore.init(app.getPath('userData'))
+    const lastPath = lastWorkspaceStore.get()
+    if (lastPath) {
+      console.log('[main] 自动恢复上次工作区:', lastPath)
+      workspaceRefs.workspaceManager.open(lastPath).catch(err => {
+        // 路径不可用（被删除/移动）→ 清空持久化记录，引导用户重新选择
+        console.warn('[main] 上次工作区不可用，已清除持久化:', err.message)
+        lastWorkspaceStore.clear()
+      })
+    } else {
+      console.log('[main] 无上次工作区记录，启动时显示欢迎页')
+    }
+  } catch (initErr) {
+    console.warn('[main] 初始化 lastWorkspaceStore 失败:', initErr.message)
+  }
+
   // === Task 5.2：实例化 KGExtractor 并注入到 WikiEngine ===
   // v1.5.3 关键：注入到 workspaceRefs（handler 走 refs.kgExtractor 读最新值）
   // + global.kgExtractor（伪 Skill 闭包用 global.*）
