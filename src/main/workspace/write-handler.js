@@ -27,9 +27,11 @@ const { WorkspaceError } = require('./WorkspaceError')
  * @param {string} args.type - 'docx' | 'xlsx' | 'markdown' | 'md'
  * @param {string} args.filename - 落盘文件名（不含路径），如 'report.docx'
  * @param {Object} args.payload - writer payload（spec §4.4）
+ * @param {Object} [args.style] - 报告样式（已合并好的最终 style 对象，由调用方 mergeStyle 后传入）。
+ *   仅 docx writer 使用；xlsx/md writer 忽略。结构见 skills/report-styles.js DEFAULT_REPORT_STYLE。
  * @returns {Promise<{path: string, size: number, savedAt: string, wikiPage?: string}>}
  */
-async function writeFile({ workspaceManager, wikiEngine = null, type, filename, payload }) {
+async function writeFile({ workspaceManager, wikiEngine = null, type, filename, payload, style = null }) {
   // 1) 工作区未开 → NOT_OPEN
   const current = workspaceManager.current()
   if (!current || !current.path) {
@@ -37,9 +39,10 @@ async function writeFile({ workspaceManager, wikiEngine = null, type, filename, 
   }
 
   // 2) 调 dispatcher 生成 Buffer（未知 type 会抛错，下面 catch 包 WRITE_FAIL）
+  //    style 透传给 writer：docx writer 用它设字体/字号/颜色/页面；其他 writer 忽略
   let buf
   try {
-    buf = await writers.write(type, payload)
+    buf = await writers.write(type, payload, style)
   } catch (err) {
     throw new WorkspaceError('WRITE_FAIL', `生成 ${type} 失败：${err.message}`, true, err)
   }

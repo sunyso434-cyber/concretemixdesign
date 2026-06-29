@@ -127,13 +127,29 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       },
       (args) => getWiki().ingest(args)
     ),
-    skill('workspace_writeFile', '把报告/数据写入工作区 reports/，支持 docx/xlsx/md 3 种格式。payload 结构（必须包含 sections 数组）：{ title: "报告标题", sections: [ { type: "h1"|"h2", content: "标题文字" }, { type: "p", content: "段落正文" }, { type: "list", items: ["项1", "项2"] }, { type: "table", rows: [["列1","列2"],["数据1","数据2"]] }, { type: "code", language: "js", code: "console.log(1)" } ], metadata?: { 任意key: "value" } }。type 字段：docx → 写 .docx；xlsx → 写 .xlsx；md 或 markdown → 写 .md。',
+    skill('workspace_writeFile', '把报告/数据写入工作区 reports/，支持 docx/xlsx/md 3 种格式。**新增 style 参数**：用户可临时指定报告格式（字体/颜色/页面），不传则使用默认公文样式。payload 结构（必须包含 sections 数组）：{ title: "报告标题", sections: [ { type: "h1"|"h2", content: "标题文字" }, { type: "p", content: "段落正文" }, { type: "list", items: ["项1", "项2"] }, { type: "table", rows: [["列1","列2"],["数据1","数据2"]] }, { type: "code", language: "js", code: "console.log(1)" } ], metadata?: { 任意key: "value" } }。type 字段：docx → 写 .docx；xlsx → 写 .xlsx；md 或 markdown → 写 .md。',
       {
         type: { type: 'string', description: '文件类型', required: true, enum: ['docx', 'xlsx', 'md'] },
         filename: { type: 'string', description: '文件名（含后缀）', required: true },
-        payload: { type: 'object', description: 'payload 结构由 type 决定', required: true }
+        payload: { type: 'object', description: 'payload 结构由 type 决定', required: true },
+        style: {
+          type: 'object',
+          description: '报告样式覆盖（可选）。结构：{ page: { paperSize, orientation, margins }, typography: { titleFont, bodyFont, titleSize, bodySize, lineSpacing }, color: { primary, tableBorder } }。未传字段使用默认公文样式。',
+          required: false
+        }
       },
-      (args) => writeHandler.writeFile({ workspaceManager: getWM(), wikiEngine: getWiki(), type: args.type, filename: args.filename, payload: args.payload })
+      (args, context) => {
+        const { mergeStyle } = require('../skills/report-styles')
+        const mergedStyle = mergeStyle(args.style)
+        return writeHandler.writeFile({
+          workspaceManager: getWM(),
+          wikiEngine: getWiki(),
+          type: args.type,
+          filename: args.filename,
+          payload: args.payload,
+          style: mergedStyle
+        })
+      }
     ),
     skill('workspace_listFiles', '列出工作区指定子目录下的条目。返回 [{ name, path, size, type: "file"|"dir", ingested?, wikiPage?, lastIngestAt?, quality? }]。**关键：当 subdir="root" 且 withIngestStatus=true 时，每条记录带 ingested:true/false — 用这个字段判断文件是否已摄入到 wiki**，避免凭空猜测。',
       {
