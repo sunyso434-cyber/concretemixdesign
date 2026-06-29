@@ -12,6 +12,7 @@
 const fs = require('fs').promises
 const path = require('path')
 const { createError } = require('../agent/ErrorCodes')
+const VisionService = require('../services/VisionService')
 
 const SYSTEM_PROMPT = `你是混凝土视觉分析助手。分析用户提供的图片，输出严格的 JSON 格式：
 {
@@ -94,20 +95,19 @@ const skills = [
         required: false
       }
     },
-    services: ['systemService', 'visionService'],
+    services: ['systemService'],
     async execute(args, ctx) {
       const ss = ctx.systemService
-      const vision = ctx.visionService
       if (!ss) {
         return withErrorCodeAlias(createError('E-SYS-999', '系统服务不可用', '请稍后重试'))
       }
 
-      // 未配置（含 vision service 缺失）→ 引导调用 configure_vision_model
+      // 未配置 → 引导调用 configure_vision_model
       let cfg = null
       try {
         cfg = await ss.getVisionConfig()
       } catch (_) { /* ignore */ }
-      if (!vision || !cfg || !cfg.enabled || !cfg.apiUrl || !cfg.apiKey || !cfg.model) {
+      if (!cfg || !cfg.enabled || !cfg.apiUrl || !cfg.apiKey || !cfg.model) {
         return withErrorCodeAlias(createError(
           'E-VISION-NOT-CONFIGURED',
           '视觉模型未配置',
@@ -115,6 +115,15 @@ const skills = [
           { hint: 'configure_vision_model' }
         ))
       }
+
+      // 每次执行都用最新 cfg 临时构造 VisionService，避免 ctx 中复用的实例配置陈旧
+      const vision = new VisionService({
+        apiUrl: cfg.apiUrl,
+        apiKey: cfg.apiKey,
+        model: cfg.model,
+        maxDimension: cfg.maxDimension,
+        maxSizeMb: cfg.maxSizeMb
+      })
 
       // 1. 确定 base64 来源
       let base64 = args.imageBase64
