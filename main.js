@@ -363,6 +363,13 @@ app.whenReady().then(async () => {
     summaryExtractor: summaryExtractor
   })
   workspaceHandler.register(workspaceRefs)
+  // v2026-06-29 Task 6：注入视觉能力到 WorkspaceManager（图片拖入自动 OCR + 入 wiki 索引）
+  // - SystemService 是单例导出，每次 ingest 时调 getVisionConfig() 拿最新配置再 new VisionService
+  const SystemService = require('./src/main/services/SystemService')
+  workspaceRefs.workspaceManager.attachVision({
+    systemService: SystemService,
+    wikiEngine: workspaceRefs.wikiEngine
+  })
   // 暴露到全局供其他模块（如 AgentMemoryService / BackgroundTaskService）使用
   global.workspaceManager = workspaceRefs.workspaceManager
   global.wikiEngine = workspaceRefs.wikiEngine

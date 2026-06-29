@@ -4,6 +4,7 @@ const path = require('path')
 const chokidar = require('chokidar')
 const { WorkspaceError } = require('./WorkspaceError')
 const lastWorkspaceStore = require('./lastWorkspaceStore')
+const imageIngest = require('./imageIngest')
 
 class WorkspaceManager extends EventEmitter {
   constructor() {
@@ -76,6 +77,17 @@ class WorkspaceManager extends EventEmitter {
    */
   attachSync(sync) { this._sync = sync }
 
+  /**
+   * v2026-06-29 Task 6：注入视觉能力依赖
+   * - systemService：拿最新视觉配置（每次 ingest 时 new VisionService，不复用单例，配置动态生效）
+   * - wikiEngine：把 OCR 文本写入 wiki/sources/ 让 workspace_search 能命中
+   * @param {Object} args - { systemService, wikiEngine }
+   */
+  attachVision({ systemService, wikiEngine }) {
+    this._systemService = systemService
+    this._wikiEngine = wikiEngine
+  }
+
   watch(wikiEngine) {
     // 先清理旧 watcher（await close 避免新旧 watcher 并存导致重复 ingest）
     // 注意：这里用同步清理只是兜底，正式清理应通过 close() 走 await unwatch()
@@ -114,6 +126,16 @@ class WorkspaceManager extends EventEmitter {
       // v2026-06-19 hotfix (v4.9.1)：Windows 路径修正
       const rel = path.relative(watchPath, fp).replace(/\\/g, '/')
       console.log('[chokidar] add:', rel)
+      // v2026-06-29 Task 6：图片走独立的 imageIngest 分支
+      // - 异步 OCR + 入 wiki 索引，不进 _ingestQueue（视觉 API 慢，不阻塞文档 ingest）
+      // - 失败 .catch() 兜底静默降级
+      const filename = path.basename(rel)
+      if (imageIngest.isImageFile(filename)) {
+        this._ingestImageAsync(fp).catch(err => {
+          console.error('[chokidar] 图片 ingest 失败:', rel, err.message)
+        })
+        return
+      }
       if (/\.(pdf|md|docx|xlsx|xls|txt|csv)$/i.test(rel)) {
         this._ingestQueue = this._ingestQueue
           .then(async () => {
@@ -147,6 +169,54 @@ class WorkspaceManager extends EventEmitter {
         new Promise((resolve) => setTimeout(resolve, 30000))
       ]).catch(() => {})
       this._ingestQueue = Promise.resolve()
+    }
+  }
+
+  /**
+   * v2026-06-29 Task 6：图片自动 OCR + 入 wiki 索引
+   * - 每次用最新 cfg 临时 new VisionService（配置可能动态变化，不复用单例，参考 analyze_concrete_image 技能）
+   * - OCR 结果缓存到 <userData>/vision-cache/<sha256-16>.json，避免重复 API 调用
+   * - OCR 文本 + 描述通过 WikiEngine.ingestReport 写入 wiki/sources/<slug>.md，让 workspace_search 能命中
+   * - 任何失败由调用方 .catch() 兜底静默降级（warn 日志），不阻塞 chokidar 主流程
+   * @param {string} imagePath - 图片绝对路径
+   */
+  async _ingestImageAsync(imagePath) {
+    if (!this._systemService || !this._wikiEngine) {
+      console.warn('[WorkspaceManager] systemService/wikiEngine 未注入，跳过图片 ingest')
+      return
+    }
+    let cfg
+    try {
+      cfg = await this._systemService.getVisionConfig()
+    } catch (err) {
+      console.warn('[WorkspaceManager] 读取视觉配置失败，跳过图片 ingest:', err.message)
+      return
+    }
+    if (!cfg.enabled || !cfg.apiUrl || !cfg.apiKey || !cfg.model) {
+      console.warn('[WorkspaceManager] 视觉模型未配置或未启用，跳过图片 ingest:', imagePath)
+      return
+    }
+    const VisionService = require('../services/VisionService')
+    const visionService = new VisionService({
+      apiUrl: cfg.apiUrl,
+      apiKey: cfg.apiKey,
+      model: cfg.model,
+      maxDimension: cfg.maxDimension,
+      maxSizeMb: cfg.maxSizeMb
+    })
+    const { app } = require('electron')
+    const cacheDir = path.join(app.getPath('userData'), 'vision-cache')
+    const result = await imageIngest.ingestImage({ imagePath, cacheDir, visionService })
+    // OCR 文本 + 描述写入 wiki 索引（ingestReport 接受预读 content，正适合图片场景）
+    if (result && (result.description || result.ocrText)) {
+      const filename = path.basename(imagePath)
+      const content = `# ${filename}\n\n**图片描述**：${result.description || ''}\n\n## OCR 文本\n\n${result.ocrText || ''}\n`
+      await this._wikiEngine.ingestReport({
+        filename,
+        content,
+        title: filename
+      })
+      console.log('[WorkspaceManager] 图片 ingest OK:', filename)
     }
   }
 
