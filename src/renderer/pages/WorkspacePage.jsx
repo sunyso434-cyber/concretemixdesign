@@ -1,11 +1,12 @@
 import React, { Suspense, lazy, useState, useEffect, useRef } from 'react'
-import { Tooltip } from 'antd'
+import { Tooltip, message } from 'antd'
 import {
   AppstoreOutlined,
   SettingOutlined,
   DatabaseOutlined,
   LeftOutlined,
   PicLeftOutlined,
+  PictureOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -17,6 +18,7 @@ import {
 import { AgentStoreProvider, useAgentStore } from '../components/AgentStore'
 import { SmartDesignChat } from '../components/SmartDesignChat'
 import BackgroundTaskBar from '../components/BackgroundTaskBar'
+import WorkspaceImageGrid from '../components/WorkspaceImageGrid'
 
 // 覆盖页面懒加载
 const MaterialsPage = lazy(() => import('./MaterialsPage'))
@@ -100,7 +102,29 @@ function WorkspaceContent() {
   const sidebarCollapsed = state.session.sidebarCollapsed
 
   return (
-    <div className="workspace-container v9-layout">
+    <div
+      className="workspace-container v9-layout"
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation() }}
+      onDrop={async (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        const files = Array.from(e.dataTransfer.files).filter(f =>
+          /\.(jpe?g|png|webp)$/i.test(f.name)
+        )
+        if (files.length === 0) {
+          message.warning('请拖入 jpg/jpeg/png/webp 图片')
+          return
+        }
+        for (const file of files) {
+          const result = await window.electronAPI.vision.upload(file)
+          if (result?.success) {
+            message.success(`已上传：${file.name}`)
+          } else {
+            message.error(`上传失败：${result?.error || '未知错误'}`)
+          }
+        }
+      }}
+    >
       {/* TopBar - 白色简洁风格（无原生标题栏，此处为可拖拽区域） */}
       <div className="topbar">
         <div className="topbar-logo">
@@ -137,6 +161,12 @@ function WorkspaceContent() {
           <Tooltip title="系统设置">
             <span className="topbar-icon" onClick={() => setOverlay('settings')}>
               <SettingOutlined />
+            </span>
+          </Tooltip>
+
+          <Tooltip title="工作区图片">
+            <span className="topbar-icon" onClick={() => setOverlay('images')}>
+              <PictureOutlined />
             </span>
           </Tooltip>
 
@@ -284,6 +314,21 @@ function WorkspaceContent() {
                 <SettingsPage ref={settingsRef} />
               </Suspense>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 覆盖页面：工作区图片 */}
+      {overlay === 'images' && (
+        <div className="v9-overlay">
+          <div className="v9-overlay-header">
+            <button className="v9-overlay-back" onClick={() => setOverlay(null)} title="返回主界面">
+              <LeftOutlined />
+            </button>
+            <span className="v9-overlay-title">工作区图片</span>
+          </div>
+          <div className="v9-overlay-body">
+            <WorkspaceImageGrid />
           </div>
         </div>
       )}

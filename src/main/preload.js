@@ -105,6 +105,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Task 3.2：写报告到 reports/ 并同步生成 wiki 版本
     writeFile: (type, filename, payload) => ipcRenderer.invoke('workspace:writeFile', { type, filename, payload })
     // 后续 task 加：search / searchGraph
+  },
+  // === Task 8：vision 模块（图片上传 + 缩略图列）===
+  // file 来自拖拽的 File 对象，Electron 下 File 有 .path 属性（绝对路径）
+  // 但 contextBridge 序列化会丢失 .path，所以预先拆成纯对象
+  vision: {
+    upload: (file) => ipcRenderer.invoke('vision:upload', { sourcePath: file.path, name: file.name }),
+    list: () => ipcRenderer.invoke('vision:list')
   }
 })
 
