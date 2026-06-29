@@ -1,3 +1,95 @@
+## v9.0.0 补充19 (2026-06-29) - 修复 LLM 输出时 Esc / 停止按钮无法中断输出的问题
+
+### 改动概述
+
+修复 AI 输出过程中，按 Esc 或点击发送按钮无法停止输出的 bug。
+
+### 原因分析
+
+1. 输入框在 AI 输出时被 `disabled={isAgentBusy}` 禁用，导致 `handleInputKeyDown` 无法接收到 `Escape` / `Enter` 事件。
+2. 发送按钮在 AI 输出时仍然绑定 `handleSendChat`，该方法开头会 `if (... || isAgentBusy) return`，所以即使能点也不会触发停止。
+
+### 改动文件（1 个修改）
+
+- `src/renderer/components/SmartDesignChat.jsx`
+  - 输入框 `disabled` 改为 `false`，保持 AI 输出期间可聚焦，使 Esc / Enter 键盘事件能被正常监听
+  - 发送按钮根据 `isAgentBusy` 状态切换：
+    - AI 输出中：显示红色"停止"按钮（`PauseCircleOutlined`），点击调用 `abortAgent`
+    - 空闲时：显示普通"发送"按钮，无输入内容时禁用
+  - 更新 stop-hint 提示文字，增加"点击停止按钮"的引导
+
+### 行为变化
+
+- AI 输出时，按 Esc 可停止。
+- AI 输出时，输入框为空按 Enter 可停止。
+- AI 输出时，右下角发送按钮变为红色"停止"按钮，点击可停止。
+- AI 空闲时，右下角恢复为普通"发送"按钮。
+
+### 边缘情况
+
+- `abortAgent` 调用时 `requestId` 为空则只 dispatch ABORT，IPC 调用被跳过，不会崩溃。
+- 输入框可聚焦但不影响 `handleSendChat` 内的 `isAgentBusy` 保护，空闲前无法重复发送新消息。
+
+---
+
+## v9.0.0 补充18 (2026-06-29) - UI 改造：自定义标题栏、图标化模式切换、agent.md 编辑入口迁移
+
+### 改动概述
+
+1. **移除 Electron 原生标题栏**：窗口改为无边框（`frame: false` + `titleBarStyle: 'hidden'`），由应用自身 topbar 承担标题与拖拽功能。
+2. **自定义窗口控制按钮**：最小化 / 最大化（还原）/ 关闭按钮放到版本号后面，图标随窗口最大化状态自动切换。
+3. **协作 / 全自动改为仅图标**：顶部 Segmented 切换按钮去掉汉字，只保留图标，保留 Tooltip 提示含义。
+4. **agent.md 编辑入口迁移**：去掉聊天区顶部的"智能助手规则"按钮，将功能集成到系统设置页，入口名为 **"agent.md 编辑"**。
+
+### 改动文件（7 个修改）
+
+- `main.js`
+  - `BrowserWindow` 增加 `frame: false, titleBarStyle: 'hidden'`
+  - 新增 `maximize` / `unmaximize` 事件监听，向渲染进程发送 `window:maximized` / `window:unmaximized`
+
+- `src/main/ipcHandlers/systemHandler.js`
+  - 新增 `window:minimize` / `window:maximize` / `window:close` IPC handler，使用 `BrowserWindow.fromWebContents` 定位窗口
+
+- `src/main/preload.js`
+  - 暴露 `window.electronAPI.window.*` API：最小化、最大化/还原、关闭、最大化状态监听与移除
+
+- `src/renderer/pages/WorkspacePage.jsx`
+  - 引入窗口控制相关图标
+  - 新增 `isMaximized` 状态与主进程事件监听
+  - 在版本号后渲染自定义窗口控制按钮组
+
+- `src/renderer/index.css`
+  - `.topbar` 设为可拖拽区域（`-webkit-app-region: drag`）
+  - logo、图标、历史会话开关、窗口控制按钮设为不可拖拽（`no-drag`）
+  - 新增 `.topbar-window-controls`、`.topbar-window-btn` 样式，关闭按钮 hover 变红
+
+- `src/renderer/components/SmartDesignChat.jsx`
+  - 协作 / 全自动 Segmented 选项改为纯图标加 Tooltip
+  - 移除"智能助手规则"按钮及对应的 `AgentRulesModal` import、state、渲染
+
+- `src/renderer/pages/SettingsPage.jsx`
+  - 导入 `AgentRulesModal`
+  - 新增 `rulesModalOpen` state
+  - 在"系统设置"页新增"Agent 规则"卡片，按钮名为 **"agent.md 编辑"**
+  - 渲染 `AgentRulesModal`
+
+### 行为变化
+
+- 窗口顶部不再显示系统原生标题栏，整体更简洁。
+- 鼠标悬停到 topbar 空白处可拖拽窗口；按钮、logo、版本号等可正常点击。
+- 最大化后，中间按钮图标从"方框"自动切换为"还原"图标。
+- 协作 / 全自动切换更紧凑，鼠标悬停显示中文含义。
+- agent.md 编辑仅通过系统设置进入，聊天区顶部更清爽。
+
+### 边缘情况
+
+- 窗口销毁后的事件通知已加 `isDestroyed()` 防护。
+- 渲染进程监听窗口状态使用 listener id + cache，卸载时正确移除。
+- 主进程 IPC handler 中对 `event.sender` 解析窗口失败时静默返回，不抛异常。
+- 如果 preload API 不存在（如浏览器环境），按钮点击会被可选链忽略，不会崩溃。
+
+---
+
 ## v9.0.0 补充17 (2026-06-29) - 新增 workspace_grep 全文检索工具 + readPage 按行读取能力
 
 ### 改动概述

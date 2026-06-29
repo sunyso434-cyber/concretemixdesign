@@ -9,6 +9,10 @@ import {
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
+  MinusOutlined,
+  BorderOutlined,
+  CloseOutlined,
+  FullscreenOutlined,
 } from '@ant-design/icons'
 import { AgentStoreProvider, useAgentStore } from '../components/AgentStore'
 import { SmartDesignChat } from '../components/SmartDesignChat'
@@ -35,11 +39,29 @@ function WorkspaceContent() {
   const [setNavType, setSetNavType] = useState('使用帮助')
   // 原材料搜索关键词
   const [matSearchKeyword, setMatSearchKeyword] = useState('')
+  // 窗口最大化状态（用于切换最大化/还原图标）
+  const [isMaximized, setIsMaximized] = useState(false)
 
   // 三个页面的 ref，用于左侧导航调用页面方法
   const materialsRef = useRef(null)
   const schemesRef = useRef(null)
   const settingsRef = useRef(null)
+
+  // 监听主进程窗口最大化/还原事件，同步自定义控制按钮图标
+  useEffect(() => {
+    const api = window.electronAPI?.window
+    if (!api) return
+    const onMax = () => setIsMaximized(true)
+    const onUnmax = () => setIsMaximized(false)
+    const maxId = api.onMaximized?.(onMax)
+    const unmaxId = api.onUnmaximized?.(onUnmax)
+    return () => {
+      try {
+        if (maxId) api.removeListener?.(maxId)
+        if (unmaxId) api.removeListener?.(unmaxId)
+      } catch (_) {}
+    }
+  }, [])
 
   useEffect(() => {
     const loadTasks = async () => {
@@ -79,7 +101,7 @@ function WorkspaceContent() {
 
   return (
     <div className="workspace-container v9-layout">
-      {/* TopBar - 白色简洁风格 */}
+      {/* TopBar - 白色简洁风格（无原生标题栏，此处为可拖拽区域） */}
       <div className="topbar">
         <div className="topbar-logo">
           <img src="./logo.png" alt="Logo" />
@@ -119,6 +141,37 @@ function WorkspaceContent() {
           </Tooltip>
 
           <span className="topbar-version">v9.0.0</span>
+
+          {/* 自定义窗口控制按钮（无原生标题栏时使用） */}
+          <div className="topbar-window-controls">
+            <Tooltip title="最小化">
+              <button
+                className="topbar-window-btn"
+                onClick={() => window.electronAPI?.window?.minimize?.()}
+                type="button"
+              >
+                <MinusOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title={isMaximized ? '还原' : '最大化'}>
+              <button
+                className="topbar-window-btn"
+                onClick={() => window.electronAPI?.window?.maximize?.()}
+                type="button"
+              >
+                {isMaximized ? <FullscreenOutlined /> : <BorderOutlined />}
+              </button>
+            </Tooltip>
+            <Tooltip title="关闭">
+              <button
+                className="topbar-window-btn topbar-window-btn-close"
+                onClick={() => window.electronAPI?.window?.close?.()}
+                type="button"
+              >
+                <CloseOutlined />
+              </button>
+            </Tooltip>
+          </div>
         </div>
       </div>
 

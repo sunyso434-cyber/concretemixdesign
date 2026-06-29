@@ -42,6 +42,33 @@ contextBridge.exposeInMainWorld('electronAPI', {
       listenerCache.clear()
     }
   },
+  // 窗口控制
+  window: {
+    minimize: () => ipcRenderer.invoke('window:minimize'),
+    maximize: () => ipcRenderer.invoke('window:maximize'),
+    close: () => ipcRenderer.invoke('window:close'),
+    onMaximized: (func) => {
+      const id = generateListenerId()
+      const wrapper = (event, ...args) => func(...args)
+      listenerCache.set(id, { channel: 'window:maximized', wrapper })
+      ipcRenderer.on('window:maximized', wrapper)
+      return id
+    },
+    onUnmaximized: (func) => {
+      const id = generateListenerId()
+      const wrapper = (event, ...args) => func(...args)
+      listenerCache.set(id, { channel: 'window:unmaximized', wrapper })
+      ipcRenderer.on('window:unmaximized', wrapper)
+      return id
+    },
+    removeListener: (id) => {
+      const entry = listenerCache.get(id)
+      if (entry) {
+        ipcRenderer.removeListener(entry.channel, entry.wrapper)
+        listenerCache.delete(id)
+      }
+    }
+  },
   // Skill 管理
   skill: {
     listAll: () => ipcRenderer.invoke('skill:listAll'),

@@ -2,13 +2,14 @@
 import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { downloadTemplate, TEMPLATES } from '../utils/templateDownloader'
 import { Card, Button, message, Space, Typography, Alert, Divider, List, Tag } from 'antd'
-import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined, BookOutlined, ExperimentOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, AppstoreOutlined, WarningOutlined } from '@ant-design/icons'
+import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined, BookOutlined, ExperimentOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, AppstoreOutlined, WarningOutlined, FileTextOutlined } from '@ant-design/icons'
 import ParamCard from '../components/ParamCard'
 import ExportWizard from '../components/ExportWizard'
 import ImportWizard from '../components/ImportWizard'
 import RestoreConfirmModal from '../components/RestoreConfirmModal'
 import SalesQuoteSettings from '../components/SalesQuoteSettings'
 import SkillManager from '../components/SkillManager'
+import AgentRulesModal from '../components/AgentRulesModal'
 import { PARAM_CONFIG, PARAM_TABS } from '../config/paramConfig'
 
 const { Text, Paragraph } = Typography
@@ -26,6 +27,7 @@ const SettingsPage = forwardRef((props, ref) => {
   const [importWizardVisible, setImportWizardVisible] = useState(false)
   const [restoreModalVisible, setRestoreModalVisible] = useState(false)
   const [selectedBackupPath, setSelectedBackupPath] = useState('')
+  const [rulesModalOpen, setRulesModalOpen] = useState(false)
 
   // 暴露给父组件的方法：切换标签页
   useImperativeHandle(ref, () => ({
@@ -212,6 +214,14 @@ const SettingsPage = forwardRef((props, ref) => {
               </Space>
             </Space>
           </Card>
+          <Card title="Agent 规则" style={{ marginTop: 16 }}>
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Text type="secondary">编辑 agent.md，自定义 AI 助手的行为规则、偏好与约束</Text>
+              <Button icon={<FileTextOutlined />} onClick={() => setRulesModalOpen(true)}>
+                agent.md 编辑
+              </Button>
+            </Space>
+          </Card>
           <Card title="关于系统" style={{ marginTop: 16 }}>
             <AppVersionInfo />
           </Card>
@@ -282,6 +292,10 @@ const SettingsPage = forwardRef((props, ref) => {
           onCancel={() => setRestoreModalVisible(false)}
         />
       )}
+      <AgentRulesModal
+        visible={rulesModalOpen}
+        onClose={() => setRulesModalOpen(false)}
+      />
     </div>
   )
 })

@@ -1,4 +1,4 @@
-const { ipcMain } = require('electron')
+const { ipcMain, BrowserWindow } = require('electron')
 const systemService = require('../services/SystemService')
 const backgroundTaskService = require('../services/BackgroundTaskService')
 
@@ -203,6 +203,29 @@ class SystemHandler {
       } catch (error) {
         return { success: false, error: error.message }
       }
+    })
+
+    // 窗口控制：最小化/最大化/还原/关闭
+    ipcMain.handle('window:minimize', (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win && !win.isDestroyed()) win.minimize()
+      return { success: true }
+    })
+    ipcMain.handle('window:maximize', (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win && !win.isDestroyed()) {
+        if (win.isMaximized()) {
+          win.unmaximize()
+        } else {
+          win.maximize()
+        }
+      }
+      return { success: true }
+    })
+    ipcMain.handle('window:close', (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      if (win && !win.isDestroyed()) win.close()
+      return { success: true }
     })
 
     // 获取 App 版本

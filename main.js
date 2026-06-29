@@ -166,6 +166,8 @@ async function createWindow() {
     width: 1400,
     height: 900,
     icon: path.join(__dirname, 'public/logo.png'),
+    frame: false,
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'src/main/preload.js'),
       nodeIntegration: false,
@@ -238,6 +240,18 @@ async function createWindow() {
   // 监听加载完成事件
   mainWindow.webContents.on('did-finish-load', () => {
     console.log('页面加载完成')
+  })
+
+  // 窗口最大化/还原状态变化时通知渲染进程，用于切换自定义控制按钮图标
+  mainWindow.on('maximize', () => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('window:maximized')
+    }
+  })
+  mainWindow.on('unmaximize', () => {
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('window:unmaximized')
+    }
   })
   
   // 仅在开发环境打开DevTools

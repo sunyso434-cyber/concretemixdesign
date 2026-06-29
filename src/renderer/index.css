@@ -2222,6 +2222,9 @@ body {
   color: var(--text-primary);
   flex-shrink: 0;
   z-index: 100;
+  /* 无原生标题栏时，topbar 整体作为可拖拽区域 */
+  -webkit-app-region: drag;
+  app-region: drag;
 }
 
 .topbar-logo {
@@ -2229,6 +2232,8 @@ body {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .topbar-logo img {
@@ -2274,6 +2279,8 @@ body {
   font-size: 16px;
   cursor: pointer;
   transition: all 150ms ease;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .topbar-icon:hover {
@@ -2286,6 +2293,43 @@ body {
   color: var(--text-tertiary);
   margin-left: 4px;
   user-select: none;
+}
+
+/* 自定义窗口控制按钮 */
+.topbar-window-controls {
+  display: flex;
+  align-items: center;
+  margin-left: 8px;
+  gap: 2px;
+  /* 按钮区域不可拖拽，否则无法点击 */
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.topbar-window-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 150ms ease;
+  padding: 0;
+}
+
+.topbar-window-btn:hover {
+  color: var(--brand);
+  background: var(--brand-light);
+}
+
+.topbar-window-btn-close:hover {
+  color: #fff;
+  background: var(--color-error, #FF3B30);
 }
 
 /* 历史会话开关按钮 — 紧挨标题 */
@@ -2303,6 +2347,8 @@ body {
   cursor: pointer;
   transition: all 150ms ease;
   margin-left: 6px;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 
 .topbar-sidebar-toggle:hover {

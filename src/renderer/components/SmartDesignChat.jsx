@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip, Dropdown } from 'antd'
-import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, ProfileOutlined, HeartOutlined, DownOutlined, CheckOutlined } from '@ant-design/icons'
+import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, ProfileOutlined, HeartOutlined, DownOutlined, CheckOutlined, PauseCircleOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
@@ -15,7 +15,6 @@ import MaterialPicker from './MaterialPicker'
 import DiagnosisResultCard from './DiagnosisResultCard'
 import SalesQuoteResultCard from './SalesQuoteResultCard'
 import SaveBasicMixModal from './SaveBasicMixModal'
-import AgentRulesModal from './AgentRulesModal'
 import LintReportModal from './LintReportModal'
 import DecisionGate from './DecisionGate'
 import MemorySidebar from './MemorySidebar'
@@ -251,9 +250,6 @@ const SmartDesignChat = () => {
 
   // 由光标位置和输入内容决定是否显示斜杠菜单
   const showSlashMenu = isInCommandMode(state.input, cursorPos)
-
-  // ===== 智能助手规则 Modal =====
-  const [rulesModalOpen, setRulesModalOpen] = useState(false)
 
   // ===== Wiki 健康检查 Modal（Task 6.3）=====
   const [lintModalOpen, setLintModalOpen] = useState(false)
@@ -1316,18 +1312,10 @@ const SmartDesignChat = () => {
                 value={state.agent.runMode}
                 onChange={val => dispatch({ type: 'SET_RUN_MODE', payload: val })}
                 options={[
-                  { label: '协作', value: 'collaborative', icon: <TeamOutlined /> },
-                  { label: '全自动', value: 'auto', icon: <ThunderboltOutlined /> }
+                  { label: <Tooltip title="协作模式"><TeamOutlined /></Tooltip>, value: 'collaborative' },
+                  { label: <Tooltip title="全自动模式"><ThunderboltOutlined /></Tooltip>, value: 'auto' }
                 ]}
               />
-              <Tooltip title="智能助手规则">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<SettingOutlined />}
-                  onClick={() => setRulesModalOpen(true)}
-                />
-              </Tooltip>
               <Tooltip title="🩺 Wiki 健康检查">
                 <Button
                   type="text"
@@ -1645,10 +1633,10 @@ const SmartDesignChat = () => {
           }}
           position={{ bottom: 80, left: 16, right: 16 }}
         />
-        {/* Stop hint (spec 7.3): 工作态时提示 Esc/Enter 停止 */}
+        {/* Stop hint (spec 7.3): 工作态时提示 Esc/Enter/停止按钮中断输出 */}
         {['streaming', 'thinking', 'tool_calling'].includes(state.agent.status) && (
           <div className="stop-hint">
-            AI 正在输出中... 按 Esc 停止（输入框为空时也可按 Enter）
+            AI 正在输出中... 按 Esc 或点击停止按钮中断输出（输入框为空时也可按 Enter）
           </div>
         )}
         <Input
@@ -1658,7 +1646,7 @@ const SmartDesignChat = () => {
           onChange={handleInputChange}
           onKeyDown={handleInputKeyDown}
           onSelect={handleInputSelect}
-          disabled={isAgentBusy}
+          disabled={false}
           prefix={<AppstoreOutlined style={{ color: '#bfbfbf', marginRight: 4 }} />}
         />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
@@ -1697,13 +1685,25 @@ const SmartDesignChat = () => {
               title="清空对话"
             />
           </Space>
-          <Button
-            type="primary"
-            icon={<SendOutlined />}
-            onClick={handleSendChat}
-            loading={isAgentBusy}
-            disabled={!state.input.trim()}
-          />
+          {isAgentBusy ? (
+            <Button
+              type="primary"
+              danger
+              icon={<PauseCircleOutlined />}
+              onClick={() => abortAgent({ dispatch, requestId: state.agent.requestId, sessionId: state.session.currentId })}
+            >
+              停止
+            </Button>
+          ) : (
+            <Button
+              type="primary"
+              icon={<SendOutlined />}
+              onClick={handleSendChat}
+              disabled={!state.input.trim()}
+            >
+              发送
+            </Button>
+          )}
         </div>
       </div>
       <SaveBasicMixModal
@@ -1711,10 +1711,6 @@ const SmartDesignChat = () => {
         data={chatState.basicMixModalData}
         onCancel={() => chatState.setBasicMixModalData(null)}
         onSaved={() => chatState.setBasicMixModalData(null)}
-      />
-      <AgentRulesModal
-        visible={rulesModalOpen}
-        onClose={() => setRulesModalOpen(false)}
       />
       <LintReportModal
         visible={lintModalOpen}
