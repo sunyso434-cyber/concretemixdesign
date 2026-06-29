@@ -62,6 +62,12 @@ const AI_ERROR_REGISTRY = {
   'E-SKILL-003': { title: '工具参数校验失败', hint: 'AI 提供的参数不符合要求，请重试一次', recovery: 'retry', severity: 'error' },
   'E-SYS-001': { title: '应用窗口已关闭', hint: '内部错误，通常无需处理', recovery: 'silent', severity: 'error' },
   'E-SYS-999': { title: '未知错误（兜底）', hint: '请复制错误信息发给开发协助排查', recovery: 'silent', severity: 'error' },
+
+  // ===== 视觉相关错误（Task 4）=====
+  'E-VISION-NOT-CONFIGURED': { title: '视觉模型未配置', hint: '请先调用 configure_vision_model 配置 base url、api key 和 model', recovery: 'fix_settings', severity: 'error' },
+  'E-VISION-MISSING-IMAGE': { title: '缺少图片', hint: '请提供 imageBase64 或 imagePath', recovery: 'fix_params', severity: 'error' },
+  'E-VISION-FILE-NOT-FOUND': { title: '图片不存在', hint: '请检查文件路径', recovery: 'fix_params', severity: 'error' },
+  'E-VISION-FILE-TOO-LARGE': { title: '图片过大', hint: '请压缩后再上传', recovery: 'fix_params', severity: 'error' },
 }
 
 /**

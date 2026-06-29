@@ -102,6 +102,12 @@ async function initSkillSystem() {
     xgboostPrediction: require('../services/XGBoostPredictionService'),
     mixDesignToQuote: require('../services/MixDesignToQuoteService'),
 
+    // === Task 4：vision 能力注入 ===
+    // systemService / visionService 用单例（与 Orchestrator.systemService 共享 SystemService），
+    // VisionService 配置是动态的（每次 execute 从 systemService.getVisionConfig 读取），构造时用空 cfg
+    systemService: SystemService,
+    visionService: new (require('../services/VisionService'))({}),
+
     // === v1.5.3 Task 4.2：workspace 能力注入（从 global 拿，main.js 已注入）===
     wiki: global.wikiEngine || null,
     workspace: global.workspaceManager || null,
