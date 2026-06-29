@@ -44,8 +44,9 @@ function newSessionId() {
  * @param {string} args.sessionId - 当前会话 ID
  * @param {string} args.message - 用户消息
  * @param {string} [args.runMode] - 运行模式 auto | collaborative
+ * @param {Array} [args.attachments] - 图片附件数组 [{ type, base64, originalName, sizeKB, width, height }]
  */
-export async function sendMessage({ dispatch, sessionId, message: userMessage, runMode }) {
+export async function sendMessage({ dispatch, sessionId, message: userMessage, runMode, attachments }) {
   if (!userMessage || !userMessage.trim()) return
 
   // 0. 确保 sessionId 有效（如果为空，创建新会话）
@@ -67,7 +68,13 @@ export async function sendMessage({ dispatch, sessionId, message: userMessage, r
   dispatch({ type: 'SEND_MESSAGE', payload: { requestId } })
 
   // 3. 先添加用户消息（确保用户消息在前）
-  dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: userMessage } })
+  const imageAttachments = (attachments && attachments.length > 0)
+    ? attachments.map(a => ({
+        type: a.type, key: a.key, originalName: a.originalName,
+        sizeKB: a.sizeKB, width: a.width, height: a.height, base64: a.base64
+      }))
+    : undefined
+  dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: userMessage, attachments: imageAttachments } })
 
   // 4. 插入 assistant 占位消息（mergeReplyToMessages 依赖此消息定位流式内容）
   dispatch({
@@ -78,7 +85,11 @@ export async function sendMessage({ dispatch, sessionId, message: userMessage, r
   // 5. 保存用户消息
   try {
     await window.electronAPI.invoke('agent:saveMessage', {
-      sessionId: effectiveSessionId, role: 'user', content: userMessage, stopReason: null
+      sessionId: effectiveSessionId, role: 'user', content: userMessage, stopReason: null,
+      attachments: (attachments && attachments.length > 0) ? attachments.map(a => ({
+        type: a.type, originalName: a.originalName, sizeKB: a.sizeKB,
+        width: a.width, height: a.height, base64: a.base64
+      })) : undefined
     })
   } catch (e) {
     console.error('[AgentChat] ❌ 保存用户消息失败:', e)
@@ -89,7 +100,7 @@ export async function sendMessage({ dispatch, sessionId, message: userMessage, r
   try {
     console.log('[AgentChat] ⏳ 等待 agent:run 返回...', { requestId })
     const r = await window.electronAPI.invoke('agent:run', {
-      requestId, sessionId: effectiveSessionId, message: userMessage, mode: runMode
+      requestId, sessionId: effectiveSessionId, message: userMessage, mode: runMode, attachments: attachments || []
     })
     console.log('[AgentChat] 📨 agent:run 返回', { requestId, success: r?.success, resultSuccess: r?.result?.success, error: r?.result?.error })
 

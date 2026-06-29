@@ -23,6 +23,7 @@ const useChatState = () => {
 
   // ===== 附件（暂留 useChatState） =====
   const [attachment, setAttachment] = useState(null)
+  const [attachments, setAttachments] = useState([])  // 图片附件数组
 
   // ===== 分析模式状态 =====
   const [analysisMode, setAnalysisMode] = useState(false)
@@ -78,6 +79,7 @@ const useChatState = () => {
       await window.electronAPI.invoke('aiAnalysis:clearHistory')
       setCompletedMaterialPickerIds(new Set())
       setAttachment(null)
+      setAttachments([])
       setAnalysisMode(false)
       setAnalysisData(null)
       setAnalysisResult(null)
@@ -107,6 +109,7 @@ const useChatState = () => {
   return {
     // 附件
     attachment, setAttachment,
+    attachments, setAttachments,
 
     // 分析模式
     analysisMode, setAnalysisMode,

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip, Dropdown } from 'antd'
-import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, ProfileOutlined, HeartOutlined, DownOutlined, CheckOutlined, PauseCircleOutlined } from '@ant-design/icons'
+import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip, Dropdown, Image } from 'antd'
+import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, ProfileOutlined, HeartOutlined, DownOutlined, CheckOutlined, PauseCircleOutlined, PictureOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
@@ -25,7 +25,7 @@ import useChatState from '../hooks/useChatState'
 import { AgentStoreProvider, useAgentStore } from './AgentStore'
 import useAgentMode from './AgentMode'
 import { sendMessage, abortAgent, createSession, loadSessionList, switchSession, useAssistantPersistence } from './agentActions'
-import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
+import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, processImageAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
 import ContextIndicator from './ContextIndicator'
 import { getContextPercent, DEFAULT_CONTEXT_LIMIT } from '../utils/contextStats'
 import { AnalysisReport } from '../pages/AIAnalysisPage_Results'
@@ -229,6 +229,7 @@ const SmartDesignChat = () => {
 
   const streamSeqRef = useRef({ current: 0 })
   const inputRef = useRef(null)
+  const inputAreaRef = useRef(null)  // Ctrl+V 粘贴作用域控制
   const slashMenuApiRef = useRef({ moveSelection: () => {}, getSelectedIndex: () => 0 })
 
   // 派生：Agent 是否在工作中（流式/思考/工具调用）
@@ -431,6 +432,42 @@ const SmartDesignChat = () => {
     }
   }, [loadRecentSessions])
 
+  // ===== Ctrl+V 粘贴图片处理 =====
+  useEffect(() => {
+    const handlePaste = async (e) => {
+      // 作用域控制：仅在焦点在聊天输入区域时才处理图片粘贴
+      if (!inputAreaRef.current) return
+      const activeEl = document.activeElement
+      if (!inputAreaRef.current.contains(activeEl)) return
+
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault()  // 阻止默认粘贴行为（避免粘贴到输入框）
+          const file = item.getAsFile()
+          if (!file) continue
+          // 剪贴板图片可能没有文件名，给一个默认名
+          if (!file.name || file.name === 'image.png') {
+            Object.defineProperty(file, 'name', {
+              value: `粘贴图片-${Date.now()}.png`,
+              writable: false
+            })
+          }
+          try {
+            const result = await processImageAttachment(file)
+            chatState.setAttachments(prev => [...prev, { type: 'image', key: `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, ...result }])
+            message.success(`已粘贴图片：${result.originalName}`)
+          } catch (err) {
+            message.error(err.message)
+          }
+        }
+      }
+    }
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  }, [])
+
   // 当菜单打开时重新加载（确保最新）
   useEffect(() => {
     if (showSlashMenu && availableSkills.length === 0) {
@@ -600,7 +637,9 @@ const SmartDesignChat = () => {
 
     const userMessage = state.input.trim()
     dispatch({ type: 'SET_INPUT', payload: '' })
+    const currentAttachments = chatState.attachments
     chatState.setAttachment(null)
+    chatState.setAttachments([])
     // v9.0.0 补充21：发送首条消息后隐藏欢迎页
     setWelcomeVisible(false)
 
@@ -608,7 +647,8 @@ const SmartDesignChat = () => {
       dispatch,
       sessionId: state.session.currentId,
       message: userMessage,
-      runMode: state.agent.runMode
+      runMode: state.agent.runMode,
+      attachments: currentAttachments.length > 0 ? currentAttachments : undefined
     })
   }
   const handleSend = useCallback(async () => {
@@ -1582,6 +1622,21 @@ const SmartDesignChat = () => {
                             {item.attachment.name}
                           </Tag>
                         )}
+                        {item.attachments && item.attachments.length > 0 && (
+                          <div className="image-attachments" style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                            {item.attachments.map((att) => (
+                              <Image
+                                key={att.key}
+                                src={att.base64}
+                                alt={att.originalName}
+                                width={200}
+                                height={200}
+                                style={{ objectFit: 'cover', borderRadius: 6, maxWidth: 200, maxHeight: 200 }}
+                                preview={{ mask: `${att.originalName} (${att.sizeKB}KB)` }}
+                              />
+                            ))}
+                          </div>
+                        )}
                         {item.content}
                       </div>
                     )
@@ -1638,6 +1693,17 @@ const SmartDesignChat = () => {
             {chatState.attachment.name}
           </Tag>
         )}
+        {chatState.attachments.length > 0 && chatState.attachments.map((att) => (
+          <Tag
+            key={att.key}
+            icon={<PictureOutlined />}
+            closable
+            onClose={() => chatState.setAttachments(prev => prev.filter(a => a.key !== att.key))}
+            className="attachment-tag"
+          >
+            {att.originalName} ({att.sizeKB}KB)
+          </Tag>
+        ))}
         {chatState.analysisMode && (
           <Tag icon={<BarChartOutlined />} color="blue" className="analysis-mode-tag">
             分析模式
@@ -1650,7 +1716,7 @@ const SmartDesignChat = () => {
           </Tag>
         )}
       </div>
-      <div className="smart-chat-input-area" style={{ position: 'relative' }}>
+      <div className="smart-chat-input-area" style={{ position: 'relative' }} ref={inputAreaRef}>
         <SlashCommandMenu
           visible={showSlashMenu}
           input={state.input}
@@ -1708,13 +1774,23 @@ const SmartDesignChat = () => {
             )}
             <Upload
               showUploadList={false}
-              beforeUpload={(file) => {
+              multiple
+              accept=".jpg,.jpeg,.png,.webp,.xlsx,.xls,.md"
+              beforeUpload={async (file) => {
                 const type = getAttachmentType(file.name)
-                if (type === 'unsupported') {
-                  message.error('仅支持Excel和Markdown文件')
-                  return false
+                if (type === 'image') {
+                  try {
+                    const result = await processImageAttachment(file)
+                    chatState.setAttachments(prev => [...prev, { type: 'image', key: `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, ...result }])
+                  } catch (err) {
+                    message.error(err.message)
+                  }
+                } else if (type === 'unsupported') {
+                  message.error('仅支持图片（jpg/png/webp）、Excel 和 Markdown 文件')
+                } else {
+                  // xlsx / md：现行逻辑
+                  chatState.setAttachment({ file, type, name: file.name })
                 }
-                chatState.setAttachment({ file, type, name: file.name })
                 return false
               }}
             >
