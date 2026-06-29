@@ -1,3 +1,14 @@
+## v9.1.0 (2026-06-30)
+
+### 新增功能：视觉分析能力
+
+- **读图技能**：新增 `analyze_concrete_image` 技能，支持识别混凝土缺陷、试块外观、配合比表 OCR、仪表读数
+- **视觉模型配置**：新增 `configure_vision_model` / `get_vision_config` / `clear_vision_config` 对话式配置
+- **图片入口**：支持聊天框附件按钮选图（多选）、Ctrl+V 粘贴图片、工作区拖拽上传
+- **工作区图片 OCR**：图片加入工作区自动 OCR 入 wiki 索引，支持 workspace_search 文字检索
+- **报告格式调整**：workspace_writeFile 支持 style 参数（字体/颜色/页面），默认公文样式
+- **新增模块**：VisionService（OpenAI 兼容视觉 API）、imageIngest（工作区图片 OCR 缓存）、视觉 IPC 接口
+
 ## v9.0.0 补充21 (2026-06-29) - 启动欢迎页 + 未发送消息的会话不写库 + 工作区路径持久化
 
 ### 改动概述
