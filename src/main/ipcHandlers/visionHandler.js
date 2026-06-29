@@ -48,7 +48,7 @@ class VisionHandler {
         // 处理重名：若同名文件已存在，加时间戳后缀
         let destName = displayName
         let destPath = path.join(photosDir, destName)
-        if (fs.existsSync(destPath)) {
+        if (await fs.promises.access(destPath).then(() => true).catch(() => false)) {
           const ext = path.extname(displayName)
           const base = path.basename(displayName, ext)
           const ts = Date.now()
@@ -85,16 +85,19 @@ class VisionHandler {
             path: path.join(photosDir, e.name).replace(/\\/g, '/'),
             size: null  // size 可在后续按需补充
           }))
-          // 按修改时间倒序（新的在前）
-          .sort((a, b) => {
-            try {
-              const statA = fs.statSync(a.path)
-              const statB = fs.statSync(b.path)
-              return statB.mtimeMs - statA.mtimeMs
-            } catch (_) { return 0 }
-          })
 
-        return { success: true, data: images }
+        // 批量异步获取 stat，避免 sort 回调中 sync I/O 阻塞事件循环
+        const withStats = await Promise.all(
+          images.map(async (img) => {
+            try {
+              const stat = await fs.promises.stat(img.path)
+              return { ...img, mtimeMs: stat.mtimeMs }
+            } catch (_) { return { ...img, mtimeMs: 0 } }
+          })
+        )
+        withStats.sort((a, b) => b.mtimeMs - a.mtimeMs)
+
+        return { success: true, data: withStats.map(({ mtimeMs, ...img }) => img) }
       } catch (err) {
         console.error('[vision:list] 失败:', err.message)
         return { success: false, error: err.message }
