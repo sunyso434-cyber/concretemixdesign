@@ -70,8 +70,9 @@
 - `src/renderer/pages/SettingsPage.jsx`
   - 导入 `AgentRulesModal`
   - 新增 `rulesModalOpen` state
-  - 在"系统设置"页新增"Agent 规则"卡片，按钮名为 **"agent.md 编辑"**
+  - `switchTab` 方法特殊处理 `'agent.md 编辑'`，点击左侧导航时直接打开 `AgentRulesModal`
   - 渲染 `AgentRulesModal`
+  - 从"系统设置"页面内部移除"Agent 规则"卡片
 
 ### 行为变化
 
@@ -79,7 +80,7 @@
 - 鼠标悬停到 topbar 空白处可拖拽窗口；按钮、logo、版本号等可正常点击。
 - 最大化后，中间按钮图标从"方框"自动切换为"还原"图标。
 - 协作 / 全自动切换更紧凑，鼠标悬停显示中文含义。
-- agent.md 编辑仅通过系统设置进入，聊天区顶部更清爽。
+- agent.md 编辑入口在系统设置页左侧导航栏，点击直接打开编辑器；聊天区顶部更清爽。
 
 ### 边缘情况
 

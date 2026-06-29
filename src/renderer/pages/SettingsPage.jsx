@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { downloadTemplate, TEMPLATES } from '../utils/templateDownloader'
 import { Card, Button, message, Space, Typography, Alert, Divider, List, Tag } from 'antd'
-import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined, BookOutlined, ExperimentOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, AppstoreOutlined, WarningOutlined, FileTextOutlined } from '@ant-design/icons'
+import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined, BookOutlined, ExperimentOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, AppstoreOutlined, WarningOutlined } from '@ant-design/icons'
 import ParamCard from '../components/ParamCard'
 import ExportWizard from '../components/ExportWizard'
 import ImportWizard from '../components/ImportWizard'
@@ -32,6 +32,11 @@ const SettingsPage = forwardRef((props, ref) => {
   // 暴露给父组件的方法：切换标签页
   useImperativeHandle(ref, () => ({
     switchTab: (tab) => {
+      if (tab === 'agent.md 编辑') {
+        setRulesModalOpen(true)
+        // 不切换 activeTab，保持用户之前在的页面内容
+        return
+      }
       setActiveTab(tab)
     }
   }), [])
@@ -212,14 +217,6 @@ const SettingsPage = forwardRef((props, ref) => {
                   导入数据
                 </Button>
               </Space>
-            </Space>
-          </Card>
-          <Card title="Agent 规则" style={{ marginTop: 16 }}>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Text type="secondary">编辑 agent.md，自定义 AI 助手的行为规则、偏好与约束</Text>
-              <Button icon={<FileTextOutlined />} onClick={() => setRulesModalOpen(true)}>
-                agent.md 编辑
-              </Button>
             </Space>
           </Card>
           <Card title="关于系统" style={{ marginTop: 16 }}>
