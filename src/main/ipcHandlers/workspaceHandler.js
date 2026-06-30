@@ -1,5 +1,4 @@
 const { ipcMain, dialog, shell } = require('electron')
-const { AbortController } = require('events')
 const fs = require('fs')
 const path = require('path')
 const { wrapWorkspaceCall } = require('../workspace/error-bridge')

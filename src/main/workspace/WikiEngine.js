@@ -253,9 +253,12 @@ class WikiEngine {
       if (!this.summaryExtractor) console.warn('[WikiEngine.ingest] summaryExtractor 未注入，跳过摘要')
       const _idxForExistingPages = await loadIndex(current.path)
       const wikiFiles = Object.keys(_idxForExistingPages.bm25Index?.docLengths || {})
+      // v9.1.0 补充4：bm25Index.docLengths 的 key 已经是完整 wiki 路径（如 'sources/a.md'），
+      // 不能再拼 sources/ 前缀，否则 existingPages.path 变成 'sources/sources/a.md'，
+      // LLM 照抄后写进 frontmatter，lint 比对不上 → 全部判定为孤儿页
       const existingPages = wikiFiles.map(f => ({
         title: path.parse(f).name,
-        path: `sources/${f}`
+        path: f
       }))
 
       const [kgResultSettled, summaryResultSettled] = await Promise.allSettled([
@@ -269,6 +272,39 @@ class WikiEngine {
 
       const kgResult = kgResultSettled.status === 'fulfilled' ? kgResultSettled.value : null
       const summaryResult = summaryResultSettled.status === 'fulfilled' ? summaryResultSettled.value : null
+
+      // v9.1.0 补充4：规范化 relatedLinks 路径
+      // 问题：LLM 返回的 page 可能多套了一层 sources/（如 "sources/sources/xxx.md"），
+      //       导致 lint 比对时对不上，全部判定为孤儿页。
+      // 修复：拿到 summaryResult 后、写入 frontmatter 前，对每条 link.page 做规范化：
+      //   1. 构造合法路径集合 validPaths（来自 existingPages）
+      //   2. 对每条 link.page：
+      //      - 去掉多余的 sources/ 前缀（反复出现就反复去）
+      //      - 规范化后不在 validPaths 里 → 丢弃
+      //   3. 过滤后为空就不写 relatedPages（避免写无效关联）
+      if (summaryResult && Array.isArray(summaryResult.relatedLinks)) {
+        const validPaths = new Set(existingPages.map(p => p.path))
+        const normalizedLinks = []
+        for (const link of summaryResult.relatedLinks) {
+          if (!link || typeof link.page !== 'string') continue
+          let normalized = link.page.trim()
+          // 去掉多余的 sources/ 前缀（最多去 3 次防死循环）
+          for (let i = 0; i < 3 && normalized.startsWith('sources/sources/'); i++) {
+            normalized = normalized.replace(/^sources\/sources\//, 'sources/')
+          }
+          // 补 .md 后缀（LLM 可能漏掉）
+          if (!normalized.endsWith('.md')) {
+            normalized = normalized + '.md'
+          }
+          // 只保留合法路径
+          if (validPaths.has(normalized)) {
+            normalizedLinks.push({ ...link, page: normalized })
+          } else {
+            console.warn(`[WikiEngine.ingest] 丢弃无效 relatedLink: ${link.page} -> 规范化为 ${normalized} 但不在已有页面列表中`)
+          }
+        }
+        summaryResult.relatedLinks = normalizedLinks
+      }
 
       // 1d-kg. Task 5.2 (P5.2)：在 .tmp/ 阶段准备 kg/sources/<slug>.json
       // - 调 kgExtractor.extract(content, filename) 提取实体关系

@@ -3,6 +3,7 @@
 // - ingest 不支持的扩展名 → 抛错（任何 Error 都行，由 WikiEngine 包装为 WorkspaceError）
 const path = require('path')
 const fs = require('fs').promises
+const matter = require('gray-matter')
 const { WorkspaceManager } = require('../../workspace/WorkspaceManager')
 const { WikiEngine } = require('../../workspace/WikiEngine')
 
@@ -410,5 +411,91 @@ describe('WikiEngine.ingest 重新导入覆盖', () => {
     const mdContent = await fs.readFile(path.join(testPath, 'wiki/sources/sample.md'), 'utf-8')
     expect(mdContent).toContain('# New')
     expect(mdContent).toContain('new content')
+  })
+})
+
+// ====================================================================
+// v9.1.0 补充4：relatedLinks 路径规范化
+// - LLM 返回 "sources/sources/xxx.md" → 规范化为 "sources/xxx.md"
+// - 不在已有页面列表中的路径 → 丢弃
+// ====================================================================
+describe('WikiEngine.ingest relatedLinks 路径规范化', () => {
+  let mgr, testPath
+
+  beforeEach(async () => {
+    testPath = path.join(__dirname, 'fixtures/wiki-relpath-norm-test')
+    await fs.mkdir(testPath, { recursive: true })
+    // 先写两个源文件，ingest 第一个建立已有页面
+    await fs.writeFile(path.join(testPath, 'a.md'), '# A\n\ncontent A 关于硅灰')
+    await fs.writeFile(path.join(testPath, 'b.md'), '# B\n\ncontent B 关于粉煤灰')
+    mgr = new WorkspaceManager()
+    await mgr.open(testPath)
+  })
+
+  afterEach(async () => {
+    mgr.close()
+    await fs.rm(testPath, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('LLM 返回多套 sources/ 前缀的 page 会被规范化', async () => {
+    // 先 ingest a.md，建立已有页面 sources/a.md
+    const wiki1 = new WikiEngine({ workspace: mgr })
+    await wiki1.ingest({ filename: 'a.md' })
+
+    // 用 mock summaryExtractor 模拟 LLM 返回错误路径 "sources/sources/a.md"
+    const mockSummary = {
+      extract: jest.fn().mockResolvedValue({
+        summary: 'B 的摘要',
+        keyPoints: ['关键点'],
+        tags: ['tag'],
+        confidence: 0.9,
+        relatedLinks: [
+          { page: 'sources/sources/a.md', relation: '补充', confidence: 0.9 },  // 多套了一层
+          { page: 'sources/a.md', relation: '引用', confidence: 0.85 }           // 正确路径
+        ],
+        quality: 'high'
+      })
+    }
+    const wiki2 = new WikiEngine({ workspace: mgr, summaryExtractor: mockSummary })
+    const result = await wiki2.ingest({ filename: 'b.md' })
+    expect(result.status).toBe('ok')
+
+    // 读 b.md 的 frontmatter，检查 relatedPages 里的 page 路径
+    const bContent = await fs.readFile(path.join(testPath, 'wiki/sources/b.md'), 'utf-8')
+    const { data: bFm } = matter(bContent)
+    expect(Array.isArray(bFm.relatedPages)).toBe(true)
+    // 两条 link 都应规范化为 sources/a.md
+    for (const rp of bFm.relatedPages) {
+      expect(rp.page).toBe('sources/a.md')
+      expect(rp.page).not.toContain('sources/sources/')
+    }
+  })
+
+  test('LLM 返回不存在的 page 会被丢弃', async () => {
+    const wiki1 = new WikiEngine({ workspace: mgr })
+    await wiki1.ingest({ filename: 'a.md' })
+
+    const mockSummary = {
+      extract: jest.fn().mockResolvedValue({
+        summary: 'B 摘要',
+        keyPoints: ['点'],
+        tags: [],
+        confidence: 0.9,
+        relatedLinks: [
+          { page: 'sources/sources/nonexistent.md', relation: '补充', confidence: 0.9 },
+          { page: 'sources/a.md', relation: '引用', confidence: 0.85 }
+        ],
+        quality: 'high'
+      })
+    }
+    const wiki2 = new WikiEngine({ workspace: mgr, summaryExtractor: mockSummary })
+    const result = await wiki2.ingest({ filename: 'b.md' })
+    expect(result.status).toBe('ok')
+
+    const bContent = await fs.readFile(path.join(testPath, 'wiki/sources/b.md'), 'utf-8')
+    const { data: bFm } = matter(bContent)
+    // 只保留合法的 sources/a.md
+    expect(bFm.relatedPages.length).toBe(1)
+    expect(bFm.relatedPages[0].page).toBe('sources/a.md')
   })
 })

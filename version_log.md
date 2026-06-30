@@ -1,3 +1,40 @@
+## v9.1.0 补充4 (2026-06-30) - 修复孤儿页根因 + 批量导入 AbortController 修复
+
+### 改动内容
+
+1. **修复孤儿页根因（核心）**
+   - 问题：`WikiEngine.ingest` 构造 `existingPages` 时，`bm25Index.docLengths` 的 key 已经是完整 wiki 路径（如 `sources/a.md`），但代码又拼了一次 `sources/`，变成 `sources/sources/a.md`。
+   - LLM 照抄这个错误路径写进 frontmatter 的 `relatedPages`，lint 比对时对不上，导致全部判定为孤儿页。
+   - 修复：去掉多余的 `sources/` 前缀拼接，`existingPages.path` 直接用 `bm25Index` 的 key。
+
+2. **relatedLinks 路径规范化（防御层）**
+   - 在写入 frontmatter 前对 `summaryResult.relatedLinks` 做规范化：
+     - 去掉多余的 `sources/` 前缀（最多 3 次）
+     - 补 `.md` 后缀
+     - 不在合法路径集合里的丢弃
+
+3. **修复批量导入 AbortController 导入错误**
+   - 问题：`workspaceHandler.js` 错误地从 `events` 模块导入 `AbortController`，但 Node.js 的 `events` 不导出它，导致 `new AbortController()` 抛异常，批量导入 IPC 直接失败。
+   - 修复：删掉错误导入，改用全局 `AbortController`（Electron 28 / Node 18 支持）。
+
+### 修改文件（3 个）
+
+- `src/main/workspace/WikiEngine.js`：修复 existingPages 路径拼接 + 新增 relatedLinks 规范化
+- `src/main/ipcHandlers/workspaceHandler.js`：修复 AbortController 导入
+- `src/main/__tests__/workspace/WikiEngine.test.js`：新增路径规范化测试
+
+### 验证
+
+- `npx jest --runInBand src/main/__tests__/workspace/WikiEngine.test.js` 全部 19 个测试通过
+- 存量文件需重新导入才能修正已有的错误 relatedPages 路径
+
+### 边缘情况
+
+- 已导入的旧文件 frontmatter 里仍是错误路径 `sources/sources/xxx.md`，需通过"重新导入"触发修复
+- LLM 返回的路径如果规范化后仍不在合法集合中，会被丢弃，relatedPages 为空
+
+---
+
 ## v9.1.0 补充3 (2026-06-30) - 批量导入（进度条、后端推送、取消、重新导入覆盖）
 
 ### 改动内容
