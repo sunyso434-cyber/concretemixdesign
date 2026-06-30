@@ -100,6 +100,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
     pickFolder: () => ipcRenderer.invoke('workspace:pickFolder'),
     // P1 补全：源文件→wiki 入库（v4.8.3）
     ingest: (filename) => ipcRenderer.invoke('workspace:ingest', { filename }),
+    // v9.1.0 补充：批量导入（带进度推送 + 取消）
+    ingestBatch: (filenames) => ipcRenderer.invoke('workspace:ingestBatch', { filenames }),
+    cancelIngestBatch: (batchId) => ipcRenderer.invoke('workspace:ingestBatch-cancel', { batchId }),
+    onIngestBatchProgress: (func) => {
+      const id = generateListenerId()
+      const wrapper = (event, ...args) => func(...args)
+      listenerCache.set(id, { channel: 'workspace:ingestBatch-progress', wrapper })
+      ipcRenderer.on('workspace:ingestBatch-progress', wrapper)
+      return id
+    },
+    onIngestBatchDone: (func) => {
+      const id = generateListenerId()
+      const wrapper = (event, ...args) => func(...args)
+      listenerCache.set(id, { channel: 'workspace:ingestBatch-done', wrapper })
+      ipcRenderer.on('workspace:ingestBatch-done', wrapper)
+      return id
+    },
+    removeIngestBatchListener: (id) => {
+      const entry = listenerCache.get(id)
+      if (entry) {
+        ipcRenderer.removeListener(entry.channel, entry.wrapper)
+        listenerCache.delete(id)
+      }
+    },
     // Task 2.8：wiki 健康检查（5 类问题：orphans/missingFrontmatter/staleSummaries/missingCrossRef/contradictions）
     lint: () => ipcRenderer.invoke('workspace:lint'),
     // Task 3.2：写报告到 reports/ 并同步生成 wiki 版本

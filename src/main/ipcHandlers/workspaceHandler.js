@@ -1,9 +1,16 @@
 const { ipcMain, dialog, shell } = require('electron')
+const { AbortController } = require('events')
 const fs = require('fs')
 const path = require('path')
 const { wrapWorkspaceCall } = require('../workspace/error-bridge')
 const { WorkspaceError } = require('../workspace/WorkspaceError')
 const lastWorkspaceStore = require('../workspace/lastWorkspaceStore')
+
+// v9.1.0 补充：批量导入任务管理（batchId -> { controller, startTime, total }）
+const batchRuns = new Map()
+function generateBatchId() {
+  return `batch_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+}
 
 /**
  * 注册 workspace IPC handlers（v1.5.3 多实例 + 命名统一）
@@ -170,6 +177,68 @@ function register(refs) {
       throw new WorkspaceError('NOT_OPEN', 'WikiEngine 未初始化（请重启应用）', false)
     }
     return await refs.wikiEngine.ingest({ filename })
+  }))
+
+  // v9.1.0 补充：workspace:ingestBatch - 批量导入（带进度推送 + 取消）
+  ipcMain.handle('workspace:ingestBatch', wrapWorkspaceCall(async (event, { filenames }) => {
+    if (!refs.wikiEngine) {
+      throw new WorkspaceError('NOT_OPEN', 'WikiEngine 未初始化（请重启应用）', false)
+    }
+    if (!Array.isArray(filenames) || filenames.length === 0) {
+      throw new WorkspaceError('INVALID_PARAMS', '至少选择一个文件', false)
+    }
+
+    const batchId = generateBatchId()
+    const controller = new AbortController()
+    const startTime = Date.now()
+    batchRuns.set(batchId, { controller, startTime, total: filenames.length })
+
+    const sender = event.sender
+    const sendProgress = (payload) => {
+      if (sender.isDestroyed()) return
+      sender.send('workspace:ingestBatch-progress', { batchId, ...payload })
+    }
+    const sendDone = (payload) => {
+      if (sender.isDestroyed()) return
+      sender.send('workspace:ingestBatch-done', { batchId, ...payload })
+    }
+
+    // 立即返回启动结果，后台继续执行并推送进度
+    process.nextTick(async () => {
+      try {
+        const result = await refs.wikiEngine.ingestBatch({
+          filenames,
+          signal: controller.signal,
+          onProgress: (progress) => sendProgress(progress)
+        })
+        sendDone(result)
+      } catch (err) {
+        sendDone({
+          status: 'failed',
+          total: filenames.length,
+          succeeded: 0,
+          failed: filenames.length,
+          errors: [{ error: err.message || String(err) }],
+          durationMs: Date.now() - startTime,
+          cancelled: false,
+          errorMessage: err.message || String(err)
+        })
+      } finally {
+        batchRuns.delete(batchId)
+      }
+    })
+
+    return { batchId, status: 'started', total: filenames.length }
+  }))
+
+  // v9.1.0 补充：workspace:ingestBatch-cancel - 取消运行中的批量导入
+  ipcMain.handle('workspace:ingestBatch-cancel', wrapWorkspaceCall(async (_event, { batchId }) => {
+    const run = batchRuns.get(batchId)
+    if (!run) {
+      return { success: true, cancelled: false, message: '无运行中的批量导入' }
+    }
+    run.controller.abort()
+    return { success: true, cancelled: true, batchId }
   }))
 
   // Task 1.12: workspace:readPage - 读 wiki 页面（解析 frontmatter）

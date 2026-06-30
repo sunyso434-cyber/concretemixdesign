@@ -1,3 +1,46 @@
+## v9.1.0 补充3 (2026-06-30) - 批量导入（进度条、后端推送、取消、重新导入覆盖）
+
+### 改动内容
+
+1. **后端批量导入**
+   - `WikiEngine` 新增 `ingestBatch({ filenames, onProgress, signal })`：串行逐个导入，支持进度回调和 `AbortSignal` 取消
+   - `workspaceHandler` 新增 IPC：`workspace:ingestBatch` / `workspace:ingestBatch-cancel`
+   - 后端通过 `workspace:ingestBatch-progress` 推送实时进度，`workspace:ingestBatch-done` 通知完成
+
+2. **重新导入覆盖**
+   - 修复 Windows 下 `fs.rename` 遇到已存在目标文件会失败的问题
+   - `ingest` 提交阶段先删除旧的 `wiki/sources/<slug>.md` 和 `wiki/kg/sources/<slug>.json`，再写入新文件
+   - 效果：单个文件「重新导入」和批量导入已存在文件都能真正替换旧内容
+
+3. **前端批量导入 UI**
+   - `WorkspaceFilePopover` 接入新的批量导入 API
+   - 显示整体进度条（当前第几个 / 总数、百分比、当前文件名）
+   - 提供「取消」按钮，取消中进度条变红
+   - 导入完成后自动刷新文件列表和已导入状态
+   - Popover 关闭时自动取消进行中的批量导入
+
+### 修改文件（5 个）
+
+- `src/main/workspace/WikiEngine.js`
+- `src/main/ipcHandlers/workspaceHandler.js`
+- `src/main/preload.js`
+- `src/renderer/components/WorkspaceFilePopover.jsx`
+- `src/main/__tests__/workspace/WikiEngine.test.js`
+
+### 验证
+
+- `npx jest --runInBand src/main/__tests__/workspace/WikiEngine.test.js` 通过（含新增批量导入、重新导入覆盖测试）
+- `npm run build` 构建成功
+
+### 边缘情况
+
+- 批量导入时某个文件失败（如不支持的扩展名），其余文件继续导入，最终状态为 `partial`
+- 取消后已处理的文件保留，未处理的文件跳过，最终状态为 `cancelled`
+- 批量导入过程中关闭 Popover 会自动触发取消
+- 后端窗口关闭/销毁时不再发送进度/完成事件，避免崩溃
+
+---
+
 ## v9.1.0 补充2 (2026-06-30) - 微信风格三栏布局 + 输入框自适应高度
 
 ### 改动内容

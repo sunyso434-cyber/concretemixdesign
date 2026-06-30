@@ -31,6 +31,7 @@ class SummaryExtractor {
    */
   async extract(content, sourceFile, existingPages = []) {
     // 懒加载：优先用 this.deepseekService，没有就回退到 global.deepseekService
+    // 修复：main.js 实例化时 global.deepseekService 可能尚未初始化，每次 extract 动态获取最新值
     const deepseekService = this.deepseekService || (typeof global !== 'undefined' && global.deepseekService) || null
     if (!deepseekService) {
       console.warn('[SummaryExtractor] deepseekService 为空，跳过摘要生成（deepseekService 尚未初始化？）')

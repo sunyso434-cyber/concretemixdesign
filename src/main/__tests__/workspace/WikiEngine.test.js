@@ -310,3 +310,105 @@ describe('WikiEngine.ingest (Task 5.2 KG 集成)', () => {
     expect(tmpContents).toEqual([])
   })
 })
+
+// ====================================================================
+// v9.1.0 补充：WikiEngine.ingestBatch 批量导入 + 重新导入覆盖
+// ====================================================================
+describe('WikiEngine.ingestBatch', () => {
+  let mgr, wiki, testPath
+
+  beforeEach(async () => {
+    testPath = path.join(__dirname, 'fixtures/wiki-batch-test')
+    await fs.mkdir(testPath, { recursive: true })
+    await fs.writeFile(path.join(testPath, 'a.md'), '# A\n\ncontent A')
+    await fs.writeFile(path.join(testPath, 'b.md'), '# B\n\ncontent B')
+    mgr = new WorkspaceManager()
+    await mgr.open(testPath)
+    wiki = new WikiEngine({ workspace: mgr })
+  })
+
+  afterEach(async () => {
+    mgr.close()
+    await fs.rm(testPath, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('批量导入两个文件并推送进度', async () => {
+    const progressList = []
+    const result = await wiki.ingestBatch({
+      filenames: ['a.md', 'b.md'],
+      onProgress: (p) => progressList.push(p)
+    })
+
+    expect(result.status).toBe('ok')
+    expect(result.total).toBe(2)
+    expect(result.succeeded).toBe(2)
+    expect(result.failed).toBe(0)
+    expect(result.cancelled).toBe(false)
+    expect(result.durationMs).toBeGreaterThanOrEqual(0)
+
+    // 每个文件至少有 processing + ok 两条进度
+    expect(progressList.length).toBeGreaterThanOrEqual(4)
+    expect(progressList.some(p => p.filename === 'a.md' && p.status === 'ok')).toBe(true)
+    expect(progressList.some(p => p.filename === 'b.md' && p.status === 'ok')).toBe(true)
+
+    const aExists = await fs.stat(path.join(testPath, 'wiki/sources/a.md'))
+    const bExists = await fs.stat(path.join(testPath, 'wiki/sources/b.md'))
+    expect(aExists.isFile()).toBe(true)
+    expect(bExists.isFile()).toBe(true)
+  })
+
+  test('批量导入遇到错误时返回 partial', async () => {
+    await fs.writeFile(path.join(testPath, 'bad.xyz'), '')
+    const result = await wiki.ingestBatch({ filenames: ['a.md', 'bad.xyz'] })
+
+    expect(result.status).toBe('partial')
+    expect(result.succeeded).toBe(1)
+    expect(result.failed).toBe(1)
+    expect(result.errors.length).toBe(1)
+    expect(result.errors[0].filename).toBe('bad.xyz')
+  })
+
+  test('取消后停止导入并返回 cancelled', async () => {
+    const controller = new AbortController()
+    controller.abort() // 开始前就取消
+
+    const result = await wiki.ingestBatch({
+      filenames: ['a.md', 'b.md'],
+      signal: controller.signal
+    })
+
+    expect(result.cancelled).toBe(true)
+    expect(result.succeeded).toBe(0)
+    expect(result.failed).toBe(0)
+  })
+})
+
+describe('WikiEngine.ingest 重新导入覆盖', () => {
+  let mgr, wiki, testPath
+
+  beforeEach(async () => {
+    testPath = path.join(__dirname, 'fixtures/wiki-reimport-test')
+    await fs.mkdir(testPath, { recursive: true })
+    await fs.writeFile(path.join(testPath, 'sample.md'), '# Old\n\nold content')
+    mgr = new WorkspaceManager()
+    await mgr.open(testPath)
+    wiki = new WikiEngine({ workspace: mgr })
+  })
+
+  afterEach(async () => {
+    mgr.close()
+    await fs.rm(testPath, { recursive: true, force: true }).catch(() => {})
+  })
+
+  test('同一文件再次 ingest 会覆盖旧 wiki 页面', async () => {
+    await wiki.ingest({ filename: 'sample.md' })
+    await fs.writeFile(path.join(testPath, 'sample.md'), '# New\n\nnew content')
+
+    const result = await wiki.ingest({ filename: 'sample.md' })
+    expect(result.status).toBe('ok')
+
+    const mdContent = await fs.readFile(path.join(testPath, 'wiki/sources/sample.md'), 'utf-8')
+    expect(mdContent).toContain('# New')
+    expect(mdContent).toContain('new content')
+  })
+})

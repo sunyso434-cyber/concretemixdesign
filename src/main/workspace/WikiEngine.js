@@ -333,14 +333,27 @@ class WikiEngine {
       // ===== 3. 提交阶段：原子 rename =====
       const finalDir = path.join(current.path, 'wiki', 'sources')
       await fs.mkdir(finalDir, { recursive: true })
-      await fs.rename(targetAbs, path.join(finalDir, `${slug}.md`))
+      const finalMdPath = path.join(finalDir, `${slug}.md`)
+      // v9.1.0 补充：重新导入时目标文件可能已存在（Windows rename 不覆盖），先删除旧文件
+      try {
+        await fs.unlink(finalMdPath)
+      } catch (err) {
+        if (err.code !== 'ENOENT') throw err
+      }
+      await fs.rename(targetAbs, finalMdPath)
       // Task 5.2 (P5.2)：KG 文件同步 rename 到 wiki/kg/sources/<slug>.json
       // - 只有质量为 high 时才写了 kgResultAbs
       // - 和 .md 一起在提交阶段一次性 rename（如果前面抛错，.tmp/ 清理时一并删掉）
       if (kgResultAbs) {
         const finalKgDir = path.join(current.path, 'wiki', 'kg', 'sources')
         await fs.mkdir(finalKgDir, { recursive: true })
-        await fs.rename(kgResultAbs, path.join(finalKgDir, `${slug}.json`))
+        const finalKgPath = path.join(finalKgDir, `${slug}.json`)
+        try {
+          await fs.unlink(finalKgPath)
+        } catch (err) {
+          if (err.code !== 'ENOENT') throw err
+        }
+        await fs.rename(kgResultAbs, finalKgPath)
       }
 
       // Task 5.3 (P5.3)：把新提取的三元组合并到全局 graph.json
@@ -366,7 +379,43 @@ class WikiEngine {
         }
       }
 
-      // ===== 4. 清理 .tmp/ =====
+      // ===== 4. 反向关联更新 + 清理 .tmp/ =====
+      // 4a. 反向关联更新：新笔记 A 关联到旧笔记 B → 在 B 的 relatedPages 里加上 A
+      // - 只处理 summaryResult.relatedLinks（LLM 选出的关联，已过滤 confidence/relation/存在性）
+      // - 反向 relation 用"被引用"统一表示（避免 LLM 再调一次）
+      // - 幂等：B 的 relatedPages 里已有 A 则跳过
+      // - 放在 fs.rm(.tmp) 之前，避免 Windows 上 rm 异步删除时序导致 .tmp/ 残留
+      let refsUpdated = 0
+      const newPageRel = `sources/${slug}.md`
+      const relatedLinks = summaryResult?.relatedLinks || []
+      if (relatedLinks.length > 0) {
+        for (const link of relatedLinks) {
+          try {
+            const targetPath = path.join(current.path, 'wiki', link.page)
+            const raw = await fs.readFile(targetPath, 'utf-8')
+            const { data: targetFm, content: targetContent } = matter(raw)
+            const existingRelated = Array.isArray(targetFm.relatedPages) ? targetFm.relatedPages : []
+            // 幂等检查：已存在指向新笔记的关联则跳过
+            if (existingRelated.some(r => r.page === newPageRel)) continue
+            // 反向加入
+            existingRelated.push({
+              page: newPageRel,
+              relation: '被引用',
+              confidence: link.confidence || 0.8
+            })
+            targetFm.relatedPages = existingRelated
+            targetFm.updated_at = localISOString()
+            const updatedMd = matter.stringify(targetContent, targetFm)
+            await fs.writeFile(targetPath, updatedMd.replace(/\r\n/g, '\n'), 'utf-8')
+            refsUpdated++
+          } catch (err) {
+            // 反向更新失败不影响 ingest 主流程（target 文件可能被占用/损坏）
+            console.warn(`[WikiEngine.ingest] 反向关联更新失败 (${link.page}):`, err.message)
+          }
+        }
+      }
+
+      // 4b. 清理 .tmp/
       await fs.rm(tmpDir, { recursive: true, force: true })
 
       // ===== 5. v4.9.4 (P2a follow-up I-1)：更新 .workspace-index.json =====
@@ -400,7 +449,7 @@ class WikiEngine {
         status: 'ok',
         pagesCreated: [targetRel],
         pagesUpdated: [],
-        refsUpdated: 0,
+        refsUpdated,
         bm25TokensAdded: tokensAdded,
         durationMs: Date.now() - startTime,
         kgMerge: kgMergeResult
@@ -420,6 +469,117 @@ class WikiEngine {
       }
       if (err instanceof WorkspaceError) throw err
       throw new WorkspaceError('ATOMIC_FAIL', err.message, true, err)
+    }
+  }
+
+  /**
+   * 批量导入（v9.1.0 补充）
+   * - 串行逐个调用 ingest，避免并发写冲突和 BM25 重建叠加
+   * - 每完成一个文件调用 onProgress(progress)
+   * - 支持 AbortSignal 取消：取消后中断后续文件，返回已处理结果
+   * @param {Object} args
+   * @param {string[]} args.filenames - 源文件名数组（相对工作区根目录）
+   * @param {Function} [args.onProgress] - 进度回调({ current, total, filename, status, percent, result?, error?, code? })
+   * @param {AbortSignal} [args.signal] - 取消信号
+   * @returns {Promise<{status:'ok'|'partial'|'failed'|'cancelled', total, succeeded, failed, errors, durationMs, cancelled}>}
+   */
+  async ingestBatch({ filenames, onProgress, signal }) {
+    const current = this.workspace.current()
+    if (!current || current.status !== 'ready') {
+      throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
+    }
+    if (!Array.isArray(filenames) || filenames.length === 0) {
+      throw new WorkspaceError('INVALID_PARAMS', 'filenames 必须是数组且至少包含一个文件', false)
+    }
+
+    const total = filenames.length
+    let succeeded = 0
+    let failed = 0
+    const errors = []
+    const startTime = Date.now()
+
+    const reportProgress = (payload) => {
+      if (typeof onProgress === 'function') {
+        try {
+          onProgress(payload)
+        } catch (err) {
+          console.warn('[WikiEngine.ingestBatch] onProgress 回调出错:', err.message)
+        }
+      }
+    }
+
+    for (let i = 0; i < total; i++) {
+      const filename = filenames[i]
+      const currentNum = i + 1
+
+      if (signal?.aborted) {
+        reportProgress({
+          current: currentNum,
+          total,
+          filename,
+          status: 'cancelled',
+          percent: Math.round((i / total) * 100),
+          error: '批量导入已取消'
+        })
+        break
+      }
+
+      reportProgress({
+        current: i,
+        total,
+        filename,
+        status: 'processing',
+        percent: Math.round((i / total) * 100)
+      })
+
+      try {
+        const result = await this.ingest({ filename })
+        succeeded++
+        reportProgress({
+          current: currentNum,
+          total,
+          filename,
+          status: 'ok',
+          percent: Math.round((currentNum / total) * 100),
+          result
+        })
+      } catch (err) {
+        failed++
+        const code = err instanceof WorkspaceError ? err.code : 'UNKNOWN'
+        const errorMsg = err instanceof WorkspaceError ? err.message : (err.message || String(err))
+        errors.push({ filename, error: errorMsg, code })
+        reportProgress({
+          current: currentNum,
+          total,
+          filename,
+          status: 'error',
+          percent: Math.round((currentNum / total) * 100),
+          error: errorMsg,
+          code
+        })
+      }
+    }
+
+    const cancelled = signal?.aborted === true
+    let status
+    if (cancelled) {
+      status = 'cancelled'
+    } else if (failed === 0) {
+      status = 'ok'
+    } else if (succeeded === 0) {
+      status = 'failed'
+    } else {
+      status = 'partial'
+    }
+
+    return {
+      status,
+      total,
+      succeeded,
+      failed,
+      errors,
+      durationMs: Date.now() - startTime,
+      cancelled
     }
   }
 
@@ -1387,7 +1547,7 @@ class WikiEngine {
       pageInfos.push({ relPath, frontmatter, content, wikiMtime: stat.mtimeMs })
     }
 
-    // 3. orphans / missingCrossRefs：扫每个页正文的 [[ref]]
+    // 3. orphans / missingCrossRefs：扫每个页正文的 [[ref]] + frontmatter.relatedPages
     const WIKI_LINK_RE = /\[\[([^\]]+)\]\]/g
     const referencedBy = new Map()  // ref → Set<relPath>
     for (const info of pageInfos) {
@@ -1397,12 +1557,17 @@ class WikiEngine {
       while ((m = re.exec(info.content)) !== null) {
         links.add(m[1].trim())
       }
+      // v9.1.0：frontmatter.relatedPages 也算作出链（方案 A：frontmatter 承担关联网络）
+      const relatedPages = Array.isArray(info.frontmatter?.relatedPages) ? info.frontmatter.relatedPages : []
+      for (const rp of relatedPages) {
+        if (rp && typeof rp.page === 'string') links.add(rp.page.trim())
+      }
       for (const ref of links) {
         if (!referencedBy.has(ref)) referencedBy.set(ref, new Set())
         referencedBy.get(ref).add(info.relPath)
       }
     }
-    // orphans：pageInfos 中没有任何 [[ref]] 入链的页
+    // orphans：pageInfos 中没有任何入链（正文 [[ref]] 或被别人 relatedPages 指向）的页
     for (const info of pageInfos) {
       const inLinks = referencedBy.get(info.relPath)
       if (!inLinks || inLinks.size === 0) {

@@ -13,7 +13,7 @@
 // 5. 「📥 导入全部」按选中顺序串行执行
 
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { Popover, Checkbox, Button, Space, message, Spin, Empty, Divider, Tooltip, Tag } from 'antd'
+import { Popover, Checkbox, Button, Space, message, Spin, Empty, Divider, Tooltip, Tag, Progress } from 'antd'
 import {
   FileTextOutlined,
   FileExcelOutlined,
@@ -47,7 +47,22 @@ const WorkspaceFilePopover = ({ workspacePath, children }) => {
   const [failedFiles, setFailedFiles] = useState({})  // filename -> error message
   const [selected, setSelected] = useState(new Set()) // 选中的文件名
 
+  // v9.1.0 补充：批量导入进度/取消状态
+  const [batchRunning, setBatchRunning] = useState(false)
+  const [batchProgress, setBatchProgress] = useState({
+    batchId: null,
+    current: 0,
+    total: 0,
+    percent: 0,
+    status: 'idle',
+    currentFile: '',
+    errors: []
+  })
+  const [cancelling, setCancelling] = useState(false)
+
   const popoverRef = useRef(null)
+  const progressListenerRef = useRef(null)
+  const doneListenerRef = useRef(null)
 
   // 加载文件列表
   const loadFiles = useCallback(async () => {
@@ -71,6 +86,51 @@ const WorkspaceFilePopover = ({ workspacePath, children }) => {
     }
   }, [workspacePath])
 
+  // v9.1.0 补充：注册批量导入进度/完成监听
+  useEffect(() => {
+    progressListenerRef.current = window.electronAPI.workspace.onIngestBatchProgress((progress) => {
+      setBatchProgress(prev => ({
+        ...prev,
+        batchId: progress.batchId ?? prev.batchId,
+        current: progress.current,
+        total: progress.total,
+        percent: progress.percent,
+        status: progress.status,
+        currentFile: progress.filename,
+        errors: progress.status === 'error'
+          ? [...(prev.errors || []), { filename: progress.filename, error: progress.error }]
+          : prev.errors
+      }))
+    })
+    doneListenerRef.current = window.electronAPI.workspace.onIngestBatchDone((result) => {
+      setBatchRunning(false)
+      setCancelling(false)
+      // 刷新已导入状态
+      loadFiles()
+      const statusText = {
+        ok: '全部导入成功',
+        partial: '部分导入成功',
+        failed: '导入失败',
+        cancelled: '已取消'
+      }[result.status] || result.status
+      if (result.status === 'ok') {
+        message.success(`${statusText}（${result.succeeded}/${result.total}）`)
+      } else if (result.status === 'cancelled') {
+        message.info(`${statusText}，已处理 ${result.succeeded}/${result.total}`)
+      } else {
+        message.warning(`${statusText}，成功 ${result.succeeded}，失败 ${result.failed}`)
+      }
+    })
+    return () => {
+      if (progressListenerRef.current) {
+        window.electronAPI.workspace.removeIngestBatchListener(progressListenerRef.current)
+      }
+      if (doneListenerRef.current) {
+        window.electronAPI.workspace.removeIngestBatchListener(doneListenerRef.current)
+      }
+    }
+  }, [loadFiles])
+
   // 打开时自动加载
   useEffect(() => {
     if (open) {
@@ -80,13 +140,18 @@ const WorkspaceFilePopover = ({ workspacePath, children }) => {
     }
   }, [open, loadFiles])
 
-  // 关闭时清状态
+  // 关闭时清状态；如果批量导入还在跑，自动取消
   useEffect(() => {
     if (!open) {
       setSelected(new Set())
       setFailedFiles({})
+      if (batchRunning && batchProgress.batchId) {
+        window.electronAPI.workspace.cancelIngestBatch(batchProgress.batchId).catch(() => {})
+        setBatchRunning(false)
+        setCancelling(false)
+      }
     }
-  }, [open])
+  }, [open, batchRunning, batchProgress.batchId])
 
   // 触发 ingest 单个文件
   const handleImport = useCallback(async (filename) => {
@@ -121,16 +186,47 @@ const WorkspaceFilePopover = ({ workspacePath, children }) => {
     }
   }, [])
 
-  // 批量导入（串行避免并发写）
-  // v4.8.4 P1 补全 hotfix：清理死代码（success/failed 计数器无用）
-  // handleImport 内部已 toast 每次结果，依赖用户视觉反馈
+  // v9.1.0 补充：批量导入（走后端 ingestBatch，带进度推送 + 可取消）
   const handleImportAll = useCallback(async () => {
-    const filenames = [...selected].sort()
-    for (const filename of filenames) {
-      if (!isSupportedExt(filename)) continue
-      await handleImport(filename)
+    const filenames = [...selected].filter(f => isSupportedExt(f)).sort()
+    if (filenames.length === 0) return
+
+    setBatchProgress({
+      batchId: null,
+      current: 0,
+      total: filenames.length,
+      percent: 0,
+      status: 'processing',
+      currentFile: filenames[0],
+      errors: []
+    })
+    setBatchRunning(true)
+    setCancelling(false)
+    setFailedFiles({})
+
+    try {
+      const result = await window.electronAPI.workspace.ingestBatch(filenames)
+      if (result?.success === false) {
+        throw new Error(result.error || '启动批量导入失败')
+      }
+      setBatchProgress(prev => ({ ...prev, batchId: result.batchId }))
+    } catch (err) {
+      message.error('启动批量导入失败: ' + (err.message || String(err)))
+      setBatchRunning(false)
     }
-  }, [selected, handleImport])
+  }, [selected])
+
+  // v9.1.0 补充：取消批量导入
+  const handleCancelBatch = useCallback(async () => {
+    if (!batchProgress.batchId) return
+    setCancelling(true)
+    try {
+      await window.electronAPI.workspace.cancelIngestBatch(batchProgress.batchId)
+    } catch (err) {
+      message.error('取消失败: ' + (err.message || String(err)))
+      setCancelling(false)
+    }
+  }, [batchProgress.batchId])
 
   // 切换 checkbox
   const toggleSelect = useCallback((filename) => {
@@ -184,7 +280,7 @@ const WorkspaceFilePopover = ({ workspacePath, children }) => {
           <Checkbox
             checked={isSelected}
             onChange={() => toggleSelect(file.name)}
-            disabled={isImporting}
+            disabled={isImporting || batchRunning}
           />
         ) : (
           <span style={{ width: 16, display: 'inline-block' }} />
@@ -213,6 +309,7 @@ const WorkspaceFilePopover = ({ workspacePath, children }) => {
             size="small"
             icon={isImported ? <ReloadOutlined /> : <ImportOutlined />}
             loading={isImporting}
+            disabled={batchRunning}
             onClick={() => handleImport(file.name)}
             title={isImported ? '重新导入' : '导入到知识库'}
           />
@@ -245,6 +342,50 @@ const WorkspaceFilePopover = ({ workspacePath, children }) => {
         </Space>
       </div>
 
+      {/* v9.1.0 补充：批量导入整体进度条 */}
+      {batchRunning && (
+        <div style={{
+          marginTop: 12,
+          padding: '8px 12px',
+          background: '#f6ffed',
+          borderRadius: 4,
+          border: '1px solid #b7eb8f'
+        }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            marginBottom: 4
+          }}>
+            <span style={{ fontSize: 12 }}>
+              {cancelling
+                ? '取消中...'
+                : `导入中 ${batchProgress.current}/${batchProgress.total}`}
+            </span>
+            <Button
+              type="text"
+              size="small"
+              danger
+              loading={cancelling}
+              disabled={cancelling}
+              onClick={handleCancelBatch}
+            >
+              取消
+            </Button>
+          </div>
+          <Progress
+            percent={batchProgress.percent}
+            size="small"
+            status={cancelling ? 'exception' : undefined}
+            showInfo={false}
+          />
+          <div style={{
+            fontSize: 11, color: '#666', marginTop: 2,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+          }}>
+            {batchProgress.currentFile}
+          </div>
+        </div>
+      )}
+
       {/* 文件列表 */}
       <div style={{ flex: 1, overflowY: 'auto', marginTop: 8, minHeight: 100 }}>
         {loading ? (
@@ -271,20 +412,33 @@ const WorkspaceFilePopover = ({ workspacePath, children }) => {
               checked={allSupportedSelected}
               indeterminate={selectedSupportedCount > 0 && !allSupportedSelected}
               onChange={toggleSelectAll}
-              disabled={supportedTotal === 0}
+              disabled={supportedTotal === 0 || batchRunning}
             >
               全选 ({selectedSupportedCount}/{supportedTotal})
             </Checkbox>
-            <Button
-              type="primary"
-              size="small"
-              icon={<ImportOutlined />}
-              disabled={selectedSupportedCount === 0 || importingIds.size > 0}
-              loading={importingIds.size > 0}
-              onClick={handleImportAll}
-            >
-              导入全部 ({selectedSupportedCount})
-            </Button>
+            {batchRunning ? (
+              <Button
+                type="primary"
+                danger
+                size="small"
+                loading={cancelling}
+                disabled={cancelling}
+                onClick={handleCancelBatch}
+              >
+                取消导入
+              </Button>
+            ) : (
+              <Button
+                type="primary"
+                size="small"
+                icon={<ImportOutlined />}
+                disabled={selectedSupportedCount === 0 || importingIds.size > 0}
+                loading={importingIds.size > 0}
+                onClick={handleImportAll}
+              >
+                导入全部 ({selectedSupportedCount})
+              </Button>
+            )}
           </div>
         </>
       )}
