@@ -482,8 +482,8 @@ function registerAgentHandlers() {
     return await global.chatHistorySync.listSessionsGrouped()
   })
 
-  ipcMain.handle('agent:getSessionMessages', async (_event, { sessionId }) => {
-    const messages = await agentMemoryService.getHistory(sessionId, { limit: 20 })
+  ipcMain.handle('agent:getSessionMessages', async (_event, { sessionId, before }) => {
+    const messages = await agentMemoryService.getHistory(sessionId, { limit: 20, before })
     // 剥离 metadata.timeline（大对象，含 reasoning + tool 结果）
     // 历史消息切回时不回放思考过程，只显示纯文本（DB 仍保留 timeline，需要时可单独查询）
     // 流式过程中的 timeline 来自 state.agent.timeline，不受影响

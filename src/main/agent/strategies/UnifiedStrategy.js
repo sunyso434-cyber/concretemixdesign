@@ -153,7 +153,7 @@ class UnifiedStrategy {
     const messages = [
       { role: 'system', content: systemPrompt },
       ...historyMessages,
-      { role: 'user', content: message }
+      { role: 'user', content: enhancedMessage }
     ]
 
     let tokenBudget = DEFAULT_TOKEN_BUDGET

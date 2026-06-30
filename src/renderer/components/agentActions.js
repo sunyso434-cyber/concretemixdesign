@@ -227,17 +227,63 @@ export async function switchSession({ dispatch, sessionId, state }) {
         dispatch({
           type: 'SET_MESSAGES',
           payload: r.messages.map(m => ({
+            id: m.id,
             role: m.role,
             content: m.content,
             toolCalls: m.toolCalls,
             timeline: (m.metadata && m.metadata.timeline) || [],
-            stopReason: m.stopReason || null
+            stopReason: m.stopReason || null,
+            createdAt: m.createdAt
           }))
         })
       }
     }
   } catch (e) {
     console.error('[switchSession] 加载会话消息失败:', e)
+  }
+}
+
+/**
+ * 加载更多历史消息（分页，v9.1.0）
+ * @param {Object} args
+ * @param {Function} args.dispatch
+ * @param {string} args.sessionId
+ * @param {Array} args.messages - 当前已加载的消息列表
+ * @returns {Promise<{loaded: number, hasMore: boolean}>}
+ */
+export async function loadMoreSessionMessages({ dispatch, sessionId, messages }) {
+  if (!sessionId || !messages || messages.length === 0) {
+    return { loaded: 0, hasMore: false }
+  }
+  // 找到当前最早一条消息的时间作为分页游标
+  const oldest = messages.reduce((acc, m) => {
+    const t = m.createdAt || m.timestamp
+    if (!t) return acc
+    return !acc || new Date(t) < new Date(acc) ? t : acc
+  }, null)
+  if (!oldest) {
+    return { loaded: 0, hasMore: false }
+  }
+  try {
+    const r = await window.electronAPI.invoke('agent:getSessionMessages', { sessionId, before: oldest })
+    if (r && r.messages && r.messages.length > 0) {
+      dispatch({
+        type: 'PREPEND_MESSAGES',
+        payload: r.messages.map(m => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          toolCalls: m.toolCalls,
+          timeline: (m.metadata && m.metadata.timeline) || [],
+          stopReason: m.stopReason || null,
+          createdAt: m.createdAt
+        }))
+      })
+    }
+    return { loaded: (r && r.messages && r.messages.length) || 0, hasMore: (r && r.messages && r.messages.length) >= 20 }
+  } catch (e) {
+    console.error('[loadMoreSessionMessages] 加载更多消息失败:', e)
+    return { loaded: 0, hasMore: false }
   }
 }
 

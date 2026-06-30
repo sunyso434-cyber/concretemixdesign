@@ -95,6 +95,13 @@ export function agentReducer(state, action) {
       }))
       return { ...state, messages: clean }
     }
+    case 'PREPEND_MESSAGES': {
+      // v9.1.0 新增：分页加载更早的历史消息，拼接到列表头部
+      // 后端 getHistory 返回按时间正序排列的消息，直接前置即可
+      const existingIds = new Set(state.messages.map(m => m.id).filter(Boolean))
+      const newMessages = action.payload.filter(m => !existingIds.has(m.id))
+      return { ...state, messages: [...newMessages, ...state.messages] }
+    }
     case 'CLEAR_MESSAGES': {
       return { ...state, messages: [] }
     }

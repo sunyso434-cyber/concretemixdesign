@@ -1,12 +1,8 @@
 import React, { Suspense, lazy, useState, useEffect, useRef } from 'react'
 import { Tooltip, message } from 'antd'
 import {
-  AppstoreOutlined,
-  SettingOutlined,
-  DatabaseOutlined,
   LeftOutlined,
   PicLeftOutlined,
-  PictureOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -18,9 +14,9 @@ import {
 import { AgentStoreProvider, useAgentStore } from '../components/AgentStore'
 import { SmartDesignChat } from '../components/SmartDesignChat'
 import BackgroundTaskBar from '../components/BackgroundTaskBar'
-import WorkspaceImageGrid from '../components/WorkspaceImageGrid'
+import LeftButtonBar from '../components/LeftButtonBar'
 
-// 覆盖页面懒加载
+// 管理页面懒加载
 const MaterialsPage = lazy(() => import('./MaterialsPage'))
 const SchemesPage = lazy(() => import('./SchemesPage'))
 const SettingsPage = lazy(() => import('./SettingsPage'))
@@ -34,8 +30,9 @@ const LoadingFallback = () => (
 function WorkspaceContent() {
   const { state, dispatch } = useAgentStore()
   const [hasTasks, setHasTasks] = useState(false)
-  const [overlay, setOverlay] = useState(null)
-  // 覆盖页面左侧导航选中项
+  // 当前激活视图：'chat' | 'materials' | 'schemes' | 'settings'
+  const [activeView, setActiveView] = useState('chat')
+  // 管理页面左侧导航选中项
   const [matNavType, setMatNavType] = useState('全部')
   const [schNavType, setSchNavType] = useState('全部方案')
   const [setNavType, setSetNavType] = useState('使用帮助')
@@ -101,6 +98,11 @@ function WorkspaceContent() {
 
   const sidebarCollapsed = state.session.sidebarCollapsed
 
+  // 切换视图：聊天视图需要保留历史会话侧栏收起状态，管理视图不显示历史会话
+  const handleSelectView = (view) => {
+    setActiveView(view)
+  }
+
   return (
     <div
       className="workspace-container v9-layout"
@@ -132,44 +134,21 @@ function WorkspaceContent() {
           <span className="topbar-title">
             <span className="topbar-title-cn">砼智</span> Concrete Agent
           </span>
-          {/* 历史会话开关按钮 — 紧挨标题 */}
-          <Tooltip title={sidebarCollapsed ? '打开历史会话' : '关闭历史会话'}>
-            <button
-              className={`topbar-sidebar-toggle ${sidebarCollapsed ? '' : 'active'}`}
-              onClick={() => dispatch({ type: 'SET_SIDEBAR_COLLAPSED', payload: !sidebarCollapsed })}
-            >
-              <PicLeftOutlined />
-            </button>
-          </Tooltip>
+          {/* 历史会话开关按钮 — 仅在聊天视图显示 */}
+          {activeView === 'chat' && (
+            <Tooltip title={sidebarCollapsed ? '打开历史会话' : '关闭历史会话'}>
+              <button
+                className={`topbar-sidebar-toggle ${sidebarCollapsed ? '' : 'active'}`}
+                onClick={() => dispatch({ type: 'SET_SIDEBAR_COLLAPSED', payload: !sidebarCollapsed })}
+              >
+                <PicLeftOutlined />
+              </button>
+            </Tooltip>
+          )}
         </div>
 
         <div className="topbar-right">
           {hasTasks && <span className="topbar-task-dot has-tasks" />}
-
-          <Tooltip title="原材料管理">
-            <span className="topbar-icon" onClick={() => setOverlay('materials')}>
-              <DatabaseOutlined />
-            </span>
-          </Tooltip>
-
-          <Tooltip title="方案管理">
-            <span className="topbar-icon" onClick={() => setOverlay('schemes')}>
-              <AppstoreOutlined />
-            </span>
-          </Tooltip>
-
-          <Tooltip title="系统设置">
-            <span className="topbar-icon" onClick={() => setOverlay('settings')}>
-              <SettingOutlined />
-            </span>
-          </Tooltip>
-
-          <Tooltip title="工作区图片">
-            <span className="topbar-icon" onClick={() => setOverlay('images')}>
-              <PictureOutlined />
-            </span>
-          </Tooltip>
-
           <span className="topbar-version">v9.0.0</span>
 
           {/* 自定义窗口控制按钮（无原生标题栏时使用） */}
@@ -205,22 +184,20 @@ function WorkspaceContent() {
         </div>
       </div>
 
-      {/* 主体区域：SmartDesignChat（包含 MemorySidebar + 对话区） */}
+      {/* 主体区域：横向布局 = 按钮区 + [历史会话/导航栏] + 主界面 */}
       <div className="v9-main">
-        <SmartDesignChat />
-      </div>
+        {/* 最左侧按钮区 */}
+        <LeftButtonBar activeView={activeView} onSelect={handleSelectView} />
 
-      {/* 覆盖页面：原材料管理 */}
-      {overlay === 'materials' && (
-        <div className="v9-overlay">
-          <div className="v9-overlay-header">
-            <button className="v9-overlay-back" onClick={() => setOverlay(null)} title="返回主界面">
-              <LeftOutlined />
-            </button>
-            <span className="v9-overlay-title">原材料管理</span>
-          </div>
-          <div className="v9-overlay-body v9-mat-body">
-            <div className="v9-mat-left">
+        {/* 聊天视图：历史会话侧栏 + 主聊天界面 */}
+        {activeView === 'chat' && (
+          <SmartDesignChat />
+        )}
+
+        {/* 原材料管理视图：导航栏 + 主管理界面 */}
+        {activeView === 'materials' && (
+          <div className="v9-manage-body">
+            <div className="v9-manage-nav">
               {/* 搜索框 */}
               <div className="v9-mat-search">
                 <SearchOutlined className="v9-mat-search-icon" />
@@ -255,26 +232,18 @@ function WorkspaceContent() {
                 ))}
               </div>
             </div>
-            <div className="v9-mat-right">
+            <div className="v9-manage-content">
               <Suspense fallback={<LoadingFallback />}>
                 <MaterialsPage ref={materialsRef} />
               </Suspense>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* 覆盖页面：方案管理 */}
-      {overlay === 'schemes' && (
-        <div className="v9-overlay">
-          <div className="v9-overlay-header">
-            <button className="v9-overlay-back" onClick={() => setOverlay(null)} title="返回主界面">
-              <LeftOutlined />
-            </button>
-            <span className="v9-overlay-title">方案管理</span>
-          </div>
-          <div className="v9-overlay-body v9-mat-body">
-            <div className="v9-mat-left">
+        {/* 方案管理视图：导航栏 + 主管理界面 */}
+        {activeView === 'schemes' && (
+          <div className="v9-manage-body">
+            <div className="v9-manage-nav">
               <div className="v9-mat-nav-label">方案分类</div>
               <div className="v9-mat-nav">
                 {['全部方案', '正式方案', '草稿方案', '已对比', '基准方案'].map(t => (
@@ -282,26 +251,18 @@ function WorkspaceContent() {
                 ))}
               </div>
             </div>
-            <div className="v9-mat-right">
+            <div className="v9-manage-content">
               <Suspense fallback={<LoadingFallback />}>
                 <SchemesPage ref={schemesRef} />
               </Suspense>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* 覆盖页面：系统设置 */}
-      {overlay === 'settings' && (
-        <div className="v9-overlay">
-          <div className="v9-overlay-header">
-            <button className="v9-overlay-back" onClick={() => setOverlay(null)} title="返回主界面">
-              <LeftOutlined />
-            </button>
-            <span className="v9-overlay-title">系统设置</span>
-          </div>
-          <div className="v9-overlay-body v9-mat-body">
-            <div className="v9-mat-left">
+        {/* 系统设置视图：导航栏 + 主管理界面 */}
+        {activeView === 'settings' && (
+          <div className="v9-manage-body">
+            <div className="v9-manage-nav">
               <div className="v9-mat-nav-label">设置分类</div>
               <div className="v9-mat-nav">
                 {['使用帮助', 'JGJ55标准', '备份设置', 'AI设置', '技能管理', '销售报价', '系统设置', 'agent.md 编辑'].map(t => (
@@ -309,29 +270,14 @@ function WorkspaceContent() {
                 ))}
               </div>
             </div>
-            <div className="v9-mat-right">
+            <div className="v9-manage-content">
               <Suspense fallback={<LoadingFallback />}>
                 <SettingsPage ref={settingsRef} />
               </Suspense>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* 覆盖页面：工作区图片 */}
-      {overlay === 'images' && (
-        <div className="v9-overlay">
-          <div className="v9-overlay-header">
-            <button className="v9-overlay-back" onClick={() => setOverlay(null)} title="返回主界面">
-              <LeftOutlined />
-            </button>
-            <span className="v9-overlay-title">工作区图片</span>
-          </div>
-          <div className="v9-overlay-body">
-            <WorkspaceImageGrid />
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <BackgroundTaskBar />
     </div>

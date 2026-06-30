@@ -24,7 +24,7 @@ import WorkspaceFilePopover from './WorkspaceFilePopover'
 import useChatState from '../hooks/useChatState'
 import { AgentStoreProvider, useAgentStore } from './AgentStore'
 import useAgentMode from './AgentMode'
-import { sendMessage, abortAgent, createSession, loadSessionList, switchSession, useAssistantPersistence } from './agentActions'
+import { sendMessage, abortAgent, createSession, loadSessionList, switchSession, loadMoreSessionMessages, useAssistantPersistence } from './agentActions'
 import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, processImageAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
 import ContextIndicator from './ContextIndicator'
 import { getContextPercent, DEFAULT_CONTEXT_LIMIT } from '../utils/contextStats'
@@ -244,6 +244,10 @@ const SmartDesignChat = () => {
       loadSessionList({ dispatch })
     }
   }, [state.messages?.length, dispatch])
+
+  // ===== 历史消息分页状态 =====
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [hasMoreHistory, setHasMoreHistory] = useState(true)
 
   // ===== 斜杠命令状态 =====
   const [slashMenuVisible, setSlashMenuVisible] = useState(false)
@@ -477,6 +481,9 @@ const SmartDesignChat = () => {
 
   // 监听会话切换，更新工作区状态
   useEffect(() => {
+    // 切换会话后重置历史分页状态
+    setHasMoreHistory(true)
+    setHistoryLoading(false)
     const updateWorkspaceState = async () => {
       try {
         const current = await window.electronAPI.workspace.current()
@@ -651,6 +658,24 @@ const SmartDesignChat = () => {
       attachments: currentAttachments.length > 0 ? currentAttachments : undefined
     })
   }
+  // 加载更早的历史消息
+  const handleLoadMoreHistory = useCallback(async () => {
+    if (historyLoading || !hasMoreHistory || !state.session.currentId) return
+    setHistoryLoading(true)
+    try {
+      const { loaded, hasMore } = await loadMoreSessionMessages({
+        dispatch,
+        sessionId: state.session.currentId,
+        messages: state.messages
+      })
+      setHasMoreHistory(hasMore)
+      if (loaded === 0) {
+        setHasMoreHistory(false)
+      }
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [historyLoading, hasMoreHistory, state.session.currentId, state.messages, dispatch])
   const handleSend = useCallback(async () => {
     const input = state.input
     if (!input.trim()) return
@@ -1334,7 +1359,7 @@ const SmartDesignChat = () => {
   }
 
   return (
-    <Layout style={{ height: '100%', background: 'transparent' }}>
+    <Layout style={{ height: '100%', flex: 1, minWidth: 0, background: 'transparent' }}>
       {/* 记忆侧栏 — 折叠时不渲染；state 由 MemorySidebar 内部从 AgentStore 读 */}
       {!state.session.sidebarCollapsed && (
         <MemorySidebar
@@ -1453,6 +1478,18 @@ const SmartDesignChat = () => {
         ) : (
           <List
             dataSource={state.messages}
+            header={state.messages.length > 0 && hasMoreHistory ? (
+              <div style={{ textAlign: 'center', padding: '8px 0' }}>
+                <Button
+                  size="small"
+                  loading={historyLoading}
+                  onClick={handleLoadMoreHistory}
+                  disabled={historyLoading}
+                >
+                  加载更多历史消息
+                </Button>
+              </div>
+            ) : null}
             renderItem={(item) => {
               // P3 commit 2: SystemErrorBubble 渲染 type='error' 气泡（chat stream + Agent 错误路径共用）
               if (item.type === 'error') {
@@ -1749,16 +1786,20 @@ const SmartDesignChat = () => {
             AI 正在输出中... 按 Esc 或点击停止按钮中断输出（输入框为空时也可按 Enter）
           </div>
         )}
-        <Input
-          ref={inputRef}
-          placeholder={chatState.analysisMode ? '输入你的追问，或继续对话...' : '输入 "/" 查看可用技能，或直接输入需求...'}
-          value={state.input}
-          onChange={handleInputChange}
-          onKeyDown={handleInputKeyDown}
-          onSelect={handleInputSelect}
-          disabled={false}
-          prefix={<AppstoreOutlined style={{ color: '#bfbfbf', marginRight: 4 }} />}
-        />
+        <div className="smart-chat-input-wrapper">
+          <AppstoreOutlined className="smart-chat-input-prefix" />
+          <Input.TextArea
+            ref={inputRef}
+            placeholder={chatState.analysisMode ? '输入你的追问，或继续对话...' : '输入 "/" 查看可用技能，或直接输入需求...'}
+            value={state.input}
+            onChange={handleInputChange}
+            onKeyDown={handleInputKeyDown}
+            onSelect={handleInputSelect}
+            disabled={false}
+            autoSize={{ minRows: 1, maxRows: 6 }}
+            variant="borderless"
+          />
+        </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
           <Space size={0}>
             {/* 工作区文件列表（已选工作区才显示） */}

@@ -1,3 +1,93 @@
+## v9.1.0 补充2 (2026-06-30) - 微信风格三栏布局 + 输入框自适应高度
+
+### 改动内容
+
+1. **微信风格三栏布局**
+   - 最左侧新增按钮区 `LeftButtonBar`（56px 宽）：聊天、原材料管理、方案管理、系统设置
+   - 标题栏移除：原材料管理、方案管理、系统设置、工作区图片四个按钮
+   - 历史会话开关仅在聊天视图显示
+   - 管理页面改为内嵌视图（导航栏 + 主管理界面），不再用全屏 overlay
+   - 聊天主界面视觉：按钮区 | 历史会话侧栏（可收起） | 主聊天界面
+   - 管理页面视觉：按钮区 | 导航栏 | 主管理界面
+
+2. **输入框自适应高度**
+   - 单行 `Input` → `Input.TextArea`
+   - `autoSize={{ minRows: 1, maxRows: 6 }}`：1 行起步，最多 6 行，超过后内部滚动
+   - 前缀图标改为外层 wrapper 手动放置（TextArea 不支持 prefix）
+   - 保留 Enter 发送、Shift+Enter 换行、斜杠菜单、光标定位等功能
+
+### 修改文件（4 个）
+
+- 新增：`src/renderer/components/LeftButtonBar.jsx`
+- 修改：`src/renderer/pages/WorkspacePage.jsx`
+- 修改：`src/renderer/components/SmartDesignChat.jsx`
+- 修改：`src/renderer/index.css`
+
+### 打包信息
+
+- **版本号**：9.1.0（package.json）
+- **安装包**：`砼智 Setup 9.1.0.exe`
+- **便携版**：`砼智-9.1.0-x64.exe`
+- **Electron**：28.3.3
+- **Vite**：5.4.21
+
+---
+
+## v9.1.0 补充1 (2026-06-30) - 修复粘贴图片识别与历史消息完整性
+
+### 修复内容
+
+1. **输入框粘贴图片不被识别**
+   - 根因：`UnifiedStrategy.execute` 虽然调用了 `analyze_concrete_image` 分析图片，但把分析结果拼成 `enhancedMessage` 后，构造 LLM messages 时仍用了原始 `message`
+   - 修复：[src/main/agent/strategies/UnifiedStrategy.js](src/main/agent/strategies/UnifiedStrategy.js) 第 156 行 `content: message` → `content: enhancedMessage`
+   - 效果：粘贴图片后 LLM 真正看到图片描述，不再回复“工作区中没有图片文件”
+
+2. **切换/重启后刚发的消息丢失**
+   - 根因：`AgentMemoryService.buildHistoryMessages` 末尾会 pop 掉最后一条 user 消息（假设 AI 没回复完就是过时问题）
+   - 修复：[src/main/services/AgentMemoryService.js](src/main/services/AgentMemoryService.js) 移除该 pop 逻辑，保留用户消息
+   - 效果：即使 AI 回复未保存，用户的问题也不会消失
+
+3. **历史消息只显示最近 20 条**
+   - 根因：`agent:getSessionMessages` 固定 limit=20，无分页能力
+   - 修复：
+     - [src/main/ipcHandlers/agentHandler.js](src/main/ipcHandlers/agentHandler.js)：`getSessionMessages` 支持 `before` 分页参数
+     - [src/renderer/components/agentActions.js](src/renderer/components/agentActions.js)：新增 `loadMoreSessionMessages`
+     - [src/renderer/components/agentStoreCore.js](src/renderer/components/agentStoreCore.js)：新增 `PREPEND_MESSAGES` reducer action
+     - [src/renderer/components/SmartDesignChat.jsx](src/renderer/components/SmartDesignChat.jsx)：消息列表顶部增加“加载更多历史消息”按钮
+   - 效果：长会话可逐页加载更早消息，每次 20 条
+
+### 验证
+
+- `npm run build` 构建成功
+- `npm test -- --testPathPattern=UnifiedStrategy` 通过（33 项）
+- `npm test -- --testPathPattern=AgentMemoryService` 通过（34 项）
+- `npm test -- --testPathPattern=agentHandler` 通过（14 项）
+
+### 边缘情况
+
+- 视觉模型未配置时，`enhancedMessage` 会包含“图片识别失败”提示，AI 至少知道有图片
+- 分页加载通过消息 `id` 去重，重复点击不会重复插入
+- 切换会话后“加载更多”状态自动重置
+
+### 修改文件（6 个）
+
+- `src/main/agent/strategies/UnifiedStrategy.js`
+- `src/main/services/AgentMemoryService.js`
+- `src/main/ipcHandlers/agentHandler.js`
+- `src/renderer/components/agentActions.js`
+- `src/renderer/components/agentStoreCore.js`
+- `src/renderer/components/SmartDesignChat.jsx`
+
+### 打包信息
+
+- **版本号**：9.1.0（package.json）
+- **安装包**：`砼智 Setup 9.1.0.exe`
+- **便携版**：`砼智-9.1.0-x64.exe`
+- **Electron**：28.3.3
+- **Vite**：5.4.21
+
+---
+
 ## v9.1.0 (2026-06-30)
 
 ### 新增功能：视觉分析能力

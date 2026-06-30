@@ -281,10 +281,10 @@ ${history}
     // 过滤掉孤儿 tool 消息
     const filtered = messages.filter(m => !m._drop)
 
-    // 确保最后一条是 assistant 消息（如果最后一条是 user，说明上次 run 中断了，移除它避免 LLM 回答过时问题）
-    if (filtered.length > 0 && filtered[filtered.length - 1].role === 'user') {
-      filtered.pop()
-    }
+    // v9.1.0 修复：不再移除最后一条 user 消息
+    // - 旧逻辑：如果最后一条是 user（AI 回复未保存成功），直接 pop 掉
+    // - 问题：会导致"刚发的用户消息切换会话后丢失"，体验很差
+    // - 现在：保留用户消息，LLM 看到未答复的问题可以继续回答，不会丢失上下文
 
     return filtered
   }
