@@ -24,13 +24,17 @@ const { classifyError } = require('../errorClassifier')
 const DEFAULT_TOKEN_BUDGET = 150000
 
 class UnifiedStrategy {
-  constructor({ deepseekService, skillRegistry, skillExecutor, agentMemoryService, systemService }) {
+  constructor({ deepseekService, skillRegistry, skillExecutor, agentMemoryService, systemService, orchestrator }) {
     this.deepseekService = deepseekService
     this.skillRegistry = skillRegistry
     this.skillExecutor = skillExecutor
     this.agentMemoryService = agentMemoryService
     this.systemService = systemService || null
     this.agentMdService = getAgentMdService()
+    // v9.1.0: 保存 Orchestrator 引用，让 ask_user 等跨进程协同 skill 能通过 context 拿到 orchestrator
+    this.orchestrator = orchestrator || null
+    // webContents 在 execute() 时才知道，先置空
+    this.webContents = null
   }
 
   /**
@@ -69,6 +73,7 @@ class UnifiedStrategy {
   async execute(input) {
     const { sessionId, message, webContents, signal, getState, mode, attachments } = input
     this.sessionId = sessionId
+    this.webContents = webContents || null
 
     // v9.1.0 修复：处理图片附件
     // - 渲染端 sendMessage 把 chatState.attachments 通过 IPC 传过来（之前在 IPC handler 被丢）
@@ -397,7 +402,14 @@ class UnifiedStrategy {
           } else if (skill) {
             let execResult
             try {
-              execResult = await this.skillExecutor.execute(name, args, sessionId)
+              // v9.1.0: 传 runtimeCtx（含 sessionId/orchestrator/webContents）给 SkillExecutor
+              // - todo_manage 用 sessionId 隔离会话清单
+              // - ask_user 用 orchestrator/webContents 跨进程等待用户回答
+              execResult = await this.skillExecutor.execute(name, args, {
+                sessionId,
+                orchestrator: this.orchestrator,
+                webContents: this.webContents
+              })
             } catch (execErr) {
               execResult = { success: false, error: execErr.message }
             }

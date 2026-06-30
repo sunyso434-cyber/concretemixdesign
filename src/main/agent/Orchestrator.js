@@ -31,10 +31,16 @@ class Orchestrator {
     // 注入 control mixin
     Object.assign(this, controlMixin)
 
+    // v9.1.0: 初始化 ask_user 跨进程协同所需字段
+    this._pendingConfirmation = null
+    this._confirmationTimer = null
+
     // 选 strategy
     const Strategy = this._resolveStrategy(strategyName)
     this.strategy = new Strategy({
-      deepseekService, skillRegistry, skillExecutor, agentMemoryService, systemService
+      deepseekService, skillRegistry, skillExecutor, agentMemoryService, systemService,
+      // v9.1.0: 把 self 传给 strategy，让 ask_user 等 skill 能通过 context.orchestrator 拿到本实例
+      orchestrator: this
     })
   }
 
@@ -64,6 +70,8 @@ class Orchestrator {
   async run(input) {
     this.state = 'running'
     this.webContents = input.webContents || null
+    // v9.1.0: 存 sessionId 到实例，让 controlMixin 的 requestConfirmation 能按 sessionId 路由
+    this.sessionId = input.sessionId || null
     this._abortController = new AbortController()
 
     try {

@@ -1576,10 +1576,9 @@ const SmartDesignChat = () => {
                       {/* Agent 流式时间线（思考过程 + 工具调用，嵌入 AI 输出内部）— spec 7: pause/resume 由 Esc/Enter 替代 */}
                       {state.confirmation && (
                         <DecisionGate
-                          toolName={state.confirmation.toolName}
-                          args={state.confirmation.args}
-                          onConfirm={(args) => { window.electronAPI.invoke('agent:confirm', { confirmed: true, args }); dispatch({ type: 'SET_CONFIRMATION', payload: null }) }}
-                          onReject={() => { window.electronAPI.invoke('agent:confirm', { confirmed: false }); dispatch({ type: 'SET_CONFIRMATION', payload: null }) }}
+                          confirmation={state.confirmation}
+                          onConfirm={(args) => { window.electronAPI.invoke('agent:confirm', { sessionId: state.session.currentId, confirmed: true, args }); dispatch({ type: 'SET_CONFIRMATION', payload: null }) }}
+                          onReject={() => { window.electronAPI.invoke('agent:confirm', { sessionId: state.session.currentId, confirmed: false }); dispatch({ type: 'SET_CONFIRMATION', payload: null }) }}
                         />
                       )}
                       {item.toolEvents?.length > 0 && (

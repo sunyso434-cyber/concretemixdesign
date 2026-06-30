@@ -1,3 +1,115 @@
+## v9.1.0 补充6 (2026-06-30) - 新增 todo_manage 和 ask_user 技能（Agent任务清单管理 + 执行中向用户提问）
+
+### 改动内容
+
+1. **新增 todo_manage 技能（任务清单管理）**
+   - 让 AI Agent 在执行多步骤任务时维护内部任务清单，跟踪进度
+   - 支持 6 种操作：create（创建清单）/ add（追加任务）/ update（改单条）/ complete（标记完成）/ list（查看）/ clear（清空）
+   - 用 `Map<sessionId, Todo[]>` 模块级存储，不同会话隔离互不干扰
+   - 会话结束时由 agentHandler 自动调 `_cleanupSession(sessionId)` 释放内存
+
+2. **新增 ask_user 技能（执行中向用户提问）**
+   - 让 AI Agent 在执行过程中遇到歧义时主动向老板提问收集决策信息
+   - 两种提问模式：`inputType='text'`（文本输入）/ `inputType='choice'`（单选）
+   - 通过 `orchestrator.requestConfirmation()` 跨进程推前端弹窗，等待回答后继续执行
+   - 超时降级：90 秒未回答自动用 `defaultValue` 兜底（严格小于会话锁 120 秒，避免锁冲突）
+   - 错误分类：USER_REJECTED / USER_CONFIRMATION_TIMEOUT / NO_WEB_CONTENTS / 嵌套调用拒绝
+
+3. **SkillExecutor 注入 runtimeCtx（核心改动）**
+   - `execute(skillName, args, runtimeCtx)` 新增第三参数，注入 sessionId/orchestrator/webContents 到 skill context
+   - 让 skill 能拿到会话 ID 和 Orchestrator 实例，无需改 DynamicContextProvider
+
+4. **补齐 Orchestrator 死代码**
+   - 原代码 `agentHandler.js:439` 调用 `orchestrator.resolveConfirmation()` 但该方法从未实现（死代码）
+   - 在 `controlMixin.js` 补齐 `requestConfirmation(payload)` 和 `resolveConfirmation(confirmed, args)` 实现
+   - `requestConfirmation` 通过 `webContents.send('agent:confirmation-request', ...)` 推前端，90s 超时自动 reject
+
+5. **修复 agent:confirm IPC 路由 bug（旧 bug）**
+   - 原 `agent:confirm` IPC handler 用全局 `orchestrator` 变量路由确认结果
+   - 多会话并行时会路由到错误的会话（竞态条件）
+   - 修复为按 `sessionId` 路由到对应会话的 orchestrator
+
+6. **前端 DecisionGate 扩展支持 ask_user**
+   - props 从 `{ toolName, args, onConfirm, onReject }` 改为 `{ confirmation, onConfirm, onReject }`
+   - 通过 `inputType` 分支渲染：原有 requiresConfirmation 模式 / ask_user text 模式 / ask_user choice 模式
+   - SmartDesignChat 调用 `agent:confirm` 时带 `sessionId: state.session.currentId`
+
+### 新增文件（4 个）
+
+- `src/main/skills/todo-manage.js`：todo_manage 技能，6 种 action + 会话隔离 + 清理钩子
+- `src/main/skills/ask-user.js`：ask_user 技能，跨进程提问 + 超时降级 + 错误分类
+- `src/main/__tests__/skills/todo-manage.test.js`：33 个测试用例
+- `src/main/__tests__/skills/ask-user.test.js`：18 个测试用例
+
+### 修改文件（7 个）
+
+- `src/main/agent/SkillExecutor.js`：execute 新增第三参数 runtimeCtx
+- `src/main/agent/Orchestrator.js`：传 orchestrator: this 给 strategy；run 时存 sessionId/webContents
+- `src/main/agent/controlMixin.js`：补齐 requestConfirmation/resolveConfirmation 实现
+- `src/main/agent/strategies/UnifiedStrategy.js`：构造函数接收 orchestrator；调 skillExecutor 时传 runtimeCtx
+- `src/main/ipcHandlers/agentHandler.js`：会话结束清理 todo；修复 agent:confirm 按 sessionId 路由
+- `src/renderer/components/DecisionGate.jsx`：重写支持 ask_user 的 text/choice 模式
+- `src/renderer/components/SmartDesignChat.jsx`：confirm 调用带 sessionId
+
+### 边缘情况
+
+- ask_user 90 秒未回答 → 用 defaultValue 兜底；无 defaultValue 返回空串
+- ask_user 嵌套调用（已有进行中的确认请求）→ 拒绝并返回错误
+- ask_user 无 webContents 或 webContents 已销毁 → 返回 NO_WEB_CONTENTS
+- ask_user 用户点取消 → 返回 USER_REJECTED
+- todo_manage 不同会话操作互不干扰（会话隔离）
+- todo_manage 会话结束自动清理内存清单
+- todo_manage update 不传 todoId / complete 不传 todoId / 操作不存在的清单或任务 → 明确错误返回
+
+### 测试结果
+
+- `todo-manage.test.js`：33/33 通过（覆盖 6 种 action、状态流转、会话隔离、_cleanupSession、错误处理）
+- `ask-user.test.js`：18/18 通过（覆盖正常回答、取消、超时、超时降级、无 orchestrator、嵌套、空值、未知错误）
+- agent + skills 目录：124/124 通过
+- 全套件：1531/1550 通过，19 失败已确认均为预先存在的与本次改动无关的失败（PDF.js worker / babel parser 等）
+
+### 打包产物
+
+- `dist-9.0.0\砼智 Setup 9.1.0.exe`（安装版）
+- `dist-9.0.0\砼智-9.1.0-x64.exe`（便携版）
+
+---
+
+## v9.1.0 补充5 (2026-06-30) - 新增原材料管理技能（Agent可增减原材料）
+
+### 改动内容
+
+1. **新增 manage_materials 技能**
+   - 让 AI Agent 能够直接新增(create)、修改(update)、删除(delete)材料库中的原材料信息
+   - 三种操作均走已有的 MaterialService（createMaterial/updateMaterial/deleteMaterial），与 UI 操作同一数据库，数据完全一致
+   - SkillRegistry 启动时自动扫描加载，无需改 main.js
+
+2. **按材料类型校验检测参数（核心）**
+   - 字段分为通用字段（所有材料都有）和专用字段（按 8 种类型分别配置）
+   - 不属于该材料类型的字段会被自动过滤，并在返回结果中以 warnings 提示
+   - 系统自动计算字段（细度模数 finenessModulus、级配 grading、胶凝系数 cementitiousFactor_xx）不接受 AI 写入
+   - id 字段会被自动剔除，防止覆盖数据库自增主键
+   - 工具描述中写明每种材料类型该填的字段，引导 AI 正确填写
+
+3. **安全设计**
+   - 允许删除任何材料（包括 isSystem:true 的系统预设），返回时标注 wasSystem 知会调用方
+   - update 必须传 id，不传则拒绝（避免误改同名材料）
+   - update 时若不传 type，按数据库现有 type 校验字段；若传新 type，按新 type 校验
+
+### 修改文件（1 个，新增）
+
+- `src/main/skills/material-manage.js`：新增 manage_materials 技能，含字段白名单、类型校验、warnings 提示
+
+### 边缘情况
+
+- AI 给水泥填"含泥量" → 过滤掉，warnings 提示已忽略
+- AI 填"细度模数/级配/胶凝系数" → 过滤掉（系统自动计算字段）
+- AI 传 id 字段 → 自动删除，用数据库自增 id
+- update 不传 type 时按现有 type 校验，传新 type 时按新 type 校验
+- create 缺 name/type、type 非法、update/delete 缺 id、材料不存在等均有明确错误返回
+
+---
+
 ## v9.1.0 补充4 (2026-06-30) - 修复孤儿页根因 + 批量导入 AbortController 修复
 
 ### 改动内容

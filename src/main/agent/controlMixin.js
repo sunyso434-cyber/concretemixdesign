@@ -104,10 +104,91 @@ function _cleanMessage(msg) {
   return cleaned
 }
 
+/**
+ * v9.1.0 ask_user：向用户发起确认请求（跨进程等待用户回答）
+ *
+ * 流程：
+ * 1. skill（如 ask_user）调 context.orchestrator.requestConfirmation({ question, inputType, ... })
+ * 2. 本方法把请求存到 this._pendingConfirmation（Promise），通过 webContents 发 agent:confirmation-request 事件
+ * 3. 前端 DecisionGate 收到事件弹窗，用户回答后调 IPC agent:confirm
+ * 4. agentHandler.js 的 agent:confirm handler 调 orchestrator.resolveConfirmation(confirmed, args)
+ * 5. 本方法 resolve/reject 上面那个 Promise，skill 拿到结果继续执行
+ *
+ * 超时：90s（必须 < AGENT_LOCK_TIMEOUT 120s，避免会话锁先释放）
+ *
+ * @param {object} payload - 请求载荷
+ * @param {string} payload.question - 要问用户的问题
+ * @param {string} [payload.inputType='text'] - 'text' 自由文本 / 'choice' 选项
+ * @param {string[]} [payload.options] - inputType='choice' 时的选项
+ * @param {string} [payload.placeholder] - inputType='text' 时的输入框占位
+ * @param {string} [payload.defaultValue] - 用户跳过时的默认值
+ * @param {string} [payload.toolName] - 工具名（用于前端显示）
+ * @returns {Promise<object>} resolve 为 { answer } 或 reject 为 Error('USER_REJECTED'/'USER_CONFIRMATION_TIMEOUT')
+ */
+function requestConfirmation(payload) {
+  if (this._pendingConfirmation) {
+    return Promise.reject(new Error('已有进行中的确认请求，不支持嵌套'))
+  }
+  return new Promise((resolve, reject) => {
+    this._pendingConfirmation = { resolve, reject, payload }
+    // 发事件给前端，前端 DecisionGate 弹窗
+    if (this.webContents && !this.webContents.isDestroyed?.()) {
+      try {
+        this.webContents.send('agent:confirmation-request', {
+          sessionId: this.sessionId,
+          ...payload
+        })
+      } catch (e) {
+        // webContents 发送失败 → 立即 reject，避免永久等待
+        this._pendingConfirmation = null
+        reject(new Error('WEB_CONTENTS_SEND_FAILED'))
+        return
+      }
+    } else {
+      // 无 webContents（CLI 场景或窗口已关闭）→ 立即 reject
+      this._pendingConfirmation = null
+      reject(new Error('NO_WEB_CONTENTS'))
+      return
+    }
+    // 90s 超时（< AGENT_LOCK_TIMEOUT 120s）
+    this._confirmationTimer = setTimeout(() => {
+      if (this._pendingConfirmation) {
+        const p = this._pendingConfirmation
+        this._pendingConfirmation = null
+        p.reject(new Error('USER_CONFIRMATION_TIMEOUT'))
+      }
+    }, 90 * 1000)
+  })
+}
+
+/**
+ * v9.1.0 ask_user：用户回答后由 agentHandler.agent:confirm IPC 调用，resolve 上面的 Promise
+ *
+ * @param {boolean} confirmed - true=用户确认/回答，false=用户取消
+ * @param {object} [args] - 用户回答的内容（如 { answer: 'xxx' }）
+ */
+function resolveConfirmation(confirmed, args) {
+  if (!this._pendingConfirmation) {
+    // 无 pending 请求（可能是过时事件或重复调用），静默返回
+    return
+  }
+  clearTimeout(this._confirmationTimer)
+  this._confirmationTimer = null
+  const { resolve, reject } = this._pendingConfirmation
+  this._pendingConfirmation = null
+  if (confirmed) {
+    resolve(args || {})
+  } else {
+    reject(new Error('USER_REJECTED'))
+  }
+}
+
 module.exports = {
   _notifyProgress,
   pause,
   resume,
   abort,
-  _cleanMessage
+  _cleanMessage,
+  requestConfirmation,
+  resolveConfirmation
 }

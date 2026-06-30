@@ -308,6 +308,13 @@ function registerAgentHandlers() {
         s.running = false
         s.startedAt = 0
       }
+      // v9.1.0 todo_manage：清理该会话的内存清单，防内存泄漏
+      try {
+        const todoManage = require('../skills/todo-manage')
+        if (todoManage._cleanupSession) todoManage._cleanupSession(sessionId)
+      } catch (e) {
+        _log(`[AgentHandler] 清理 todo_manage 失败: ${e.message}`)
+      }
       _log(`[AgentHandler] 🔓 agent:run 释放锁 sessionId=${sessionId} requestId=${reqId}`)
     }
   })
@@ -434,8 +441,19 @@ function registerAgentHandlers() {
     }
   })
 
-  ipcMain.handle('agent:confirm', async (_event, { confirmed, args }) => {
-    if (orchestrator) {
+  // v9.1.0 ask_user：按 sessionId 路由到对应会话的 Orchestrator.resolveConfirmation
+  // 旧实现用全局 orchestrator，多会话并行时会路由错误（A 会话的问题被 B 会话回答）
+  ipcMain.handle('agent:confirm', async (_event, { sessionId, confirmed, args }) => {
+    // 优先按 sessionId 路由（每会话独立 Orchestrator）
+    if (sessionId) {
+      const s = sessionAgents.get(sessionId)
+      if (s?.orchestrator && typeof s.orchestrator.resolveConfirmation === 'function') {
+        s.orchestrator.resolveConfirmation(confirmed, args)
+        return { success: true }
+      }
+    }
+    // 兼容旧路径：无 sessionId 时退回全局 orchestrator（仍保留旧死代码行为，避免破坏 requiresConfirmation 场景）
+    if (orchestrator && typeof orchestrator.resolveConfirmation === 'function') {
       orchestrator.resolveConfirmation(confirmed, args)
     }
     return { success: true }

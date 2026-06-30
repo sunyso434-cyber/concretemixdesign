@@ -22,9 +22,13 @@ class SkillExecutor {
    * 执行 Skill
    * @param {string} skillName - Skill 名称
    * @param {object} args - 参数
+   * @param {{ sessionId?: string, orchestrator?: object, webContents?: object }} [runtimeCtx] - 运行时上下文（可选）
+   *   - sessionId：当前会话 ID（todo_manage 等需要按会话隔离的 skill 使用）
+   *   - orchestrator：当前会话的 Orchestrator 实例（ask_user 等跨进程协同 skill 使用）
+   *   - webContents：当前会话的渲染进程 webContents
    * @returns {object} 执行结果
    */
-  async execute(skillName, args) {
+  async execute(skillName, args, runtimeCtx = {}) {
     // 1. 查找 Skill
     const skill = this.registry.getSkill(skillName)
     if (!skill) {
@@ -46,8 +50,11 @@ class SkillExecutor {
       )
     }
 
-    // 3. 获取上下文
+    // 3. 获取上下文（注入 runtimeCtx，让 skill 能拿到 sessionId/orchestrator/webContents）
     const context = this.contextProvider.getForSkill(skillName)
+    if (runtimeCtx.sessionId) context.sessionId = runtimeCtx.sessionId
+    if (runtimeCtx.orchestrator) context.orchestrator = runtimeCtx.orchestrator
+    if (runtimeCtx.webContents) context.webContents = runtimeCtx.webContents
 
     // 4. 执行
     try {
