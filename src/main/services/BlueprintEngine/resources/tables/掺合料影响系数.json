@@ -1,0 +1,42 @@
+{
+  "name": "掺合料影响系数",
+  "description": "掺合料（粉煤灰/矿渣粉/锂渣/复合粉）对胶凝材料强度的影响系数 γ_f。原 MixDesignService 按固定掺量档位 [10,20,30,40,50] 查表并线性插值；各档位系数优先取自原材料字段 influenceFactor_10/20/30/40/50，缺失时回退到本表默认值。BlueprintEngine 复制此默认值表供独立使用。",
+  "version": "1.0",
+  "source": {
+    "file": "src/main/services/MixDesignService/MixDesignService_WaterRatio.js",
+    "function": "calculateInfluenceFactor",
+    "lines": "86-143"
+  },
+  "unit": "无量纲",
+  "interpolation": "linear",
+  "floor": 0.1,
+  "dimensions": [
+    { "name": "掺量", "unit": "%", "values": [10, 20, 30, 40, 50] }
+  ],
+  "data": [
+    [1.0],
+    [1.0],
+    [1.05],
+    [1.1],
+    [1.15]
+  ],
+  "defaultFactors": {
+    "10": 1.0,
+    "20": 1.0,
+    "30": 1.05,
+    "40": 1.1,
+    "50": 1.15
+  },
+  "boundaryBehavior": {
+    "belowMin": "使用最低档位系数（10档）",
+    "aboveMax": "使用最高档位系数（50档）"
+  },
+  "combinationRule": {
+    "description": "多种掺合料同时存在时，各影响系数直接相乘",
+    "formula": "γ_f_total = γ_f1 × γ_f2 × γ_f3 × γ_f4"
+  },
+  "materialFieldOverride": {
+    "fields": ["influenceFactor_10", "influenceFactor_20", "influenceFactor_30", "influenceFactor_40", "influenceFactor_50"],
+    "note": "原材料若提供上述字段，则覆盖本表默认值；并强制下限 0.1"
+  }
+}
