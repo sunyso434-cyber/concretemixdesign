@@ -57,6 +57,42 @@ function safeParseJSON(text) {
 }
 
 /**
+ * 解析图片路径：支持绝对路径，或相对于当前工作区根目录的相对路径。
+ * workspace_listFiles 返回的路径带 root/ 前缀，这里做兼容处理。
+ */
+function resolveImagePath(imagePath, workspaceManager) {
+  if (!imagePath) return imagePath
+
+  // 绝对路径直接使用（Windows 盘符或 POSIX / 开头）
+  if (path.isAbsolute(imagePath)) return imagePath
+
+  // 相对路径需要工作区上下文
+  if (!workspaceManager) {
+    throw createError(
+      'E-VISION-MISSING-WORKSPACE',
+      '工作区未打开，无法解析相对图片路径',
+      '请先打开工作区，或传入图片的绝对路径'
+    )
+  }
+
+  const current = workspaceManager.current()
+  if (!current || !current.path) {
+    throw createError(
+      'E-VISION-MISSING-WORKSPACE',
+      '工作区未打开，无法解析相对图片路径',
+      '请先打开工作区，或传入图片的绝对路径'
+    )
+  }
+
+  let relPath = imagePath.replace(/\\/g, '/')
+  if (relPath.startsWith('root/')) {
+    relPath = relPath.slice(5)
+  }
+
+  return path.posix.join(current.path.replace(/\\/g, '/'), relPath)
+}
+
+/**
  * 把 createError 的标准返回结果补上 errorCode 别名，
  * 让 brief 约定（result.errorCode）的调用方也能识别。
  */
@@ -81,7 +117,7 @@ const skills = [
       },
       imagePath: {
         type: 'string',
-        description: '图片文件的绝对路径（工作区入口）。',
+        description: '图片文件路径。支持绝对路径，或相对于当前工作区根目录的相对路径（如 "cement-report-jc003.jpg" 或 "root/cement-report-jc003.jpg"）。',
         required: false
       },
       question: {
@@ -95,7 +131,7 @@ const skills = [
         required: false
       }
     },
-    services: ['systemService'],
+    services: ['systemService', 'workspace'],
     async execute(args, ctx) {
       const ss = ctx.systemService
       if (!ss) {
@@ -129,9 +165,19 @@ const skills = [
       let base64 = args.imageBase64
       let source = { type: 'pasted' }
       if (!base64 && args.imagePath) {
+        let resolvedPath
         try {
-          base64 = await readImageAsBase64(args.imagePath)
-          source = { type: 'workspace', path: args.imagePath }
+          // 运行时动态读 global.workspaceManager，绕过 DynamicContextProvider
+          // 启动时快照失效问题（与 workspaceTools.js 做法一致）
+          const wm = ctx.workspace || global.workspaceManager
+          resolvedPath = resolveImagePath(args.imagePath, wm)
+        } catch (err) {
+          if (err.code) return withErrorCodeAlias(err)
+          throw err
+        }
+        try {
+          base64 = await readImageAsBase64(resolvedPath)
+          source = { type: 'workspace', path: resolvedPath }
         } catch (err) {
           if (err.code) return withErrorCodeAlias(err)  // E-VISION-FILE-NOT-FOUND
           throw err

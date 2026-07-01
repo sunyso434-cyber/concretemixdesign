@@ -110,6 +110,99 @@ describe('analyze_concrete_image', () => {
     expect(result.errorCode).toBe('E-VISION-FILE-NOT-FOUND')
   })
 
+  test('传相对文件名时自动解析到工作区根目录', async () => {
+    const tmpDir = path.join(__dirname, 'workspace-root')
+    const tmpFile = path.join(tmpDir, 'cement-report-jc003.jpg')
+    fs.mkdirSync(tmpDir, { recursive: true })
+    fs.writeFileSync(tmpFile, Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]))
+
+    const mockWorkspace = {
+      current: jest.fn().mockReturnValue({ path: tmpDir.replace(/\\/g, '/') })
+    }
+
+    try {
+      const s = skills.find(x => x.name === 'analyze_concrete_image')
+      const result = await s.execute({ imagePath: 'cement-report-jc003.jpg' }, {
+        systemService: mockSystemService,
+        workspace: mockWorkspace
+      })
+      const vision = getLastVisionInstance()
+      const callArgs = vision.analyze.mock.calls[0][0]
+      expect(callArgs.base64).toMatch(/^data:image\/jpeg;base64,/)
+      expect(result.success).toBe(true)
+      expect(mockWorkspace.current).toHaveBeenCalled()
+    } finally {
+      fs.unlinkSync(tmpFile)
+      fs.rmdirSync(tmpDir)
+    }
+  })
+
+  test('传 root/ 前缀路径时自动解析到工作区根目录', async () => {
+    const tmpDir = path.join(__dirname, 'workspace-root')
+    const tmpFile = path.join(tmpDir, 'cement-report-jc003.jpg')
+    fs.mkdirSync(tmpDir, { recursive: true })
+    fs.writeFileSync(tmpFile, Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]))
+
+    const mockWorkspace = {
+      current: jest.fn().mockReturnValue({ path: tmpDir.replace(/\\/g, '/') })
+    }
+
+    try {
+      const s = skills.find(x => x.name === 'analyze_concrete_image')
+      const result = await s.execute({ imagePath: 'root/cement-report-jc003.jpg' }, {
+        systemService: mockSystemService,
+        workspace: mockWorkspace
+      })
+      const vision = getLastVisionInstance()
+      const callArgs = vision.analyze.mock.calls[0][0]
+      expect(callArgs.base64).toMatch(/^data:image\/jpeg;base64,/)
+      expect(result.success).toBe(true)
+    } finally {
+      fs.unlinkSync(tmpFile)
+      fs.rmdirSync(tmpDir)
+    }
+  })
+
+  test('传相对路径但工作区未打开时返回 E-VISION-MISSING-WORKSPACE', async () => {
+    const s = skills.find(x => x.name === 'analyze_concrete_image')
+    const result = await s.execute({ imagePath: 'cement-report-jc003.jpg' }, {
+      systemService: mockSystemService,
+      workspace: { current: jest.fn().mockReturnValue(null) }
+    })
+    expect(result.success).toBe(false)
+    expect(result.errorCode).toBe('E-VISION-MISSING-WORKSPACE')
+  })
+
+  test('ctx.workspace 为 null 时 fallback 到 global.workspaceManager', async () => {
+    const tmpDir = path.join(__dirname, 'workspace-global')
+    const tmpFile = path.join(tmpDir, 'test.png')
+    fs.mkdirSync(tmpDir, { recursive: true })
+    fs.writeFileSync(tmpFile, Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]))
+
+    const mockGlobalWorkspace = {
+      current: jest.fn().mockReturnValue({ path: tmpDir.replace(/\\/g, '/') })
+    }
+    const prevGlobal = global.workspaceManager
+    global.workspaceManager = mockGlobalWorkspace
+
+    try {
+      const s = skills.find(x => x.name === 'analyze_concrete_image')
+      // 故意不传 workspace，触发 global fallback
+      const result = await s.execute({ imagePath: 'test.png' }, {
+        systemService: mockSystemService
+      })
+      const vision = getLastVisionInstance()
+      const callArgs = vision.analyze.mock.calls[0][0]
+      expect(callArgs.base64).toMatch(/^data:image\/png;base64,/)
+      expect(result.success).toBe(true)
+      expect(mockGlobalWorkspace.current).toHaveBeenCalled()
+    } finally {
+      global.workspaceManager = prevGlobal
+      fs.unlinkSync(tmpFile)
+      fs.rmdirSync(tmpDir)
+    }
+  })
+
   test('视觉模型返回非 JSON 时降级为纯文本', async () => {
     // 覆盖默认返回值
     mockAnalyze.mockResolvedValue({ content: '图片里有一条裂缝', raw: {} })

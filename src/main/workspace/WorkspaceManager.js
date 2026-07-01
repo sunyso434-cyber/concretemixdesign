@@ -307,6 +307,12 @@ class WorkspaceManager extends EventEmitter {
         }
       } else if (e.isFile()) {
         const fileEntry = { name: e.name, path: entryRel, size: 0, type: 'file' }
+        try {
+          const stat = await fs.stat(entryPath)
+          fileEntry.size = stat.size
+        } catch (_) {
+          // stat 失败时保持 size=0，不阻塞 listFiles
+        }
         // 仅当 subdir === 'root' 时把 ingested 状态挂上
         // （wiki 子目录下的文件本身就是摄入产物，不存在「再摄入」语义）
         if (ingestMap && relDir === 'root') {

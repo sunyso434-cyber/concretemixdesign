@@ -68,6 +68,7 @@ const AI_ERROR_REGISTRY = {
   'E-VISION-MISSING-IMAGE': { title: '缺少图片', hint: '请提供 imageBase64 或 imagePath', recovery: 'fix_params', severity: 'error' },
   'E-VISION-FILE-NOT-FOUND': { title: '图片不存在', hint: '请检查文件路径', recovery: 'fix_params', severity: 'error' },
   'E-VISION-FILE-TOO-LARGE': { title: '图片过大', hint: '请压缩后再上传', recovery: 'fix_params', severity: 'error' },
+  'E-VISION-MISSING-WORKSPACE': { title: '工作区未打开', hint: '请先打开工作区，或传入图片的绝对路径', recovery: 'fix_params', severity: 'error' },
 }
 
 /**
