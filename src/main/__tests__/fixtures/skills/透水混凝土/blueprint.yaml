@@ -1,0 +1,133 @@
+# 透水混凝土配合比设计蓝图
+#
+# 关键差异 vs 普通混凝土：
+# - 由目标孔隙率驱动，非水胶比
+# - 不需要砂率查表（透水混凝土通常无砂或少砂）
+# - 骨料用量 = 紧密堆积密度 × (1 - 目标孔隙率)
+# - 浆体体积 = 目标孔隙率 − 实际孔隙余量
+
+blueprint:
+  name: "透水混凝土配合比设计"
+  tables: {}
+
+  steps:
+    # 1. 用户输入
+    - type: input
+      var: target_porosity
+      from: "target_porosity"
+      default: 20
+
+    - type: input
+      var: max_agg_size
+      from: "max_agg_size"
+      value_map:
+        "10": 10
+        "16": 16
+        "20": 20
+      default: 16
+
+    - type: input
+      var: strength_grade
+      from: "strength_grade"
+      value_map:
+        C20: 20
+        C25: 25
+        C30: 30
+      default: 25
+
+    # 2. 原材料参数
+    - type: material
+      var: cement_strength
+      material_query:
+        category: "水泥"
+        requirements:
+          - property: "compressiveStrength28d"
+            min: 42.5
+        property: "compressiveStrength28d"
+
+    - type: material
+      var: coarse_agg_density
+      material_query:
+        category: "粗骨料"
+        property: "density"
+
+    # 3. 常数（透水混凝土经验值）
+    - type: const
+      var: packing_density
+      value: 0.55
+      # 紧密堆积密度系数，通常 0.50-0.60
+
+    - type: const
+      var: porosity_margin
+      value: 0.05
+      # 实际孔隙余量（浆体填充空隙不被压实）
+
+    # 4. 计算骨料用量
+    # 骨料体积 = packing_density * (1 - (target_porosity/100))
+    - type: formula
+      var: agg_volume_ratio
+      expr: "packing_density * (1 - target_porosity / 100)"
+
+    # 骨料质量 = 骨料体积比 * 粗骨料密度 * 1000（转换为kg/m³）
+    - type: formula
+      var: coarse_agg_mass
+      expr: "agg_volume_ratio * coarse_agg_density * 1000"
+
+    # 5. 水胶比（透水混凝土通常较低，0.25-0.35）
+    - type: const
+      var: wb
+      value: 0.30
+
+    # 6. 胶凝材料用量
+    # 浆体体积 = 1 - agg_volume_ratio
+    # 胶凝材料 = (浆体体积 * cement_density) / (1 + wb * cement_density / water_density)
+    # 简化：浆体 = 1 - agg_volume_ratio，wb已知，反算cement
+    - type: formula
+      var: paste_volume
+      expr: "1 - agg_volume_ratio"
+
+    # 胶凝材料估算 (简化模型：cement ≈ paste_volume / (1/density_cement + wb/1000))
+    # 水泥密度取 3.1 g/cm³ = 3100 kg/m³
+    - type: const
+      var: cement_density_kg
+      value: 3100
+
+    - type: formula
+      var: cement_mass
+      expr: "paste_volume / (1 / cement_density_kg + wb / 1000)"
+
+    # 7. 用水量
+    - type: formula
+      var: water_mass
+      expr: "cement_mass * wb"
+
+    # 8. 输出
+    - type: output
+      var: coarse_agg_mass
+      name: "粗骨料"
+      unit: "kg/m³"
+      precision: 1
+
+    - type: output
+      var: cement_mass
+      name: "水泥"
+      unit: "kg/m³"
+      precision: 1
+
+    - type: output
+      var: water_mass
+      name: "水"
+      unit: "kg/m³"
+      precision: 1
+
+    - type: output
+      var: wb
+      name: "水胶比"
+      unit: ""
+      precision: 3
+
+    - type: output
+      var: target_porosity
+      name: "目标孔隙率"
+      unit: "%"
+      precision: 0

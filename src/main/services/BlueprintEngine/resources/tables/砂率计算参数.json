@@ -1,0 +1,49 @@
+{
+  "name": "砂率计算参数",
+  "description": "JGJ 55-2011 砂率简化计算公式的常数参数。原 MixDesignService 采用经验公式：基准砂率 + 水胶比影响 + 坍落度影响 + 细度模数影响 + 骨料类型加成，并夹紧到 [0.28, 0.50] 区间。BlueprintEngine 复制此参数表供独立使用。",
+  "version": "1.0",
+  "source": {
+    "file": "src/main/services/MixDesignService/MixDesignService_Aggregate.js",
+    "function": "calculateSandRatio",
+    "lines": "552-573"
+  },
+  "standard": "JGJ 55-2011 表5.4.1 混凝土砂率（简化公式）",
+  "unit": "小数（0.37 表示 37%）",
+  "interpolation": "none",
+  "formula": "sandRatio = baseSandRatio + waterRatioEffect + slumpEffect + fmEffect + aggregateBonus",
+  "parameters": {
+    "baseSandRatio": {
+      "value": 0.37,
+      "description": "基准砂率（水胶比0.40、坍落度30-50mm、砂细度模数2.8 时）"
+    },
+    "waterRatioEffect": {
+      "coefficient": 0.2,
+      "formula": "(waterRatio - 0.40) * 0.2",
+      "description": "水胶比每增加0.05，砂率增加1%"
+    },
+    "slumpEffect": {
+      "coefficient": 0.01,
+      "formula": "((slump - 60) / 20) * 0.01",
+      "description": "坍落度每增加20mm，砂率增加1%（基准60mm）"
+    },
+    "fmEffect": {
+      "coefficient": 0.05,
+      "formula": "(finenessModulus - 2.8) * 0.05",
+      "description": "细度模数每增加0.1，砂率增加0.5%"
+    },
+    "aggregateBonus": {
+      "gravel": 0,
+      "cobble": 0.025,
+      "description": "卵石混凝土砂率比碎石高约2.5%"
+    },
+    "clamping": {
+      "min": 0.28,
+      "max": 0.50
+    }
+  },
+  "defaults": {
+    "finenessModulus": 2.8,
+    "aggregateType": "gravel"
+  },
+  "aggregateTypes": ["gravel", "cobble"]
+}

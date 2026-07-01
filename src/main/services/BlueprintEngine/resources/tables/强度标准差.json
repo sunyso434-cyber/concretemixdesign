@@ -1,0 +1,35 @@
+{
+  "name": "强度标准差",
+  "description": "JGJ 55-2011 混凝土强度标准差 σ（MPa），按强度等级分档取默认值。原 MixDesignService 优先取 tempSettings.strengthStdDev 或全局参数 strengthStdDev_C20/C25/C50，缺失时回退到本表默认值。BlueprintEngine 复制此默认值表供独立使用。",
+  "version": "1.0",
+  "source": {
+    "file": "src/main/services/MixDesignService/MixDesignService_Strength.js",
+    "function": "getStrengthStdDev",
+    "lines": "5-40"
+  },
+  "standard": "JGJ 55-2011 表4.2.1 混凝土强度标准差",
+  "unit": "MPa",
+  "interpolation": "step",
+  "dimensions": [
+    { "name": "强度等级", "unit": null, "values": ["C15-C20", "C25-C45", "C50-C60"] }
+  ],
+  "data": [
+    [4.0],
+    [5.0],
+    [6.0]
+  ],
+  "buckets": [
+    { "strengthRange": "≤C20", "stdDev": 4.0 },
+    { "strengthRange": "C25-C45", "stdDev": 5.0 },
+    { "strengthRange": "≥C50", "stdDev": 6.0 }
+  ],
+  "lookupLogic": "strengthNum = parseInt(strength.replace('C','')); strengthNum<=20→4.0; strengthNum>=50→6.0; else→5.0",
+  "overrideMechanism": {
+    "priority": [
+      "tempSettings.strengthStdDev",
+      "全局参数 SystemService.getParamByName('strengthStdDev_C20' | 'strengthStdDev_C25' | 'strengthStdDev_C50')",
+      "本表 buckets 默认值"
+    ]
+  },
+  "relatedFormula": "f_cu,0 = f_cu,k + 1.645 × σ"
+}

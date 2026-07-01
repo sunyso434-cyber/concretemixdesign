@@ -1,0 +1,136 @@
+# 普通混凝土 JGJ 55 完整蓝图
+# 步骤顺序：input → material → const → formula → if_else → formula → table_lookup → input → formula → formula → output
+# 与 spec §3.3.3 对应，并更新为实际 MixDesignService 的参数名
+blueprint:
+  name: "普通混凝土_JGJ55"
+
+  tables: {}
+
+  steps:
+    # 1. 用户输入：强度等级（含 value_map 字符串→数值映射）
+    - type: input
+      var: fcu_k
+      from: "strength_grade"
+      value_map:
+        C20: 20
+        C25: 25
+        C30: 30
+        C35: 35
+        C40: 40
+        C45: 45
+        C50: 50
+
+    # 2. 用户输入：强度标准差（默认 5.0MPa，C25-C45 范围）
+    - type: input
+      var: sigma
+      from: "sigma"
+      default: 5.0
+
+    # 3. 用户输入：坍落度
+    - type: input
+      var: slump
+      from: "slump"
+      default: 180
+
+    # 4. 用户输入：粗骨料最大粒径
+    - type: input
+      var: dmax
+      from: "dmax"
+      default: 20
+
+    # 5. 用户输入：粗骨料类型（碎石/卵石，用于 if_else 分支选择回归系数）
+    - type: input
+      var: aggregate_type
+      from: "aggregate_type"
+      default: "碎石"
+
+    # 6. 原材料参数：从原材料管理模块读取水泥 28 天抗压强度
+    # 注意：material_query 使用 category（非 type），无 name（运行时确定）
+    - type: material
+      var: cement_strength
+      material_query:
+        category: "水泥"
+        property: "compressiveStrength28d"
+
+    # 7. 常数：富余系数（纯水泥，无掺合料时为 1.0）
+    - type: const
+      var: rich_factor
+      value: 1.0
+
+    # 8. 公式：胶凝材料 28 天抗压强度 f_b
+    - type: formula
+      var: fb
+      expr: "rich_factor * cement_strength"
+
+    # 9. 公式：配置强度 f_cu,0 = f_cu,k + 1.645 × σ
+    - type: formula
+      var: fcu_o
+      expr: "fcu_k + 1.645 * sigma"
+
+    # 10. 条件分支：按骨料类型设定回归系数 α_a、α_b（JGJ 55 表5.2.1-1）
+    # 碎石 → α_a=0.53, α_b=0.20 | 卵石 → α_a=0.49, α_b=0.13
+    - type: if_else
+      condition: 'aggregate_type == "碎石"'
+      then:
+        - type: const
+          var: alpha_a
+          value: 0.53
+        - type: const
+          var: alpha_b
+          value: 0.20
+      else:
+        - type: const
+          var: alpha_a
+          value: 0.49
+        - type: const
+          var: alpha_b
+          value: 0.13
+
+    # 11. 公式：水胶比 W/B = (α_a × f_b) / (f_cu,0 + α_a × α_b × f_b)
+    - type: formula
+      var: wb
+      expr: "(alpha_a * fb) / (fcu_o + alpha_a * alpha_b * fb)"
+
+    # 12. 查用水量表：双线性插值（坍落度 × 最大粒径 → 基准用水量 kg/m³）
+    - type: table_lookup
+      var: m_wo
+      table: "用水量-坍落度-最大粒径"
+      lookup_mode: bilinear
+      keys:
+        坍落度: "$slump"
+        最大粒径: "$dmax"
+
+    # 13. 用户输入：减水率（小数，0.31 表示 31% 减水率）
+    - type: input
+      var: water_reducer
+      from: "water_reducer"
+      default: 0.0
+
+    # 14. 公式：实际用水量 = 基准用水量 × (1 - 减水率)
+    - type: formula
+      var: m_wa
+      expr: "m_wo * (1 - water_reducer)"
+
+    # 15. 公式：胶凝材料用量 = 实际用水量 / 水胶比
+    - type: formula
+      var: m_bo
+      expr: "m_wa / wb"
+
+    # 16. 输出 × 3：水、胶凝材料、水胶比
+    - type: output
+      var: m_wa
+      name: "水"
+      unit: "kg/m³"
+      precision: 1
+
+    - type: output
+      var: m_bo
+      name: "胶凝材料"
+      unit: "kg/m³"
+      precision: 0
+
+    - type: output
+      var: wb
+      name: "水胶比"
+      unit: ""
+      precision: 3

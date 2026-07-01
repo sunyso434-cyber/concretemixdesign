@@ -1,0 +1,58 @@
+{
+  "name": "用水量-坍落度-最大粒径",
+  "description": "JGJ 55-2011 表5.2.1-2 塑性混凝土的用水量 (kg/m³)。按骨料类型（卵石/碎石）分两张子表，查找维度为最大粒径与坍落度。原 MixDesignService 采用桶式分段查找（坍落度按 ≤30/≤50/≤70/≤90 四档），坍落度 >90mm 时按线性外推。",
+  "version": "1.0",
+  "source": {
+    "file": "src/main/services/MixDesignService/MixDesignService_Aggregate.js",
+    "function": "getBaseWaterAmount",
+    "lines": "237-288"
+  },
+  "standard": "JGJ 55-2011 表5.2.1-2 塑性混凝土的用水量",
+  "unit": "kg/m³",
+  "interpolation": "step",
+  "slumpBuckets": [
+    { "index": 0, "range": "10-30", "upperBound": 30 },
+    { "index": 1, "range": "35-50", "upperBound": 50 },
+    { "index": 2, "range": "55-70", "upperBound": 70 },
+    { "index": 3, "range": "75-90", "upperBound": 90 }
+  ],
+  "extensionRule": {
+    "appliesWhen": "slump > 90",
+    "baseBucketIndex": 3,
+    "steps": [
+      { "slumpRange": "(90, 180]", "incrementPer20mm": 5 },
+      { "slumpRange": "(180, +∞)", "incrementPer20mm": 3, "note": "超过180mm后每20mm增加3kg" }
+    ],
+    "formula": "baseWater = table[maxSize][3] + floor((min(slump,180) - 90) / 20) * 5 + (slump > 180 ? floor((slump - 180) / 20) * 3 : 0)"
+  },
+  "tables": {
+    "卵石": {
+      "dimensions": [
+        { "name": "最大粒径", "unit": "mm", "values": [10, 20, 31.5, 40] },
+        { "name": "坍落度", "unit": "mm", "values": [30, 50, 70, 90] }
+      ],
+      "data": [
+        [190, 200, 210, 215],
+        [170, 180, 190, 195],
+        [160, 170, 180, 185],
+        [150, 160, 170, 175]
+      ]
+    },
+    "碎石": {
+      "dimensions": [
+        { "name": "最大粒径", "unit": "mm", "values": [16, 20, 31.5, 40] },
+        { "name": "坍落度", "unit": "mm", "values": [30, 50, 70, 90] }
+      ],
+      "data": [
+        [200, 210, 220, 230],
+        [185, 195, 205, 215],
+        [175, 185, 195, 205],
+        [165, 175, 185, 195]
+      ]
+    }
+  },
+  "lookupAlgorithm": {
+    "maxSizeSelection": "选择不超过输入值的最大档位（向下取整到表内档）",
+    "slumpSelection": "按 upperBound 阈值分段：slump<=30→0, <=50→1, <=70→2, <=90→3, >90→外推"
+  }
+}

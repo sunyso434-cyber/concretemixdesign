@@ -1,0 +1,27 @@
+name: "透水混凝土配合比设计"
+description: "按目标孔隙率设计透水混凝土配合比"
+version: "1.0.0"
+concrete_type: "pervious"
+author: "手写验证"
+created_at: "2026-07-01"
+
+parameters:
+  - name: target_porosity
+    label: "目标孔隙率 (%)"
+    type: number
+    required: true
+    min: 10
+    max: 30
+    default: 20
+  - name: max_agg_size
+    label: "粗骨料最大粒径 (mm)"
+    type: select
+    required: true
+    options: ["10", "16", "20"]
+    default: "16"
+  - name: strength_grade
+    label: "强度等级"
+    type: select
+    required: true
+    options: ["C20", "C25", "C30"]
+    default: "C25"

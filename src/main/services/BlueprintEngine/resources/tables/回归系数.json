@@ -1,0 +1,31 @@
+{
+  "name": "回归系数",
+  "description": "JGJ 55-2011 水胶比计算公式中的回归系数 α_a、α_b。原 MixDesignService 仅内置碎石默认值 (0.53, 0.20)，卵石默认值未在代码中定义，需由用户通过 tempSettings 或全局参数 (SystemService regressionAlphaA/regressionAlphaB) 覆盖。BlueprintEngine 复制此默认值供独立使用。",
+  "version": "1.0",
+  "source": {
+    "file": "src/main/services/MixDesignService/MixDesignService_WaterRatio.js",
+    "function": "getRegressionCoefficients",
+    "lines": "5-32"
+  },
+  "standard": "JGJ 55-2011 表5.2.1-1 回归系数",
+  "unit": "无量纲",
+  "interpolation": "none",
+  "formula": "W/B = (α_a × f_b) / (f_cu,0 + α_a × α_b × f_b)",
+  "defaults": {
+    "碎石": { "alphaA": 0.53, "alphaB": 0.20 },
+    "卵石": { "alphaA": null, "alphaB": null, "note": "原 MixDesignService 未为卵石提供默认值，需用户显式提供" }
+  },
+  "overrideMechanism": {
+    "priority": [
+      "tempSettings.regressionAlphaA / regressionAlphaB",
+      "全局参数 SystemService.getParamByName('regressionAlphaA'/'regressionAlphaB')",
+      "本表 defaults.碎石"
+    ]
+  },
+  "dimensions": [
+    { "name": "骨料类型", "unit": null, "values": ["碎石"] }
+  ],
+  "data": [
+    [0.53, 0.20]
+  ]
+}
