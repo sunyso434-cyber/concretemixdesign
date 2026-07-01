@@ -7,6 +7,7 @@ const fs = require('fs')
 const path = require('path')
 const SchemaValidator = require('./SchemaValidator')
 const MDParser = require('./MDParser')
+const { wrapBlueprintAsSkill } = require('../skills/blueprint-loader')
 
 class SkillRegistry {
   constructor() {
@@ -172,6 +173,17 @@ module.exports = {
           this.register(skill, { builtin, filePath })
         } catch (error) {
           console.error(`[SkillRegistry] 加载 MD skill 失败: ${file}`, error.message)
+        }
+      } else if (fs.statSync(filePath).isDirectory()) {
+        // 蓝图技能：子目录中包含 blueprint.yaml
+        const blueprintPath = path.join(filePath, 'blueprint.yaml')
+        if (fs.existsSync(blueprintPath)) {
+          try {
+            const skill = wrapBlueprintAsSkill(filePath)
+            this.register(skill, { builtin, filePath: blueprintPath })
+          } catch (error) {
+            console.error(`[SkillRegistry] 加载 blueprint skill 失败: ${file}`, error.message)
+          }
         }
       }
     }
