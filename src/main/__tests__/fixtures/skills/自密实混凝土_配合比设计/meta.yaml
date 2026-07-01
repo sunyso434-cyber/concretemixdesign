@@ -1,0 +1,34 @@
+name: "自密实混凝土配合比设计"
+description: "按 JGJ/T 283-2012 设计自密实混凝土配合比"
+version: "1.0.0"
+concrete_type: "self_compacting"
+author: "LLM生成验证"
+created_at: "2026-07-01"
+
+parameters:
+  - name: strength_grade
+    label: "强度等级"
+    type: select
+    required: true
+    options: ["C30", "C35", "C40", "C45", "C50"]
+    default: "C40"
+  - name: slump_flow
+    label: "坍落扩展度 (mm)"
+    type: number
+    required: true
+    min: 550
+    max: 850
+    default: 650
+  - name: max_agg_size
+    label: "粗骨料最大粒径 (mm)"
+    type: select
+    required: true
+    options: ["16", "20"]
+    default: "20"
+  - name: paste_volume
+    label: "浆体体积 (L/m³)"
+    type: number
+    required: true
+    min: 300
+    max: 450
+    default: 360

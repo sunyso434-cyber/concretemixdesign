@@ -1,0 +1,184 @@
+# ⾃密实混凝⼟配合比设计蓝图 (JGJ/T 283-2012)
+#
+# 关键差异 vs 普通混凝土：
+# - 由浆体体积倒推水胶比（先定浆体体积，再算胶材）
+# - 无需查表求⽤水量，由浆体体积直接计算
+# - 砂率通常较高（48%~55%），由填充性要求决定
+
+blueprint:
+  name: "自密实混凝土_JGJ283"
+  tables: {}
+
+  steps:
+    # 1. 用户输入
+    - type: input
+      var: strength_grade
+      from: strength_grade
+      value_map:
+        C30: 30
+        C35: 35
+        C40: 40
+        C45: 45
+        C50: 50
+      default: 40
+
+    - type: input
+      var: slump_flow
+      from: slump_flow
+      default: 650
+
+    - type: input
+      var: max_agg_size
+      from: max_agg_size
+      value_map:
+        "16": 16
+        "20": 20
+      default: 20
+
+    - type: input
+      var: paste_volume
+      from: paste_volume
+      default: 360
+
+    - type: input
+      var: sigma
+      default: 6.0
+
+    # 2. 原材料
+    - type: material
+      var: cement_strength
+      material_query:
+        category: "水泥"
+        requirements:
+          - property: "compressiveStrength28d"
+            min: 42.5
+        property: "compressiveStrength28d"
+
+    - type: material
+      var: cement_density
+      material_query:
+        category: "水泥"
+        property: "density"
+
+    # 3. 配置强度
+    - type: formula
+      var: fcu_o
+      expr: "strength_grade + 1.645 * sigma"
+
+    # 4. 水胶比（自密实特征：由浆体体积反推）
+    # 胶材用量 = paste_volume * (cement_density / (1 + wb_estimate * cement_density))
+    # 迭代简化：用JGJ 55回归系数估算初始水胶比
+    - type: const
+      var: alpha_a
+      value: 0.53
+
+    - type: const
+      var: alpha_b
+      value: 0.20
+
+    - type: formula
+      var: wb_initial
+      expr: "(alpha_a * cement_strength) / (fcu_o + alpha_a * alpha_b * cement_strength)"
+
+    # 实际水胶比取初值和下限的最大值
+    - type: formula
+      var: wb
+      expr: "max(wb_initial, 0.30)"
+
+    # 5. 胶凝材料总量
+    # cement = paste_volume / (1 / (cement_density * 1000) + wb)
+    - type: formula
+      var: cem_density_conv
+      expr: "cement_density * 1000"
+
+    - type: formula
+      var: cement_mass
+      expr: "paste_volume / (1 / cem_density_conv + wb)"
+
+    # 6. 用水量
+    - type: formula
+      var: water_mass
+      expr: "cement_mass * wb"
+
+    # 7. 粗骨料（松散体积法）
+    # 粗骨料体积 = 1 - paste_volume/1000 - 砂浆体积_估计
+    # 简化：假设浆体 + 粗骨料 + 少量砂 = 1m³
+    - type: const
+      var: coarse_packing
+      value: 0.52
+
+    - type: material
+      var: coarse_density
+      material_query:
+        category: "粗骨料"
+        property: "density"
+
+    - type: formula
+      var: paste_ratio
+      expr: "paste_volume / 1000"
+
+    - type: formula
+      var: coarse_mass
+      expr: "coarse_packing * (1 - paste_ratio) * coarse_density * 1000"
+
+    # 8. 细骨料（填充剩余体积）
+    - type: const
+      var: air_content
+      value: 20
+
+    - type: formula
+      var: cement_vol
+      expr: "cement_mass / cem_density_conv"
+
+    - type: formula
+      var: water_vol
+      expr: "water_mass / 1000"
+
+    - type: formula
+      var: sand_vol
+      expr: "1 - cement_vol - water_vol - (coarse_mass / (coarse_density * 1000)) - air_content / 1000"
+
+    - type: const
+      var: sand_density
+      value: 2.65
+
+    - type: formula
+      var: sand_mass
+      expr: "max(sand_vol * sand_density * 1000, 500)"
+
+    # 9. 输出
+    - type: output
+      var: cement_mass
+      name: "水泥"
+      unit: "kg/m³"
+      precision: 0
+
+    - type: output
+      var: water_mass
+      name: "水"
+      unit: "kg/m³"
+      precision: 1
+
+    - type: output
+      var: coarse_mass
+      name: "粗骨料"
+      unit: "kg/m³"
+      precision: 0
+
+    - type: output
+      var: sand_mass
+      name: "细骨料"
+      unit: "kg/m³"
+      precision: 0
+
+    - type: output
+      var: wb
+      name: "水胶比"
+      unit: ""
+      precision: 3
+
+    - type: output
+      var: paste_volume
+      name: "浆体体积"
+      unit: "L/m³"
+      precision: 0
