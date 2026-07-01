@@ -1,0 +1,44 @@
+name: "普通混凝土_JGJ55"
+description: "按 JGJ 55-2011 设计普通混凝土配合比（碎石/卵石分支、双线性查用水量表）"
+version: "1.0.0"
+concrete_type: "ordinary"
+author: "内置蓝图（手写示例）"
+created_at: "2026-07-01"
+
+parameters:
+  - name: strength_grade
+    label: "强度等级"
+    type: string
+    required: true
+    options: ["C20", "C25", "C30", "C35", "C40", "C45", "C50"]
+  - name: sigma
+    label: "强度标准差σ (MPa)"
+    type: number
+    required: false
+    default: 5.0
+  - name: slump
+    label: "坍落度 (mm)"
+    type: number
+    required: true
+    default: 180
+  - name: max_agg_size
+    label: "粗骨料最大粒径 (mm)"
+    type: number
+    required: true
+    default: 20
+  - name: aggregate_type
+    label: "粗骨料类型"
+    type: string
+    required: true
+    options: ["碎石", "卵石"]
+    default: "碎石"
+  - name: water_reducer
+    label: "减水率 (小数)"
+    type: number
+    required: false
+    default: 0.0
+
+warnings:
+  wb:
+    min: 0.2
+    max: 0.65
