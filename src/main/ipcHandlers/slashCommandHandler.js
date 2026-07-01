@@ -11,7 +11,6 @@ function registerSlashCommandHandler({ deepseekService, skillRegistry, skillExec
   _skillRegistry = skillRegistry
   _skillExecutor = skillExecutor
 
-  // v1.2: 防止 API Key 变化时 getOrchestrator() 重复注册导致崩溃
   try { ipcMain.removeHandler('slash:execute') } catch (_) {}
 
   ipcMain.handle('slash:execute', async (_event, { command, param }) => {
@@ -40,27 +39,54 @@ async function executeSlashCommand({ command, param }) {
 }
 
 async function handleModel(param) {
-  const availableModels = _deepseekServiceInstance.getAvailableModels()
-
   if (!param) {
-    const current = await SystemService.getParamByName('deepseekModel')
-    return {
-      success: true,
-      action: 'list',
-      message: `当前模型：${current?.value || 'deepseek-v4-flash'}\n可用模型：\n` +
-               availableModels.map(m => `  - ${m}`).join('\n') +
-               `\n\n切换命令：/model <模型名>\n例如：/model deepseek-v4-pro`
+    // 无参：列出所有配置 + 当前配置的可用模型
+    const configs = await SystemService.getLlmConfigs()
+    const activeConfig = await SystemService.getActiveLlmConfig()
+    let msg = '=== LLM 配置列表 ===\n'
+    for (const c of configs) {
+      const marker = c.id === activeConfig?.id ? ' ✅' : ''
+      const modelInfo = c.model ? ` (${c.model})` : ''
+      msg += `  [${c.id}] ${c.name}${marker}${modelInfo}\n`
     }
-  }
-  if (!availableModels.includes(param)) {
-    return {
-      success: false,
-      error: `无效模型 "${param}"，可用：${availableModels.join(', ')}`
+    msg += `\n当前配置：${activeConfig?.name || '无'}`
+    const availableModels = _deepseekServiceInstance?.getAvailableModels?.()
+    if (availableModels && availableModels.length > 0) {
+      msg += `\n当前模型：${availableModels.join(', ')}`
     }
+    msg += '\n\n切换命令：\n'
+    msg += '  /model <配置名或ID>    切换到指定 LLM 配置\n'
+    msg += '  /model <模型名>        仅切换当前配置的模型\n'
+    msg += '\n例如：/model agnes-default  /model deepseek-v4-pro'
+    return { success: true, action: 'list', message: msg }
   }
-  await SystemService.setParam('deepseekModel', param, 'ai', 'DeepSeek 模型')
-  _deepseekServiceInstance.clearConfigCache()
-  return { success: true, message: `已切换到 ${param}` }
+
+  // 有参：先尝试按配置名/ID匹配
+  const configs = await SystemService.getLlmConfigs()
+  const matchedConfig = configs.find(c => c.id === param || c.name === param)
+  if (matchedConfig) {
+    await SystemService.setActiveLlmConfig(matchedConfig.id)
+    if (_deepseekServiceInstance && !_deepseekServiceInstance.isLegacy) {
+      _deepseekServiceInstance.clearConfigCache()
+    }
+    return { success: true, message: `已切换到配置：${matchedConfig.name}（${matchedConfig.model || '默认模型'}）` }
+  }
+
+  // 未匹配配置名，尝试按当前配置切换模型
+  const activeConfig = await SystemService.getActiveLlmConfig()
+  if (!activeConfig) {
+    return { success: false, error: '无有效 LLM 配置' }
+  }
+  activeConfig.model = param
+  const idx = configs.findIndex(c => c.id === activeConfig.id)
+  if (idx >= 0) {
+    configs[idx].model = param
+    await SystemService.saveLlmConfigs(configs)
+  }
+  if (_deepseekServiceInstance) {
+    _deepseekServiceInstance.clearConfigCache()
+  }
+  return { success: true, message: `模型已设为 ${param}` }
 }
 
 async function handleRounds(param) {
@@ -77,19 +103,19 @@ async function handleRounds(param) {
     return { success: false, error: '循环次数必须是 1 到 30 之间的整数' }
   }
   await SystemService.setParam('agentMaxSteps', String(n), 'ai', 'Agent 最大循环步数')
-  _deepseekServiceInstance.clearConfigCache()  // 与 /model 行为一致，即时生效
+  _deepseekServiceInstance.clearConfigCache()
   return { success: true, message: `循环次数已设为 ${n}` }
 }
 
 function formatHelp() {
   return '可用命令：\n' +
-    '  /model [模型名]    切换 AI 模型\n' +
-    '  /rounds [次数]     设置循环次数（1-30）\n' +
-    '  /clear             清空对话\n' +
-    '  /help              显示帮助\n' +
-    '  /<技能名> [参数]   调用技能\n\n' +
+    '  /model [配置名/模型名]  切换 LLM 配置或模型\n' +
+    '  /rounds [次数]         设置循环次数（1-30）\n' +
+    '  /clear                 清空对话\n' +
+    '  /help                  显示帮助\n' +
+    '  /<技能名> [参数]       调用技能\n\n' +
     '命令可嵌入消息任意位置，例如：\n' +
-    '  帮我看看 /model deepseek-v4-pro 然后帮我设计C30'
+    '  帮我看看 /model agnes-default 然后帮我设计C30'
 }
 
 async function handleSkillCommand(command, param) {

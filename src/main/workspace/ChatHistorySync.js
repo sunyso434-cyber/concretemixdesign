@@ -251,8 +251,8 @@ class ChatHistorySync {
     const now = Date.now()
     if (this._groupedCache && (now - this._groupedCacheAt) < this._groupedCacheTTL) {
       const hasDefault = this._groupedCache.workspaces.some(ws =>
-        ws.sessions.some(s => isDefaultName(s.title))
-      ) || this._groupedCache.unclassified.some(s => isDefaultName(s.title))
+        ws.sessions.some(s => isDefaultName(s.sessionName))
+      ) || this._groupedCache.unclassified.some(s => isDefaultName(s.sessionName))
       if (!hasDefault) {
         return this._groupedCache
       }
@@ -321,7 +321,7 @@ class ChatHistorySync {
           }
           wsMap.get(normalizedPath).push({
             sessionId: s.sessionId,
-            title: s.sessionName,
+            sessionName: s.sessionName,
             lastActivity: activityMap[s.sessionId] || s.lastActivity,
             workspacePath: s.workspacePath,
             source: 'sqlite',
@@ -330,7 +330,7 @@ class ChatHistorySync {
         } else {
           unclassified.push({
             sessionId: s.sessionId,
-            title: s.sessionName,
+            sessionName: s.sessionName,
             lastActivity: activityMap[s.sessionId] || s.lastActivity,
             workspacePath: null,
             source: 'sqlite',

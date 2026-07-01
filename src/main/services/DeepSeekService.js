@@ -7,8 +7,6 @@ const axios = require('axios')
 const { DEFAULT_AGENT_MAX_STEPS, AGENT_CONFIG_CACHE_TTL_MS } = require('../utils/agentConstants')
 const { createError } = require('../agent/ErrorCodes')
 
-const DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions'
-
 // Skill 系统引用 (由 agentHandler 设置)
 let _skillRegistry = null
 let _skillExecutor = null
@@ -314,59 +312,90 @@ const TOOLS = [
 ]
 
 class DeepSeekService {
-  constructor(apiKey, systemService = null) {
-    this.apiKey = apiKey
-    this.systemService = systemService
-    this.conversationHistory = []
-    this._config = null
-  }
-
-  /**
-   * 读取 Agent 配置（model / maxTokens / timeout / contextLimit / thinkingEnabled）
-   * 首次调用从 SystemService 拉取并缓存；未注入 systemService 时使用硬编码默认值。
-   * @returns {Promise<{model: string, maxTokens: number, timeout: number, contextLimit: number, thinkingEnabled: boolean}>}
-   */
-  async _getConfig() {
-    // v1.2: 加 5 秒 TTL，过期重读数据库
-    if (this._config && this._configTime && (Date.now() - this._configTime) < AGENT_CONFIG_CACHE_TTL_MS) {
-      return this._config
-    }
-    if (!this.systemService) {
-      this._config = {
+  constructor(apiKeyOrConfig, systemService = null) {
+    // 支持两种构造方式：
+    // 1. DeepSeekService(apiKey, systemService) — 旧兼容
+    // 2. DeepSeekService(config, systemService) — config 驱动
+    if (typeof apiKeyOrConfig === 'string') {
+      this.isLegacy = true
+      this.config = {
+        apiKey: apiKeyOrConfig,
+        provider: 'deepseek',
+        baseUrl: 'https://api.deepseek.com/v1',
         model: 'deepseek-v4-flash',
+        thinkingEnabled: true,
         maxTokens: 32768,
         timeout: 120000,
         contextLimit: 800000,
-        thinkingEnabled: true,
-        maxSteps: DEFAULT_AGENT_MAX_STEPS  // v1.2: 字段名改为 maxSteps，复用 agentMaxSteps 语义
       }
+      this._systemService = systemService
     } else {
-      const all = await this.systemService.getAgentConfig()
-      this._config = {
-        model: all.deepseekModel,
-        maxTokens: all.deepseekMaxTokens,
-        timeout: all.deepseekTimeout,
-        contextLimit: all.deepseekContextLimit,
-        thinkingEnabled: all.deepseekThinkingEnabled,
-        maxSteps: all.agentMaxSteps  // v1.2: 复用现有 agentMaxSteps
-      }
+      this.isLegacy = false
+      this.config = apiKeyOrConfig || {}
+      this._systemService = systemService
     }
-    this._configTime = Date.now()
-    return this._config
+    this.conversationHistory = []
+    this._configCache = null
   }
 
   /**
-   * 把任意 axios / network 异常归一为 createError 标准结构（方向 A：直接构造，不走 classifyError）。
-   * 拆 HTTP 400/401/402/403/413/429/503 → 各自 E-LLM-xxx；其他 5xx → E-LLM-500；
-   * ECONNABORTED → E-NET-408；ENOTFOUND / ECONNREFUSED / ETIMEDOUT / ERR_NETWORK / ECONNRESET → E-NET-500；
-   * 其余未知错误 → E-SYS-999 兜底。
-   *
-   * v8.3.8: 错误响应体可能是 stream（responseType:'stream' 模式下），
-   * 直接 JSON.stringify 会触发 TLSSocket 循环引用 → 改用 _readErrorBody 异步读取。
-   *
-   * @param {Error|object} error  原始异常（axios reject / Error）
-   * @param {string} callSite     发生位置，如 'DeepSeekService.chat'
-   * @returns {Promise<object>} createError 标准结构（6 字段：success/code/title/hint/recovery/details）
+   * 返回当前配置（config 驱动模式直接返回 this.config）
+   */
+  async _getConfig() {
+    if (this.isLegacy) {
+      // 旧兼容模式：走 database 查询
+      if (this._configCache && this._configCacheTime && (Date.now() - this._configCacheTime) < AGENT_CONFIG_CACHE_TTL_MS) {
+        return this._configCache
+      }
+      if (!this._systemService) {
+        this._configCache = {
+          model: this.config.model,
+          maxTokens: this.config.maxTokens,
+          timeout: this.config.timeout,
+          contextLimit: this.config.contextLimit,
+          thinkingEnabled: this.config.thinkingEnabled,
+          maxSteps: DEFAULT_AGENT_MAX_STEPS,
+          baseUrl: this.config.baseUrl,
+          apiKey: this.config.apiKey,
+          provider: this.config.provider,
+        }
+      } else {
+        const all = await this._systemService.getAgentConfig()
+        this._configCache = {
+          model: all.deepseekModel,
+          maxTokens: all.deepseekMaxTokens,
+          timeout: all.deepseekTimeout,
+          contextLimit: all.deepseekContextLimit,
+          thinkingEnabled: all.deepseekThinkingEnabled,
+          maxSteps: all.agentMaxSteps,
+          baseUrl: 'https://api.deepseek.com/v1',
+          apiKey: this.config.apiKey,
+          provider: 'deepseek',
+        }
+      }
+      this._configCacheTime = Date.now()
+      return this._configCache
+    }
+    // config 驱动模式：直接返回 this.config
+    return this.config
+  }
+
+  // v1.2: 返回可用模型列表（config 驱动模式取当前配置 model）
+  getAvailableModels() {
+    if (this.isLegacy) {
+      return ['deepseek-v4-flash', 'deepseek-v4-pro']
+    }
+    return [this.config.model || 'unknown']
+  }
+
+  // v1.2: 清掉本实例的 config 缓存
+  clearConfigCache() {
+    this._configCache = null
+    this._configCacheTime = null
+  }
+
+  /**
+   * 把任意 axios / network 异常归一为 createError 标准结构。
    */
   async _buildClassifiedError(error, callSite) {
     const status = error && error.response && error.response.status
@@ -376,63 +405,60 @@ class DeepSeekService {
         413: 'E-LLM-413', 429: 'E-LLM-429', 503: 'E-LLM-503',
       }
       if (status && httpToCode[status]) return httpToCode[status]
-      if (status && status >= 500) return 'E-LLM-500'  // 其他 5xx 兜底
+      if (status && status >= 500) return 'E-LLM-500'
       if (error && error.code === 'ECONNABORTED') return 'E-NET-408'
       if (error && ['ENOTFOUND', 'ECONNREFUSED', 'ETIMEDOUT', 'ERR_NETWORK', 'ECONNRESET'].includes(error.code)) {
         return 'E-NET-500'
       }
-      return 'E-SYS-999'  // 兜底
+      return 'E-SYS-999'
     })()
 
     const data = error && error.response && error.response.data
     let rawMessage = ''
     if (data && typeof data.on === 'function') {
-      // v8.3.8: stream 对象（responseType:'stream' 模式下 HTTP 错误的 response.data）
-      // 不能 JSON.stringify（TLSSocket.parser.socket 循环引用），
-      // 用 _readErrorBody 异步消费 chunks；读取失败时退回 error.message
       try {
         const body = await this._readErrorBody(data)
         if (body != null) {
           if (typeof body === 'string') {
             rawMessage = body.slice(0, 500)
           } else if (body.error && body.error.message) {
-            // DeepSeek API 错误结构：{ error: { message: '...' } }
             rawMessage = body.error.message
           } else {
-            // 其他结构：尝试 JSON.stringify（加 try/catch 兜底循环引用）
             try { rawMessage = JSON.stringify(body).slice(0, 500) } catch (_) {}
           }
         }
-      } catch (_) { /* stream 读取失败 → 兜底 */ }
+      } catch (_) { }
     } else if (data && data.error && data.error.message) {
       rawMessage = data.error.message
     } else if (data && typeof data === 'object') {
       try {
         rawMessage = JSON.stringify(data).slice(0, 500)
-      } catch (_) {
-        // 循环引用 / BigInt 不可序列化 → 兜底
-      }
+      } catch (_) { }
     }
     if (!rawMessage && error && error.message) rawMessage = String(error.message)
 
     return createError(code, null, null, {
       httpStatus: status,
-      endpoint: DEEPSEEK_API_URL,
+      endpoint: `${this.config.baseUrl || 'https://api.deepseek.com/v1'}/chat/completions`,
       rawMessage,
       callSite,
       occurredAt: new Date().toISOString(),
     })
   }
 
-  // v1.2: 返回可用模型列表
-  getAvailableModels() {
-    return ['deepseek-v4-flash', 'deepseek-v4-pro']
-  }
-
-  // v1.2: 清掉本实例的 _config 缓存（其他实例靠 TTL 失效）
-  clearConfigCache() {
-    this._config = null
-    this._configTime = null
+  async _readErrorBody(data) {
+    if (!data) return null
+    if (typeof data.on === 'function') {
+      return new Promise((resolve) => {
+        let chunks = ''
+        data.on('data', chunk => { chunks += chunk.toString('utf8') })
+        data.on('end', () => {
+          try { resolve(JSON.parse(chunks)) } catch (_) { resolve(chunks) }
+        })
+        data.on('error', () => resolve(null))
+      })
+    }
+    return data
   }
 
   /**
@@ -485,22 +511,27 @@ class DeepSeekService {
    */
   async _callAPI(messages, includeTools = false) {
     const cfg = await this._getConfig()
+    const isDeepSeek = cfg.provider === 'deepseek'
     const requestBody = {
       model: cfg.model,
       messages,
-      max_tokens: cfg.maxTokens,
-      thinking: { type: cfg.thinkingEnabled ? 'enabled' : 'disabled' }
+    }
+    if (isDeepSeek && cfg.maxTokens) {
+      requestBody.max_tokens = cfg.maxTokens
+    }
+    if (isDeepSeek && cfg.thinkingEnabled === true) {
+      requestBody.thinking = { type: 'enabled' }
     }
     if (includeTools) {
-      // 优先从 SkillRegistry 获取工具定义
       requestBody.tools = _skillRegistry ? _skillRegistry.getToolSchemas() : TOOLS
     }
 
+    const apiUrl = `${(cfg.baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '')}/chat/completions`
     try {
-      const response = await axios.post(DEEPSEEK_API_URL, requestBody, {
+      const response = await axios.post(apiUrl, requestBody, {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
+          'Authorization': `Bearer ${cfg.apiKey || this.config.apiKey}`
         },
         timeout: cfg.timeout
       })
@@ -508,7 +539,7 @@ class DeepSeekService {
     } catch (error) {
       if (error.response) {
         console.error(`API ${error.response.status}: ${JSON.stringify(error.response.data).slice(0, 500)}`)
-        throw error // 保留原始 axios error（含 .response），让外围 _buildClassifiedError 提取 HTTP 状态码
+        throw error
       }
       throw error
     }
@@ -516,25 +547,28 @@ class DeepSeekService {
 
   /**
    * 携带自定义工具定义调用 API（供 AgentOrchestrator 使用）
-   * @param {Array} messages - 消息列表
-   * @param {Array} tools - 自定义工具定义数组
-   * @returns {Promise<Object>} - API返回的message对象
    */
   async chatWithTools(messages, tools) {
     const cfg = await this._getConfig()
+    const isDeepSeek = cfg.provider === 'deepseek'
     const requestBody = {
       model: cfg.model,
       messages,
-      max_tokens: cfg.maxTokens,
-      thinking: { type: cfg.thinkingEnabled ? 'enabled' : 'disabled' },
       tools
     }
+    if (isDeepSeek && cfg.maxTokens) {
+      requestBody.max_tokens = cfg.maxTokens
+    }
+    if (isDeepSeek && cfg.thinkingEnabled === true) {
+      requestBody.thinking = { type: 'enabled' }
+    }
 
+    const apiUrl = `${(cfg.baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '')}/chat/completions`
     try {
-      const response = await axios.post(DEEPSEEK_API_URL, requestBody, {
+      const response = await axios.post(apiUrl, requestBody, {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
+          'Authorization': `Bearer ${cfg.apiKey || this.config.apiKey}`
         },
         timeout: cfg.timeout
       })
@@ -542,7 +576,7 @@ class DeepSeekService {
     } catch (error) {
       if (error.response) {
         console.error(`API ${error.response.status}: ${JSON.stringify(error.response.data).slice(0, 500)}`)
-        throw error // 保留原始 axios error（含 .response），让外围 _buildClassifiedError 提取 HTTP 状态码
+        throw error
       }
       throw error
     }
@@ -565,24 +599,29 @@ class DeepSeekService {
 
   async _callAPIStream(messages, includeTools = false, onEvent = null, customTools = null) {
     const cfg = await this._getConfig()
+    const isDeepSeek = cfg.provider === 'deepseek'
     const requestBody = {
       model: cfg.model,
       messages,
-      max_tokens: cfg.maxTokens,
       stream: true,
-      thinking: { type: cfg.thinkingEnabled ? 'enabled' : 'disabled' }
+    }
+    if (isDeepSeek && cfg.maxTokens) {
+      requestBody.max_tokens = cfg.maxTokens
+    }
+    if (isDeepSeek && cfg.thinkingEnabled === true) {
+      requestBody.thinking = { type: 'enabled' }
     }
     if (customTools) {
       requestBody.tools = customTools
     } else if (includeTools) {
-      // 优先从 SkillRegistry 获取工具定义（与 _callAPI 保持一致）
       requestBody.tools = _skillRegistry ? _skillRegistry.getToolSchemas() : TOOLS
     }
 
-    const response = await axios.post(DEEPSEEK_API_URL, requestBody, {
+    const apiUrl = `${(cfg.baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '')}/chat/completions`
+    const response = await axios.post(apiUrl, requestBody, {
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`
+        'Authorization': `Bearer ${cfg.apiKey || this.config.apiKey}`
       },
       responseType: 'stream',
       timeout: cfg.timeout
@@ -733,13 +772,11 @@ class DeepSeekService {
   /**
   /**
    * 简单调用 LLM：发送 prompt，返回纯文本响应。
-   * 供 KGExtractor 等内部组件使用 —— 不走对话历史、不走工具调用。
-   * @param {string} prompt - 提示词
-   * @returns {Promise<string>} - LLM 返回的文本内容
    */
   async invoke(prompt) {
-    if (!this.apiKey) {
-      throw new Error('DeepSeek API密钥未配置')
+    const cfg = await this._getConfig()
+    if (!cfg.apiKey) {
+      throw new Error('LLM API密钥未配置')
     }
     const messages = [{ role: 'user', content: prompt }]
     const response = await this._callAPI(messages, false)
@@ -748,15 +785,11 @@ class DeepSeekService {
 
   /**
    * 与AI对话（支持 Function Calling 工具调用循环）
-   * @param {string} message - 用户消息
-   * @param {Array} context - 上下文数据（配合比数据等）
-   * @param {Object} options - 可选配置
-   * @param {Function} options.toolExecutor - 工具执行回调，签名为 async (toolName, args) => result
-   * @returns {Promise<Object>} - { reply, toolCalls, messages }
    */
   async chat(message, context = null, options = {}) {
-    if (!this.apiKey) {
-      throw new Error('DeepSeek API密钥未配置')
+    const cfg = await this._getConfig()
+    if (!cfg.apiKey) {
+      throw new Error('LLM API密钥未配置')
     }
 
     const { toolExecutor, rawMode, systemPrompt: customSystemPrompt, stream, onEvent } = options
@@ -906,7 +939,6 @@ class DeepSeekService {
     const historyStr = JSON.stringify(this.conversationHistory)
     const totalInputChars = systemPrompt.length + historyStr.length + userMessage.length
     const estimatedTokens = Math.ceil(totalInputChars / 4)
-    const cfg = await this._getConfig()
     if (estimatedTokens > cfg.contextLimit) {
       throw new Error(`对话上下文过大（约 ${estimatedTokens} tokens，超过 ${cfg.contextLimit} 上限），请清空对话历史后重试。`)
     }
@@ -1347,39 +1379,43 @@ ${diagnosisText}
    * @returns {Promise<Object>} - AI返回的分析报告
    */
   async analyzeMixDesign(data, customPrompt = '') {
-    if (!this.apiKey) {
-      throw new Error('DeepSeek API密钥未配置')
+    const cfg = await this._getConfig()
+    if (!cfg.apiKey) {
+      throw new Error('LLM API密钥未配置')
     }
 
     const systemPrompt = this.buildSystemPrompt(data, customPrompt)
     const userPrompt = this.buildPrompt(data)
 
-    const cfg = await this._getConfig()
     const estimatedTokens = Math.ceil((systemPrompt.length + userPrompt.length) / 4)
     if (estimatedTokens > cfg.contextLimit) {
       throw new Error(`输入数据量过大（约 ${estimatedTokens} tokens，超过 ${cfg.contextLimit} 上限），超出分析限制。请减少配合比数量后重试。`)
     }
 
+    const apiUrl = `${(cfg.baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '')}/chat/completions`
     try {
-      const response = await axios.post(
-        DEEPSEEK_API_URL,
-        {
+      const bodyParams = {
           model: cfg.model,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
           ],
-          max_tokens: cfg.maxTokens,
-          thinking: { type: cfg.thinkingEnabled ? 'enabled' : 'disabled' }
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.apiKey}`
-          },
-          timeout: cfg.timeout
         }
-      )
+        if (cfg.provider === 'deepseek' && cfg.maxTokens) {
+          bodyParams.max_tokens = cfg.maxTokens
+        }
+
+        const response = await axios.post(
+          apiUrl,
+          bodyParams,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${cfg.apiKey || this.config.apiKey}`
+            },
+            timeout: cfg.timeout
+          }
+        )
 
       const content = response.data.choices[0].message.content
       return this.parseResponse(content)
@@ -1701,7 +1737,7 @@ ${schemaBody}
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey || cfg.apiKey}`
+        'Authorization': `Bearer ${cfg.apiKey}`
       },
       body: JSON.stringify({
         model: cfg.model || 'deepseek-chat',
@@ -1716,7 +1752,7 @@ ${schemaBody}
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '')
-      throw new Error(`DeepSeek API 错误：${response.status} ${errText}`)
+      throw new Error(`LLM API 错误：${response.status} ${errText}`)
     }
 
     const data = await response.json()

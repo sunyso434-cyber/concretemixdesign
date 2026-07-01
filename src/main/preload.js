@@ -136,6 +136,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   vision: {
     upload: (file) => ipcRenderer.invoke('vision:upload', { sourcePath: file.path, name: file.name }),
     list: () => ipcRenderer.invoke('vision:list')
+  },
+  // LLM 配置管理
+  llm: {
+    list: () => ipcRenderer.invoke('llm:list'),
+    save: (config) => ipcRenderer.invoke('llm:save', { config }),
+    delete: (id) => ipcRenderer.invoke('llm:delete', { id }),
+    activate: (id) => ipcRenderer.invoke('llm:activate', { id }),
+    getActive: () => ipcRenderer.invoke('llm:getActive'),
+    getActiveFull: () => ipcRenderer.invoke('llm:getActiveFull'),
+    getFull: (id) => ipcRenderer.invoke('llm:getFull', { id }),
+    test: (config) => ipcRenderer.invoke('llm:test', { config })
   }
 })
 

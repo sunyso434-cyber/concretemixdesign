@@ -18,33 +18,19 @@ const SalesQuoteCalculationService = require('../services/SalesQuoteCalculationS
 const SalesQuoteToolGuard = require('../services/SalesQuoteToolGuard')
 const { Material } = require('../db/database')
 
-// 从系统参数获取API密钥
-const getDeepSeekApiKey = async () => {
-  try {
-    const result = await SystemService.getParamByName('deepseekApiKey')
-    if (result && result.value) {
-      return result.value
-    }
-    return null
-  } catch (error) {
-    console.error('获取DeepSeek API密钥失败:', error)
-    return null
-  }
-}
-
 let deepSeekService = null
-let cachedApiKey = null
+let cachedConfigId = null
 const CHAT_STREAM_EVENT = 'aiAnalysis:chatStream:event'
 
-// 默认的 getDeepSeekService 实现：懒加载 + API key 缓存
+// 默认的 getDeepSeekService 实现：从 LLM 配置管理器懒加载
 const defaultGetDeepSeekService = async () => {
-  const apiKey = await getDeepSeekApiKey()
-  if (!apiKey) {
+  const activeConfig = await SystemService.getActiveLlmConfig()
+  if (!activeConfig || !activeConfig.apiKey) {
     return null
   }
-  if (!deepSeekService || cachedApiKey !== apiKey) {
-    deepSeekService = new DeepSeekService(apiKey, SystemService)
-    cachedApiKey = apiKey
+  if (!deepSeekService || cachedConfigId !== activeConfig.id) {
+    deepSeekService = new DeepSeekService(activeConfig, SystemService)
+    cachedConfigId = activeConfig.id
   }
   return deepSeekService
 }

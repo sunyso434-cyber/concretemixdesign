@@ -32,11 +32,11 @@ describe('DeepSeekService 配置', () => {
     test('清掉本实例的 _config 缓存', async () => {
       // 第一次调用：填充缓存
       await service._getConfig()
-      expect(service._config).not.toBeNull()
+      expect(service._configCache).not.toBeNull()
 
       // 清缓存
       service.clearConfigCache()
-      expect(service._config).toBeNull()
+      expect(service._configCache).toBeNull()
     })
   })
 

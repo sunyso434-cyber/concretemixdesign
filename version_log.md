@@ -1,4 +1,90 @@
-## v9.1.0 补充6 (2026-06-30) - 新增 todo_manage 和 ask_user 技能（Agent任务清单管理 + 执行中向用户提问）
+## v9.1.0 补充8 (2026-07-01) - 修复历史会话侧栏名称显示
+
+### 改动内容
+
+1. **统一会话名字段**
+   - 后端 `ChatHistorySync.listSessionsGrouped()` 返回的会话对象字段由 `title` 改为 `sessionName`
+   - 与欢迎页最近会话接口 `agent:listRecentSessions` 保持一致
+   - `MemorySidebar` 侧栏可直接读取到正确名称，不再回退到 `对话 MM-DD HH:mm`
+
+2. **同步更新缓存校验逻辑**
+   - 缓存命中时检查默认标题的逻辑改为读取 `s.sessionName`
+   - 避免旧缓存导致默认标题无法被自动修复为第一条用户消息前 15 字
+
+### 测试结果
+
+- `ChatHistorySync.test.js`：50/50 通过
+
+### 边缘情况与测试用例
+
+- [x] 默认标题（如 `对话 06-30 09:01`）已自动修复为第一条用户消息（如 `你好`）
+- [x] 没有任何用户消息的会话仍回退到时间戳格式
+- [x] 未分类的旧会话（v4.9.x）也使用 `sessionName` 显示
+- [x] 手动重命名后会话缓存失效，刷新后即时生效
+
+---
+
+## v9.1.0 补充7 (2026-06-30) - LLM 多配置切换系统
+
+### 改动内容
+
+1. **LLM 配置管理系统（SystemService.js 新增 6 个方法）**
+   - `getLlmConfigs()`：获取所有 LLM 配置，支持首次启动从旧 deepseekApiKey 自动迁移
+   - `saveLlmConfigs()`：整体替换保存配置列表
+   - `getActiveLlmConfig()`：获取当前激活配置
+   - `setActiveLlmConfig(id)`：设置激活配置
+   - `_tryMigrateLegacyLlm()`：从遗留 deepseekApiKey/deepseekModel 参数迁移为第一份配置
+   - `getLlmProviderPresets()`：返回内置 provider 预设（DeepSeek/Agnes AI/OpenAI/Moonshot/智谱GLM/通义千问/Ollama）
+
+2. **DeepSeekService 改为 config 驱动（向后兼容）**
+   - 构造函数支持两种方式：`new DeepSeekService(apiKey)` 旧兼容 / `new DeepSeekService(config)` 新模式
+   - 移除了硬编码 `DEEPSEEK_API_URL`，所有 API 调用改用 `config.baseUrl + '/chat/completions'`
+   - `thinking` 字段仅对 `provider === 'deepseek'` 发送（防止其他厂商返回 400）
+   - `clearConfigCache()` 清 `_configCache`（config 驱动模式）
+
+3. **新增 llmHandler.js IPC 处理器**
+   - `llm:list`：列表（含 apiKey 脱敏）+ 当前激活 ID + provider 预设
+   - `llm:save`：新增或更新配置
+   - `llm:delete`：删除配置，删除激活配置时自动切换到第一份
+   - `llm:activate`：激活指定配置
+   - `llm:getActive` / `llm:getFull`：获取配置（含未脱敏 apiKey）
+   - `llm:test`：连通性测试，超时 60s（兼容慢速网络），区分 401/404/ENOTFOUND/ECONNREFUSED/ECONNABORTED 等错误
+
+4. **agentHandler.js / aiAnalysisHandler.js 接入新配置系统**
+   - 改用 `getActiveLlmConfig()` 构建 DeepSeekService，缓存键从 `cachedApiKey` 改为 `cachedActiveConfigId`
+   - 配置切换后下次调用自动重建服务实例
+
+5. **slashCommandHandler.js 增强 /model 命令**
+   - `/model`（无参）：列出所有配置 + 当前配置 + 可用模型
+   - `/model <配置名/ID>`：切换整份 LLM 配置
+   - `/model <模型名>`：仅切换当前配置的模型（向后兼容旧用法）
+
+6. **前端 LLM 管理 UI（SettingsPage.jsx 新增 LlmManager 组件）**
+   - "LLM管理"标签页展示所有配置，支持激活/编辑/删除/测试连通性
+   - 新增/编辑弹窗：provider 下拉（选预设自动填 baseUrl）/ apiKey 脱敏输入 / 各参数配置
+   - apiKey 编辑时留空保留原值，更新时从 `llm:getFull` 获取完整值
+
+### 测试结果
+- DeepSeekService 单元测试：16/16 通过
+- 全量测试回归：1531/1550（与本次改动无关的历史遗留问题 19 个）
+
+### 边缘情况与测试用例
+- [x] 首次启动无任何配置：`_tryMigrateLegacyLlm` 自动从旧密钥迁移生成第一份配置
+- [x] 删除当前激活配置：自动切换到列表第一份
+- [x] 编辑配置时 apiKey 留空：保留原值不覆盖
+- [x] 非 deepseek provider 发送 `thinking` 字段：已做 provider 判断过滤
+- [x] baseUrl 末尾带 `/`：自动去除再拼接 `/chat/completions`
+- [x] Agnes AI 流式 + 工具调用：已实测验证完全兼容
+- [x] `/model deepseek-v4-pro` 旧用法：向后兼容，仅切模型
+- [x] 旧 `deepseekModel` 参数：不再作为生效源，仅作迁移数据
+- [x] Agnes AI 测试连接超时：超时从 15s 改为 60s
+- [x] Agnes AI / MiniMax 发送消息报错 503：`thinking` 字段条件从 `!== undefined` 改为 `=== true`，只有明确开启 thinking 的 deepseek 才发送该字段
+- [x] Agnes AI / MiniMax 503 深入修复：所有 API 调用（`_callAPI`/`chatWithTools`/`_callAPIStream`/`analyzeMixDesign`）中对 `max_tokens` 也加了 provider 判断，非 deepseek 默认不带该参数，避免不兼容
+- [x] 新增 MiniMax provider 预设：`https://api.minimax.chat/v1`
+
+---
+
+## v9.1.0 补充6 (2026-06-30) - 新增 todo_manage 和 ask_user 技能
 
 ### 改动内容
 

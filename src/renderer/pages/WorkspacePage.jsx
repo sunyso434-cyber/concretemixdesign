@@ -265,7 +265,7 @@ function WorkspaceContent() {
             <div className="v9-manage-nav">
               <div className="v9-mat-nav-label">设置分类</div>
               <div className="v9-mat-nav">
-                {['使用帮助', 'JGJ55标准', '备份设置', 'AI设置', '技能管理', '销售报价', '系统设置', 'agent.md 编辑'].map(t => (
+                {['使用帮助', 'JGJ55标准', '备份设置', 'AI设置', 'LLM管理', '技能管理', '销售报价', '系统设置', 'agent.md 编辑'].map(t => (
                   <div key={t} className={`v9-mat-nav-item ${setNavType === t ? 'active' : ''}`} onClick={() => { setSetNavType(t); settingsRef.current?.switchTab(t) }}>{t}</div>
                 ))}
               </div>

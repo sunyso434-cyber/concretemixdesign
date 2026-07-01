@@ -943,6 +943,105 @@ class SystemService {
       maxSizeMb: 10
     })
   }
+
+  // ========== LLM 配置管理 ==========
+
+  /**
+   * 获取所有 LLM 配置列表
+   * @returns {Promise<Array<{id:string,name:string,provider:string,baseUrl:string,apiKey:string,model:string,thinkingEnabled:boolean,maxTokens:number,timeout:number,contextLimit:number}>>}
+   */
+  async getLlmConfigs() {
+    const raw = await this.getParamByName('llmConfigs')
+    let configs = []
+    if (raw && raw.value) {
+      try {
+        configs = JSON.parse(raw.value)
+      } catch (_) { configs = [] }
+    }
+    if (configs.length === 0) {
+      const migrated = await this._tryMigrateLegacyLlm()
+      if (migrated) {
+        configs = [migrated]
+        await this.saveLlmConfigs(configs)
+        await this.setActiveLlmConfig(migrated.id)
+      }
+    }
+    return configs
+  }
+
+  /**
+   * 保存 LLM 配置列表（整体替换）
+   * @param {Array} configs
+   */
+  async saveLlmConfigs(configs) {
+    await this.setParam('llmConfigs', JSON.stringify(configs), 'ai', 'LLM 配置列表')
+  }
+
+  /**
+   * 获取当前激活的 LLM 配置
+   * @returns {Promise<object|null>}
+   */
+  async getActiveLlmConfig() {
+    const configs = await this.getLlmConfigs()
+    if (configs.length === 0) return null
+    const activeIdParam = await this.getParamByName('activeLlmConfigId')
+    const activeId = activeIdParam && activeIdParam.value ? activeIdParam.value : null
+    if (activeId) {
+      const found = configs.find(c => c.id === activeId)
+      if (found) return found
+    }
+    return configs[0]
+  }
+
+  /**
+   * 设置当前激活的 LLM 配置 ID
+   * @param {string} id
+   */
+  async setActiveLlmConfig(id) {
+    await this.setParam('activeLlmConfigId', id, 'ai', '当前生效的 LLM 配置 ID')
+  }
+
+  /**
+   * 从遗留 deepseekApiKey / deepseekModel 迁移单个配置
+   * @returns {Promise<object|null>}
+   */
+  async _tryMigrateLegacyLlm() {
+    const apiKey = await this.getParamByName('deepseekApiKey')
+    if (!apiKey || !apiKey.value) return null
+    const model = await this.getParamByName('deepseekModel')
+    const maxTokens = await this.getParamByName('deepseekMaxTokens')
+    const timeout = await this.getParamByName('deepseekTimeout')
+    const contextLimit = await this.getParamByName('deepseekContextLimit')
+    const thinkingEnabled = await this.getParamByName('deepseekThinkingEnabled')
+    return {
+      id: 'deepseek-default',
+      name: 'DeepSeek 默认',
+      provider: 'deepseek',
+      baseUrl: 'https://api.deepseek.com/v1',
+      apiKey: apiKey.value,
+      model: model && model.value ? model.value : 'deepseek-v4-flash',
+      thinkingEnabled: thinkingEnabled && thinkingEnabled.value === 'true',
+      maxTokens: maxTokens && maxTokens.value ? parseInt(maxTokens.value, 10) : 32768,
+      timeout: timeout && timeout.value ? parseInt(timeout.value, 10) : 120000,
+      contextLimit: contextLimit && contextLimit.value ? parseInt(contextLimit.value, 10) : 800000,
+    }
+  }
+
+  /**
+   * 返回内置 provider 预设，供前端下拉选择
+   */
+  getLlmProviderPresets() {
+    return [
+      { value: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1' },
+      { value: 'agnes', label: 'Agnes AI', baseUrl: 'https://apihub.agnes-ai.com/v1' },
+      { value: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1' },
+      { value: 'moonshot', label: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1' },
+      { value: 'zhipu', label: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
+      { value: 'qwen', label: '通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+      { value: 'ollama', label: 'Ollama（本地）', baseUrl: 'http://localhost:11434/v1' },
+      { value: 'minimax', label: 'MiniMax', baseUrl: 'https://api.minimax.chat/v1' },
+    ]
+  }
 }
 
 module.exports = new SystemService()

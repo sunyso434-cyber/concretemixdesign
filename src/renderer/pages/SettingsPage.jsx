@@ -1,8 +1,8 @@
 // src/renderer/pages/SettingsPage.jsx
 import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { downloadTemplate, TEMPLATES } from '../utils/templateDownloader'
-import { Card, Button, message, Space, Typography, Alert, Divider, List, Tag } from 'antd'
-import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined, BookOutlined, ExperimentOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, AppstoreOutlined, WarningOutlined } from '@ant-design/icons'
+import { Card, Button, message, Space, Typography, Alert, Divider, List, Tag, Modal, Input, Select, Form, Popconfirm, Spin } from 'antd'
+import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined, BookOutlined, ExperimentOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, AppstoreOutlined, WarningOutlined, PlusOutlined, DeleteOutlined, CheckCircleOutlined, ApiOutlined, EyeInvisibleOutlined } from '@ant-design/icons'
 import ParamCard from '../components/ParamCard'
 import ExportWizard from '../components/ExportWizard'
 import ImportWizard from '../components/ImportWizard'
@@ -193,6 +193,7 @@ const SettingsPage = forwardRef((props, ref) => {
     if (activeTab === '技能管理') return <SkillManager />
     if (activeTab === '销售报价') return <SalesQuoteSettings />
     if (activeTab === 'agent.md 编辑') return <AgentRulesPanel />
+    if (activeTab === 'LLM管理') return <LlmManager />
     if (activeTab === '系统设置') {
       return (
         <div>
@@ -288,6 +289,258 @@ const SettingsPage = forwardRef((props, ref) => {
     </div>
   )
 })
+
+// ========== LLM 管理组件 ==========
+const LlmManager = () => {
+  const [configs, setConfigs] = useState([])
+  const [activeId, setActiveId] = useState(null)
+  const [presets, setPresets] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [testingId, setTestingId] = useState(null)
+  const [modalVisible, setModalVisible] = useState(false)
+  const [editingConfig, setEditingConfig] = useState(null)
+  const [form] = Form.useForm()
+
+  const loadConfigs = async () => {
+    setLoading(true)
+    try {
+      const result = await window.electronAPI.llm.list()
+      if (result.success) {
+        setConfigs(result.data)
+        setActiveId(result.activeId)
+        setPresets(result.presets)
+      }
+    } catch (e) {
+      message.error('加载 LLM 配置失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { loadConfigs() }, [])
+
+  const handleActivate = async (id) => {
+    const result = await window.electronAPI.llm.activate(id)
+    if (result.success) {
+      setActiveId(id)
+      message.success('已切换 LLM 配置')
+    } else {
+      message.error(result.error)
+    }
+  }
+
+  const handleDelete = async (id) => {
+    const result = await window.electronAPI.llm.delete(id)
+    if (result.success) {
+      message.success('已删除')
+      loadConfigs()
+    } else {
+      message.error(result.error)
+    }
+  }
+
+  const handleTest = async (config) => {
+    setTestingId(config.id)
+    try {
+      const fullResult = await window.electronAPI.llm.getFull(config.id)
+      if (!fullResult.success) {
+        message.error('无法获取配置详情')
+        return
+      }
+      const fullConfig = fullResult.data
+      const result = await window.electronAPI.llm.test({
+        baseUrl: fullConfig.baseUrl,
+        apiKey: fullConfig.apiKey,
+        model: fullConfig.model
+      })
+      if (result.success) {
+        message.success(`${config.name}: 连接成功`)
+      } else {
+        message.error(`${config.name}: ${result.error}`)
+      }
+    } catch (e) {
+      message.error('测试失败')
+    } finally {
+      setTestingId(null)
+    }
+  }
+
+  const openNew = () => {
+    setEditingConfig(null)
+    form.resetFields()
+    setModalVisible(true)
+  }
+
+  const openEdit = async (config) => {
+    setEditingConfig(config)
+    // 获取完整配置（未脱敏 apiKey）
+    const fullResult = await window.electronAPI.llm.getFull(config.id)
+    const fullConfig = fullResult.success ? fullResult.data : config
+    form.setFieldsValue({
+      id: fullConfig.id,
+      name: fullConfig.name,
+      provider: fullConfig.provider || 'deepseek',
+      baseUrl: fullConfig.baseUrl,
+      apiKey: '',
+      model: fullConfig.model,
+      thinkingEnabled: fullConfig.thinkingEnabled !== false,
+      maxTokens: fullConfig.maxTokens || 32768,
+      timeout: fullConfig.timeout || 120000,
+      contextLimit: fullConfig.contextLimit || 800000,
+    })
+    // 保存完整 apiKey 用于编辑保存
+    setEditingConfig(fullConfig)
+    setModalVisible(true)
+  }
+
+  const handleProviderChange = (provider) => {
+    const preset = presets.find(p => p.value === provider)
+    if (preset) {
+      form.setFieldsValue({ baseUrl: preset.baseUrl })
+    }
+  }
+
+  const handleSave = async () => {
+    try {
+      const values = await form.validateFields()
+      const config = {
+        id: editingConfig?.id || null,
+        name: values.name,
+        provider: values.provider,
+        baseUrl: values.baseUrl.replace(/\/+$/, ''),
+        apiKey: values.apiKey || editingConfig?.apiKey || '',
+        model: values.model,
+        thinkingEnabled: values.thinkingEnabled !== false,
+        maxTokens: values.maxTokens,
+        timeout: values.timeout,
+        contextLimit: values.contextLimit,
+      }
+      const result = await window.electronAPI.llm.save(config)
+      if (result.success) {
+        message.success('保存成功')
+        setModalVisible(false)
+        loadConfigs()
+      } else {
+        message.error(result.error)
+      }
+    } catch (e) {
+      // Form validation error
+    }
+  }
+
+  if (loading) return <Spin style={{ display: 'block', margin: '40px auto' }} />
+
+  return (
+    <div>
+      <Card
+        title={
+          <Space>
+            <ApiOutlined />
+            <span>LLM 配置管理</span>
+          </Space>
+        }
+        extra={
+          <Button type="primary" icon={<PlusOutlined />} onClick={openNew}>
+            新增配置
+          </Button>
+        }
+      >
+        {configs.length === 0 ? (
+          <Text type="secondary">暂无 LLM 配置，请新增</Text>
+        ) : (
+          <List
+            dataSource={configs}
+            renderItem={item => (
+              <List.Item
+                actions={[
+                  activeId === item.id ? (
+                    <Tag color="green">当前</Tag>
+                  ) : (
+                    <Button size="small" type="link" onClick={() => handleActivate(item.id)}>
+                      激活
+                    </Button>
+                  ),
+                  <Button size="small" type="link" onClick={() => openEdit(item)}>
+                    编辑
+                  </Button>,
+                  <Button size="small" type="link" loading={testingId === item.id} onClick={() => handleTest(item)}>
+                    测试
+                  </Button>,
+                  <Popconfirm title="确定删除此配置？" onConfirm={() => handleDelete(item.id)}>
+                    <Button size="small" type="link" danger icon={<DeleteOutlined />}>
+                      删除
+                    </Button>
+                  </Popconfirm>,
+                ]}
+              >
+                <List.Item.Meta
+                  avatar={<RobotOutlined style={{ fontSize: 20, color: activeId === item.id ? '#1890ff' : '#999' }} />}
+                  title={
+                    <Space>
+                      <Text strong>{item.name}</Text>
+                      {item.provider && <Tag>{item.provider}</Tag>}
+                    </Space>
+                  }
+                  description={
+                    <div>
+                      <div>模型：{item.model || '未设置'}</div>
+                      <div>API：{item.baseUrl || 'https://api.deepseek.com/v1'}</div>
+                      <div>Key：{item.apiKey || '未设置'}</div>
+                    </div>
+                  }
+                />
+              </List.Item>
+            )}
+          />
+        )}
+      </Card>
+
+      <Modal
+        title={editingConfig ? '编辑 LLM 配置' : '新增 LLM 配置'}
+        open={modalVisible}
+        onOk={handleSave}
+        onCancel={() => setModalVisible(false)}
+        okText="保存"
+        cancelText="取消"
+        width={560}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item name="name" label="配置名称" rules={[{ required: true, message: '请输入名称' }]}>
+            <Input placeholder="例如：DeepSeek 正式版" />
+          </Form.Item>
+          <Form.Item name="provider" label="供应商" rules={[{ required: true, message: '请选择供应商' }]}>
+            <Select onChange={handleProviderChange} placeholder="选择供应商">
+              {presets.map(p => (
+                <Select.Option key={p.value} value={p.value}>{p.label}</Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item name="baseUrl" label="API 地址" rules={[{ required: true, message: '请输入 API 地址' }]}>
+            <Input placeholder="https://api.deepseek.com/v1" />
+          </Form.Item>
+          <Form.Item name="apiKey" label="API Key" rules={[editingConfig ? {} : { required: true, message: '请输入 API Key' }]}>
+            <Input.Password
+              placeholder={editingConfig ? '留空则保留原值' : 'sk-...'}
+              iconRender={visible => (visible ? <EyeInvisibleOutlined /> : <ApiOutlined />)}
+            />
+          </Form.Item>
+          <Form.Item name="model" label="模型名称" rules={[{ required: true, message: '请输入模型名称' }]}>
+            <Input placeholder="例如：agnes-2.0-flash" />
+          </Form.Item>
+          <Form.Item name="maxTokens" label="最大 Token 数">
+            <Input type="number" />
+          </Form.Item>
+          <Form.Item name="timeout" label="超时时间 (ms)">
+            <Input type="number" />
+          </Form.Item>
+          <Form.Item name="contextLimit" label="上下文限制 (tokens)">
+            <Input type="number" />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </div>
+  )
+}
 
 const AppVersionInfo = () => {
   const [version, setVersion] = useState('1.0.0')

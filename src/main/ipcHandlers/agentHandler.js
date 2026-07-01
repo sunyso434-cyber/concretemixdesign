@@ -30,7 +30,7 @@ const SessionService = require('../db/services/SessionService')
 let skillRegistry = null
 let skillExecutor = null
 let skillDebugger = null
-let cachedApiKey = null
+let cachedActiveConfigId = null
 
 // 每会话独立的 Orchestrator 实例（多会话并行）
 // key: sessionId, value: { orchestrator, running: bool, startedAt: number, requestId: string }
@@ -138,46 +138,39 @@ async function initSkillSystem() {
   return skillRegistry
 }
 
-const getDeepSeekApiKey = async () => {
+const getActiveLlmConfig = async () => {
   try {
-    const result = await SystemService.getParamByName('deepseekApiKey')
-    return result?.value || null
+    const config = await SystemService.getActiveLlmConfig()
+    return config
   } catch (_) {
     return null
   }
 }
 
 async function getOrchestrator() {
-  const apiKey = await getDeepSeekApiKey()
-  if (!apiKey) return null
+  const activeConfig = await getActiveLlmConfig()
+  if (!activeConfig || !activeConfig.apiKey) return null
 
-  if (!orchestrator || cachedApiKey !== apiKey) {
-    const ds = new DeepSeekService(apiKey, SystemService)
+  if (!orchestrator || cachedActiveConfigId !== activeConfig.id) {
+    const ds = new DeepSeekService(activeConfig, SystemService)
 
-    // P5 KG：把 DeepSeek 实例写入全局，并更新已创建的 KGExtractor 的 llmClient
-    // （KGExtractor 在 app.whenReady 时创建，当时 DeepSeek 尚未初始化，llmClient 为空）
     global.deepseekService = ds
     if (global.kgExtractor) {
       global.kgExtractor.llmClient = ds
     }
-    // v8.2.4: 同步更新 WikiEngine 的 deepseekService（readPage 智能分块 LLM 摘要需要）
     if (global.wikiEngine) {
       global.wikiEngine.deepseekService = ds
     }
-    // v8.3.0: 同步更新 SummaryExtractor 的 deepseekService（ingest 摘要生成需要）
     if (global.summaryExtractor) {
       global.summaryExtractor.deepseekService = ds
     }
-    // v8.3.0: 同步更新 KGExtractor 的 llmClient
     if (global.kgExtractor) {
       global.kgExtractor.llmClient = ds
     }
     console.log('[agentHandler] deepseekService 已同步到 KGExtractor / SummaryExtractor / WikiEngine')
 
-    // 确保 Skill 系统已初始化
     await initSkillSystem()
 
-    // 使用 Orchestrator.create 工厂方法（v4.4.0 B2.3）
     orchestrator = Orchestrator.create('unified', {
       deepseekService: ds,
       skillRegistry,
@@ -186,7 +179,6 @@ async function getOrchestrator() {
       systemService: SystemService
     })
 
-    // v1.1：注入式注册 slashCommandHandler（避免单例/全局变量）
     const { registerSlashCommandHandler } = require('./slashCommandHandler')
     registerSlashCommandHandler({
       deepseekService: ds,
@@ -194,7 +186,7 @@ async function getOrchestrator() {
       skillExecutor
     })
 
-    cachedApiKey = apiKey
+    cachedActiveConfigId = activeConfig.id
   }
 
   return orchestrator
@@ -205,21 +197,18 @@ async function getOrchestrator() {
  * 每会话独立锁，多会话并行不冲突
  */
 async function getOrchestratorForSession(sessionId) {
-  const apiKey = await getDeepSeekApiKey()
-  if (!apiKey) return null
+  const activeConfig = await getActiveLlmConfig()
+  if (!activeConfig || !activeConfig.apiKey) return null
 
-  // 复用已缓存的 DeepSeekService + Skill 系统（避免每次新建）
-  if (!orchestrator || cachedApiKey !== apiKey) {
+  if (!orchestrator || cachedActiveConfigId !== activeConfig.id) {
     await getOrchestrator()
   }
   if (!orchestrator) return null
 
-  // 复用最近创建的 deepseekService（无状态，多 Orchestrator 共享安全）
   const ds = global.deepseekService
 
-  // 每会话独立 Orchestrator（避免会话间内部状态污染）
   const existing = sessionAgents.get(sessionId)
-  if (existing && existing.orchestrator && cachedApiKey === apiKey) {
+  if (existing && existing.orchestrator && cachedActiveConfigId === activeConfig.id) {
     return existing.orchestrator
   }
 
