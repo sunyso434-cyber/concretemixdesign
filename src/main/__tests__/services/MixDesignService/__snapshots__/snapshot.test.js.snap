@@ -1,0 +1,53 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`MixDesignService 快照测试（用于蓝图引擎回归对比） 普通混凝土 C30 配合比快照（42.5 水泥，180mm 坍落度，5-20mm 碎石） 1`] = `
+{
+  "airContent": 1,
+  "calculationMethod": "absolute",
+  "density": 2405,
+  "influenceFactor": 1,
+  "materials": {
+    "cement": 276.07,
+    "flyAsh": 0,
+    "sand": 917.22,
+    "slag": 0,
+    "stone": 1044.87,
+    "superplasticizer": 4.6932,
+    "water": 162.15,
+  },
+  "sandRatio": 0.4675,
+  "slump": 180,
+  "strengthStdDev": 5,
+  "superplasticizerDosage": 1.7,
+  "targetDensity": undefined,
+  "targetStrength": 38.225,
+  "waterRatio": 0.5874,
+  "waterReducingRate": 31,
+}
+`;
+
+exports[`MixDesignService 快照测试（用于蓝图引擎回归对比） 普通混凝土 C50 高强快照（52.5 水泥，200mm 坍落度，5-20mm 碎石） 1`] = `
+{
+  "airContent": 1,
+  "calculationMethod": "absolute",
+  "density": 2434.73,
+  "influenceFactor": 1,
+  "materials": {
+    "cement": 311.79,
+    "flyAsh": 0,
+    "sand": 892.64,
+    "slag": 0,
+    "stone": 1077.32,
+    "superplasticizer": 7.7948,
+    "water": 145.18,
+  },
+  "sandRatio": 0.4531,
+  "slump": 200,
+  "strengthStdDev": 6,
+  "superplasticizerDosage": 2.5,
+  "targetDensity": undefined,
+  "targetStrength": 59.87,
+  "waterRatio": 0.4656,
+  "waterReducingRate": 39,
+}
+`;
