@@ -1,10 +1,47 @@
 // src/main/services/BlueprintEngine/BlueprintValidator.js
 const fs = require('fs')
+const path = require('path')
 const yaml = require('js-yaml')
 const { extractVariables } = require('./FormulaParser')
 
-// materialFieldsConfig.js 中各材料类别的允许字段
-const ALLOWED_FIELDS = {
+/**
+ * 从 materialFieldsConfig.js 源文件动态提取各材料类别的允许字段
+ * 消除硬编码重复，确保与实际材料检测项目保持同步
+ */
+function buildAllowedFields() {
+  try {
+    const srcPath = path.join(__dirname, '..', '..', '..', 'renderer', 'utils', 'materialFieldsConfig.js')
+    const src = fs.readFileSync(srcPath, 'utf8')
+
+    // 提取 MATERIAL_FIELDS_CONFIG 对象中的 key（用单/双引号括起的材料类型）
+    const fields = {}
+    const typeRe = /^\s*'([^']+)':\s*\{/gm
+    let m
+    while ((m = typeRe.exec(src)) !== null) {
+      const typeName = m[1]
+      // 提取该类型下的 optional [{name: 'fieldName', ...}] 数组
+      const blockStart = src.indexOf(m[0])
+      const typeBlock = src.slice(blockStart, src.indexOf('\n  },', blockStart) + 1)
+      const nameRe = /name:\s*'([^']+)'/g
+      const fieldNames = []
+      let nm
+      while ((nm = nameRe.exec(typeBlock)) !== null) {
+        fieldNames.push(nm[1])
+      }
+      if (fieldNames.length > 0) {
+        fields[typeName] = fieldNames
+      }
+    }
+    if (Object.keys(fields).length >= 6) {
+      // 至少要有 6 个类别才算解析成功（当前共 8 个 + "其他"）
+      return fields
+    }
+  } catch (e) {
+    // 读取失败时回退到硬编码（开发环境容错）
+  }
+
+  // 回退：硬编码（与 materialFieldsConfig.js 保持同步）
+  return {
   '水泥': ['density', 'fineness', 'waterContent', 'specificSurfaceArea', 'stability',
     'initialSettingTime', 'finalSettingTime', 'flexuralStrength3d', 'flexuralStrength28d',
     'compressiveStrength3d', 'compressiveStrength28d', 'cementHeat3d', 'cementHeat7d',
@@ -41,7 +78,10 @@ const ALLOWED_FIELDS = {
     'cementitiousFactor_40', 'cementitiousFactor_50'],
   '减水剂': ['specification', 'manufacturer', 'recommendedDosage', 'density',
     'waterReducingRate', 'solidContent']
+  }
 }
+
+const ALLOWED_FIELDS = buildAllowedFields()
 
 const VALID_TYPES = ['input', 'const', 'material', 'formula', 'table_lookup', 'if_else', 'output']
 

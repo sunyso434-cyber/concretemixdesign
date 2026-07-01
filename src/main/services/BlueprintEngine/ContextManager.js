@@ -22,6 +22,7 @@ class ContextManager {
 
   getAuditLog() { return this._auditLog }
   getResults() { return this._results }
+  setResult(key, result) { this._results[key] = result }
 }
 
 module.exports = ContextManager

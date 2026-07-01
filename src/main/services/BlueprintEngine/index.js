@@ -36,6 +36,10 @@ class BlueprintEngine {
       throw new Error('蓝图引擎已禁用（blueprint_engine_enabled=false）')
     }
 
+    // 每次 run() 重置上下文，避免跨 run 变量缓存导致 input 步骤被跳过
+    this.context = new ContextManager()
+    this.audit = new AuditLogger(this.context)
+
     this._userParams = userParams instanceof Map ? userParams : new Map(Object.entries(userParams))
     this._runtimeCtx = runtimeCtx
 

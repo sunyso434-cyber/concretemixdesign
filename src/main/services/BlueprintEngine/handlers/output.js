@@ -9,12 +9,11 @@ async function handleOutput(step, context) {
     throw new Error(`输出变量"${step.var}"未定义`)
   }
   const precision = step.precision !== undefined ? step.precision : 0
-  context._results = context._results || {}
-  context._results[step.var] = {
+  context.setResult(step.var, {
     name: step.name || step.var,
     value: round(value, precision),
     unit: step.unit || ''
-  }
+  })
 }
 
 module.exports = handleOutput
