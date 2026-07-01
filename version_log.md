@@ -1,3 +1,151 @@
+## v9.1.0 补充12 (2026-07-01) - LLM 多供应商专属配置 + 多模态视觉能力分流
+
+### 改动内容
+
+1. **SystemService 厂商预设扩展（getLlmProviderPresets）**
+   - 8 家厂商预设从简单对象扩展为 `defaults` + `features` 完整配置
+   - `defaults`：model/maxTokens/timeout/contextLimit/thinkingEnabled/reasoningEffort
+   - `features` 特性开关：supportsThinking、supportsReasoningEffort、supportsMaxTokens、supportsMaxCompletionTokens、supportsTools、supportsStreaming、supportsVision
+   - 全部基于官方文档核实：DeepSeek、Agnes AI、OpenAI、Moonshot、智谱GLM、通义千问、Ollama、MiniMax
+
+2. **DeepSeekService 新增 _applyProviderFeatures(requestBody, cfg) 方法**
+   - 替换 4 处 `provider === 'deepseek'` 硬编码（_callAPI / chatWithTools / _callAPIStream / analyzeMixDesign）
+   - max_completion_tokens 优先（MiniMax-M3/OpenAI/Moonshot/通义千问），其次 max_tokens
+   - thinking 参数按厂商格式分别构造：
+     - DeepSeek/Moonshot：`{ type: 'enabled' }`（仅开启时发送）
+     - Agnes AI：`chat_template_kwargs: { enable_thinking: true }`
+     - MiniMax M3：`{ type: 'adaptive' | 'disabled' }`
+   - reasoning_effort：DeepSeek 支持 high/max，OpenAI 支持 low/medium/high
+
+3. **llmHandler llm:save 自动合并厂商默认参数**
+   - 保存配置时查找 preset，合并 baseUrl/defaults/features
+   - features 用 `{ ...preset.features, ...config.features }`（用户可覆盖）
+   - visionCapable 默认从 supportsVision 继承，用户可手动覆盖
+
+4. **SettingsPage 前端 UI 按厂商特性动态显隐**
+   - 组件顶部用 `Form.useWatch('provider', form)` 获取 watchedProvider
+   - features 从 watchedPreset 读取，JSX 中按 supportsThinking/supportsReasoningEffort/supportsVision 动态显隐对应表单项
+   - handleProviderChange 切换厂商时自动填入默认参数
+   - openEdit/handleSave 处理 thinkingEnabled/reasoningEffort/visionCapable 新字段
+
+5. **UnifiedStrategy 多模态图片处理分流**
+   - execute() 入口新增 multimodalImages 变量
+   - 检查当前 LLM 配置的 visionCapable：
+     - true：图片作为 content 数组（text + image_url）直接发给主 LLM，跳过 analyze_concrete_image
+     - false：走现有 analyze_concrete_image 技能（独立 VisionService）
+   - messages 构造改为多模态时用 content 数组
+
+6. **新增单元测试 DeepSeekService.features.test.js**
+   - 14 个测试用例覆盖 8 家厂商的 thinking/max_tokens/max_completion_tokens/reasoning_effort 组合
+   - 通过 `DeepSeekService.prototype._applyProviderFeatures` 调用，避免 _getConfig 干扰
+
+### 官方文档核实
+
+| 厂商 | 文档链接 | 核实内容 |
+|------|---------|---------|
+| DeepSeek | https://api-docs.deepseek.com/zh-cn/guides/thinking_mode | thinking={type:enabled}、reasoning_effort=high/max |
+| MiniMax | https://platform.minimaxi.com/docs/api-reference/text-openai-api | M3 模型、thinking={type:adaptive\|disabled}、max_completion_tokens、多模态 |
+| Agnes AI | https://www.agnes-ai.com/zh-Hans/docs/agnes-20-flash | chat_template_kwargs.enable_thinking、maxTokens=65536、contextLimit=512000、多模态 |
+
+### 目的
+
+为 8 家 LLM 厂商部署专属配置，避免不同厂商 API 调用格式差异导致的兼容性问题；多模态模型直接调用视觉能力，非多模态走视觉分析技能，减少不必要中转。
+
+### 测试结果
+
+- `DeepSeekService.features.test.js`：14/14 通过
+- 全量回归：1549/1568 通过（12 套件失败为历史遗留，与本次修改无关，已通过 git stash 验证）
+
+---
+
+## v9.1.0 补充11 (2026-07-01) - UnifiedStrategy 附件预处理诊断日志
+
+### 改动内容
+
+1. **UnifiedStrategy 附件预处理加诊断日志**
+   - 进入预处理时：打印 attachments.length 和每个 attachment 的字段完整性（type/originalName/sizeKB/base64Len/hasBase64）
+   - 跳过附件时：打印跳过原因（null/非image/base64为空）
+   - 调用 analyze_concrete_image 前后：打印 base64Len、question、success、errorCode、imageType、descLen
+   - 预处理完成：打印 imageDescs.length 和 enhancedMessage 前 200 字符
+   - 拼接图片描述后：打印 enhancedMessage 总长度
+
+### 目的
+
+确认聊天上传的图片附件在 UnifiedStrategy 预处理阶段是否正确到达、base64 是否完整、analyze_concrete_image 是否成功，定位"粘贴图片不能识别"的根因。
+
+### 测试结果
+
+- `UnifiedStrategy.test.js`：33/33 通过
+- `electron:build` 打包成功
+
+---
+
+## v9.1.0 补充10 (2026-07-01) - 修复 analyze_concrete_image 在运行时拿不到 workspace 的问题
+
+### 改动内容
+
+1. **analyze_concrete_image 运行时动态读取 global.workspaceManager**
+   - 根因：`initSkillSystem()` 在 `main.js` 启动早期被调用，此时 `global.workspaceManager` 还是 null
+   - `DynamicContextProvider` 把 null 快照进了 `allServices.workspace`，后续 execute 时 `ctx.workspace` 始终为 null
+   - 修复：execute 内改为 `const wm = ctx.workspace || global.workspaceManager`，运行时动态读取
+   - 与 `workspaceTools.js` 中 `getWM = () => global.workspaceManager` 的做法保持一致
+
+2. **新增 fallback 测试用例**
+   - 模拟 `ctx.workspace` 未注入场景，验证能 fallback 到 `global.workspaceManager`
+
+### 测试结果
+
+- `analyze-concrete-image.test.js`：10/10 通过
+- `electron:build` 打包成功
+
+### 边缘情况与测试用例
+
+- [x] `ctx.workspace` 正常注入时走 ctx
+- [x] `ctx.workspace` 为 null 时 fallback 到 `global.workspaceManager`
+- [x] 两者都为 null 时返回 `E-VISION-MISSING-WORKSPACE`
+
+---
+
+## v9.1.0 补充9 (2026-07-01) - 修复 analyze_concrete_image 图片路径解析与 listFiles size 显示
+
+### 改动内容
+
+1. **analyze_concrete_image 支持工作区相对路径**
+   - `imagePath` 参数现在支持三种形式：
+     - 绝对路径（如 `D:\C-c\UHPC\cement-report-jc003.jpg`）
+     - 相对文件名（如 `cement-report-jc003.jpg`）→ 自动解析到当前工作区根目录
+     - `workspace_listFiles` 返回的 `root/` 前缀路径（如 `root/cement-report-jc003.jpg`）→ 自动去掉前缀
+   - `services` 增加 `'workspace'`，技能执行时可拿到当前工作区路径
+   - 参数描述更新，Agent 能正确理解可传相对路径
+
+2. **新增错误码 `E-VISION-MISSING-WORKSPACE`**
+   - 工作区未打开但传了相对路径时，不再报兜底“未知错误”
+   - 返回明确提示：工作区未打开，请先打开工作区或传绝对路径
+
+3. **修复 WorkspaceManager.listFiles 的 size 字段**
+   - 原来所有文件固定返回 `size: 0`，改为读取真实文件大小
+   - `workspace_listFiles` 现在能正确反映文件实际字节数
+
+### 测试结果
+
+- `analyze-concrete-image.test.js`：9/9 通过
+- `WorkspaceManager.test.js`：17/17 通过
+- `agent/` 相关测试：53/53 通过
+- `electron:build` 打包成功
+
+### 边缘情况与测试用例
+
+- [x] 绝对路径直接使用
+- [x] 相对文件名自动拼到工作区根目录
+- [x] `root/` 前缀路径正确剥离
+- [x] 路径含反斜杠统一归一化
+- [x] 工作区未打开时传相对路径返回 `E-VISION-MISSING-WORKSPACE`
+- [x] 文件不存在仍返回 `E-VISION-FILE-NOT-FOUND`
+- [x] `imageBase64` 与 `imagePath` 同时存在时仍优先使用 `imageBase64`
+- [x] `workspace_listFiles` 返回真实 `size`
+
+---
+
 ## v9.1.0 补充8 (2026-07-01) - 修复历史会话侧栏名称显示
 
 ### 改动内容

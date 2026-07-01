@@ -1,7 +1,7 @@
 // src/renderer/pages/SettingsPage.jsx
 import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { downloadTemplate, TEMPLATES } from '../utils/templateDownloader'
-import { Card, Button, message, Space, Typography, Alert, Divider, List, Tag, Modal, Input, Select, Form, Popconfirm, Spin } from 'antd'
+import { Card, Button, message, Space, Typography, Alert, Divider, List, Tag, Modal, Input, Select, Form, Popconfirm, Spin, Switch, Tooltip } from 'antd'
 import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined, BookOutlined, ExperimentOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, AppstoreOutlined, WarningOutlined, PlusOutlined, DeleteOutlined, CheckCircleOutlined, ApiOutlined, EyeInvisibleOutlined } from '@ant-design/icons'
 import ParamCard from '../components/ParamCard'
 import ExportWizard from '../components/ExportWizard'
@@ -300,6 +300,9 @@ const LlmManager = () => {
   const [modalVisible, setModalVisible] = useState(false)
   const [editingConfig, setEditingConfig] = useState(null)
   const [form] = Form.useForm()
+  const watchedProvider = Form.useWatch('provider', form)
+  const watchedPreset = presets.find(p => p.value === watchedProvider)
+  const features = watchedPreset?.features || {}
 
   const loadConfigs = async () => {
     setLoading(true)
@@ -384,6 +387,8 @@ const LlmManager = () => {
       apiKey: '',
       model: fullConfig.model,
       thinkingEnabled: fullConfig.thinkingEnabled !== false,
+      reasoningEffort: fullConfig.reasoningEffort,
+      visionCapable: fullConfig.visionCapable === true,
       maxTokens: fullConfig.maxTokens || 32768,
       timeout: fullConfig.timeout || 120000,
       contextLimit: fullConfig.contextLimit || 800000,
@@ -396,7 +401,20 @@ const LlmManager = () => {
   const handleProviderChange = (provider) => {
     const preset = presets.find(p => p.value === provider)
     if (preset) {
-      form.setFieldsValue({ baseUrl: preset.baseUrl })
+      const updates = { baseUrl: preset.baseUrl }
+      if (preset.defaults) {
+        if (preset.defaults.model) updates.model = preset.defaults.model
+        if (preset.defaults.maxTokens !== undefined) updates.maxTokens = preset.defaults.maxTokens
+        if (preset.defaults.timeout !== undefined) updates.timeout = preset.defaults.timeout
+        if (preset.defaults.contextLimit !== undefined) updates.contextLimit = preset.defaults.contextLimit
+        if (preset.defaults.thinkingEnabled !== undefined) updates.thinkingEnabled = preset.defaults.thinkingEnabled
+        if (preset.defaults.reasoningEffort !== undefined) updates.reasoningEffort = preset.defaults.reasoningEffort
+      }
+      // visionCapable 默认从厂商 supportsVision 继承
+      if (preset.features?.supportsVision !== undefined) {
+        updates.visionCapable = preset.features.supportsVision
+      }
+      form.setFieldsValue(updates)
     }
   }
 
@@ -411,6 +429,8 @@ const LlmManager = () => {
         apiKey: values.apiKey || editingConfig?.apiKey || '',
         model: values.model,
         thinkingEnabled: values.thinkingEnabled !== false,
+        reasoningEffort: values.reasoningEffort || undefined,
+        visionCapable: values.visionCapable === true,
         maxTokens: values.maxTokens,
         timeout: values.timeout,
         contextLimit: values.contextLimit,
@@ -535,6 +555,38 @@ const LlmManager = () => {
           </Form.Item>
           <Form.Item name="contextLimit" label="上下文限制 (tokens)">
             <Input type="number" />
+          </Form.Item>
+          {/* 以下选项根据厂商特性动态显隐 */}
+          {features.supportsThinking && (
+            <Form.Item name="thinkingEnabled" label="启用 thinking" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+          )}
+          {features.supportsReasoningEffort && (
+            <Form.Item name="reasoningEffort" label="推理强度">
+              <Select>
+                {watchedProvider === 'deepseek' && [
+                  <Select.Option key="high" value="high">high</Select.Option>,
+                  <Select.Option key="max" value="max">max</Select.Option>,
+                ]}
+                {watchedProvider === 'openai' && [
+                  <Select.Option key="low" value="low">low</Select.Option>,
+                  <Select.Option key="medium" value="medium">medium</Select.Option>,
+                  <Select.Option key="high" value="high">high</Select.Option>,
+                ]}
+              </Select>
+            </Form.Item>
+          )}
+          <Form.Item
+            name="visionCapable"
+            label={
+              <Tooltip title="开启后，用户发送的图片将直接交给当前模型处理（要求模型支持多模态）；关闭后，图片走独立的视觉分析技能">
+                视觉能力 <WarningOutlined style={{ color: '#faad14' }} />
+              </Tooltip>
+            }
+            valuePropName="checked"
+          >
+            <Switch />
           </Form.Item>
         </Form>
       </Modal>

@@ -13,6 +13,9 @@
  * 升级判断：任一计数器 >= threshold → fatal
  */
 
+const fs = require('fs')
+const path = require('path')
+const os = require('os')
 const { buildSystemPrompt } = require('../systemPromptBuilder')
 const { buildMDInstruction } = require('../mdInstructionBuilder')
 const { trim } = require('../messageTrimmer')
@@ -20,6 +23,18 @@ const errorHandler = require('../../utils/errorHandler')
 const { DEFAULT_AGENT_MAX_STEPS } = require('../../utils/agentConstants')
 const { getInstance: getAgentMdService } = require('../agentMd')
 const { classifyError } = require('../errorClassifier')
+const { rotateIfNeeded } = require('../../utils/logRotator')
+
+// 诊断日志：写到 agent-debug.log（与 agentHandler._log 同一文件）
+const _diagLogFile = path.join(os.homedir(), '.concrete-mixdesign', 'agent-debug.log')
+function _diagLog(msg) {
+  const line = `[${new Date().toISOString()}] [UnifiedStrategy] ${msg}\n`
+  try {
+    rotateIfNeeded(_diagLogFile, { maxSize: 5 * 1024 * 1024, maxFiles: 5 })
+    fs.appendFileSync(_diagLogFile, line)
+  } catch (_) {}
+  console.log(`[UnifiedStrategy] ${msg}`)
+}
 
 const DEFAULT_TOKEN_BUDGET = 150000
 
@@ -75,53 +90,86 @@ class UnifiedStrategy {
     this.sessionId = sessionId
     this.webContents = webContents || null
 
-    // v9.1.0 修复：处理图片附件
-    // - 渲染端 sendMessage 把 chatState.attachments 通过 IPC 传过来（之前在 IPC handler 被丢）
-    // - 如果有图片，调 analyze_concrete_image 技能识别图片内容，把描述塞进 user message
-    //   这样 LLM 在主循环开始前就"看到"了图片（不依赖 LLM 主动调 analyze_concrete_image）
-    // - 注意：失败时降级（不阻塞 agent），仅记录日志
+    // v9.1.0：多模态图片处理分流
+    // - visionCapable=true：直接把图片作为 content 数组发给主 LLM，跳过 analyze_concrete_image
+    // - visionCapable=false：走现有 analyze_concrete_image 技能（独立 VisionService）
     let enhancedMessage = message
+    let multimodalImages = null
+
     if (Array.isArray(attachments) && attachments.length > 0) {
-      const imageDescs = []
-      for (const att of attachments) {
-        if (!att || att.type !== 'image' || !att.base64) continue
-        try {
-          const result = await this.skillExecutor.execute('analyze_concrete_image', {
-            imageBase64: att.base64,
-            question: message || '请描述这张图片',
-            context: { source: 'chat_attachment' }
-          })
-          if (result && result.success) {
-            imageDescs.push({
-              originalName: att.originalName || '图片',
-              sizeKB: att.sizeKB,
-              imageType: result.imageType || 'general',
-              description: result.description || '',
-              details: result.details || {}
+      // 检查当前 LLM 配置是否支持多模态
+      let visionCapable = false
+      try {
+        const llmConfig = await this.systemService?.getActiveLlmConfig?.()
+        visionCapable = llmConfig?.visionCapable === true
+      } catch (e) {
+        // 读取配置失败，降级走视觉分析技能
+      }
+
+      const imageAttachments = attachments.filter(att => att && att.type === 'image' && att.base64)
+
+      if (visionCapable && imageAttachments.length > 0) {
+        // 多模态路径：收集图片，直接发给主 LLM
+        _diagLog(`🖼️ 多模态路径：visionCapable=true，${imageAttachments.length} 张图片将直接发给主 LLM`)
+        multimodalImages = imageAttachments.map(att => ({
+          base64: att.base64,
+          mimeType: att.mimeType || 'image/jpeg'
+        }))
+        // enhancedMessage 保持原样（不拼接图片描述），图片通过 content 数组发送
+      } else {
+        // 非多模态路径：走现有 analyze_concrete_image 技能（独立 VisionService）
+        _diagLog(`🔍 非多模态路径：visionCapable=${visionCapable}，走 analyze_concrete_image 技能，attachments.length=${attachments.length}`)
+        attachments.forEach((att, i) => {
+          _diagLog(`  att[${i}]: type=${att?.type} originalName=${att?.originalName} sizeKB=${att?.sizeKB} base64Len=${att?.base64?.length || 0} hasBase64=${!!att?.base64}`)
+        })
+        const imageDescs = []
+        for (const att of attachments) {
+          if (!att || att.type !== 'image' || !att.base64) {
+            _diagLog(`⏭️ 跳过附件: type=${att?.type} hasBase64=${!!att?.base64} reason=${!att ? 'null' : att.type !== 'image' ? '非image' : 'base64为空'}`)
+            continue
+          }
+          try {
+            _diagLog(`🖼️ 调用 analyze_concrete_image，base64Len=${att.base64.length} question=${(message || '请描述这张图片').slice(0, 50)}`)
+            const result = await this.skillExecutor.execute('analyze_concrete_image', {
+              imageBase64: att.base64,
+              question: message || '请描述这张图片',
+              context: { source: 'chat_attachment' }
             })
-          } else {
-            // 视觉模型未配置或调用失败：降级，把文件名告知 LLM
+            _diagLog(`📋 analyze_concrete_image 结果: success=${result?.success} errorCode=${result?.errorCode || result?.code} imageType=${result?.imageType} descLen=${result?.description?.length || 0}`)
+            if (result && result.success) {
+              imageDescs.push({
+                originalName: att.originalName || '图片',
+                sizeKB: att.sizeKB,
+                imageType: result.imageType || 'general',
+                description: result.description || '',
+                details: result.details || {}
+              })
+            } else {
+              // 视觉模型未配置或调用失败：降级，把文件名告知 LLM
+              imageDescs.push({
+                originalName: att.originalName || '图片',
+                sizeKB: att.sizeKB,
+                description: '[图片识别失败，请用户检查视觉模型配置]',
+                errorCode: result?.errorCode || result?.code
+              })
+            }
+          } catch (err) {
+            // 单张图片失败不阻塞其他图片
+            _diagLog(`❌ 图片分析异常: ${err.message} stack=${err.stack?.slice(0, 200)}`)
             imageDescs.push({
               originalName: att.originalName || '图片',
-              sizeKB: att.sizeKB,
-              description: '[图片识别失败，请用户检查视觉模型配置]',
-              errorCode: result?.errorCode || result?.code
+              description: `[图片分析异常：${err.message}]`
             })
           }
-        } catch (err) {
-          // 单张图片失败不阻塞其他图片
-          console.warn('[UnifiedStrategy] 图片分析失败:', err.message)
-          imageDescs.push({
-            originalName: att.originalName || '图片',
-            description: `[图片分析异常：${err.message}]`
-          })
         }
-      }
-      if (imageDescs.length > 0) {
-        const imgSummary = imageDescs.map((d, i) =>
-          `【图片${i + 1}：${d.originalName}（${d.sizeKB || '?'}KB）】\n类型：${d.imageType || '?'}\n描述：${d.description}${d.details && Object.keys(d.details).length ? '\n详情：' + JSON.stringify(d.details) : ''}`
-        ).join('\n\n')
-        enhancedMessage = (message ? message + '\n\n' : '') + `📎 老板上传了 ${imageDescs.length} 张图片：\n\n${imgSummary}`
+        _diagLog(`✅ 附件预处理完成: imageDescs.length=${imageDescs.length} enhancedMessage前200字符="${enhancedMessage.slice(0, 200)}"`)
+        if (imageDescs.length > 0) {
+          const imgSummary = imageDescs.map((d, i) =>
+            `【图片${i + 1}：${d.originalName}（${d.sizeKB || '?'}KB）】\n类型：${d.imageType || '?'}\n描述：${d.description}${d.details && Object.keys(d.details).length ? '\n详情：' + JSON.stringify(d.details) : ''}`
+          ).join('\n\n')
+          enhancedMessage = (message ? message + '\n\n' : '') + `📎 老板上传了 ${imageDescs.length} 张图片：\n\n${imgSummary}`
+          _diagLog(`📎 enhancedMessage 已拼接图片描述，总长度=${enhancedMessage.length}`)
+        }
       }
     }
 
@@ -158,7 +206,13 @@ class UnifiedStrategy {
     const messages = [
       { role: 'system', content: systemPrompt },
       ...historyMessages,
-      { role: 'user', content: enhancedMessage }
+      // 多模态：如果有 multimodalImages，用 content 数组（text + image_url）
+      multimodalImages && multimodalImages.length > 0
+        ? { role: 'user', content: [
+            ...(enhancedMessage ? [{ type: 'text', text: enhancedMessage }] : []),
+            ...multimodalImages.map(img => ({ type: 'image_url', image_url: { url: img.base64 } }))
+          ]}
+        : { role: 'user', content: enhancedMessage }
     ]
 
     let tokenBudget = DEFAULT_TOKEN_BUDGET

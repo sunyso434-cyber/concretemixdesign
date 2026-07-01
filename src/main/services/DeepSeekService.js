@@ -504,6 +504,58 @@ class DeepSeekService {
   }
 
   /**
+   * 根据厂商特性开关向请求体注入可选字段
+   * 特性来源：各厂商官方文档（详见 docs/superpowers/plans/2026-07-01-llm-provider-configs-plan.md）
+   *
+   * thinking 格式差异：
+   * - DeepSeek/Moonshot: thinking: { type: 'enabled' }
+   * - Agnes AI: chat_template_kwargs: { enable_thinking: true }（OpenAI 兼容格式）
+   * - MiniMax M3: thinking: { type: 'disabled' | 'adaptive' }，省略时默认开启
+   *
+   * max_tokens vs max_completion_tokens：
+   * - OpenAI/Moonshot: max_tokens 已弃用，用 max_completion_tokens
+   * - MiniMax M3: 两者都支持，推荐 max_completion_tokens
+   * - DeepSeek/智谱/Ollama: 只支持 max_tokens
+   *
+   * reasoning_effort：
+   * - DeepSeek: high | max（low/medium 映射为 high，xhigh 映射为 max）
+   * - OpenAI: low | medium | high（仅 o1/o3 系列）
+   */
+  _applyProviderFeatures(requestBody, cfg) {
+    const features = cfg.features || {}
+
+    // max_completion_tokens 优先（MiniMax-M3/OpenAI/Moonshot 推荐），其次 max_tokens
+    if (features.supportsMaxCompletionTokens && cfg.maxTokens) {
+      requestBody.max_completion_tokens = cfg.maxTokens
+    } else if (features.supportsMaxTokens && cfg.maxTokens) {
+      requestBody.max_tokens = cfg.maxTokens
+    }
+
+    // thinking：各厂商格式不同
+    if (features.supportsThinking) {
+      if (cfg.provider === 'agnes') {
+        // Agnes AI OpenAI 兼容格式
+        if (cfg.thinkingEnabled === true) {
+          requestBody.chat_template_kwargs = { enable_thinking: true }
+        }
+      } else if (cfg.provider === 'minimax') {
+        // MiniMax M3：省略时默认开启 thinking，显式关闭用 disabled，显式开启用 adaptive
+        requestBody.thinking = { type: cfg.thinkingEnabled ? 'adaptive' : 'disabled' }
+      } else if (cfg.provider === 'deepseek' || cfg.provider === 'moonshot') {
+        // DeepSeek/Moonshot：仅开启时发送，不发送则走默认
+        if (cfg.thinkingEnabled === true) {
+          requestBody.thinking = { type: 'enabled' }
+        }
+      }
+    }
+
+    // reasoning_effort：DeepSeek 支持 high/max，OpenAI 支持 low/medium/high
+    if (features.supportsReasoningEffort && cfg.reasoningEffort) {
+      requestBody.reasoning_effort = cfg.reasoningEffort
+    }
+  }
+
+  /**
    * 调用 DeepSeek API 发送请求
    * @param {Array} messages - 消息列表
    * @param {boolean} includeTools - 是否携带工具定义
@@ -511,19 +563,16 @@ class DeepSeekService {
    */
   async _callAPI(messages, includeTools = false) {
     const cfg = await this._getConfig()
-    const isDeepSeek = cfg.provider === 'deepseek'
     const requestBody = {
       model: cfg.model,
       messages,
     }
-    if (isDeepSeek && cfg.maxTokens) {
-      requestBody.max_tokens = cfg.maxTokens
-    }
-    if (isDeepSeek && cfg.thinkingEnabled === true) {
-      requestBody.thinking = { type: 'enabled' }
-    }
+    this._applyProviderFeatures(requestBody, cfg)
     if (includeTools) {
-      requestBody.tools = _skillRegistry ? _skillRegistry.getToolSchemas() : TOOLS
+      const features = cfg.features || {}
+      if (features.supportsTools !== false) {
+        requestBody.tools = _skillRegistry ? _skillRegistry.getToolSchemas() : TOOLS
+      }
     }
 
     const apiUrl = `${(cfg.baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '')}/chat/completions`
@@ -550,18 +599,12 @@ class DeepSeekService {
    */
   async chatWithTools(messages, tools) {
     const cfg = await this._getConfig()
-    const isDeepSeek = cfg.provider === 'deepseek'
     const requestBody = {
       model: cfg.model,
       messages,
       tools
     }
-    if (isDeepSeek && cfg.maxTokens) {
-      requestBody.max_tokens = cfg.maxTokens
-    }
-    if (isDeepSeek && cfg.thinkingEnabled === true) {
-      requestBody.thinking = { type: 'enabled' }
-    }
+    this._applyProviderFeatures(requestBody, cfg)
 
     const apiUrl = `${(cfg.baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '')}/chat/completions`
     try {
@@ -599,22 +642,19 @@ class DeepSeekService {
 
   async _callAPIStream(messages, includeTools = false, onEvent = null, customTools = null) {
     const cfg = await this._getConfig()
-    const isDeepSeek = cfg.provider === 'deepseek'
     const requestBody = {
       model: cfg.model,
       messages,
       stream: true,
     }
-    if (isDeepSeek && cfg.maxTokens) {
-      requestBody.max_tokens = cfg.maxTokens
-    }
-    if (isDeepSeek && cfg.thinkingEnabled === true) {
-      requestBody.thinking = { type: 'enabled' }
-    }
+    this._applyProviderFeatures(requestBody, cfg)
     if (customTools) {
       requestBody.tools = customTools
     } else if (includeTools) {
-      requestBody.tools = _skillRegistry ? _skillRegistry.getToolSchemas() : TOOLS
+      const features = cfg.features || {}
+      if (features.supportsTools !== false) {
+        requestBody.tools = _skillRegistry ? _skillRegistry.getToolSchemas() : TOOLS
+      }
     }
 
     const apiUrl = `${(cfg.baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '')}/chat/completions`
@@ -1401,9 +1441,7 @@ ${diagnosisText}
             { role: 'user', content: userPrompt }
           ],
         }
-        if (cfg.provider === 'deepseek' && cfg.maxTokens) {
-          bodyParams.max_tokens = cfg.maxTokens
-        }
+        this._applyProviderFeatures(bodyParams, cfg)
 
         const response = await axios.post(
           apiUrl,

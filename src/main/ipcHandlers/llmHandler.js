@@ -29,6 +29,27 @@ function registerLlmHandlers() {
         config.id = `llm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       }
       if (!config.name) config.name = config.provider || '未命名'
+
+      // 合并厂商默认配置和特性开关
+      const presets = SystemService.getLlmProviderPresets()
+      const preset = presets.find(p => p.value === config.provider)
+      if (preset) {
+        if (!config.baseUrl) config.baseUrl = preset.baseUrl
+        // features：用户可覆盖厂商默认特性（如手动开启 visionCapable）
+        config.features = { ...(preset.features || {}), ...(config.features || {}) }
+        const defaults = preset.defaults || {}
+        if (!config.model && defaults.model) config.model = defaults.model
+        if (config.maxTokens === undefined && defaults.maxTokens !== undefined) config.maxTokens = defaults.maxTokens
+        if (config.timeout === undefined && defaults.timeout !== undefined) config.timeout = defaults.timeout
+        if (config.contextLimit === undefined && defaults.contextLimit !== undefined) config.contextLimit = defaults.contextLimit
+        if (config.thinkingEnabled === undefined && defaults.thinkingEnabled !== undefined) config.thinkingEnabled = defaults.thinkingEnabled
+        if (config.reasoningEffort === undefined && defaults.reasoningEffort !== undefined) config.reasoningEffort = defaults.reasoningEffort
+        // visionCapable 默认从厂商 supportsVision 继承，用户可手动覆盖
+        if (config.visionCapable === undefined && preset.features?.supportsVision !== undefined) {
+          config.visionCapable = preset.features.supportsVision
+        }
+      }
+
       const allConfigs = await SystemService.getLlmConfigs()
       const idx = allConfigs.findIndex(c => c.id === config.id)
       if (idx >= 0) {
