@@ -1,3 +1,36 @@
+## v10.1.3 补丁版 (2026-07-02) - 修复蓝图材料参数遗漏 if_else 嵌套中的类别
+
+### 问题现象
+
+老板反馈：SCC 蓝图调用时，工具签名只有 `cement_name`、`fine_aggregate_name`、`coarse_aggregate_name`，缺少 `fly_ash_name` 和 `slag_name`。粉煤灰和矿渣粉选不了。
+
+### 根因
+
+SCC 蓝图中粉煤灰和矿渣粉的 `material_query` 嵌套在 `if_else` 条件分支里（`fly_ash_dosage_var > 0` 时才查粉煤灰密度）。v10.1.2 的 `injectMaterialParams()` 和 `extractMaterialChoices()` 只扫描顶层步骤，**漏掉了 if_else.then/else 中的嵌套子步骤**。
+
+### 修复
+
+**改动：1 个文件** `src/main/skills/blueprint-loader.js`
+
+- 新增 `_collectMaterialCategories()` 递归函数，自动深入 `if_else.then` / `if_else.else` 分支收集材料类别
+- `injectMaterialParams()` 和 `extractMaterialChoices()` 统一使用该递归函数
+- SCC 蓝图的工具签名现在正确包含 5 个材料参数（水泥/细骨料/粗骨料/粉煤灰/矿渣粉）
+
+### 回归测试结果
+
+- **BlueprintEngine 全量**: 17 套件 / 61 用例 ✅
+
+### 打包产物
+
+| 文件 | 大小 |
+|------|------|
+| `砼智 Setup 10.1.3.exe` (NSIS 安装包) | ~147 MB |
+| `砼智-10.1.3-x64.exe` (便携版) | ~147 MB |
+
+- 打包平台: Windows 10.0.26200 x64
+- Electron 版本: 28.3.3
+- 输出目录: `dist-10.1.3/`
+
 ## v10.1.2 补丁版 (2026-07-02) - 修复蓝图技能材料信息传递问题
 
 ### 问题现象
