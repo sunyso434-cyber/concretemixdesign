@@ -31,6 +31,18 @@ const WORKSPACE_TOOLS_PROMPT = `
 5. 复杂问题 → 综合 search + searchGraph + readPage
 `
 
+// 蓝图技能创建路由提示（按需加载策略）：
+// 用户明确要创建"蓝图（blueprint）"类型的自定义配合比设计技能时，先调
+// prepare_blueprint_authoring 拿到创作规范全文注入对话，再基于对话上下文
+// 生成完整蓝图，最后调 create_skill(format='blueprint', rawBlueprint=...) 落盘。
+// 不允许在没拿到创作规范的情况下直接猜蓝图字段。
+const BLUEPRINT_AUTHORING_ROUTE = `## 创建蓝图技能的调用顺序
+若用户明确要创建"蓝图（blueprint）"格式的配合比设计技能：
+1. 先调 prepare_blueprint_authoring 获取蓝图创作规范全文；
+2. 结合本对话上下文（规范、材料、参数）生成完整蓝图（=== meta.yaml === / === blueprint.yaml === / === tables/xxx.json === 分段）；
+3. 调 create_skill(format='blueprint', rawBlueprint=<完整蓝图>) 完成落盘。
+禁止跳过第 1 步直接猜蓝图字段。`
+
 // v1.5.3 决策：5 类报告 → 必调 Skill 矩阵（软约束）
 // 软约束：LLM 看到后倾向按此顺序调用，可视情况跳过。
 // 硬拦截不在 UnifiedStrategy 实现（避免破坏 LLM 自主性）。
@@ -98,6 +110,8 @@ ${rulesText || '（未配置，使用系统默认）'}
 
 ${REPORT_SKILL_MATRIX}
 
+${BLUEPRINT_AUTHORING_ROUTE}
+
 # 回答风格
 - 简洁专业，避免冗长
 - 涉及数据时引用具体数值
@@ -105,4 +119,4 @@ ${REPORT_SKILL_MATRIX}
 ${tokenWarn}`
 }
 
-module.exports = { buildSystemPrompt, REPORT_SKILL_MATRIX }
+module.exports = { buildSystemPrompt, REPORT_SKILL_MATRIX, BLUEPRINT_AUTHORING_ROUTE }

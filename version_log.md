@@ -1,3 +1,138 @@
+## v10.1.0 正式版 (2026-07-02) - 蓝图技能创建架构重构（上下文共享）
+
+### 背景
+
+老板发现旧架构下 `create_skill` 内部会**独立起一个 LLM 实例**去生成蓝图 YAML，导致该 LLM 与主 agent 上下文完全不共享（失忆），生成的蓝图经常违反规范（如"公式自引用 wb"报错），且难以复用主对话中已确认的规范/材料/参数。
+
+### 改造方案（方案 B + md 按需加载）
+
+**核心原则**：蓝图 YAML 由主 agent 在**同一对话内**基于全上下文生成，`create_skill` 只做校验/试算/落盘；创作规范以独立 md 文件存放，按需加载而非常驻 system prompt。
+
+### 改动清单（4 个文件）
+
+1. **新建** `src/main/skills/resources/blueprint-authoring-guide.md`（约 260 行）
+   - 分段输出协议（=== meta.yaml === / === blueprint.yaml === / === tables/xxx.json ===）
+   - 7 种原子操作字段规范（input / const / material / formula / table_lookup / if_else / output）
+   - **硬约束条款**：formula.var 不得出现在 expr 中（禁自引用）→ 多阶段命名规范 wb_raw → wb_capped → wb_final
+   - material category/property 完整白名单（8 类材料）
+   - 数值合理区间、few-shot 示例、生成前 checklist
+
+2. **新建** `src/main/skills/prepare-blueprint-authoring.js`（约 60 行）
+   - 引导技能：读取 md 并作为 tool_result 注入主对话
+   - 不调用任何 LLM，纯读文件
+   - 主 agent 明确要建蓝图时才调用（按需加载）
+
+3. **重写** `src/main/skills/create-skill.js`（v1.0.0 → v2.0.0）
+   - **彻底删除**内嵌 LLM 调用逻辑：`_getLLMService` / `_buildBlueprintPrompt` / `_formatParamList` / `_generateBlueprint` 等方法全部移除
+   - 新增参数 `rawBlueprint`（format=blueprint 时必填）
+   - 新增错误码：`MISSING_RAW_BLUEPRINT` / `BLUEPRINT_PARSE_FAILED` / `BLUEPRINT_VALIDATE_FAILED`（均带具体 hint）
+   - `_parseLLMOutput` 重命名为 `_parseRawBlueprint`，保留解析/试算/落盘链路
+
+4. **微改** `src/main/agent/systemPromptBuilder.js`（+~8 行）
+   - 新增 `BLUEPRINT_AUTHORING_ROUTE` 常量并拼入主 system prompt
+   - 明确调用顺序：先 prepare_blueprint_authoring → 生成蓝图 → 调 create_skill(rawBlueprint=...)
+   - 常驻 token 开销 ~120 字符，可忽略
+
+### 测试覆盖（新增/重写共 19 用例）
+
+| 测试文件 | 用例数 | 状态 |
+|---------|-------|------|
+| `prepare-blueprint-authoring.test.js` | 5 | ✅ 全通过 |
+| `create-skill-blueprint.test.js`（重写） | 9 | ✅ 全通过 |
+| `blueprint-authoring-e2e.test.js`（新增端到端） | 5 | ✅ 全通过 |
+| **合计** | **19** | **✅ 19/19** |
+
+回归：skills 目录 118 用例全通过；main 目录仅存 workspace 领域 7 个遗留失败（PDF worker/ISO 时区，与本次改造无关）。
+
+### 边缘情况与错误恢复
+
+- 缺 rawBlueprint → 明确报错 + 引导先调 prepare
+- rawBlueprint 空字符串 → 同上
+- 分段不完整（缺 meta.yaml）→ BLUEPRINT_PARSE_FAILED
+- 自引用蓝图 → BLUEPRINT_VALIDATE_FAILED 携带具体位置
+- 技能名重复 → NAME_EXISTS 引导 change_name
+- 试算失败 → 报错但仍落盘（可选删除重建）
+- md 文件缺失 → prepare 技能返回 SKILL_INTERNAL_ERROR
+
+### 架构对比
+
+| 维度 | 旧架构 | 新架构 |
+|------|-------|--------|
+| LLM 调用次数 | 主 agent + 二次孤儿 LLM | 仅主 agent 一条脑子 |
+| 上下文 | 二次 LLM 失忆 | 全上下文共享 |
+| wb 自引用报错 | 反复出现 | 硬约束写进 md，主 agent 自修 |
+| 提示词维护 | 埋在 js 代码 | 独立 md 文件 |
+| 常驻 token | 0 | ~120 字符（可忽略） |
+| 按需加载 | 无 | md 只在明确要建时才拉入 |
+| 调试可见性 | 二次 LLM 黑箱 | 全流程主对话可见 |
+
+### 打包产物
+
+| 文件 | 大小 |
+|------|------|
+| `砼智 Setup 10.1.0.exe` (NSIS 安装包) | 146.8 MB |
+| `砼智-10.1.0-x64.exe` (便携版) | 146.4 MB |
+
+- **打包平台**: Windows 10.0.26200 x64
+- **Electron 版本**: 28.3.3
+- **输出目录**: `dist-10.1.0/`
+
+### 前端构建
+
+- Vite 生产构建: 3944 模块, 13.17s
+- 输出目录: `build/renderer/`
+
+---
+
+## v10.0.0 正式版 (2026-07-02) - Electron 打包（第二次）
+
+### 改动内容
+
+1. **修复 create_skill 蓝图格式报"LLM API密钥未配置"**
+   - `_getLLMService()` 原来传 `null` 给 DeepSeekService，改为从数据库加载活跃 LLM 配置
+   - 与 agentHandler 走统一路径：SystemService.getActiveLlmConfig() → DeepSeekService(config)
+
+2. **移除 create_skill 的 JS 格式支持**
+   - 删除 `executeCode` 参数、`_createJSSkill`、`_generateParameters`、`_generateSkillCode` 方法
+   - `format.enum` 从 `['js','md','blueprint']` 改为 `['md','blueprint']`
+   - 原因：JS 技能可执行任意代码，存在安全隐患
+
+### 打包产物
+
+| 文件 | 大小 |
+|------|------|
+| `砼智 Setup 10.0.0.exe` (NSIS 安装包) | 147 MB |
+| `砼智-10.0.0-x64.exe` (便携版) | 147 MB |
+
+- **打包平台**: Windows 10.0.26200 x64
+- **Electron 版本**: 28.3.3
+- **输出目录**: `dist-10.0.0/`
+
+### 前端构建
+- Vite 生产构建: 3944 模块, 12.77s
+- 输出目录: `build/renderer/`
+
+---
+
+## v10.0.0 正式版 (2026-07-02) - Electron 打包（第一次）
+
+### 打包产物
+
+| 文件 | 大小 |
+|------|------|
+| `砼智 Setup 10.0.0.exe` (NSIS 安装包) | 147 MB |
+| `砼智-10.0.0-x64.exe` (便携版) | 147 MB |
+
+- **打包平台**: Windows 10.0.26200 x64
+- **Electron 版本**: 28.3.3
+- **输出目录**: `dist-10.0.0/`
+
+### 前端构建
+- Vite 生产构建: 3944 模块, 14.22s
+- 输出目录: `build/renderer/`
+
+---
+
 ## v9.1.0 补充12 (2026-07-01) - LLM 多供应商专属配置 + 多模态视觉能力分流
 
 ### 改动内容

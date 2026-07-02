@@ -1,12 +1,15 @@
 /**
  * create-skill (format='blueprint') 单元测试
  *
- * 覆盖：
- * 1. 成功路径：LLM 返回合法蓝图 → 校验通过 → 试算通过 → 保存到正确目录
- * 2. 校验失败重试：LLM 第一次返回自引用错误，第二次返回合法蓝图 → 最终成功
- * 3. 保存路径正确（含 tables 数据表）：验证 meta.yaml / blueprint.yaml / tables/*.json 落盘
+ * 架构变更（v2.0.0）：不再内嵌 LLM 调用，蓝图由主 agent 生成后通过
+ * rawBlueprint 参数传入，本技能只做解析、校验、试算、落盘。
  *
- * 全程 mock LLM（context.llmService.invoke），不发起真实 API 调用。
+ * 覆盖：
+ * 1. 成功路径：合法 rawBlueprint → 校验通过 → 试算通过 → 保存到正确目录
+ * 2. 缺少 rawBlueprint 参数 → 返回 MISSING_RAW_BLUEPRINT 错误并引导先调 prepare_blueprint_authoring
+ * 3. rawBlueprint 分段不完整 → 返回 BLUEPRINT_PARSE_FAILED
+ * 4. 蓝图校验失败（如自引用） → 返回 BLUEPRINT_VALIDATE_FAILED 并携带具体报错
+ * 5. 保存路径正确（含 tables 数据表）：验证 meta.yaml / blueprint.yaml / tables/*.json 落盘
  */
 
 const fs = require('fs')
@@ -25,9 +28,8 @@ jest.mock('../../ipcHandlers/agentHandler', () => {
 
 const createSkill = require('../../skills/create-skill')
 
-// ---- 测试用 LLM 输出样例 ----
+// ---- 测试用蓝图样例 ----
 
-// 合法的简单蓝图（无 material、无 table_lookup，避免校验器对查表变量预定义的约束）
 const VALID_BLUEPRINT_NO_TABLES = `=== meta.yaml ===
 name: "test_normal_concrete"
 description: "测试普通混凝土配制强度"
@@ -59,7 +61,6 @@ steps:
     precision: 2
 `
 
-// 自引用错误蓝图（公式 a = a + 1，校验器会拒绝）
 const INVALID_SELF_REF_BLUEPRINT = `=== meta.yaml ===
 name: "bad_skill"
 description: "有自引用错误"
@@ -72,7 +73,6 @@ steps:
     expr: "a + 1"
 `
 
-// 带数据表的合法蓝图（const 预定义变量后再 table_lookup，满足校验器约束）
 const VALID_BLUEPRINT_WITH_TABLE = `=== meta.yaml ===
 name: "test_with_table"
 description: "测试带数据表的蓝图"
@@ -113,6 +113,13 @@ steps:
 }
 `
 
+const RAW_MISSING_META = `=== blueprint.yaml ===
+steps:
+  - type: input
+    var: x
+    default: 1
+`
+
 describe('create_skill (format=blueprint)', () => {
   let tmpHome
   let origConfigDir
@@ -120,7 +127,6 @@ describe('create_skill (format=blueprint)', () => {
   beforeEach(() => {
     tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-bp-'))
     jest.spyOn(os, 'homedir').mockReturnValue(tmpHome)
-    // 让 FeatureFlag 在临时目录下读取（不存在 config.yaml → isEnabled 返回 true）
     origConfigDir = process.env.CONCRETE_CONFIG_DIR
     process.env.CONCRETE_CONFIG_DIR = tmpHome
   })
@@ -135,74 +141,105 @@ describe('create_skill (format=blueprint)', () => {
     jest.restoreAllMocks()
   })
 
-  const _ctx = (llmService) => ({
+  const _ctx = () => ({
     sessionId: 'test-session',
-    logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
-    llmService
+    logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
   })
 
-  test('成功路径：合法蓝图 → 校验通过 → 试算通过 → 保存成功', async () => {
-    const invoke = jest.fn().mockResolvedValue(VALID_BLUEPRINT_NO_TABLES)
+  test('成功路径：合法 rawBlueprint → 校验通过 → 试算通过 → 保存成功', async () => {
     const result = await createSkill.execute(
       {
         skillName: 'test_normal_concrete',
         description: '测试普通混凝土',
         functionality: '计算配制强度',
-        format: 'blueprint'
+        format: 'blueprint',
+        rawBlueprint: VALID_BLUEPRINT_NO_TABLES
       },
-      _ctx({ invoke })
+      _ctx()
     )
 
     expect(result.success).toBe(true)
     expect(result.data.format).toBe('blueprint')
     expect(result.data.skillName).toBe('test_normal_concrete')
-    // 只调用一次 LLM（首次即通过校验）
-    expect(invoke).toHaveBeenCalledTimes(1)
-    // 试算通过
     expect(result.data.dryRun.success).toBe(true)
     expect(result.data.dryRun.results).toBeDefined()
-    // 文件落盘
+
     const skillDir = path.join(tmpHome, '.concrete-mixdesign', 'skills', 'test_normal_concrete')
     expect(fs.existsSync(path.join(skillDir, 'meta.yaml'))).toBe(true)
     expect(fs.existsSync(path.join(skillDir, 'blueprint.yaml'))).toBe(true)
   })
 
-  test('校验失败重试：首次自引用错误，第二次合法 → 最终成功', async () => {
-    const invoke = jest
-      .fn()
-      .mockResolvedValueOnce(INVALID_SELF_REF_BLUEPRINT)
-      .mockResolvedValueOnce(VALID_BLUEPRINT_NO_TABLES)
-
+  test('缺少 rawBlueprint 时返回 MISSING_RAW_BLUEPRINT 并引导先调 prepare', async () => {
     const result = await createSkill.execute(
       {
-        skillName: 'retry_skill',
-        description: '测试重试',
-        functionality: '先错后对',
+        skillName: 'no_raw_skill',
+        description: '没传 rawBlueprint',
         format: 'blueprint'
       },
-      _ctx({ invoke })
+      _ctx()
     )
 
-    // 调用两次 LLM
-    expect(invoke).toHaveBeenCalledTimes(2)
-    // 第二次 prompt 应包含上次错误信息
-    const secondPrompt = invoke.mock.calls[1][0]
-    expect(secondPrompt).toMatch(/自引用/)
-    // 最终成功
-    expect(result.success).toBe(true)
-    expect(result.data.stepCount).toBe(4)
+    expect(result.success).toBe(false)
+    expect(result.error.recovery).toBe('call_prepare_blueprint_authoring_first')
+    expect(result.details.nextAction).toBe('call_prepare_blueprint_authoring')
+    expect(result.details.hint).toMatch(/prepare_blueprint_authoring/)
   })
 
-  test('保存路径正确：含 tables 数据表时 tables/ 子目录与 .json 文件落盘', async () => {
-    const invoke = jest.fn().mockResolvedValue(VALID_BLUEPRINT_WITH_TABLE)
+  test('rawBlueprint 为空字符串时同样触发 MISSING_RAW_BLUEPRINT', async () => {
+    const result = await createSkill.execute(
+      {
+        skillName: 'empty_raw',
+        description: 'empty',
+        format: 'blueprint',
+        rawBlueprint: '   \n  '
+      },
+      _ctx()
+    )
+    expect(result.success).toBe(false)
+    expect(result.error.recovery).toBe('call_prepare_blueprint_authoring_first')
+  })
+
+  test('rawBlueprint 分段不完整时返回 BLUEPRINT_PARSE_FAILED', async () => {
+    const result = await createSkill.execute(
+      {
+        skillName: 'missing_meta',
+        description: '缺 meta 分段',
+        format: 'blueprint',
+        rawBlueprint: RAW_MISSING_META
+      },
+      _ctx()
+    )
+    expect(result.success).toBe(false)
+    expect(result.error.recovery).toBe('fix_raw_blueprint')
+    expect(result.details.originalError).toMatch(/分段|YAML|meta\.yaml/)
+  })
+
+  test('校验失败（自引用）返回 BLUEPRINT_VALIDATE_FAILED 并携带具体错误', async () => {
+    const result = await createSkill.execute(
+      {
+        skillName: 'self_ref_skill',
+        description: '自引用测试',
+        format: 'blueprint',
+        rawBlueprint: INVALID_SELF_REF_BLUEPRINT
+      },
+      _ctx()
+    )
+
+    expect(result.success).toBe(false)
+    expect(result.error.recovery).toBe('fix_raw_blueprint')
+    expect(result.details.originalError).toMatch(/自引用/)
+    expect(result.details.hint).toMatch(/formula\.var|自引用/)
+  })
+
+  test('保存路径正确：含 tables 时 tables/ 子目录与 .json 文件落盘', async () => {
     const result = await createSkill.execute(
       {
         skillName: 'test_with_table',
         description: '带数据表',
-        functionality: '查表用水量',
-        format: 'blueprint'
+        format: 'blueprint',
+        rawBlueprint: VALID_BLUEPRINT_WITH_TABLE
       },
-      _ctx({ invoke })
+      _ctx()
     )
 
     expect(result.success).toBe(true)
@@ -211,52 +248,41 @@ describe('create_skill (format=blueprint)', () => {
     const skillDir = path.join(tmpHome, '.concrete-mixdesign', 'skills', 'test_with_table')
     expect(fs.existsSync(path.join(skillDir, 'meta.yaml'))).toBe(true)
     expect(fs.existsSync(path.join(skillDir, 'blueprint.yaml'))).toBe(true)
-    // tables 子目录及 json 文件
     expect(fs.existsSync(path.join(skillDir, 'tables'))).toBe(true)
     expect(fs.existsSync(path.join(skillDir, 'tables', 'water_table.json'))).toBe(true)
 
-    // 验证写入的 blueprint.yaml 可被 js-yaml 解析且包含 table_lookup 步骤
     const yaml = require('js-yaml')
     const savedBlueprint = yaml.load(fs.readFileSync(path.join(skillDir, 'blueprint.yaml'), 'utf8'))
     const types = savedBlueprint.steps.map(s => s.type)
     expect(types).toContain('table_lookup')
 
-    // SkillRegistry.discover 被调用以重新加载
     const { getSkillRegistry } = require('../../ipcHandlers/agentHandler')
     expect(getSkillRegistry().discover).toHaveBeenCalled()
   })
 
-  test('LLM 输出无法解析时返回失败', async () => {
-    const invoke = jest.fn().mockResolvedValue('这不是有效的分段输出')
-    const result = await createSkill.execute(
-      {
-        skillName: 'unparseable_skill',
-        description: 'LLM 输出乱码',
-        format: 'blueprint'
-      },
-      _ctx({ invoke })
-    )
+  test('技能名已存在时返回 NAME_EXISTS', async () => {
+    const args = {
+      skillName: 'dup_skill',
+      description: '重复',
+      format: 'blueprint',
+      rawBlueprint: VALID_BLUEPRINT_NO_TABLES
+    }
+    const r1 = await createSkill.execute(args, _ctx())
+    expect(r1.success).toBe(true)
 
-    expect(result.success).toBe(false)
-    // 重试 3 次后仍失败
-    expect(invoke).toHaveBeenCalledTimes(3)
-    expect(result.details.originalError).toMatch(/无法解析/)
+    const r2 = await createSkill.execute(args, _ctx())
+    expect(r2.success).toBe(false)
+    expect(r2.error.recovery).toBe('change_name')
   })
 
-  test('未注入 LLM 服务时返回失败（不实例化真实 DeepSeekService）', async () => {
-    // context 不含 llmService，且 _getLLMService 会尝试 new DeepSeekService(null, undefined)
-    // 该实例无 systemService → _getConfig 走 legacy 分支，apiKey 为空 → invoke 会抛错
-    // 此处只验证：未注入时不会因缺服务而崩溃，而是返回结构化失败
-    const result = await createSkill.execute(
-      {
-        skillName: 'no_llm_skill',
-        description: '无 LLM',
-        format: 'blueprint'
-      },
-      { sessionId: 's', logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() } }
-    )
-    // 无 llmService 时 _getLLMService 会 lazy 实例化 DeepSeekService；
-    // 但其 invoke 会因 apiKey 未配置而抛错 → 返回 CREATE_FAILED
-    expect(result.success).toBe(false)
+  test('技能定义中新参数 rawBlueprint 已声明', () => {
+    expect(createSkill.parameters.rawBlueprint).toBeDefined()
+    expect(createSkill.parameters.rawBlueprint.required).toBe(false)
+    expect(createSkill.parameters.rawBlueprint.description).toMatch(/blueprint/)
+  })
+
+  test('技能不再包含内嵌 LLM 相关方法', () => {
+    expect(typeof createSkill._getLLMService).toBe('undefined')
+    expect(typeof createSkill._buildBlueprintPrompt).toBe('undefined')
   })
 })
