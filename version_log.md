@@ -1,3 +1,55 @@
+## v10.1.4 补丁版 (2026-07-02) - 技能管理增加 update/source，修复重载丢失工作区技能
+
+### 问题现象
+
+老板反馈两个问题：
+1. 技能管理界面不能修改技能，只能删了重建
+2. LLM 没有工具能读取技能源文件，无法根据已有技能做优化改进
+3. 技能管理界面"重新加载技能"会导致工作区技能（workspace_readPage 等）丢失
+
+### 根因
+
+1. **无 update 操作**：`manage_skills` 只支持 list/delete/info/help，要改技能只能 delete → create_skill 重建
+2. **无 source 操作**：`manage_skills(info)` 对蓝图技能只返回结构化摘要（步骤数、类别），不返回源文件内容；workspace 工具被限定在工作区范围内，无法读取 `~/.concrete-mixdesign/skills/`
+3. **重载未恢复工作区技能**：`_skills.clear()` + `discover()` 只从磁盘恢复技能，工作区伪技能（7 个，在 `initSkillSystem` 中单独注入）被清空
+
+### 修复
+
+**改动：2 个文件**
+
+| 文件 | 改动 |
+|------|------|
+| `src/main/skills/skill-manager.js` | 新增 3 个操作：`source`（读取源文件）、`update`（修改技能，自动备份+清缓存+重载）、`_reloadRegistry`（重载后补注册工作区技能） |
+| `src/main/ipcHandlers/agentHandler.js` | 导出 `registerWorkspacePseudoSkills`；`skill:reload` IPC 在 discover 后补注册工作区技能 |
+
+**新增 `manage_skills` 操作：**
+
+| 操作 | 功能 |
+|------|------|
+| `source` | 读取技能完整源文件。JS/MD 返回源码，蓝图返回 meta.yaml + blueprint.yaml + tables/*.json |
+| `update` | 修改技能。自动备份 → 覆盖写入 → 清除 require 缓存(JS) → 重载注册表（含工作区技能） |
+
+**LLM 优化技能流程：**
+1. `manage_skills(action='source', skillName='XXX')` — 读取源码
+2. LLM 分析并提出改进
+3. `manage_skills(action='update', skillName='XXX', content='新代码')` — 写入
+
+### 回归测试结果
+
+- **skill-manager**: 4/4 ✅
+- **workspaceTools**: 25/25 ✅
+
+### 打包产物
+
+| 文件 | 大小 |
+|------|------|
+| `砼智 Setup 10.1.4.exe` (NSIS 安装包) | ~147 MB |
+| `砼智-10.1.4-x64.exe` (便携版) | ~147 MB |
+
+- 打包平台: Windows 10.0.26200 x64
+- Electron 版本: 28.3.3
+- 输出目录: `dist-10.1.4/`
+
 ## v10.1.3 补丁版 (2026-07-02) - 修复蓝图材料参数遗漏 if_else 嵌套中的类别
 
 ### 问题现象
