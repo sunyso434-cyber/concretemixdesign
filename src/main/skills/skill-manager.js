@@ -17,13 +17,23 @@ module.exports = {
   parameters: {
     action: {
       type: 'string',
-      description: '操作类型：list=列表, delete=删除, info=查看信息, help=帮助。不填默认 list',
+      description: '操作类型：list=列表, delete=删除, info=查看信息, source=读取源文件, update=修改技能, help=帮助。不填默认 list',
       required: false,
-      enum: ['list', 'delete', 'info', 'help']
+      enum: ['list', 'delete', 'info', 'source', 'update', 'help']
     },
     skillName: {
       type: 'string',
-      description: '技能名称（delete/info 时必填）',
+      description: '技能名称（delete/info/source/update 时必填）',
+      required: false
+    },
+    content: {
+      type: 'string',
+      description: '新的文件内容（update 时必填）',
+      required: false
+    },
+    file: {
+      type: 'string',
+      description: '要操作的文件名（update/source 时可选）。蓝图技能可选: meta.yaml, blueprint.yaml, 或 tables/xxx.json。JS/MD技能不需要填',
       required: false
     }
   },
@@ -56,6 +66,10 @@ module.exports = {
         return await this._deleteSkill(skillName, context)
       case 'info':
         return await this._getSkillInfo(skillName, context)
+      case 'source':
+        return await this._getSkillSource(skillName, args.file, context)
+      case 'update':
+        return await this._updateSkill(skillName, args.content, args.file, context)
       case 'help':
         return this._getHelp()
       default:
@@ -315,6 +329,254 @@ module.exports = {
       }
     } catch (error) {
       return { success: false, error: { code: 'READ_FAILED', message: error.message } }
+    }
+  },
+
+  /**
+   * 读取技能源文件内容（供 LLM 阅读、分析、改进）
+   */
+  async _getSkillSource(skillName, file, context) {
+    const { logger } = context
+
+    if (!skillName) {
+      return { success: false, error: { code: 'PARAM_MISSING', message: '请指定技能名称' } }
+    }
+
+    const userDir = path.join(os.homedir(), '.concrete-mixdesign', 'skills')
+
+    // ---- 蓝图技能 ----
+    const blueprintDir = path.join(userDir, skillName)
+    const isBlueprint = (
+      fs.existsSync(blueprintDir) &&
+      fs.statSync(blueprintDir).isDirectory() &&
+      fs.existsSync(path.join(blueprintDir, 'meta.yaml'))
+    )
+
+    if (isBlueprint) {
+      try {
+        // 指定了具体文件 → 只返回该文件
+        if (file) {
+          const filePath = path.join(blueprintDir, file)
+          // 安全检查：防止路径穿越
+          if (!filePath.startsWith(blueprintDir)) {
+            return { success: false, error: { code: 'PATH_TRAVERSAL', message: '不允许的文件路径' } }
+          }
+          if (!fs.existsSync(filePath)) {
+            return { success: false, error: { code: 'FILE_NOT_FOUND', message: `文件不存在: ${file}` } }
+          }
+          const content = fs.readFileSync(filePath, 'utf8')
+          return {
+            success: true,
+            data: {
+              skillName,
+              category: 'blueprint',
+              file,
+              content
+            }
+          }
+        }
+
+        // 未指定文件 → 返回所有文件
+        const files = {}
+        for (const f of fs.readdirSync(blueprintDir, { recursive: true, withFileTypes: true })) {
+          if (!f.isFile()) continue
+          const relativePath = path.relative(blueprintDir, path.join(f.parentPath || f.path, f.name)).replace(/\\/g, '/')
+          files[relativePath] = fs.readFileSync(path.join(f.parentPath || f.path, f.name), 'utf8')
+        }
+
+        return {
+          success: true,
+          data: {
+            skillName,
+            category: 'blueprint',
+            directory: blueprintDir,
+            files
+          }
+        }
+      } catch (error) {
+        logger.error('读取蓝图源文件失败:', error)
+        return { success: false, error: { code: 'READ_FAILED', message: error.message } }
+      }
+    }
+
+    // ---- .js 技能 ----
+    const jsPath = path.join(userDir, `${skillName}.js`)
+    if (fs.existsSync(jsPath)) {
+      try {
+        const content = fs.readFileSync(jsPath, 'utf8')
+        return {
+          success: true,
+          data: {
+            skillName,
+            category: 'javascript',
+            filePath: jsPath,
+            content,
+            files: { [`${skillName}.js`]: content }
+          }
+        }
+      } catch (error) {
+        return { success: false, error: { code: 'READ_FAILED', message: error.message } }
+      }
+    }
+
+    // ---- .md 技能 ----
+    const mdPath = path.join(userDir, `${skillName}.md`)
+    if (fs.existsSync(mdPath)) {
+      try {
+        const content = fs.readFileSync(mdPath, 'utf8')
+        return {
+          success: true,
+          data: {
+            skillName,
+            category: 'markdown',
+            filePath: mdPath,
+            content,
+            files: { [`${skillName}.md`]: content }
+          }
+        }
+      } catch (error) {
+        return { success: false, error: { code: 'READ_FAILED', message: error.message } }
+      }
+    }
+
+    return { success: false, error: this.errors.NOT_FOUND, details: { skillName } }
+  },
+
+  /**
+   * 修改技能文件
+   * 支持 JS、MD、蓝图三种格式
+   * 修改后自动清除缓存并重新加载注册表
+   */
+  async _updateSkill(skillName, content, file, context) {
+    const { logger } = context
+
+    if (!skillName) {
+      return { success: false, error: { code: 'PARAM_MISSING', message: '请指定技能名称' } }
+    }
+    if (!content) {
+      return { success: false, error: { code: 'PARAM_MISSING', message: '请提供新的文件内容' } }
+    }
+
+    const userDir = path.join(os.homedir(), '.concrete-mixdesign', 'skills')
+
+    // ---- 蓝图技能 ----
+    const blueprintDir = path.join(userDir, skillName)
+    const isBlueprint = (
+      fs.existsSync(blueprintDir) &&
+      fs.statSync(blueprintDir).isDirectory() &&
+      fs.existsSync(path.join(blueprintDir, 'meta.yaml'))
+    )
+
+    if (isBlueprint) {
+      try {
+        // 指定了具体文件 → 只更新该文件
+        if (file) {
+          const filePath = path.join(blueprintDir, file)
+          if (!filePath.startsWith(blueprintDir)) {
+            return { success: false, error: { code: 'PATH_TRAVERSAL', message: '不允许的文件路径' } }
+          }
+          // 确保父目录存在（如 tables/xxx.json）
+          fs.mkdirSync(path.dirname(filePath), { recursive: true })
+          fs.writeFileSync(filePath, content, 'utf8')
+          logger.info(`蓝图文件已更新: ${filePath}`)
+        } else {
+          // 未指定文件 → content 必须是有效的 blueprint.yaml 内容
+          const blueprintPath = path.join(blueprintDir, 'blueprint.yaml')
+          fs.writeFileSync(blueprintPath, content, 'utf8')
+          logger.info(`蓝图 blueprint.yaml 已更新: ${blueprintPath}`)
+        }
+
+        // 重新加载注册表
+        await this._reloadRegistry(logger)
+
+        return {
+          success: true,
+          message: `蓝图技能 "${skillName}" 已更新`,
+          file: file || 'blueprint.yaml'
+        }
+      } catch (error) {
+        logger.error('更新蓝图技能失败:', error)
+        return { success: false, error: { code: 'UPDATE_FAILED', message: error.message } }
+      }
+    }
+
+    // ---- .js 技能 ----
+    const jsPath = path.join(userDir, `${skillName}.js`)
+    if (fs.existsSync(jsPath)) {
+      try {
+        // 备份
+        const backupPath = jsPath + `.bak.${Date.now()}`
+        fs.copyFileSync(jsPath, backupPath)
+
+        // 写入新内容
+        fs.writeFileSync(jsPath, content, 'utf8')
+
+        // 清除 require 缓存
+        const resolvedPath = require.resolve(jsPath)
+        if (resolvedPath) {
+          delete require.cache[resolvedPath]
+        }
+
+        // 重新加载注册表
+        await this._reloadRegistry(logger)
+
+        return {
+          success: true,
+          message: `JS技能 "${skillName}" 已更新`,
+          backupPath
+        }
+      } catch (error) {
+        logger.error('更新JS技能失败:', error)
+        return { success: false, error: { code: 'UPDATE_FAILED', message: error.message } }
+      }
+    }
+
+    // ---- .md 技能 ----
+    const mdPath = path.join(userDir, `${skillName}.md`)
+    if (fs.existsSync(mdPath)) {
+      try {
+        // 备份
+        const backupPath = mdPath + `.bak.${Date.now()}`
+        fs.copyFileSync(mdPath, backupPath)
+
+        // 写入新内容
+        fs.writeFileSync(mdPath, content, 'utf8')
+
+        // 重新加载注册表
+        await this._reloadRegistry(logger)
+
+        return {
+          success: true,
+          message: `MD技能 "${skillName}" 已更新`,
+          backupPath
+        }
+      } catch (error) {
+        logger.error('更新MD技能失败:', error)
+        return { success: false, error: { code: 'UPDATE_FAILED', message: error.message } }
+      }
+    }
+
+    return { success: false, error: this.errors.NOT_FOUND, details: { skillName } }
+  },
+
+  /**
+   * 重新加载技能注册表（清除缓存 + 重新发现）
+   */
+  async _reloadRegistry(logger) {
+    try {
+      const { getSkillRegistry, registerWorkspacePseudoSkills } = require('../ipcHandlers/agentHandler')
+      const registry = getSkillRegistry()
+      if (registry) {
+        registry._skills.clear()
+        await registry.discover()
+        // 重新注册工作区伪技能，避免 workspace_readPage 等工作区工具丢失
+        if (typeof registerWorkspacePseudoSkills === 'function') {
+          registerWorkspacePseudoSkills()
+        }
+        logger.info('技能注册表已重新加载（含工作区技能）')
+      }
+    } catch (e) {
+      logger.warn('重新加载技能注册表失败:', e.message)
     }
   },
 

@@ -645,6 +645,8 @@ function registerAgentHandlers() {
       // 重新发现 skills
       skillRegistry._skills.clear()
       await skillRegistry.discover()
+      // 重新注册工作区伪技能（避免丢失 workspace_readPage 等）
+      registerWorkspacePseudoSkills()
       return { success: true, count: skillRegistry.size, names: skillRegistry.skillNames }
     } catch (error) {
       return { success: false, error: error.message }
@@ -1136,5 +1138,6 @@ module.exports = {
 module.exports = {
   registerAgentHandlers,
   getSkillRegistry: () => skillRegistry,
-  getSkillExecutor: () => skillExecutor
+  getSkillExecutor: () => skillExecutor,
+  registerWorkspacePseudoSkills
 }
