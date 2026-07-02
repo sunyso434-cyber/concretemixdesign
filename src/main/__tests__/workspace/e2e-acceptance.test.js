@@ -323,22 +323,17 @@ describe('E2E 验收 3：坏 PDF → wiki/ 无新增（老板清单第 3 条）'
 // 验收 4：/rounds 3 → 主循环 3 步停止
 // ============================================================
 
-describe('E2E 验收 4：/rounds 3 → 主循环 3 步停止（老板清单第 4 条）', () => {
-  test('/rounds 3 → SystemService.agentMaxSteps = "3" + slash handler 返回 success', async () => {
-    // 清空 mock
+describe('E2E 验收 4：/rounds → 主循环停止（v10.2.0 范围 5-200）', () => {
+  test('/rounds 5 → SystemService.agentMaxSteps = "5" + slash handler 返回 success', async () => {
+    // v10.2.0：范围 5-200（之前 1-30），所以测试用 5
     mockSystemParams.clear()
-
-    // 1) 注册 slash handler + 调 /rounds 3
     setupSlashHandler()
-    const result = await execSlash('rounds', '3')
+    const result = await execSlash('rounds', '5')
 
-    // 2) 返回成功
     expect(result.success).toBe(true)
-    expect(result.message).toContain('3')
-
-    // 3) SystemService 收到参数
+    expect(result.message).toContain('5')
     expect(mockSystemParams.get('agentMaxSteps')).toBeDefined()
-    expect(mockSystemParams.get('agentMaxSteps').value).toBe('3')
+    expect(mockSystemParams.get('agentMaxSteps').value).toBe('5')
   })
 
   test('/rounds 无参 → 报当前值 + 不写 SystemService', async () => {
@@ -352,12 +347,12 @@ describe('E2E 验收 4：/rounds 3 → 主循环 3 步停止（老板清单第 4
     expect(result.message).toContain('15')
   })
 
-  test('/rounds 0 / 31 / abc → 拒绝 + 返回 success:false', async () => {
+  test('/rounds 0 / 4 / 201 / abc → 拒绝 + 返回 success:false（v10.2.0 范围 5-200）', async () => {
     setupSlashHandler()
-    for (const bad of ['0', '31', 'abc', '-1']) {
+    for (const bad of ['0', '4', '201', 'abc', '-1']) {
       const r = await execSlash('rounds', bad)
       expect(r.success).toBe(false)
-      expect(r.error).toMatch(/1.*30|整数/)
+      expect(r.error).toMatch(/5.*200|整数/)
     }
   })
 

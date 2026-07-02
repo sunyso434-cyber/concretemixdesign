@@ -115,12 +115,12 @@ describe('agentActions sendMessage 错误分支（Task 15）', () => {
   })
 
   // ============================================================
-  // 场景 4: message.error 不再被调用（合约验证）
+  // 场景 4: message.error 调用验证（v10.2.0：恢复 toast 弹窗以避免静默失败）
   // ============================================================
   describe('场景 4: message.error 调用验证', () => {
-    test('sendMessage catch 分支不应再调 message.error', () => {
-      // 合约验证：agentActions.js 中已无 `message.error(` 调用
-      // 此测试通过代码审查确认，reducer 侧只需保证 ERROR dispatch 正常
+    test('sendMessage 应正确调用 message.error 弹窗（v10.2.0 恢复）', () => {
+      // v10.2.0 修复静默失败：恢复 message.error 弹窗
+      // 至少要调用一次 message.error（在 catch 或 result.success===false 分支）
       const fs = require('fs')
       const path = require('path')
       const src = fs.readFileSync(
@@ -128,9 +128,9 @@ describe('agentActions sendMessage 错误分支（Task 15）', () => {
         'utf-8'
       )
 
-      // 验证文件中不含 message.error( 调用
+      // 验证文件中含 message.error( 调用（已恢复）
       const messageErrorCalls = (src.match(/message\.error\(/g) || [])
-      expect(messageErrorCalls.length).toBe(0)
+      expect(messageErrorCalls.length).toBeGreaterThanOrEqual(1)
     })
   })
 })

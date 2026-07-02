@@ -77,22 +77,32 @@ describe('sendMessage - 回归测试（防 t.error is not a function）', () => 
   })
 
   test('3. API Key 未配（IPC 返回 {success:false}）：message.error 必须被调用且不抛 TypeError', async () => {
-    // 模拟 agentHandler.js:145-148 场景：getOrchestrator() 返回 null
+    // v10.2.0：agent:run 返回 { success:false, error: <structured object> } 格式
     invokeMock.mockImplementation((channel) => {
       if (channel === 'agent:saveMessage') return Promise.resolve({ success: true })
       if (channel === 'agent:run') {
-        return Promise.resolve({ success: false, error: 'DeepSeek API未配置，请在系统设置中配置API密钥' })
+        return Promise.resolve({
+          success: false,
+          error: { code: 'E-LLM-401', title: 'AI 密钥无效或未配置', hint: '请到「设置」→「AI 模型」检查 API Key' }
+        })
       }
       return Promise.resolve({})
     })
 
     await sendMessage({ dispatch, sessionId: 's1', message: 'test', runMode: 'auto' })
 
-    // 关键断言：message.error 必须被正确调用（指向 antd，不是 userMessage 字符串）
+    // v10.2.0：toast 格式升级为 [CODE] title — hint
     expect(mockMessageError).toHaveBeenCalledTimes(1)
-    expect(mockMessageError).toHaveBeenCalledWith('DeepSeek API未配置，请在系统设置中配置API密钥')
-    // dispatch 应该更新 agent 状态为 error
-    expect(dispatch).toHaveBeenCalledWith({ type: 'ERROR', payload: { error: 'DeepSeek API未配置，请在系统设置中配置API密钥' } })
+    expect(mockMessageError).toHaveBeenCalledWith(expect.stringContaining('E-LLM-401'))
+    expect(mockMessageError).toHaveBeenCalledWith(expect.stringContaining('AI 密钥无效或未配置'))
+    // dispatch 应该更新 agent 状态为 error（payload 含 classifiedError + sessionId + requestId）
+    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'ERROR',
+      payload: expect.objectContaining({
+        classifiedError: expect.objectContaining({ code: 'E-LLM-401' }),
+        sessionId: 's1'
+      })
+    }))
   })
 
   test('4. result.success === false (max_failures_exceeded)：走 getFriendlyError 翻译路径', async () => {
@@ -107,7 +117,7 @@ describe('sendMessage - 回归测试（防 t.error is not a function）', () => 
     await sendMessage({ dispatch, sessionId: 's1', message: 'test', runMode: 'auto' })
 
     expect(mockMessageError).toHaveBeenCalledTimes(1)
-    expect(mockMessageError).toHaveBeenCalledWith('AI 连续响应失败，请稍后重试')
+    expect(mockMessageError).toHaveBeenCalledWith('AI 执行失败')
   })
 
   test('5. IPC 真的 throw (preload 链路断裂)：catch 块必须正确调 message.error', async () => {
@@ -119,10 +129,10 @@ describe('sendMessage - 回归测试（防 t.error is not a function）', () => 
 
     await sendMessage({ dispatch, sessionId: 's1', message: 'test', runMode: 'auto' })
 
-    // 核心断言：catch 块里的 message.error('通信失败: ...') 必须被调用，
-    // 不能因为 shadowing 变成 't.error is not a function'
+    // v10.2.0：catch 块用 [EXCEPTION] title 格式
     expect(mockMessageError).toHaveBeenCalledTimes(1)
-    expect(mockMessageError).toHaveBeenCalledWith('通信失败: IPC channel broken')
+    expect(mockMessageError).toHaveBeenCalledWith(expect.stringContaining('AI 执行异常'))
+    expect(mockMessageError).toHaveBeenCalledWith(expect.stringContaining('IPC channel broken'))
     // 不应该有 unhandled rejection（catch 块应该吞掉）
     await new Promise(r => setImmediate(r))
     expect(capturedErrors).toEqual([])

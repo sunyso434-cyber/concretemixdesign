@@ -272,7 +272,8 @@ describe('create_skill (format=blueprint)', () => {
 
     const r2 = await createSkill.execute(args, _ctx())
     expect(r2.success).toBe(false)
-    expect(r2.error.recovery).toBe('change_name')
+    // v10.2.0 方案 5：recovery 改为 use_manage_skills_update
+    expect(r2.error.recovery).toBe('use_manage_skills_update')
   })
 
   test('技能定义中新参数 rawBlueprint 已声明', () => {
