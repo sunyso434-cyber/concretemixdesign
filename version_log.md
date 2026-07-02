@@ -1,3 +1,60 @@
+## v10.1.2 补丁版 (2026-07-02) - 修复蓝图技能材料信息传递问题
+
+### 问题现象
+
+老板反馈：蓝图技能在传材料信息时传不进去。具体表现为：蓝图技能需要先在 MaterialChooser 选水泥，但工具签名里没暴露材料 ID 入口，LLM 调用蓝图技能时无法指定使用哪个材料。
+
+### 根因
+
+**两个关联问题：**
+
+1. **工具签名缺少材料入口**：`SkillRegistry.getToolSchemas()` 直接从 `meta.yaml` 的 `parameters` 构建工具签名，JGJ55 等蓝图只定义了设计参数（`strength_grade`、`slump` 等），没有任何材料选择参数。LLM 调用时无法传递材料名称或 ID。
+
+2. **runtimeCtx 传递链路断裂**：`SkillExecutor.execute()` 把 Skill context 当 runtimeCtx 传入 `skill.execute()`，但蓝图 execute 函数期望 runtimeCtx 携带 `userChoice`。MaterialChooser 的 `ctx.userChoice.materialName` 永远是 undefined。
+
+同时修复了一个隐藏 bug：`meta.yaml` 的数组格式 `parameters` 在 `toJsonSchemaProperties()` 转换时参数名会变成 `"0"`、`"1"`（数组索引），导致工具签名参数名错误。
+
+### 修复
+
+**改动：3 个文件**
+
+| 文件 | 改动 |
+|------|------|
+| `src/main/services/BlueprintEngine/MaterialChooser.js` | 级别一匹配升级：优先按 `userChoice[category]` 查找（支持名称和 ID 匹配），向后兼容全局 `materialName` |
+| `src/main/skills/blueprint-loader.js` | ① 参数标准化（数组→对象格式）② 自动解析蓝图步骤注入材料选择参数到工具签名 ③ execute() 中从 args 提取材料选择构建 runtimeCtx.userChoice |
+| `src/main/agent/SkillExecutor.js` | `skill.execute(args, context)` → `skill.execute(args, context, runtimeCtx)`，传递原始运行时上下文 |
+
+**新增机制：**
+- `CATEGORY_PARAM_MAP`：8 种材料类别（水泥/细骨料/粗骨料/粉煤灰/矿渣粉/锂渣/复合粉/减水剂）→ 工具参数名映射
+- `normalizeParameters()`：将 YAML 数组格式参数转为对象格式，确保 SchemaValidator 和 getToolSchemas 正确工作
+- `injectMaterialParams()`：解析蓝图 `material_query` 步骤，为每个材料类别自动生成 `cement_name`、`coarse_aggregate_name` 等参数
+- `extractMaterialChoices()`：从 LLM 传入的 args 中提取材料选择，注入 runtimeCtx
+
+### 边缘情况
+
+- **单材料类别多步骤**：同一类别（如水泥）在蓝图中可能有多个 material 步骤（查不同属性），`injectMaterialParams` 只生成一个参数（去重）
+- **未知材料类别**：不在 CATEGORY_PARAM_MAP 中的类别不会暴露给 LLM，但通过 `userChoice` 仍可传参
+- **名称 vs ID**：MaterialChooser 支持按名称或 ID 匹配，`String(m.id) === String(choice)` 兼容两种传递方式
+- **向后兼容**：不传材料参数时行为不变（自动选默认材料），旧 JS/MD 技能完全不受影响
+
+### 回归测试结果
+
+- **MaterialChooser**: 4/4 ✅
+- **BlueprintEngine 全量**: 15 套件 / 49 用例 ✅
+- **create-skill-blueprint**: 9/9 ✅
+- **SkillRegistry**: 3 套件 / 9 用例 ✅
+
+### 打包产物
+
+| 文件 | 大小 |
+|------|------|
+| `砼智 Setup 10.1.2.exe` (NSIS 安装包) | ~147 MB |
+| `砼智-10.1.2-x64.exe` (便携版) | ~147 MB |
+
+- 打包平台: Windows 10.0.26200 x64
+- Electron 版本: 28.3.3
+- 输出目录: `dist-10.1.2/`
+
 ## v10.1.1 补丁版 (2026-07-02) - 修复蓝图技能 services_undeclared 崩溃
 
 ### 问题现象
