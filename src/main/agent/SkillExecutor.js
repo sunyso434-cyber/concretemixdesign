@@ -56,10 +56,10 @@ class SkillExecutor {
     if (runtimeCtx.orchestrator) context.orchestrator = runtimeCtx.orchestrator
     if (runtimeCtx.webContents) context.webContents = runtimeCtx.webContents
 
-    // 4. 执行
+    // 4. 执行（传递 runtimeCtx 作为第三参数，供蓝图技能等需要原始运行时上下文的场景使用）
     try {
       const startTime = Date.now()
-      const result = await skill.execute(args, context)
+      const result = await skill.execute(args, context, runtimeCtx)
       const duration = Date.now() - startTime
 
       // 5. 标准化返回格式

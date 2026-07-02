@@ -14,11 +14,24 @@ async function choose(category, candidates, ctx = {}) {
   }
 
   // 级别一：蓝图/用户已指定
-  if (ctx.userChoice && ctx.userChoice.materialName) {
-    const exact = candidates.find(m => m.name === ctx.userChoice.materialName)
-    if (!exact) throw new Error(`指定的材料 "${ctx.userChoice.materialName}" 不在候选中`)
-    exact._chooserReason = `用户指定: ${exact.name}`
-    return exact
+  if (ctx.userChoice) {
+    // 优先按类别匹配：ctx.userChoice[category] 可以是材料名称或 ID
+    const choice = ctx.userChoice[category]
+    if (choice) {
+      const exact = candidates.find(
+        m => m.name === choice || String(m.id) === String(choice)
+      )
+      if (!exact) throw new Error(`指定的材料"${choice}"不在"${category}"候选中`)
+      exact._chooserReason = `用户指定: ${exact.name}`
+      return exact
+    }
+    // 向后兼容：全局 materialName（不区分类别）
+    if (ctx.userChoice.materialName) {
+      const exact = candidates.find(m => m.name === ctx.userChoice.materialName)
+      if (!exact) throw new Error(`指定的材料 "${ctx.userChoice.materialName}" 不在候选中`)
+      exact._chooserReason = `用户指定: ${exact.name}`
+      return exact
+    }
   }
 
   // 级别四：用户拒绝

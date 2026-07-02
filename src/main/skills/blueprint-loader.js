@@ -16,6 +16,82 @@ const BlueprintEngine = require('../services/BlueprintEngine')
 // 避免在模块加载阶段就拉起 sequelize/DB 依赖（否则会让仅 require SkillRegistry 的测试失败）
 
 /**
+ * 材料类别 → 工具参数名 映射
+ * 用于将蓝图中的中文材料类别映射为工具签名中的参数名
+ */
+const CATEGORY_PARAM_MAP = {
+  '水泥': 'cement_name',
+  '细骨料': 'fine_aggregate_name',
+  '粗骨料': 'coarse_aggregate_name',
+  '粉煤灰': 'fly_ash_name',
+  '矿渣粉': 'slag_name',
+  '锂渣': 'lithium_slag_name',
+  '复合粉': 'composite_powder_name',
+  '减水剂': 'superplasticizer_name'
+}
+
+/**
+ * 将 meta.yaml 的数组格式参数标准化为对象格式
+ * 输入: [{name: 'strength_grade', type: 'string', required: true, label: '强度等级'}]
+ * 输出: {strength_grade: {type: 'string', required: true, description: '强度等级'}}
+ *
+ * 这确保了 SchemaValidator 和 getToolSchemas 能正确识别参数名
+ */
+function normalizeParameters(arrayParams) {
+  if (!Array.isArray(arrayParams)) {
+    // 已经是对象格式，直接返回
+    if (arrayParams && typeof arrayParams === 'object') return arrayParams
+    return {}
+  }
+  const obj = {}
+  for (const p of arrayParams) {
+    if (!p || !p.name) continue
+    obj[p.name] = {
+      type: p.type || 'string',
+      required: p.required || false,
+      description: p.label || p.description || ''
+    }
+    if (p.options) obj[p.name].enum = p.options
+    if (p.default !== undefined) obj[p.name].default = p.default
+  }
+  return obj
+}
+
+/**
+ * 从蓝图步骤中提取材料类别，注入对应的材料选择参数
+ * @param {object} blueprint - 蓝图定义
+ * @param {object} normalizedParams - 已标准化的参数对象
+ * @returns {object} 注入材料参数后的新参数对象
+ */
+function injectMaterialParams(blueprint, normalizedParams) {
+  const params = { ...normalizedParams }
+  const seenCategories = new Set()
+
+  for (const step of blueprint.steps || []) {
+    if (step.type !== 'material' || !step.material_query) continue
+    const category = step.material_query.category
+    if (!category || seenCategories.has(category)) continue
+
+    const paramName = CATEGORY_PARAM_MAP[category]
+    if (!paramName) {
+      // 未知类别：用拼音或直接跳过（不在映射表中的材料类型不会暴露给 LLM）
+      continue
+    }
+
+    if (!params[paramName]) {
+      seenCategories.add(category)
+      params[paramName] = {
+        type: 'string',
+        required: false,
+        description: `选择${category}材料（名称或ID），如不指定则自动选择默认材料。先调用 list_available_materials 获取可用材料列表`
+      }
+    }
+  }
+
+  return params
+}
+
+/**
  * 加载 skillDir/tables 下的所有 .json 表格，按 table.name 建立索引
  * @param {string} skillDir
  * @returns {Promise<object>} { [tableName]: tableObject }
@@ -57,6 +133,30 @@ async function buildMaterialsIndex() {
 }
 
 /**
+ * 从 args 中提取材料选择，构建 runtimeCtx.userChoice
+ * @param {object} args - LLM 传入的工具参数
+ * @param {object} blueprint - 蓝图定义
+ * @returns {object} { [category]: materialName }
+ */
+function extractMaterialChoices(args, blueprint) {
+  const userChoice = {}
+  for (const step of blueprint.steps || []) {
+    if (step.type !== 'material' || !step.material_query) continue
+    const category = step.material_query.category
+    if (!category || userChoice[category]) continue
+
+    const paramName = CATEGORY_PARAM_MAP[category]
+    if (!paramName) continue
+
+    const value = args[paramName]
+    if (value !== undefined && value !== null && value !== '') {
+      userChoice[category] = value
+    }
+  }
+  return userChoice
+}
+
+/**
  * 将蓝图目录包装为标准 Skill 对象
  * @param {string} skillDir
  * @returns {object} 标准 skill（name/description/version/category/parameters/execute）
@@ -66,22 +166,33 @@ function wrapBlueprintAsSkill(skillDir) {
   const blueprintPath = path.join(skillDir, 'blueprint.yaml')
 
   const meta = yaml.load(fs.readFileSync(metaPath, 'utf8')) || {}
+  const blueprint = yaml.load(fs.readFileSync(blueprintPath, 'utf8')) || {}
+
+  // 参数标准化 + 注入材料选择参数
+  const normalizedParams = normalizeParameters(meta.parameters)
+  const fullParams = injectMaterialParams(blueprint, normalizedParams)
 
   return {
     name: meta.name || path.basename(skillDir),
     description: meta.description || '',
     version: meta.version || '1.0.0',
     category: 'blueprint',
-    parameters: meta.parameters || [],
+    parameters: fullParams,
     services: [],
-    execute: async (args = {}, runtimeCtx = {}) => {
-      const blueprint = yaml.load(fs.readFileSync(blueprintPath, 'utf8')) || {}
+    execute: async (args = {}, skillContext = {}, runtimeCtx = {}) => {
+      // 从 args 提取材料选择，构建带 userChoice 的 runtimeCtx
+      const userChoice = extractMaterialChoices(args, blueprint)
+      const effectiveRuntimeCtx = {
+        ...runtimeCtx,
+        userChoice: { ...(runtimeCtx.userChoice || {}), ...userChoice }
+      }
+
       const tables = await loadTables(skillDir)
       const materialsIndex = await buildMaterialsIndex()
       const engine = new BlueprintEngine({ tables, materialsIndex })
-      return engine.run(blueprint, args, runtimeCtx)
+      return engine.run(blueprint, args, effectiveRuntimeCtx)
     }
   }
 }
 
-module.exports = { wrapBlueprintAsSkill, loadTables, buildMaterialsIndex }
+module.exports = { wrapBlueprintAsSkill, loadTables, buildMaterialsIndex, normalizeParameters, injectMaterialParams, CATEGORY_PARAM_MAP }
