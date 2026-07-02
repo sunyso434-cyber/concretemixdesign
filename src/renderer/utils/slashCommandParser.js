@@ -2,7 +2,7 @@
 
 const SYSTEM_COMMANDS = {
   model: { name: 'model', description: '切换 AI 模型', usage: '/model <模型名>' },
-  rounds: { name: 'rounds', description: '设置工具调用循环最大次数（1-30）', usage: '/rounds <次数>' },
+  rounds: { name: 'rounds', description: '设置工具调用循环最大次数（5-200）', usage: '/rounds <次数>' },
   clear: { name: 'clear', description: '清空当前对话', usage: '/clear' },
   help:  { name: 'help',  description: '显示所有命令', usage: '/help' }
 }

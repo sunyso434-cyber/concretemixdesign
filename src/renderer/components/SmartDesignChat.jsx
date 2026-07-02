@@ -189,7 +189,7 @@ function MessageContent({ item, agentStatus, agentReplyText }) {
   if (agentStatus === 'thinking' && item._streaming) {
     return <div className="ai-thinking">AI 正在思考<span className="ai-thinking-text"></span></div>
   }
-  if (agentStatus === 'streaming' && item._streaming) {
+  if ((agentStatus === 'streaming' || agentStatus === 'tool_calling') && item._streaming) {
     return (
       <div className="chat-markdown-body">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{agentReplyText || item.content}</ReactMarkdown>
@@ -244,6 +244,36 @@ const SmartDesignChat = () => {
       loadSessionList({ dispatch })
     }
   }, [state.messages?.length, dispatch])
+
+  // ===== 自动滚动到底部 =====
+  // 触发时机：消息新增、流式文本更新、确认框关闭
+  const prevMsgLenRef = useRef(state.messages?.length || 0)
+  const prevReplyLenRef = useRef(0)
+  useEffect(() => {
+    const msgLen = state.messages?.length || 0
+    const replyLen = state.agent?.replyText?.length || 0
+    const isNewMsg = msgLen > prevMsgLenRef.current
+    const replyGrew = replyLen > prevReplyLenRef.current + 50 // 每增加 50 字符滚动一次
+    const confirmClosed = prevConfirmationRef.current && !state.confirmation // 确认框刚关闭
+
+    if (isNewMsg || replyGrew || confirmClosed) {
+      // 只在用户没有主动上滚时自动滚动（用户上滚超过 150px 则跳过）
+      const chatList = document.querySelector('.smart-chat-list')
+      if (chatList) {
+        const distToBottom = chatList.scrollHeight - chatList.scrollTop - chatList.clientHeight
+        if (distToBottom < 150 || isNewMsg) {
+          chatState.chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+        }
+      }
+    }
+    prevMsgLenRef.current = msgLen
+    prevReplyLenRef.current = replyLen
+  }, [state.messages?.length, state.agent?.replyText?.length, state.confirmation])
+
+  const prevConfirmationRef = useRef(state.confirmation)
+  useEffect(() => {
+    prevConfirmationRef.current = state.confirmation
+  }, [state.confirmation])
 
   // ===== 历史消息分页状态 =====
   const [historyLoading, setHistoryLoading] = useState(false)

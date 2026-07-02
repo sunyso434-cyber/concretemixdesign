@@ -194,8 +194,8 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     expect(result).toBeDefined()
   })
 
-  // v1.2 修复验证：deepseekService 不存在时，maxSteps fallback 到 DEFAULT_AGENT_MAX_STEPS=10
-  test('场景 10 (v1.2 修复验证): deepseekService 缺 _getConfig 时 maxSteps 应 fallback 到共享常量 10', async () => {
+  // v1.2 修复验证：deepseekService 不存在时，maxSteps fallback 到 DEFAULT_AGENT_MAX_STEPS=200
+  test('场景 10 (v1.2 修复验证): deepseekService 缺 _getConfig 时 maxSteps 应 fallback 到共享常量 200', async () => {
     const mocks = makeMocks()
     // 模拟 _getConfig 抛错
     mocks.deepseekService._getConfig = undefined
@@ -211,8 +211,8 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     const strategy = new UnifiedStrategy(mocks)
     const result = await strategy.execute({ sessionId: 's', message: 'q' })
 
-    // 主循环应跑满 10 次（DEFAULT_AGENT_MAX_STEPS）
-    expect(mocks.deepseekService.chatWithToolsStream.mock.calls.length).toBeLessThanOrEqual(10)
+    // 主循环应跑满 200 次（DEFAULT_AGENT_MAX_STEPS）
+    expect(mocks.deepseekService.chatWithToolsStream.mock.calls.length).toBeLessThanOrEqual(200)
     expect(result).toBeDefined()
   })
 

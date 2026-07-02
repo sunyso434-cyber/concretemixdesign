@@ -112,6 +112,8 @@ ${REPORT_SKILL_MATRIX}
 
 ${BLUEPRINT_AUTHORING_ROUTE}
 
+${TODO_MANAGE_PROMPT}
+
 # 回答风格
 - 简洁专业，避免冗长
 - 涉及数据时引用具体数值
@@ -119,4 +121,9 @@ ${BLUEPRINT_AUTHORING_ROUTE}
 ${tokenWarn}`
 }
 
-module.exports = { buildSystemPrompt, REPORT_SKILL_MATRIX, BLUEPRINT_AUTHORING_ROUTE }
+const TODO_MANAGE_PROMPT = `# 任务规划要求
+凡是预估需要 3 步以上工具调用的任务，**必须先调 \`todo_manage(action='create', todos=[...])\`** 创建任务清单。
+执行过程中每完成一步就调 \`todo_manage(action='complete', id=...)\` 标记完成。
+这样老板能看到进度、你也不会跑偏。`
+
+module.exports = { buildSystemPrompt, REPORT_SKILL_MATRIX, BLUEPRINT_AUTHORING_ROUTE, TODO_MANAGE_PROMPT }

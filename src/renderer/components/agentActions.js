@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useRef } from 'react'
+import { message } from 'antd'
 import { useAgentStore } from './AgentStore'
 
 /**
@@ -104,21 +105,26 @@ export async function sendMessage({ dispatch, sessionId, message: userMessage, r
     })
     console.log('[AgentChat] 📨 agent:run 返回', { requestId, success: r?.success, resultSuccess: r?.result?.success, error: r?.result?.error })
 
-    // 注意：agent:run 外层总是 { success: true, result }，真正的错误在 result 中
-    if (r && r.success === true && r.result && r.result.success === false) {
-      const errorMsg = r.result.error || '启动失败'
-      const friendlyMsg = getFriendlyError(errorMsg)
-      dispatch({ type: 'ERROR', payload: { classifiedError: friendlyMsg } })
-      // P3 commit 3: 删除 message.error，去 AI toast
+    // agent:run 返回格式：成功时 { success: true, result: {...} }，失败时 { success: false, error: {...} }
+    if (r && r.result && r.result.success === false) {
+      // 业务层错误（r.result.error 为结构化错误对象）
+      const err = r.result.error || {}
+      dispatch({ type: 'ERROR', payload: { classifiedError: err, sessionId: effectiveSessionId, requestId } })
+      // toast 提示用户
+      const toastText = err.title ? `[${err.code || 'ERROR'}] ${err.title}${err.hint ? ' — ' + err.hint : ''}` : 'AI 执行失败'
+      message.error(toastText)
     } else if (r && r.success === false) {
-      // 兜底：外层 success=false（通信层面错误）
-      dispatch({ type: 'ERROR', payload: { classifiedError: r.error || '启动失败' } })
-      // P3 commit 3: 删除 message.error，去 AI toast
+      // 通信层错误（r.error 为结构化错误对象）
+      const err = r.error || {}
+      dispatch({ type: 'ERROR', payload: { classifiedError: err, sessionId: effectiveSessionId, requestId } })
+      const toastText = err.title ? `[${err.code || 'ERROR'}] ${err.title}${err.hint ? ' — ' + err.hint : ''}` : 'AI 执行失败'
+      message.error(toastText)
     }
   } catch (e) {
     console.error('[AgentChat] 💥 agent:run 异常', { requestId, error: e.message })
-    dispatch({ type: 'ERROR', payload: { classifiedError: getFriendlyError(e.message || '未知错误') } })
-    // P3 commit 3: 删除 message.error，去 AI toast
+    const errMsg = e.message || '未知错误'
+    dispatch({ type: 'ERROR', payload: { classifiedError: { code: 'EXCEPTION', title: errMsg }, sessionId: effectiveSessionId, requestId } })
+    message.error(`AI 执行异常 — ${errMsg}`)
   }
 }
 

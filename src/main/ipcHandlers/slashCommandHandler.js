@@ -95,12 +95,12 @@ async function handleRounds(param) {
     return {
       success: true,
       action: 'list',
-      message: `当前循环次数：${current?.value || 10}\n可用范围：1-30\n\n设置命令：/rounds <次数>\n例如：/rounds 20`
+      message: `当前循环次数：${current?.value || 10}\n可用范围：5-200\n\n设置命令：/rounds <次数>\n例如：/rounds 20`
     }
   }
   const n = parseInt(param, 10)
-  if (isNaN(n) || n < 1 || n > 30) {
-    return { success: false, error: '循环次数必须是 1 到 30 之间的整数' }
+  if (isNaN(n) || n < 5 || n > 200) {
+    return { success: false, error: '循环次数必须是 5 到 200 之间的整数' }
   }
   await SystemService.setParam('agentMaxSteps', String(n), 'ai', 'Agent 最大循环步数')
   _deepseekServiceInstance.clearConfigCache()
@@ -110,7 +110,7 @@ async function handleRounds(param) {
 function formatHelp() {
   return '可用命令：\n' +
     '  /model [配置名/模型名]  切换 LLM 配置或模型\n' +
-    '  /rounds [次数]         设置循环次数（1-30）\n' +
+    '  /rounds [次数]         设置循环次数（5-200）\n' +
     '  /clear                 清空对话\n' +
     '  /help                  显示帮助\n' +
     '  /<技能名> [参数]       调用技能\n\n' +

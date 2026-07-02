@@ -1,3 +1,39 @@
+## v10.1.5 补丁版 (2026-07-02) - 修复静默错误/流式闪烁/滚动跳转，扩大步数范围，增强任务规划
+
+### 问题现象
+
+1. Agent 执行失败时前端不弹错误提示（静默失败），用户不知道发生了什么
+2. 流式输出时工具调用期间文本消失又恢复（闪烁）
+3. ask_user 确认框关闭后页面跳到回答顶部而非底部
+4. `/rounds` 命令范围 1-30 太小，复杂任务步数不够
+5. `todo_manage` 技能几乎不被 AI 触发，无法追踪复杂任务进度
+
+### 根因
+
+1. **静默失败**：P3 commit 3 删除了 `message.error()` toast；`agentActions.js` 的 ERROR dispatch 缺少 `sessionId`/`requestId`
+2. **流式闪烁**：`MessageContent` 组件在 `tool_calling` 状态时不显示 `agentReplyText`，落到 default 显示空的 `item.content`
+3. **滚动跳转**：`useChatState.js` 的自动滚动仅绑定在 `pendingMaterialPicker.pickerKey`，确认框关闭/新消息/流式输出都不触发滚动
+4. **步数太小**：`DEFAULT_AGENT_MAX_STEPS=10`，`/rounds` 上限 30，复杂蓝图任务需要更多步数
+5. **todo 不触发**：系统提示词完全没有提到 `todo_manage`，AI 不知道何时该用它
+
+### 修复（8 个文件）
+
+| 文件 | 改动 |
+|------|------|
+| `src/main/ipcHandlers/slashCommandHandler.js` | `/rounds` 范围 1-30 → **5-200**（3 处） |
+| `src/renderer/utils/slashCommandParser.js` | 命令描述 1-30 → 5-200 |
+| `src/main/utils/agentConstants.js` | `DEFAULT_AGENT_MAX_STEPS` 10 → **200** |
+| `src/renderer/components/agentActions.js` | ERROR dispatch 补上 sessionId/requestId；恢复 `message.error()` toast |
+| `src/renderer/components/SmartDesignChat.jsx` | ① `tool_calling` 状态继续显示流式文本 ② 消息新增/流式增长/确认关闭时自动滚到底部 |
+| `src/main/agent/systemPromptBuilder.js` | 新增任务规划要求：3 步以上任务必须先调 `todo_manage` 创建清单 |
+| `src/main/agent/__tests__/DeepSeekService.test.js` | 测试期望值同步 |
+| `src/main/agent/__tests__/UnifiedStrategy.test.js` | 测试期望值同步 |
+
+### 回归测试结果
+
+- 全部 212 个测试通过 ✅
+- 打包输出：`砼智-10.1.5-x64.exe`
+
 ## v10.1.4 补丁版 (2026-07-02) - 技能管理增加 update/source，修复重载丢失工作区技能
 
 ### 问题现象

@@ -64,12 +64,12 @@ describe('DeepSeekService 配置', () => {
     })
   })
 
-  // v1.2 修复验证：未注入 systemService 时 _getConfig 应使用共享常量 DEFAULT_AGENT_MAX_STEPS=10
+  // v1.2 修复验证：未注入 systemService 时 _getConfig 应使用共享常量 DEFAULT_AGENT_MAX_STEPS=200
   describe('_getConfig fallback（v1.2）', () => {
-    test('未注入 systemService 时使用硬编码默认值（maxSteps=10，与 UnifiedStrategy 共享常量）', async () => {
+    test('未注入 systemService 时使用硬编码默认值（maxSteps=200，与 UnifiedStrategy 共享常量）', async () => {
       const svc = new DeepSeekService('test-api-key', null)
       const cfg = await svc._getConfig()
-      expect(cfg.maxSteps).toBe(10)  // DEFAULT_AGENT_MAX_STEPS
+      expect(cfg.maxSteps).toBe(200)  // DEFAULT_AGENT_MAX_STEPS
       expect(cfg.model).toBe('deepseek-v4-flash')
       expect(cfg.maxTokens).toBe(32768)
       expect(cfg.contextLimit).toBe(800000)
