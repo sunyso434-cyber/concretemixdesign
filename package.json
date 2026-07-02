@@ -104,6 +104,12 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "certificateFile": null,
@@ -114,7 +120,7 @@
       "sign": null
     },
     "portable": {
-      "artifactName": "${productName}-${version}-x64.exe"
+      "artifactName": "${productName}-${version}-portable-x64.exe"
     },
     "buildDependenciesFromSource": true,
     "nsis": {
