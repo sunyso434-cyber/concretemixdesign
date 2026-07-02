@@ -73,6 +73,7 @@ function wrapBlueprintAsSkill(skillDir) {
     version: meta.version || '1.0.0',
     category: 'blueprint',
     parameters: meta.parameters || [],
+    services: [],
     execute: async (args = {}, runtimeCtx = {}) => {
       const blueprint = yaml.load(fs.readFileSync(blueprintPath, 'utf8')) || {}
       const tables = await loadTables(skillDir)

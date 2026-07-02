@@ -31,4 +31,23 @@ describe('blueprint-loader', () => {
     expect(skill.category).toBe('blueprint')
     expect(typeof skill.execute).toBe('function')
   })
+
+  // 回归测试：修复 services_undeclared 报错
+  // 背景：DynamicContextProvider.getServices 强制要求技能声明 services 数组，
+  // 之前 wrapBlueprintAsSkill 未加该字段，导致运行时抛 services_undeclared。
+  test('wrapBlueprintAsSkill 必须声明 services 字段（防止 services_undeclared）', () => {
+    const { wrapBlueprintAsSkill } = require('../../skills/blueprint-loader')
+    const skill = wrapBlueprintAsSkill(tmpDir)
+    expect(skill.services).toBeDefined()
+    expect(Array.isArray(skill.services)).toBe(true)
+    expect(skill.services).toEqual([])
+  })
+
+  test('包装后的蓝图技能能通过 DynamicContextProvider.getServices 检查', () => {
+    const { wrapBlueprintAsSkill } = require('../../skills/blueprint-loader')
+    const skill = wrapBlueprintAsSkill(tmpDir)
+    const DynamicContextProvider = require('../../agent/DynamicContextProvider')
+    const provider = new DynamicContextProvider({})
+    expect(() => provider.getServices(skill)).not.toThrow()
+  })
 })

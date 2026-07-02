@@ -1,3 +1,61 @@
+## v10.1.1 补丁版 (2026-07-02) - 修复蓝图技能 services_undeclared 崩溃
+
+### 问题现象
+
+老板反馈：新建的蓝图技能（如 `scc_mix_design_jgjt283_blueprint`）一被调用就报 `services_undeclared` 错误，无法执行。
+
+### 根因
+
+`blueprint-loader.js` 的 `wrapBlueprintAsSkill()` 把蓝图技能包装成标准技能对象时，**缺 `services` 字段**。而 `DynamicContextProvider.getServices()` 有硬性拦截：技能必须显式声明 services 数组（即便空数组 `[]` 也可以），否则抛 `services_undeclared`。
+
+结果：**所有通过 blueprint 格式创建的技能一被调用就崩**，与蓝图内容合规性无关。
+
+老板给的技能 `scc_mix_design_jgjt283_blueprint` 经离线校验（BlueprintValidator + BlueprintEngine 试算）：结构合规、数值合理（配制强度 49.9 MPa / 水胶比 0.45 / 计算容重 2539 kg/m³）。真正的问题在加载器。
+
+### 修复
+
+**改动：1 行代码**
+- 文件：`src/main/skills/blueprint-loader.js`
+- 在 `wrapBlueprintAsSkill()` 返回对象中新增 `services: []`
+- 语义：蓝图执行走内部 `BlueprintEngine`，不依赖任何注入服务，声明空数组即可通过 DynamicContextProvider 校验
+
+### 测试补强
+
+**改动：3 条新增单元测试** `src/main/__tests__/skills/blueprint-loader.test.js`
+1. ✅ services 字段存在且为空数组
+2. ✅ 包装后的蓝图技能能通过 `DynamicContextProvider.getServices()` 检查
+3. ✅ 原有 wrapBlueprintAsSkill 标准返回结构不变
+
+### 回归测试结果
+
+- **blueprint-loader**: 3/3 ✅
+- **skills 全量**: 14 套件 / 125 用例全部通过 ✅（比 v10.1.0 多 3 个新增测试）
+
+### 边缘情况
+
+- 空数组 `[]` 与 undefined 的区别：`services === undefined` 才触发 `services_undeclared`；显式 `[]` 表示"确实不需要任何服务"，是合法声明
+- 蓝图技能内部依赖 `MaterialService.searchMaterials`、`BlueprintEngine` 等，均从 runtime context 或全局单例中获取，不走 DynamicContextProvider 注入通道
+- 修复不影响 md/js 格式技能
+
+### 打包产物
+
+| 文件 | 大小 |
+|------|------|
+| `砼智 Setup 10.1.1.exe` (NSIS 安装包) | ~147 MB |
+| `砼智-10.1.1-x64.exe` (便携版) | ~146 MB |
+
+- 打包平台: Windows 10.0.26200 x64
+- Electron 版本: 28.3.3
+- 输出目录: `dist-10.1.1/`
+
+### 老板使用建议
+
+- 安装/覆盖此版本后，直接调用之前创建的蓝图技能（如 `scc_mix_design_jgjt283_blueprint`）即可执行
+- 无需重新创建蓝图技能包
+- 已存在的蓝图 YAML 文件不受影响
+
+---
+
 ## v10.1.0 正式版 (2026-07-02) - 蓝图技能创建架构重构（上下文共享）
 
 ### 背景
