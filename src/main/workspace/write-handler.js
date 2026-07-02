@@ -1,7 +1,9 @@
 // write-handler.js（Task 3.2 薄封装）
-// 职责：调 writers dispatcher 生成 Buffer → 写盘到 <workspacePath>/reports/<filename>
+// 职责：调 writers dispatcher 生成 Buffer → 写盘到 <workspacePath>/reports/
 // 输入：{ workspaceManager, type, filename, payload }
 // 输出：{ path, size, savedAt }
+//
+// v10.2.0：新增 patches 模式（仅 .md/.markdown 支持），局部修改已存在的报告文件
 //
 // 错误处理：
 //   - 工作区未打开（workspaceManager.current() === null）→ WorkspaceError(NOT_OPEN, retryable=false)
@@ -19,34 +21,35 @@ const writers = require('./writers')
 const { WorkspaceError } = require('./WorkspaceError')
 
 /**
- * 把 payload 生成 Buffer 并写到 <workspacePath>/reports/<filename>
+ * 把 payload 生成 Buffer 并写到 <workspacePath>/reports/
+ *
+ * v10.2.0 方案 8：新增 patches 模式（仅 .md/.markdown 支持），局部修改已存在的报告
  *
  * @param {Object} args
  * @param {Object} args.workspaceManager - WorkspaceManager 实例（需有 current() 方法）
  * @param {Object} [args.wikiEngine] - WikiEngine 实例；传入时会把报告同步 ingest 为 wiki 页面
  * @param {string} args.type - 'docx' | 'xlsx' | 'markdown' | 'md'
  * @param {string} args.filename - 落盘文件名（不含路径），如 'report.docx'
- * @param {Object} args.payload - writer payload（spec §4.4）
+ * @param {Object} args.payload - writer payload（spec §4.4）。patches 模式下忽略。
+ * @param {Array} [args.patches] - v10.2.0 局部 patch 模式：[{ find, replace, replaceAll? }]。仅 .md/.markdown 支持。
  * @param {Object} [args.style] - 报告样式（已合并好的最终 style 对象，由调用方 mergeStyle 后传入）。
  *   仅 docx writer 使用；xlsx/md writer 忽略。结构见 skills/report-styles.js DEFAULT_REPORT_STYLE。
- * @returns {Promise<{path: string, size: number, savedAt: string, wikiPage?: string}>}
+ * @returns {Promise<{path: string, size: number, savedAt: string, wikiPage?: string, backupPath?: string, patchResults?: Array}>}
  */
-async function writeFile({ workspaceManager, wikiEngine = null, type, filename, payload, style = null }) {
+async function writeFile({ workspaceManager, wikiEngine = null, type, filename, payload, patches, style = null }) {
   // 1) 工作区未开 → NOT_OPEN
   const current = workspaceManager.current()
   if (!current || !current.path) {
     throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
   }
 
-  // v9.1.0 防御：手动校验必填参数（SchemaValidator 可能被绕过）
-  // - 老板历史 bug：调 workspace_writeFile 时漏传 type 或 payload，写入失败时报 'unknown writer type: undefined'
-  // - 这里提前给出清晰错误，附带"老板可能漏传"的 hint
+  // 基础参数校验（两种模式都需要 type + filename）
   if (!type || typeof type !== 'string') {
     throw new WorkspaceError(
       'E-PARAM-MISSING',
       '缺少必填参数: type（文件类型，必须是 docx / xlsx / md 之一）',
       false,
-      { received: { type, hasFilename: !!filename, hasPayload: !!payload } }
+      { received: { type, hasFilename: !!filename, hasPayload: !!payload, hasPatches: Array.isArray(patches) } }
     )
   }
   if (!filename || typeof filename !== 'string') {
@@ -54,9 +57,16 @@ async function writeFile({ workspaceManager, wikiEngine = null, type, filename, 
       'E-PARAM-MISSING',
       '缺少必填参数: filename（如 "report.docx"）',
       false,
-      { received: { type, filename, hasPayload: !!payload } }
+      { received: { type, filename, hasPayload: !!payload, hasPatches: Array.isArray(patches) } }
     )
   }
+
+  // v10.2.0 方案 8：patches 模式分流
+  if (patches !== undefined) {
+    return await _writePatches({ current, type, filename, patches, wikiEngine })
+  }
+
+  // ---- Payload 模式（原逻辑）----
   if (!payload || typeof payload !== 'object') {
     throw new WorkspaceError(
       'E-PARAM-MISSING',
@@ -100,7 +110,7 @@ async function writeFile({ workspaceManager, wikiEngine = null, type, filename, 
 
   // 4) 同步生成 wiki 可搜索版本
   // - docx/xlsx：原文件不是文本，生成 md 内容后通过 ingestReport 直接写 wiki/sources/
-  // - md/markdown：原文件可直接 ingest，走 wikiEngine.ingest(reports/<filename>)
+  // - md/markdown：原文件可直接 ingest，走 wikiEngine.ingest(reports/)
   let wikiPage = null
   if (wikiEngine) {
     try {
@@ -127,6 +137,125 @@ async function writeFile({ workspaceManager, wikiEngine = null, type, filename, 
     path: targetPath,
     size: buf.length,
     savedAt: new Date().toISOString(),
+    wikiPage
+  }
+}
+
+/**
+ * v10.2.0 方案 8：patches 模式（仅 .md/.markdown 文件支持局部修改）
+ *
+ * 流程：
+ *   1. 校验 type 是 md/markdown（docx/xlsx 是 zip 二进制，不支持 patch）
+ *   2. 读已有文件
+ *   3. 应用所有 patch
+ *   4. 备份 .<name>.bak.<timestamp>
+ *   5. 写新内容
+ *   6. 重新 wiki ingest
+ */
+async function _writePatches({ current, type, filename, patches, wikiEngine }) {
+  // 仅 md/markdown 支持 patch
+  if (type !== 'md' && type !== 'markdown') {
+    throw new WorkspaceError(
+      'UNSUPPORTED_PATCH_TYPE',
+      `workspace_writeFile patches 模式仅支持 .md/.markdown 文件，${type} 是 zip 二进制不支持局部修改。请改用 payload 模式整文件覆盖`,
+      false
+    )
+  }
+
+  if (!Array.isArray(patches) || patches.length === 0) {
+    throw new WorkspaceError('E-PARAM-INVALID-TYPE', 'patches 必须是非空数组', false)
+  }
+
+  const reportsDir = path.posix.join(current.path, 'reports')
+  const targetPath = path.posix.join(reportsDir, filename)
+
+  // 1) 文件必须已存在
+  let originalContent
+  try {
+    originalContent = await fs.readFile(targetPath, 'utf-8')
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      throw new WorkspaceError(
+        'FILE_NOT_FOUND',
+        `patches 模式要求文件已存在: ${filename}（patches 模式不能创建新文件，请改用 payload 模式）`,
+        false
+      )
+    }
+    throw new WorkspaceError('WRITE_FAIL', `读取文件失败：${err.message}`, true, err)
+  }
+
+  // 2) 应用所有 patch
+  let newContent = originalContent
+  const patchResults = []
+  for (const p of patches) {
+    if (!p || typeof p.find !== 'string' || typeof p.replace !== 'string') {
+      throw new WorkspaceError('E-PARAM-INVALID-TYPE', '每个 patch 必须有 find 和 replace 字符串字段', false)
+    }
+    const occurrences = newContent.split(p.find).length - 1
+    if (occurrences === 0) {
+      patchResults.push({ find: p.find.slice(0, 80), applied: false, reason: '未找到匹配文本' })
+      continue
+    }
+    if (!p.replaceAll && occurrences > 1) {
+      patchResults.push({
+        find: p.find.slice(0, 80),
+        applied: false,
+        reason: `匹配到 ${occurrences} 处，需设置 replaceAll=true`
+      })
+      continue
+    }
+    newContent = p.replaceAll
+      ? newContent.split(p.find).join(p.replace)
+      : newContent.replace(p.find, p.replace)
+    patchResults.push({ find: p.find.slice(0, 80), applied: true, occurrences })
+  }
+
+  // 3) 校验：至少一个 patch 成功
+  const allFailed = patchResults.every(r => !r.applied)
+  if (allFailed) {
+    return {
+      success: false,
+      error: {
+        code: 'PATCH_NOT_APPLIED',
+        message: '所有 patch 都未匹配，请检查 find 文本是否准确（注意空格/标点/换行）',
+        patchResults
+      }
+    }
+  }
+
+  // 4) 自动备份
+  const backupPath = `${targetPath}.bak.${Date.now()}`
+  try {
+    await fs.copyFile(targetPath, backupPath)
+  } catch (err) {
+    throw new WorkspaceError('WRITE_FAIL', `备份失败：${err.message}`, true, err)
+  }
+
+  // 5) 写新内容
+  try {
+    await fs.writeFile(targetPath, newContent, 'utf-8')
+  } catch (err) {
+    throw new WorkspaceError('WRITE_FAIL', `写入文件失败：${err.message}`, true, err)
+  }
+
+  // 6) 重新 wiki ingest
+  let wikiPage = null
+  if (wikiEngine) {
+    try {
+      const ingestResult = await wikiEngine.ingest({ filename: `reports/${filename}` })
+      wikiPage = ingestResult.pagesCreated?.[0] || null
+    } catch (err) {
+      console.warn('[write-handler:patch] 同步 wiki 版本失败:', err.message)
+    }
+  }
+
+  return {
+    success: true,
+    path: targetPath,
+    size: Buffer.byteLength(newContent, 'utf-8'),
+    savedAt: new Date().toISOString(),
+    backupPath,
+    patchResults,
     wikiPage
   }
 }

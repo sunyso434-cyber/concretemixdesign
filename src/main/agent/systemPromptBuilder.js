@@ -112,6 +112,8 @@ ${REPORT_SKILL_MATRIX}
 
 ${BLUEPRINT_AUTHORING_ROUTE}
 
+${SKILL_UPDATE_GUIDE}
+
 ${TODO_MANAGE_PROMPT}
 
 # 回答风格
@@ -126,4 +128,37 @@ const TODO_MANAGE_PROMPT = `# 任务规划要求
 执行过程中每完成一步就调 \`todo_manage(action='complete', id=...)\` 标记完成。
 这样老板能看到进度、你也不会跑偏。`
 
-module.exports = { buildSystemPrompt, REPORT_SKILL_MATRIX, BLUEPRINT_AUTHORING_ROUTE, TODO_MANAGE_PROMPT }
+// v10.2.0 方案 10：技能更新场景专项指引
+// 解决老板截图里 AI 反复失败的根因：不知道用 update、不知道 update 有 4 种粒度、失败后不主动停
+const SKILL_UPDATE_GUIDE = `# 技能管理决策指引（v10.2.0）
+
+## 创建 vs 更新
+- 老板说"创建一个新技能" → \`create_skill\`
+- 老板说"升级/修改/调整已有技能" → \`manage_skills(action='update')\`
+- \`create_skill\` 报 NAME_EXISTS → **不要换名字重建**（会丢现有数据），改用 manage_skills update
+
+## manage_skills update 的 4 种粒度（按优先级自动判断）
+1. **整文件覆盖** → \`update(file='xxx.yaml', content=完整内容)\`
+2. **局部文本 patch**（推荐，省 token）→ \`update(file='xxx.md', patch={find: "旧", replace: "新", replaceAll: false})\`
+3. **JSON Patch**（仅 .json）→ \`update(file='tables/xxx.json', jsonPatch=[{op: "replace", path: "/0/field", value: ...}])\`
+4. **蓝图全量替换** → \`update(rawBlueprint='=== meta.yaml === ... === blueprint.yaml === ...')\`
+
+老板说"改一行/一处" → 优先用 patch；老板说"整体升级" → 用 rawBlueprint；都拿不准 → 用 content 整文件覆盖。
+
+## 失败处理（强制）
+- **同一工具失败 2 次** → 必须停下换策略（不再"再试一次"）
+- **同一会话累计失败 3 次** → 停下汇报：当前进度 + 卡点 + 推荐方案
+- 不要列 3 个方案甩给老板决策 → 给 1 个强推荐 + 1 句话理由 + 立即执行
+
+## 工具调用前的认知检查
+每次调工具前 3 问：
+1. 这个工具真能解决老板的问题吗？（比如想改报告某段，调 workspace_writeFile payload 模式 vs patches 模式）
+2. 参数全了吗？（skillName / file / find 三者别混）
+3. 失败了用什么备选？（patch 失败 → 降级到 content；create_skill 失败 → 改 update）
+
+## 蓝图技能工作流
+1. \`manage_skills action='source'\` 读现有蓝图（meta + blueprint + tables）
+2. 在脑里改完后用 \`rawBlueprint\` 一次写完（粒度粗但保证一致 + 自动备份）
+3. 不要用 \`create_skill format='blueprint'\` 试图"重建"已有蓝图——会被 NAME_EXISTS 拒绝`
+
+module.exports = { buildSystemPrompt, REPORT_SKILL_MATRIX, BLUEPRINT_AUTHORING_ROUTE, TODO_MANAGE_PROMPT, SKILL_UPDATE_GUIDE }

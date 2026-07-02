@@ -13,6 +13,8 @@
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+// v10.2.0：复用 blueprint-utils 解析 rawBlueprint（与 manage_skills 共享）
+const blueprintUtils = require('./blueprint-utils')
 
 module.exports = {
   name: 'create_skill',
@@ -62,9 +64,10 @@ module.exports = {
   errors: {
     NAME_EXISTS: {
       code: 'SKILL_VALIDATION_FAILED',
+      // v10.2.0 方案 5：引导 AI 用 manage_skills update 而不是换名字
       message: '技能名称已存在',
-      hint: '请使用不同的技能名称',
-      recovery: 'change_name'
+      hint: '如需修改/升级已有技能，请改用 manage_skills(action="update", skillName="<name>", rawBlueprint=...)（支持 rawBlueprint / patch / jsonPatch / content 4 种粒度）。不要换名字重建，会丢失现有数据。',
+      recovery: 'use_manage_skills_update'
     },
     CREATE_FAILED: {
       code: 'SKILL_LOAD_FAILED',
@@ -352,45 +355,11 @@ ${exampleUsage}
 
   /**
    * 解析主 agent 传入的 rawBlueprint：按 "=== <文件名> ===" 分段
+   * v10.2.0：复用 blueprint-utils.parseRawBlueprint
    * @returns {object|null} { meta, blueprint, tables: [{fileName, content, raw}], rawMeta, rawBlueprint }
    */
   _parseRawBlueprint(rawText) {
-    if (!rawText || typeof rawText !== 'string') return null
-    const cleaned = rawText.replace(/```[a-zA-Z]*/g, '').replace(/```/g, '')
-    const sections = {}
-    const regex = /===\s*([^=\s][^=]*?)\s*===\s*\n([\s\S]*?)(?=\n===\s*[^=]|\s*$)/g
-    let match
-    while ((match = regex.exec(cleaned)) !== null) {
-      const fileName = match[1].trim()
-      sections[fileName] = match[2].trim()
-    }
-    if (!sections['meta.yaml'] || !sections['blueprint.yaml']) return null
-
-    const yaml = require('js-yaml')
-    let meta, blueprint
-    try {
-      meta = yaml.load(sections['meta.yaml']) || {}
-      blueprint = yaml.load(sections['blueprint.yaml']) || {}
-    } catch (e) {
-      return null
-    }
-    if (!meta || !blueprint || !Array.isArray(blueprint.steps)) return null
-
-    const tables = []
-    for (const [fileName, content] of Object.entries(sections)) {
-      if (fileName === 'meta.yaml' || fileName === 'blueprint.yaml') continue
-      const tableMatch = fileName.match(/^tables\/(.+\.json)$/)
-      if (tableMatch) {
-        try {
-          const parsed = JSON.parse(content)
-          tables.push({ fileName: tableMatch[1], content: parsed, raw: content })
-        } catch (e) {
-          // 单个表解析失败不致命，跳过
-        }
-      }
-    }
-
-    return { meta, blueprint, tables, rawMeta: sections['meta.yaml'], rawBlueprint: sections['blueprint.yaml'] }
+    return blueprintUtils.parseRawBlueprint(rawText)
   },
 
   /**

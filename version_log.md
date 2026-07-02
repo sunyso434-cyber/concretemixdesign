@@ -1,3 +1,69 @@
+## v10.2.0 重大版本 (2026-07-02) - 技能管理三件套 + 工作区 patches + 智能反查 + 技能更新场景提示词
+
+### 问题现象（老板截图暴露的根因链）
+
+老板发了一份日志，显示 AI 想升级 v3.0.0 蓝图技能到 v4.0.0 时陷入死循环：
+1. `manage_skills list` 返回技能名 `自密实混凝土_JGJT283`
+2. AI 调 `manage_skills action='source' skillName='自密实混凝土_JGJT283'` → **SKILL_NOT_FOUND**
+3. AI 调 `create_skill format='blueprint' rawBlueprint=...` → **NAME_EXISTS 拒绝**
+4. AI 不知道该用什么工具，胡乱尝试 → 累计失败触发熔断
+
+老板追问"管理技能中的更新是如何实现的？"时，整个技能更新能力暴露三大缺陷。
+
+### 根因（4 层）
+
+1. **接口语义不一致（核心 bug）**：`list` 返回的 `name` 来自 `meta.yaml` 里的 `name` 字段（meta.name），但 `source`/`update`/`delete` 把传入的 `skillName` 当成**目录名**（dir.name）拼路径。两者不一致 → AI 拿 meta.name 找目录，永远找不到。
+
+2. **update 接口粒度太粗**：蓝图是目录结构（meta.yaml + blueprint.yaml + tables/*.json），但 update 只能一次改一个文件；不传 file 时整个 content 被当成 blueprint.yaml 写 → meta 和 tables 丢失。
+
+3. **update 无备份无校验**：JS/MD 技能有 `.bak.<timestamp>` 备份，蓝图直接覆盖。BlueprintValidator 校验完全跳过。
+
+4. **create_skill 错误不引导**：NAME_EXISTS 错误只说"换名字"，AI 不知道有 manage_skills update 这条路。
+
+5. **AI 缺少决策规则**：失败 2 次不停下、列 3 个方案甩给老板决策、不知道 update 有 4 种粒度 —— 提示词完全没覆盖。
+
+### 修复（9 个文件，约 800 行新代码）
+
+| 文件 | 改动 |
+|------|------|
+| `src/main/skills/blueprint-utils.js` | **新建**：抽出 parseRawBlueprint + resolveBlueprintDir（智能反查）+ isBlueprintSkillDir |
+| `src/main/skills/skill-manager.js` | 方案 1+2+3+4+6：list 用 dir.name；delete/info/source 用 resolveBlueprintDir；update 支持 rawBlueprint / patch / jsonPatch / content 4 种粒度；蓝图 update 加整体备份+校验失败回滚 |
+| `src/main/skills/create-skill.js` | 方案 5：NAME_EXISTS hint 引导用 manage_skills update；复用 blueprint-utils |
+| `src/main/workspace/write-handler.js` | 方案 8：新增 patches 模式（仅 .md 支持），局部修改 + 自动备份 + wiki 重新 ingest |
+| `src/main/agent/workspaceTools.js` | workspace_writeFile 加 patches 参数定义 |
+| `src/main/agent/systemPromptBuilder.js` | 方案 10：新增 SKILL_UPDATE_GUIDE 提示词（4 种粒度 + 失败熔断规则 + 认知检查） |
+| `src/renderer/components/SmartDesignChat.jsx` | 方案 9：think 块默认折叠（点开才显示完整思考过程） |
+
+### 关键能力升级
+
+**manage_skills update 4 种粒度**（按优先级自动判断）：
+- `rawBlueprint`: 蓝图全量替换（一次写 meta + blueprint + tables，自动备份+校验+失败回滚）
+- `jsonPatch`: JSON 字段级修改（仅 .json，RFC 6902 简化版，支持 replace/add/remove）
+- `patch`: 文本局部替换（仅 .md/.yaml/.txt，自动匹配次数校验）
+- `content`: 整文件覆盖（向后兼容）
+
+**workspace_writeFile patches 模式**（仅 .md）：
+- 老板想"改报告某段"不用重传整个 payload
+- 自动备份 `.<name>.bak.<timestamp>`
+- patch 失败返回 PATCH_NOT_FOUND/AMBIGUOUS 清晰错误
+- 应用完自动重新 wiki ingest
+
+**安全机制**：
+- 蓝图 update 整个目录备份到 `backups/skills/<name>-<timestamp>/`
+- 校验失败自动用备份回滚
+- update 不能创建新文件（FILE_NOT_FOUND 错误）
+
+**AI 决策规则**（SKILL_UPDATE_GUIDE 提示词）：
+- 失败 2 次必须停下换策略
+- 列方案不超过 1 个强推荐 + 立即执行
+- 工具调用前 3 问：能解决问题？参数全了？失败备选？
+
+### 测试结果
+
+- **修改相关测试**：92 通过 / 2 失败（PDF 测试预存在环境问题，与本次无关）
+- **整体测试**：1669 通过 / 18 失败（失败全部是预存在的 WikiEngine/PDF 环境问题）
+- **打包输出**：NSIS 安装版 + Portable 便携版
+
 ## v10.1.5 补丁版 (2026-07-02) - 修复静默错误/流式闪烁/滚动跳转，扩大步数范围，增强任务规划
 
 ### 问题现象

@@ -213,6 +213,39 @@ function MessageContent({ item, agentStatus, agentReplyText }) {
       </div>
     )
   }
+  // v10.2.0 方案 9：检测内容是否含 <think>...</think> 块，是则折叠渲染
+  const thinkMatch = typeof item.content === 'string' ? item.content.match(/<think>([\s\S]*?)(?:<\/think>|$)/) : null
+  if (thinkMatch) {
+    const thinkContent = thinkMatch[1].trim()
+    const visibleContent = item.content.replace(/<think>[\s\S]*?(?:<\/think>|$)/, '').trim()
+    return (
+      <div className="chat-markdown-body">
+        {visibleContent && (
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{visibleContent}</ReactMarkdown>
+        )}
+        <details style={{ marginTop: 8, fontSize: 12, color: 'var(--color-text-secondary)' }}>
+          <summary style={{ cursor: 'pointer', userSelect: 'none' }}>
+            💭 AI 思考过程（点击展开）
+          </summary>
+          <pre style={{
+            marginTop: 6,
+            padding: 8,
+            background: 'var(--color-bg, #f5f5f7)',
+            borderRadius: 4,
+            fontSize: 11,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            maxHeight: 300,
+            overflowY: 'auto',
+            fontFamily: 'inherit'
+          }}>
+            {thinkContent}
+          </pre>
+        </details>
+      </div>
+    )
+  }
+
   return (
     <div className="chat-markdown-body">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>

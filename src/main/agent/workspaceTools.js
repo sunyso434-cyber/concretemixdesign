@@ -148,11 +148,24 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         return getWiki().ingest(args)
       }
     ),
-    skill('workspace_writeFile', '把报告/数据写入工作区 reports/，支持 docx/xlsx/md 3 种格式。**新增 style 参数**：用户可临时指定报告格式（字体/颜色/页面），不传则使用默认公文样式。payload 结构（必须包含 sections 数组）：{ title: "报告标题", sections: [ { type: "h1"|"h2", content: "标题文字" }, { type: "p", content: "段落正文" }, { type: "list", items: ["项1", "项2"] }, { type: "table", rows: [["列1","列2"],["数据1","数据2"]] }, { type: "code", language: "js", code: "console.log(1)" } ], metadata?: { 任意key: "value" } }。type 字段：docx → 写 .docx；xlsx → 写 .xlsx；md 或 markdown → 写 .md。',
+    skill('workspace_writeFile', '把报告/数据写入工作区 reports/，支持 docx/xlsx/md 3 种格式。**两种模式**：\n1. **payload 模式**（默认）：传入 payload 含 title+sections 数组，整文件覆盖写入。\n2. **patches 模式**（v10.2.0）：只传 patches 不传 payload，局部修改已存在的 .md 报告（docx/xlsx 是 zip 不支持）。每个 patch 含 find(旧文本)、replace(新文本)、replaceAll(默认false)。\npayload 结构（必须包含 sections 数组）：{ title: "报告标题", sections: [ { type: "h1"|"h2", content: "标题文字" }, { type: "p", content: "段落正文" }, { type: "list", items: ["项1", "项2"] }, { type: "table", rows: [["列1","列2"],["数据1","数据2"]] }, { type: "code", language: "js", code: "console.log(1)" } ], metadata?: { 任意key: "value" } }。type 字段：docx → 写 .docx；xlsx → 写 .xlsx；md 或 markdown → 写 .md。',
       {
         type: { type: 'string', description: '文件类型', required: true, enum: ['docx', 'xlsx', 'md'] },
         filename: { type: 'string', description: '文件名（含后缀）', required: true },
-        payload: { type: 'object', description: 'payload 结构由 type 决定', required: true },
+        payload: { type: 'object', description: 'payload 结构由 type 决定。patches 模式下忽略', required: false },
+        patches: {
+          type: 'array',
+          description: '【v10.2.0】局部修改模式（仅 .md/.markdown 支持）。结构：[{ find: "旧文本", replace: "新文本", replaceAll: false }]。传了 patches 就不要再传 payload（payload 会被忽略）。',
+          required: false,
+          items: {
+            type: 'object',
+            properties: {
+              find: { type: 'string', description: '要替换的旧文本（精确匹配）', required: true },
+              replace: { type: 'string', description: '新文本', required: true },
+              replaceAll: { type: 'boolean', description: '替换所有出现位置（默认 false）', required: false, default: false }
+            }
+          }
+        },
         style: {
           type: 'object',
           description: '报告样式覆盖（可选）。结构：{ page: { paperSize, orientation, margins }, typography: { titleFont, bodyFont, titleSize, bodySize, lineSpacing }, color: { primary, tableBorder } }。未传字段使用默认公文样式。',
@@ -168,6 +181,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           type: args.type,
           filename: args.filename,
           payload: args.payload,
+          patches: args.patches,
           style: mergedStyle
         })
       }
