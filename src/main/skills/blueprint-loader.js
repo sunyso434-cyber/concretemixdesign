@@ -58,28 +58,47 @@ function normalizeParameters(arrayParams) {
 }
 
 /**
+ * 递归收集步骤中的 material_query 类别
+ * 处理 if_else.then / if_else.else 中的嵌套 material 步骤
+ * @param {object} step - 单个步骤
+ * @param {Set} categories - 收集到的类别集合
+ */
+function _collectMaterialCategories(step, categories) {
+  if (!step) return
+  if (step.type === 'material' && step.material_query && step.material_query.category) {
+    categories.add(step.material_query.category)
+  }
+  // 递归进入 if_else 分支
+  if (step.type === 'if_else') {
+    for (const subStep of step.then || []) {
+      _collectMaterialCategories(subStep, categories)
+    }
+    for (const subStep of step.else || []) {
+      _collectMaterialCategories(subStep, categories)
+    }
+  }
+}
+
+/**
  * 从蓝图步骤中提取材料类别，注入对应的材料选择参数
+ * 递归扫描所有步骤（包括 if_else 嵌套的子步骤）
  * @param {object} blueprint - 蓝图定义
  * @param {object} normalizedParams - 已标准化的参数对象
  * @returns {object} 注入材料参数后的新参数对象
  */
 function injectMaterialParams(blueprint, normalizedParams) {
   const params = { ...normalizedParams }
-  const seenCategories = new Set()
+  const categories = new Set()
 
   for (const step of blueprint.steps || []) {
-    if (step.type !== 'material' || !step.material_query) continue
-    const category = step.material_query.category
-    if (!category || seenCategories.has(category)) continue
+    _collectMaterialCategories(step, categories)
+  }
 
+  for (const category of categories) {
     const paramName = CATEGORY_PARAM_MAP[category]
-    if (!paramName) {
-      // 未知类别：用拼音或直接跳过（不在映射表中的材料类型不会暴露给 LLM）
-      continue
-    }
+    if (!paramName) continue
 
     if (!params[paramName]) {
-      seenCategories.add(category)
       params[paramName] = {
         type: 'string',
         required: false,
@@ -140,11 +159,13 @@ async function buildMaterialsIndex() {
  */
 function extractMaterialChoices(args, blueprint) {
   const userChoice = {}
-  for (const step of blueprint.steps || []) {
-    if (step.type !== 'material' || !step.material_query) continue
-    const category = step.material_query.category
-    if (!category || userChoice[category]) continue
+  const categories = new Set()
 
+  for (const step of blueprint.steps || []) {
+    _collectMaterialCategories(step, categories)
+  }
+
+  for (const category of categories) {
     const paramName = CATEGORY_PARAM_MAP[category]
     if (!paramName) continue
 
@@ -153,6 +174,7 @@ function extractMaterialChoices(args, blueprint) {
       userChoice[category] = value
     }
   }
+
   return userChoice
 }
 
@@ -195,4 +217,4 @@ function wrapBlueprintAsSkill(skillDir) {
   }
 }
 
-module.exports = { wrapBlueprintAsSkill, loadTables, buildMaterialsIndex, normalizeParameters, injectMaterialParams, CATEGORY_PARAM_MAP }
+module.exports = { wrapBlueprintAsSkill, loadTables, buildMaterialsIndex, normalizeParameters, injectMaterialParams, extractMaterialChoices, CATEGORY_PARAM_MAP, _collectMaterialCategories }
