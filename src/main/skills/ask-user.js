@@ -1,20 +1,26 @@
 /**
- * 向用户提问 Skill
+ * 向用户提问 Skill（项目唯一的用户确认/澄清机制）
  *
  * 让 Agent 在需求模糊时主动向用户提问，前端弹窗收集用户回答后回灌给 LLM 继续推理。
+ * 也是 save/update/delete 等危险操作的前端确认通道。
+ *
+ * 支持三种 inputType：
+ * - text：自由文本回答（澄清需求）
+ * - choice：选项选择（删除确认、状态选择、二选一），所有 choice 都带"其他"输入框
+ * - form：结构化字段编辑（保存前确认/改字段）
  *
  * 设计要点：
- * - 不替代 requiresConfirmation: true 的"危险操作确认"机制（那是 save_mix_design 等专用）
+ * - 项目唯一的用户确认机制（v10.x 取代了 requiresConfirmation: true 框架）
  * - 本 skill 走 Orchestrator.requestConfirmation 跨进程等待（90s 超时，<会话锁 120s）
  * - 通过 context.orchestrator 调用（由 SkillExecutor.execute 第三参数 runtimeCtx 注入）
  * - 不依赖任何外部服务：services: []
- * - 错误码：E_ASK_USER_REJECTED / E_ASK_USER_TIMEOUT / E_ASK_USER_NO_ORCHESTRATOR / E_ASK_USER_NO_SESSION
+ * - 错误码：E_ASK_USER_REJECTED / E_ASK_USER_TIMEOUT / E_ASK_USER_NO_ORCHESTRATOR / E_ASK_USER_NO_SESSION / E_ASK_USER_FORM_FIELDS_EMPTY
  */
 
 const skill = {
   name: 'ask_user',
-  description: '向用户提问澄清需求。当用户需求模糊、缺少关键参数（如材料产地、强度等级、外加剂要求）时调用。前端会弹窗收集用户回答，Agent 拿到回答后继续推理。不要每轮都调用——仅在关键信息缺失时调用。',
-  version: '1.0.0',
+  description: '向用户提问澄清需求或确认操作。inputType=text 自由文本（澄清需求）；inputType=choice 选项选择（删除确认/二选一，所有场景都带"其他"输入框）；inputType=form 结构化表单（保存前确认/改字段）。',
+  version: '2.0.0',
   category: 'agent',
   // 显式空数组：DynamicContextProvider.getServices 要求 services 字段必须声明
   services: [],
@@ -27,9 +33,9 @@ const skill = {
     },
     inputType: {
       type: 'string',
-      description: '输入类型：text 自由文本（默认）/ choice 选项选择',
+      description: '输入类型：text 自由文本（默认）/ choice 选项选择 / form 结构化字段编辑',
       required: false,
-      enum: ['text', 'choice'],
+      enum: ['text', 'choice', 'form'],
       default: 'text'
     },
     options: {
@@ -45,8 +51,23 @@ const skill = {
     },
     defaultValue: {
       type: 'string',
-      description: '用户跳过时的默认值（可选）',
+      description: '用户跳过时的默认值（可选，text/choice 模式用）',
       required: false
+    },
+    fields: {
+      type: 'array',
+      description: 'inputType=form 时的表单字段定义，每项 { key, label, type, value }，type 支持 string/number/boolean/enum',
+      required: false,
+      items: {
+        type: 'object',
+        properties: {
+          key: { type: 'string' },
+          label: { type: 'string' },
+          type: { type: 'string', enum: ['string', 'number', 'boolean', 'enum'] },
+          value: {},
+          options: { type: 'array', items: { type: 'string' }, description: 'type=enum 时的选项' }
+        }
+      }
     }
   },
 
@@ -59,7 +80,7 @@ const skill = {
     },
     E_ASK_USER_TIMEOUT: {
       code: 'E_ASK_USER_TIMEOUT',
-      message: '用户 90 秒未回答',
+      message: '用户 90 秒未回答，已超时',
       hint: '可提示用户超时，或使用 defaultValue 继续推理',
       recovery: 'retry'
     },
@@ -86,17 +107,42 @@ const skill = {
       message: '已有进行中的提问，不支持嵌套',
       hint: '请等待上一次提问完成',
       recovery: 'none'
+    },
+    E_ASK_USER_FORM_FIELDS_EMPTY: {
+      code: 'E_ASK_USER_FORM_FIELDS_EMPTY',
+      message: 'form 模式必须传 fields（至少 1 个字段）',
+      hint: 'form 模式用于让用户编辑/确认结构化字段，必须有字段定义',
+      recovery: 'none'
     }
   },
 
   async execute(args, context) {
-    const { question, inputType = 'text', options = [], placeholder, defaultValue } = args
+    const { question, inputType = 'text', options = [], placeholder, defaultValue, fields } = args
     const { orchestrator, logger } = context
 
     if (!orchestrator || typeof orchestrator.requestConfirmation !== 'function') {
       return {
         success: false,
-        error: 'context 未注入 orchestrator，无法发起提问。请联系开发者检查 SkillExecutor runtimeCtx 注入。'
+        error: this.errors.E_ASK_USER_NO_ORCHESTRATOR
+      }
+    }
+
+    // form 模式校验
+    if (inputType === 'form') {
+      if (!Array.isArray(fields) || fields.length === 0) {
+        return {
+          success: false,
+          error: this.errors.E_ASK_USER_FORM_FIELDS_EMPTY
+        }
+      }
+      // 校验每个 field 都有 key 和 label
+      for (const f of fields) {
+        if (!f.key || !f.label) {
+          return {
+            success: false,
+            error: { code: 'E_ASK_USER_FORM_FIELD_INVALID', message: `field 缺少 key 或 label: ${JSON.stringify(f)}` }
+          }
+        }
       }
     }
 
@@ -109,10 +155,18 @@ const skill = {
         inputType,
         options,
         placeholder,
-        defaultValue
+        defaultValue,
+        fields: inputType === 'form' ? fields : undefined
       })
-      // result 形如 { answer: '用户输入' }
-      // 若用户提交空文本 + 有 defaultValue，返回 defaultValue
+
+      // form 模式：返回 values
+      if (inputType === 'form') {
+        return {
+          success: true,
+          values: result?.values || {}
+        }
+      }
+      // text/choice 模式：返回 answer
       const answer = result?.answer || defaultValue || ''
       return {
         success: true,
@@ -124,10 +178,9 @@ const skill = {
       logger?.warn(`[ask_user] 失败: ${msg}`)
 
       if (msg === 'USER_REJECTED') {
-        return { success: false, error: '用户取消了回答（主动点取消按钮）' }
+        return { success: false, error: this.errors.E_ASK_USER_REJECTED }
       }
       if (msg === 'USER_CONFIRMATION_TIMEOUT') {
-        // 超时时若有 defaultValue，降级使用
         if (defaultValue) {
           return {
             success: true,
@@ -136,13 +189,13 @@ const skill = {
             note: '用户超时未回答，已使用 defaultValue'
           }
         }
-        return { success: false, error: '用户 90 秒未回答，已超时' }
+        return { success: false, error: this.errors.E_ASK_USER_TIMEOUT }
       }
       if (msg === 'NO_WEB_CONTENTS' || msg === 'WEB_CONTENTS_SEND_FAILED') {
-        return { success: false, error: '窗口已关闭或不可用，无法弹窗提问' }
+        return { success: false, error: this.errors.E_ASK_USER_NO_WEB_CONTENTS }
       }
       if (msg.includes('已有进行中的确认请求')) {
-        return { success: false, error: '已有进行中的提问，不支持嵌套调用' }
+        return { success: false, error: this.errors.E_ASK_USER_NESTED }
       }
       return { success: false, error: `提问失败: ${msg}` }
     }

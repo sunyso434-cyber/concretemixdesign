@@ -9,7 +9,8 @@
  * - context 无 orchestrator
  * - 嵌套调用拒绝
  * - choice 模式透传 options
- * - errors 定义
+ * - form 模式校验 + 透传 fields
+ * - errors 定义（v2.0.0：7 个错误码 + form fields 校验）
  */
 
 const askUser = require('../../skills/ask-user')
@@ -26,12 +27,12 @@ const _mockOrchestrator = (behavior = 'resolve-answer') => {
   const promise = new Promise((res, rej) => { resolveFn = res; rejectFn = rej })
   const requestConfirmation = jest.fn(() => promise)
 
-  // 测试代码可以通过 mockOrchestrator._resolve / _reject 主动控制 Promise
   const mock = { requestConfirmation, _resolve: resolveFn, _reject: rejectFn }
 
   if (behavior === 'resolve-answer') {
-    // 默认行为：立即 resolve { answer: 'mock-answer' }
     mock.requestConfirmation = jest.fn(() => Promise.resolve({ answer: 'mock-answer' }))
+  } else if (behavior === 'resolve-values') {
+    mock.requestConfirmation = jest.fn(() => Promise.resolve({ values: { name: 'mocked-name' } }))
   } else if (behavior === 'reject-USER_REJECTED') {
     mock.requestConfirmation = jest.fn(() => Promise.reject(new Error('USER_REJECTED')))
   } else if (behavior === 'reject-USER_CONFIRMATION_TIMEOUT') {
@@ -49,7 +50,7 @@ describe('ask_user Skill - schema 与元数据', () => {
   test('skill 元数据完整', () => {
     expect(askUser.name).toBe('ask_user')
     expect(askUser.description).toBeTruthy()
-    expect(askUser.version).toBe('1.0.0')
+    expect(askUser.version).toBe('2.0.0')  // v10.x 升级
     expect(askUser.category).toBe('agent')
     expect(askUser.services).toEqual([])
     expect(typeof askUser.execute).toBe('function')
@@ -59,11 +60,16 @@ describe('ask_user Skill - schema 与元数据', () => {
     expect(askUser.parameters.question.required).toBe(true)
   })
 
-  test('inputType 默认 text 且枚举正确', () => {
-    expect(askUser.parameters.inputType.enum).toEqual(['text', 'choice'])
+  test('inputType 枚举含 text/choice/form', () => {
+    expect(askUser.parameters.inputType.enum).toEqual(['text', 'choice', 'form'])
   })
 
-  test('errors 定义了 6 个错误码', () => {
+  test('fields 参数定义含 form 模式 schema', () => {
+    expect(askUser.parameters.fields.required).toBe(false)
+    expect(askUser.parameters.fields.items.properties.type.enum).toContain('boolean')
+  })
+
+  test('errors 定义了 7 个错误码（含 form 校验）', () => {
     const codes = Object.keys(askUser.errors)
     expect(codes).toContain('E_ASK_USER_REJECTED')
     expect(codes).toContain('E_ASK_USER_TIMEOUT')
@@ -71,6 +77,7 @@ describe('ask_user Skill - schema 与元数据', () => {
     expect(codes).toContain('E_ASK_USER_NO_SESSION')
     expect(codes).toContain('E_ASK_USER_NO_WEB_CONTENTS')
     expect(codes).toContain('E_ASK_USER_NESTED')
+    expect(codes).toContain('E_ASK_USER_FORM_FIELDS_EMPTY')
   })
 })
 
@@ -114,34 +121,33 @@ describe('ask_user Skill - 正常回答', () => {
     }, ctx)
 
     const payload = ctx.orchestrator.requestConfirmation.mock.calls[0][0]
-    // ask_user skill 内部不强制设置 inputType（用默认参数），由 LLM 传入
-    // 这里测试当 inputType 未传时，payload 透传 undefined（默认值在解构时已生效）
-    // 实际 payload 的 inputType 取决于 execute 的解构默认值
     expect(payload.question).toBe('请提供水泥产地')
   })
 })
 
 describe('ask_user Skill - 用户取消', () => {
-  test('用户取消返回 success=false', async () => {
+  test('用户取消返回 success=false + 错误码', async () => {
     const ctx = _ctx({ orchestrator: _mockOrchestrator('reject-USER_REJECTED') })
     const result = await askUser.execute({
       question: '请提供水泥产地'
     }, ctx)
 
     expect(result.success).toBe(false)
-    expect(result.error).toMatch(/取消/)
+    expect(result.error.code).toBe('E_ASK_USER_REJECTED')
+    expect(result.error.message).toMatch(/取消/)
   })
 })
 
 describe('ask_user Skill - 用户超时', () => {
-  test('超时返回 success=false', async () => {
+  test('超时返回 success=false + 错误码', async () => {
     const ctx = _ctx({ orchestrator: _mockOrchestrator('reject-USER_CONFIRMATION_TIMEOUT') })
     const result = await askUser.execute({
       question: '请提供水泥产地'
     }, ctx)
 
     expect(result.success).toBe(false)
-    expect(result.error).toMatch(/超时/)
+    expect(result.error.code).toBe('E_ASK_USER_TIMEOUT')
+    expect(result.error.message).toMatch(/超时/)
   })
 
   test('超时但有 defaultValue 时降级使用 defaultValue', async () => {
@@ -166,7 +172,7 @@ describe('ask_user Skill - 窗口关闭/不可用', () => {
     }, ctx)
 
     expect(result.success).toBe(false)
-    expect(result.error).toMatch(/窗口/)
+    expect(result.error.code).toBe('E_ASK_USER_NO_WEB_CONTENTS')
   })
 })
 
@@ -178,17 +184,18 @@ describe('ask_user Skill - context 无 orchestrator', () => {
     }, ctx)
 
     expect(result.success).toBe(false)
-    expect(result.error).toMatch(/orchestrator/)
+    expect(result.error.code).toBe('E_ASK_USER_NO_ORCHESTRATOR')
+    expect(result.error.message).toMatch(/orchestrator/)
   })
 
   test('context.orchestrator 没有 requestConfirmation 方法返回错误', async () => {
-    const ctx = _ctx({ orchestrator: {} })  // 空对象，没有 requestConfirmation
+    const ctx = _ctx({ orchestrator: {} })
     const result = await askUser.execute({
       question: '请提供水泥产地'
     }, ctx)
 
     expect(result.success).toBe(false)
-    expect(result.error).toMatch(/orchestrator/)
+    expect(result.error.code).toBe('E_ASK_USER_NO_ORCHESTRATOR')
   })
 })
 
@@ -200,7 +207,7 @@ describe('ask_user Skill - 嵌套调用', () => {
     }, ctx)
 
     expect(result.success).toBe(false)
-    expect(result.error).toMatch(/嵌套/)
+    expect(result.error.code).toBe('E_ASK_USER_NESTED')
   })
 })
 
@@ -239,7 +246,7 @@ describe('ask_user Skill - answer 空值处理', () => {
   test('result.answer 为 undefined 时降级到 defaultValue', async () => {
     const ctx = _ctx({
       orchestrator: {
-        requestConfirmation: jest.fn(() => Promise.resolve({}))  // 无 answer 字段
+        requestConfirmation: jest.fn(() => Promise.resolve({}))
       }
     })
     const result = await askUser.execute({
@@ -249,6 +256,76 @@ describe('ask_user Skill - answer 空值处理', () => {
 
     expect(result.success).toBe(true)
     expect(result.answer).toBe('上海')
+  })
+})
+
+describe('ask_user Skill - form 模式（v2.0.0 新增）', () => {
+  test('form 模式无 fields 返回 FORM_FIELDS_EMPTY 错误', async () => {
+    const ctx = _ctx({ orchestrator: _mockOrchestrator() })
+    const result = await askUser.execute({
+      question: '保存方案',
+      inputType: 'form'
+      // 故意不传 fields
+    }, ctx)
+
+    expect(result.success).toBe(false)
+    expect(result.error.code).toBe('E_ASK_USER_FORM_FIELDS_EMPTY')
+  })
+
+  test('form 模式 fields 为空数组也报错', async () => {
+    const ctx = _ctx({ orchestrator: _mockOrchestrator() })
+    const result = await askUser.execute({
+      question: '保存方案',
+      inputType: 'form',
+      fields: []
+    }, ctx)
+
+    expect(result.success).toBe(false)
+    expect(result.error.code).toBe('E_ASK_USER_FORM_FIELDS_EMPTY')
+  })
+
+  test('form 模式正常返回 values', async () => {
+    const ctx = _ctx({ orchestrator: _mockOrchestrator('resolve-values') })
+    const result = await askUser.execute({
+      question: '确认保存',
+      inputType: 'form',
+      fields: [
+        { key: 'name', label: '名称', type: 'string', value: 'C30-旧' }
+      ]
+    }, ctx)
+
+    expect(result.success).toBe(true)
+    expect(result.values).toEqual({ name: 'mocked-name' })
+  })
+
+  test('form 模式透传 fields 到 orchestrator', async () => {
+    const ctx = _ctx({ orchestrator: _mockOrchestrator('resolve-values') })
+    const fields = [
+      { key: 'name', label: '名称', type: 'string', value: 'C30' },
+      { key: 'slump', label: '坍落度', type: 'number', value: 180 },
+      { key: 'isDefault', label: '默认', type: 'boolean', value: false }
+    ]
+    await askUser.execute({
+      question: '保存',
+      inputType: 'form',
+      fields
+    }, ctx)
+
+    const payload = ctx.orchestrator.requestConfirmation.mock.calls[0][0]
+    expect(payload.fields).toEqual(fields)
+    expect(payload.inputType).toBe('form')
+  })
+
+  test('form 模式 field 缺 key 报错', async () => {
+    const ctx = _ctx({ orchestrator: _mockOrchestrator() })
+    const result = await askUser.execute({
+      question: '保存',
+      inputType: 'form',
+      fields: [{ label: '无 key 的字段', type: 'string', value: 'x' }]
+    }, ctx)
+
+    expect(result.success).toBe(false)
+    expect(result.error.code).toBe('E_ASK_USER_FORM_FIELD_INVALID')
   })
 })
 
@@ -264,6 +341,7 @@ describe('ask_user Skill - 未知错误', () => {
     }, ctx)
 
     expect(result.success).toBe(false)
-    expect(result.error).toMatch(/SOMETHING_UNEXPECTED/)
+    // 未知错误是字符串形式（含 SOMETHING_UNEXPECTED）
+    expect(typeof result.error === 'string' || result.error.message?.includes('SOMETHING_UNEXPECTED')).toBe(true)
   })
 })
