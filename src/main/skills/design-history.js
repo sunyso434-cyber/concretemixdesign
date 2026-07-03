@@ -5,7 +5,7 @@
 
 module.exports = {
   name: 'query_design_history',
-  description: '查询历史配合比设计记录。当用户询问之前的方案、想找类似设计、或需要参考历史数据时调用。',
+  description: '从**方案库 + 基准库两个表并行查询**后按时间合并返回，每条记录带 source 字段（"方案库"/"基准配合比库"）。支持 strength/keyword 过滤，关键词在两个表匹配不同字段。当用户说"我们之前做过类似的方案吗""历史上有 C30 自密实吗"时调用。**与 list_mix_designs 的区别**：list 列当前所有；本工具侧重"历史归档+跨库检索"。',
   version: '1.0.0',
   category: 'query',
 

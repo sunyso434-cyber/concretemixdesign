@@ -8,7 +8,7 @@ const UPDATE_WHITELIST = ['name', 'description', 'projectName', 'customerInfo', 
 
 module.exports = {
   name: 'update_mix_design',
-  description: '更新配合比方案的元信息（名称/描述/项目名/客户信息/备注）。不能改 status/materials/计算结果。白名单外字段静默忽略。',
+  description: '更新配合比方案的**元信息**（**白名单字段**：name/description/projectName/customerInfo/remarks，共 5 个）。**必传 id**。**不允许改 status/materials/计算结果**——白名单外字段静默忽略。无白名单内字段会返回 NO_FIELDS。写 audit_logs。',
   version: '1.0.0',
   category: 'update',
 

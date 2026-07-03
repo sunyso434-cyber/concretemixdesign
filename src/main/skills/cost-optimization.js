@@ -5,7 +5,7 @@
 
 module.exports = {
   name: 'optimize_mix_cost',
-  description: '对给定材料和约束条件执行网格搜索，找出成本最低的混凝土配合比方案。当用户要寻找最低成本方案时调用此工具。',
+  description: '对给定材料和掺量范围做网格搜索，**找出成本最低的方案**并自动保存为草稿（返回 draftId）。必传 strength/slump + 各种材料候选 ID 列表。粉煤灰/矿渣粉/锂渣/复合粉的掺量范围可配（默认 [0,30]/[0,20]/[0,20]/[0,20]）。**与 calculate_mix_design 的区别**：mix_design 算 1 个方案；cost_optimization 网格搜索找最低成本。',
   version: '1.0.0',
   category: 'core',
 

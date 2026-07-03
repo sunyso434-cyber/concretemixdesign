@@ -14,7 +14,7 @@ const askUser = require('./ask-user')
 
 const skill = {
   name: 'save_mix_design',
-  description: '确认保存配合比方案。草稿状态转为正式（CONFIRM）；已确认状态可改名（UPDATE）。当用户要求保存/确认某个方案时调用。',
+  description: '把配合比方案从"草稿"转为"已确认"（CONFIRM 状态），或对"已确认"方案改名（UPDATE）。**必传 schemeId**（从 calculate_mix_design/cost_optimization 返回的 draftId 获取）。**仅接受 草稿/已确认 状态**——其他状态（如"已使用""已验证"）返回 INVALID_STATUS。会自动弹窗（ask_user form）让用户确认/改名称 + 写 audit_logs 审计。**不重算用量**——只改 status 和 name。',
   version: '3.0.0',
   category: 'save',
 

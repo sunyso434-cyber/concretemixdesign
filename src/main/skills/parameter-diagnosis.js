@@ -5,7 +5,7 @@
 
 module.exports = {
   name: 'run_parameter_diagnosis',
-  description: '对上传的配合比数据执行参数诊断，分析数据趋势和异常。',
+  description: '对**已上传到智能解析模块**的配合比数据做多维度诊断（水胶比/砂率/容重是否在规范范围、粉煤灰掺量是否超限、成本/强度性价比）。**不接收参数**——数据从 context.sessionData 读。当用户说"分析这套数据""诊断刚才上传的配合比"时调用，**前提是用户已经在智能解析模块上传过数据**。**不输出新配合比**——只给诊断报告；想重新设计请用 calculate_mix_design。',
   version: '1.0.0',
   category: 'analysis',
 

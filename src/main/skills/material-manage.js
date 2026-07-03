@@ -124,7 +124,7 @@ module.exports = {
     '\n- 细骨料: ' + TYPE_FIELDS_GUIDE['细骨料'] +
     '\n- 粗骨料: ' + TYPE_FIELDS_GUIDE['粗骨料'] +
     '\n- 减水剂: ' + TYPE_FIELDS_GUIDE['减水剂'] +
-    '\n\n注意：细度模数finenessModulus、级配grading、胶凝系数cementitiousFactor_xx为系统自动计算，不要传入。',
+    '\n\n注意：细度模数finenessModulus、级配grading、胶凝系数cementitiousFactor_xx为系统自动计算，不要传入。系统会**自动忽略不属于该类型字段**（如水泥不应有 mudContent），并在返回结果 warnings 里列出被忽略字段名。',
   version: '1.0.0',
   category: 'manage',
 

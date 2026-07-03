@@ -15,7 +15,7 @@ const askUser = require('./ask-user')
 
 module.exports = {
   name: 'save_to_basic_mix_library',
-  description: '保存配合比到基准配合比库（供后续报价/复用）。保存前弹窗确认/修改名称、强度、类型、坍落度。当用户要求保存到基准库时调用。',
+  description: '把已确认的配合比方案保存到基准库供后续报价复用。**schemeId 可选**——不传则取最近一条已确认方案。弹窗（form）让用户改名称/强度/类型/坍落度。**只新增不修改**——已存在的基准用 save_basic_mix_design。写 audit_logs(CREATE)。**必须先确认过方案**（草稿状态不算"已确认"）。',
   version: '2.0.0',
   category: 'save',
 

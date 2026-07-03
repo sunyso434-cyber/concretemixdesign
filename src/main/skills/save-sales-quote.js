@@ -16,7 +16,7 @@ const askUser = require('./ask-user')
 
 module.exports = {
   name: 'save_sales_quote',
-  description: '保存销售报价方案到历史记录。保存前弹窗确认/修改强度、类型、坍落度、备注。当用户要求保存报价时调用。',
+  description: '保存销售报价到历史记录（salesQuoteHistories 表）。**必填 strengthGrade 和 concreteType**（其他可选）。弹窗（form）让用户确认/改强度、类型、坍落度、备注。**注意：销售报价历史不在 audit_logs 覆盖范围内**（SPEC 4.3 只覆盖方案/基准）。',
   version: '2.0.0',
   category: 'save',
 

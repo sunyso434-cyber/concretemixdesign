@@ -5,7 +5,7 @@
 
 module.exports = {
   name: 'calculate_sales_quote',
-  description: '生成混凝土销售报价。当用户要求生成报价时调用。',
+  description: '基于**指定基准配合比 ID**（必填）+ 定价参数（可选），生成正式销售报价，返回含税单价/总价/利润/泵送费明细。**必须先有基准方案**——没有就先调 save_to_basic_mix_library。**与 prepare_quote_draft 的区别**：本工具基于已有基准 + 定价算**实际金额**；draft 工具按强度返回**报价模板**（不需基准）。当用户说"按基准 XX 算下报价""这个基准多少钱/m³"时调用。',
   version: '1.0.0',
   category: 'core',
 

@@ -6917,3 +6917,52 @@ ICO header magic: ✓ 有效ICO
 ### 注意事项
 - 新 logo 是黑白线稿风格，缩到 16x16 时细节会模糊（1128 bytes，含电路纹理）——Windows 任务栏 16x16 仍可识别整体形状，桌面快捷方式 32x32+ 清晰
 - `--no-save` 安装的 sharp/png-to-ico 仍在 `node_modules`，可重复运行 `node scripts/update-logo.js`
+
+---
+
+## v10.4.0 内部优化 (2026-07-03) - 16 个技能 description 可靠性改造
+
+### 背景
+
+老板要求审查所有技能 description 的可靠性，对照实际 `execute()` 实现找脱节点。审查发现：12 个技能 description 存在与实际行为不符、关键边界（必填字段/状态机/白名单/双表查询/自动保存草稿）缺失、容易导致 LLM 选错工具的问题。
+
+### 改造范围（16 个技能）
+
+**P0 - 关键修正（3 个）**
+- `parameter-diagnosis`：之前 description 写"上传配合比数据"——实际 `parameters: {}` 是空对象，数据从 `context.sessionData` 读
+- `compare-materials`：补"按**单个类别**做替换式对比"+必传 `baseParams`+`compareType` 含义
+- `sales-quote`：补**必填 `basicMixId`**（之前完全没提）
+
+**P1 - 补关键边界（10 个）**
+- `prepare-quote-draft`：补"**不需要基准 ID**"与 sales-quote 的区别
+- `save-mix-design`：补"**必传 schemeId**"+"**仅接受草稿/已确认状态**"+"自动弹窗 + 写 audit_logs"
+- `save-basic-mix-design`：补"**必填 name/strengthGrade/concreteType/materials**"
+- `update-mix-design`：补"白名单字段列表 5 个"+NO_FIELDS 边界
+- `save-sales-quote`：补"**必填 strengthGrade/concreteType**"+"销售报价不在 audit_logs 覆盖范围"
+- `save-to-basic-mix`：补"schemeId 可选（不传取最近已确认）"+"只新增不修改"
+- `design-history`：补"**双表并行查询**（方案库 + 基准库）"
+- `mix-design`：补"**自动保存草稿**返回 draftId"
+- `cost-optimization`：补"网格搜索 + 自动保存草稿 + 掺量范围默认值"
+- `performance-prediction`：补"**必填 5 项**（水泥用量/水胶比/水泥ID/细骨料ID/粗骨料ID）"
+
+**P2 - 措辞微调（3 个）**
+- `material-manage`：末尾加"系统自动忽略不属于该类型字段" + warnings 提示
+- `list-mix-designs`：补"默认返回前 10 条"
+- `delete-basic-mix-design`：补"返回引用方案名清单 referencedCount/referencedNames"
+
+### 未改动（已是 4/4 满分）
+
+- 13 个技能：`get-mix-design` `list-basic-mix-designs` `material-query` `ask-user` `todo-manage` `skill-manager` `create-skill` `analyze-concrete-image` `configure-vision-model` `get-vision-config` `clear-vision-config` `delete-mix-design` `prepare-blueprint-authoring` —— 描述与实际行为一致
+- 9 个 workspace 工具（在 `src/main/agent/workspaceTools.js`）：description 全部准确
+
+### 错误澄清
+
+之前第一轮改造建议（基于 grep 描述字段）有 3 条与实际代码不符：
+- `parameter-diagnosis` 应改为"无参数+数据从 sessionData 读"而非"上传配合比表"
+- `compare-materials` 应改为"按类别替换式"而非"N 组完整材料对比"
+- `sales-quote` 应明确"必填 basicMixId"（之前只说"生成报价"太泛）
+
+### 验证
+
+- 16 个技能文件全部通过 `node -e "require('./...')"` 加载验证（语法无误）
+- `npm run electron:build` 打包成功（exit 0），产物 `dist-10.3.0/砼智 Setup 10.4.0.exe` + `砼智-10.4.0-portable-x64.exe`

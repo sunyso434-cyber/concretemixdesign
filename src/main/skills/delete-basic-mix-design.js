@@ -15,7 +15,7 @@ const askUser = require('./ask-user')
 
 module.exports = {
   name: 'delete_basic_mix_design',
-  description: '删除基准配合比方案。被正式方案引用时拒绝删除；删除前弹窗确认（choice 带"其他"输入框）。',
+  description: '删除基准配合比方案。**被正式方案引用时拒绝删除**，返回 IN_USE 错误 + 引用方案名清单（referencedCount/referencedNames）。删除前弹窗确认（choice 带"其他"输入框）。',
   version: '1.0.0',
   category: 'delete',
 

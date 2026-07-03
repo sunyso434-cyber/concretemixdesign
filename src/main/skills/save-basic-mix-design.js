@@ -9,7 +9,7 @@ const askUser = require('./ask-user')
 
 module.exports = {
   name: 'save_basic_mix_design',
-  description: '新增或更新基准配合比方案。传 id=更新，不传=新增。保存前弹窗确认（form 模式）。',
+  description: '新增或更新基准配合比方案。传 id=更新，不传=新增。**必填 name/strengthGrade/concreteType/materials**（其他可选）。**materials 是数组**（不能为空），每个元素 {materialId, materialType, materialName, usage, price}。弹窗（form 模式）让用户确认 + 写 audit_logs。',
   version: '1.0.0',
   category: 'save',
 

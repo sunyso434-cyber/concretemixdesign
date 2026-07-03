@@ -5,7 +5,7 @@
 
 module.exports = {
   name: 'list_mix_designs',
-  description: '列出配合比方案（正式/草稿）。支持按状态/强度/关键词过滤，按时间或名称排序，分页。当用户问"有哪些方案""查 C30 草稿"时调用。',
+  description: '列出配合比方案（正式/草稿）。支持按状态/强度/关键词过滤，按时间或名称排序，分页（默认返回前 10 条，可传 limit/offset 翻页）。当用户问"有哪些方案""查 C30 草稿"时调用。',
   version: '1.0.0',
   category: 'query',
 

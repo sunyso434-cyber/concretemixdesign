@@ -7,7 +7,7 @@ const ErrorCodes = require('../agent/ErrorCodes')
 
 module.exports = {
   name: 'calculate_mix_design',
-  description: '根据给定参数计算混凝土配合比。返回各材料用量、水胶比、砂率、容重、成本等结果。当用户要设计新配合比时调用此工具。',
+  description: '根据参数计算混凝土配合比，返回各材料用量/水胶比/砂率/容重/成本。**计算成功自动保存为草稿**，返回 draftId（后续用 save_mix_design 转正式）。**与 cost_optimization 的区别**：mix_design 算 1 个方案；cost_optimization 网格搜索找最优。',
   version: '1.0.0',
   category: 'core',
 

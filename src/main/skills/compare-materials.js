@@ -5,7 +5,7 @@
 
 module.exports = {
   name: 'compare_materials',
-  description: '对比不同材料对配合比结果的影响。当用户想比较多种材料时调用。',
+  description: '按**单个材料类别**做替换式对比：传入 1 个基准配合比 baseParams + compareType 指定类别（cement/sand/stone/flyAsh/slag）+ N 个候选材料 ID，逐个替换该类别后试算，返回 [{candidateId, mixResult, diffFromBase}, ...]。**必传 strength/slump/compareType/baseParams/candidateIds**。**与 calculate_mix_design 的区别**：mix_design 算 1 个方案；本工具算 N 个方案并列对比。当用户说"用这 3 个水泥分别算下，看哪个最合适"时调用。',
   version: '1.0.0',
   category: 'analysis',
 
