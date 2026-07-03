@@ -442,7 +442,7 @@ function registerAgentHandlers() {
         return { success: true }
       }
     }
-    // 兼容旧路径：无 sessionId 时退回全局 orchestrator（仍保留旧死代码行为，避免破坏 requiresConfirmation 场景）
+    // 兼容旧路径：无 sessionId 时退回全局 orchestrator
     if (orchestrator && typeof orchestrator.resolveConfirmation === 'function') {
       orchestrator.resolveConfirmation(confirmed, args)
     }

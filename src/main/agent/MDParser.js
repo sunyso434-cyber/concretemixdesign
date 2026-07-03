@@ -30,7 +30,6 @@ class MDParser {
       name: data.name,
       description: data.description,
       category: data.category || 'custom',
-      requiresConfirmation: data.requiresConfirmation || false,
       version: data.version || '1.0.0',
       parameters: data.parameters || {},
       body: body,

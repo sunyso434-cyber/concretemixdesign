@@ -205,7 +205,6 @@ module.exports = {
       // 不需要execute函数
       version: parsed.version,
       category: parsed.category,
-      requiresConfirmation: parsed.requiresConfirmation,
       _isMDSkill: true,
       _mdBody: parsed.body,
       _placeholders: parsed.placeholders,
@@ -287,7 +286,6 @@ module.exports = {
       version: skill.version || '1.0.0',
       category: skill.category || 'general',
       builtin: skill._builtin,
-      requiresConfirmation: skill.requiresConfirmation || false,
       registeredAt: skill._registeredAt
     }
   }
