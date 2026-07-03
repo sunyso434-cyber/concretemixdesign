@@ -22,6 +22,19 @@ class MixDesignService_Database {
     }
   }
 
+  // v10.x：按 basicMixId 查引用此基准的方案（供 delete_basic_mix_design 引用检查用）
+  async findByBasicMixId(basicMixId) {
+    try {
+      return await MixDesign.findAll({
+        where: { basicMixId },
+        attributes: ['id', 'name', 'status', 'createdAt']
+      })
+    } catch (error) {
+      console.error('按 basicMixId 查方案失败:', error)
+      return []
+    }
+  }
+
   // 清理过期草稿
   async cleanupDrafts(maxAgeDays = 7) {
     try {
