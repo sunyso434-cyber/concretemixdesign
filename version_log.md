@@ -1,3 +1,94 @@
+## v10.4.0 功能版本 (2026-07-03) - ask_user 统一确认机制 + 方案管理技能化 + 审计日志
+
+### 背景
+
+老板反馈：项目存在两套并行的"用户确认"机制（`requiresConfirmation: true` 框架 vs `ask_user` 技能），职责重叠、维护成本高。同时 AI 在对话里无法管理方案和基准库，方案管理只能依赖 UI 操作。需要统一确认机制 + 把方案/基准管理技能化，让 AI 在对话里能全权操作。
+
+### 新增能力（3 项）
+
+1. **ask_user 统一为项目唯一的确认机制**（v1.0.0 → v2.0.0）
+   - 新增 `form` 模式（结构化字段编辑）：保存前确认/改字段
+   - `choice` 模式所有场景必带"其他"输入框：用户可自定义回答
+   - `text` 模式保留（澄清需求）
+   - error 返回统一为结构化对象 `{ code, message, hint, recovery }`
+   - 彻底删除 `requiresConfirmation` 框架代码（SkillRegistry/MDParser/agentHandler 解析 + DecisionGate 旧分支）
+
+2. **方案/基准管理技能化**（7 个新技能）
+   - 正式方案：list_mix_designs / get_mix_design / update_mix_design / delete_mix_design
+   - 基准方案：list_basic_mix_designs / save_basic_mix_design / delete_basic_mix_design
+   - `update_mix_design` 白名单 5 字段：name / description / projectName / customerInfo / remarks（status / materials / 计算结果不可改）
+   - `delete_mix_design` 草稿免确认；非草稿弹窗；userIntent 协议（"其他"答案不擅自执行）
+   - `delete_basic_mix_design` 引用检查（被引用则返回 IN_USE + 引用方案名清单）
+   - `save_basic_mix_design` 传 id=更新，不传=新增
+   - `list_*_designs` 支持过滤（status/keyword/strength）+ 排序（sortBy/sortOrder）+ 分页（limit/offset）
+
+3. **AI 写操作审计日志**（`auditLogs` 表 + AuditLogService）
+   - 5 个有副作用技能（save/update/delete mix_design + save/delete basic_mix）每次成功执行都写
+   - action: CONFIRM / UPDATE / DELETE / CREATE
+   - 字段：id / timestamp / actor / action / targetType / targetId / targetName / before / after / userIntent
+   - UI 暂不展示（YAGNI），数据落地便于事后追溯
+
+### save_mix_design 状态机
+
+- 草稿 → 弹窗"是否转正式" → 确认后 `status='已确认'` + 写 audit_logs(CONFIRM)
+- 已确认 → 弹窗"是否改名" → 改名/不改 → 只更新 name/updatedAt，**不重置 status** + 写 audit_logs(UPDATE)
+- 其他状态 → 返回 INVALID_STATUS 错误
+
+### 改动文件清单（17 个）
+
+| 文件 | 改动类型 | 内容 |
+|------|---------|------|
+| `migrations/2026-07-03-create-audit-logs.js` | 新增 | 建 auditLogs 表（10 字段 + 2 索引） |
+| `src/main/db/models/AuditLog.js` | 新增 | Sequelize 模型（tableName=auditLogs） |
+| `src/main/services/AuditLogService.js` | 新增 | write + listByTarget 方法 |
+| `src/main/db/database.js` | 修改 | 注册 AuditLog 模型 + 加到 syncModels + 导出 |
+| `src/main/ipcHandlers/agentHandler.js` | 修改 | allServices 注入 auditLogService；去 requiresConfirmation 旧注释 |
+| `src/main/services/MixDesignService/MixDesignService_Database.js` | 修改 | 加 findByBasicMixId 方法（供引用检查） |
+| `src/main/services/MixDesignService/index.js` | 修改 | 导出 findByBasicMixId |
+| `src/main/skills/ask-user.js` | 重写 | v1.0.0 → v2.0.0（form 模式 + 其他输入框 + 错误码 + 结构化 error） |
+| `src/main/__tests__/skills/ask-user.test.js` | 重写 | 24 个测试全过（含 5 个 form 模式新测试） |
+| `src/renderer/components/DecisionGate.jsx` | 重写 | choice 必带"其他" + form 分支 + 删旧 requiresConfirmation 分支 |
+| `src/main/skills/save-mix-design.js` | 重写 | v2.0.0 → v3.0.0（状态机 + ask_user form + 审计） |
+| `src/main/skills/save-to-basic-mix.js` | 重写 | v1.0.0 → v2.0.0（去 requiresConfirmation + ask_user form + 审计） |
+| `src/main/skills/save-sales-quote.js` | 重写 | v1.0.0 → v2.0.0（去 requiresConfirmation + ask_user form） |
+| `src/main/agent/SkillRegistry.js` | 修改 | 删 2 处 requiresConfirmation 解析 |
+| `src/main/agent/MDParser.js` | 修改 | 删 1 处 requiresConfirmation 解析 |
+| `src/main/skills/list-mix-designs.js` | 新增 | 列表（过滤/排序/分页） |
+| `src/main/skills/get-mix-design.js` | 新增 | 查详情 |
+| `src/main/skills/update-mix-design.js` | 新增 | 白名单 5 字段 + 审计 |
+| `src/main/skills/delete-mix-design.js` | 新增 | userIntent 协议 + 审计 |
+| `src/main/skills/list-basic-mix-designs.js` | 新增 | 列表（过滤/排序/分页） |
+| `src/main/skills/save-basic-mix-design.js` | 新增 | 新增/更新 + 审计 |
+| `src/main/skills/delete-basic-mix-design.js` | 新增 | 引用检查 + userIntent + 审计 |
+| `src/main/__tests__/skills/scheme-mgmt-skills.test.js` | 新增 | 31 个测试全过（覆盖 #1-46 关键边缘情况） |
+
+### 边缘情况处理
+
+- **userIntent 协议**："其他"输入框的自定义文本不擅自执行，技能返回 `{ success:false, userIntent:answer }` 让 AI 决定下一步
+- **引用完整性**：删被引用的基准方案返回 IN_USE + 引用方案名清单，不弹窗
+- **白名单静默忽略**：update_mix_design 收到白名单外字段（status / materials / 计算结果）静默忽略不报错
+- **form 字段校验**：缺 key/label 报错，空 fields 数组报错（E_ASK_USER_FORM_FIELDS_EMPTY）
+
+### 验收
+
+- ✅ ask_user 支持 text/choice/form 三种模式
+- ✅ 3 个 save 技能去 requiresConfirmation
+- ✅ 7 个新方案管理技能
+- ✅ 全量测试 1736/1748 通过（12 个失败与本次无关，master 原本就坏）
+- ✅ auditLogs 表已建
+- ✅ 全局搜 requiresConfirmation 只剩 6 处注释（无实际代码）
+
+### 提交记录
+
+| commit | 内容 |
+|--------|------|
+| `e6abdca` | 阶段 A：T7 audit log 基建 |
+| `f3f2614` | 阶段 B：T1+T3 ask_user 扩展 + DecisionGate 改造 |
+| `bad57ac` | 阶段 C：T4+T5 3 个 save 技能改造 + 清框架 |
+| `9fc22bc` | 阶段 D：T6 7 个新方案/基准管理技能 + 31 个测试 |
+
+---
+
 ## v10.3.0 功能版本 (2026-07-03) - Agent 文件能力扩展：raw 原始文件区 + 全局读原文 + 文件整理工具
 
 ### 背景
