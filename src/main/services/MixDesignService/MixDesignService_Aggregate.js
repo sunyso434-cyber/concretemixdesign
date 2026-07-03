@@ -44,6 +44,39 @@ class MixDesignService_Aggregate {
     return 20 // 默认值
   }
 
+  /**
+   * 粗骨料预选：按粒径选最大，同粒径选最便宜
+   * @param {Array} stoneCandidates - 粗骨料候选
+   * @returns {Object} 选中的粗骨料
+   */
+  preselectCoarseAggregate(stoneCandidates) {
+    if (!Array.isArray(stoneCandidates) || stoneCandidates.length === 0) {
+      throw new Error('粗骨料候选为空')
+    }
+    const withSize = stoneCandidates.map(s => ({
+      ...s,
+      _maxSize: this.extractMaxAggregateSize(s.specification)
+    }))
+    const maxSize = Math.max(...withSize.map(s => s._maxSize))
+    return withSize
+      .filter(s => s._maxSize === maxSize)
+      .reduce((min, s) => (s.price || 0) < (min.price || 0) ? s : min)
+  }
+
+  /**
+   * 目标细度模数（按强度等级查经验公式）
+   * @param {string} strength - 强度等级，如 'C30'
+   * @returns {number} 目标细度模数
+   */
+  targetFinenessModulusByStrength(strength) {
+    const c = parseInt(String(strength).replace('C', ''))
+    if (c <= 25) return 2.6
+    if (c <= 35) return 2.8
+    if (c <= 50) return 3.0
+    if (c <= 60) return 3.2
+    return 3.4
+  }
+
   // 计算多种细骨料的最佳比例，使组合后的细度模数最接近目标值
   // targetFinenessModulus: 可选，默认为2.7
   calculateOptimalFineAggregateRatio(fineAggregates, targetFinenessModulus = 2.7) {
