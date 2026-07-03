@@ -1,3 +1,67 @@
+## v10.3.0 功能版本 (2026-07-03) - Agent 文件能力扩展：raw 原始文件区 + 全局读原文 + 文件整理工具
+
+### 背景
+
+老板反馈：项目内 AI Agent 的文件检索、读写能力仅局限于 wiki 摘要和固定子目录，无法直接读取工作区内的原始文件原文，根目录文件堆放杂乱。需要扩展至整个工作区，并增加原始文件整理能力。
+
+### 新增能力（3 项）
+
+1. **raw/ 原始文件区（自动分类入库）**
+   - 打开工作区时自动创建 `raw/` 及 10 个类型子目录（pdf/docx/xlsx/md/txt/images/json/js/others）
+   - 文件拖进 raw/ 根目录 → 自动按扩展名归位到对应子目录 → 自动 ingest 入 wiki
+   - 已在子目录但类型不符的文件（如 `raw/pdf/笔记.txt`）→ 不自动移动，仅报告给用户
+
+2. **全局读原文（workspace_readRaw 工具）**
+   - Agent 可读工作区任意位置的文本类文件原文（.md/.txt/.json/.csv/.log/.js/.yaml 等）
+   - 不经 wiki 摘要，直接看原始内容，支持临时补充资料
+   - 二进制文件（PDF/Word/Excel）拒绝并提示先 ingest
+   - 单文件超 300KB 自动截断
+   - 路径安全校验：禁止 `..` 越界、排除 node_modules/.git 等系统目录
+
+3. **手动文件整理（workspace_organize 工具）**
+   - 用户说"把 XX 归到 raw"或"整理这些文件"时触发
+   - 把根目录散落的指定文件按类型移到 raw/{类型}/
+   - 同名文件自动加后缀（_1、_2...）
+   - 不自动扫描整个根目录，只移动指定文件，避免误伤
+
+### 扩展能力（2 项）
+
+- **workspace_grep** 搜索范围 path 参数新增 `raw`（搜 raw/ 全部子目录）和 `root`（搜整个工作区根目录所有文本）
+- **workspace_listFiles** subdir 枚举新增 `raw` 及 9 个类型子目录
+
+### 改动文件清单（6 个）
+
+| 文件 | 改动类型 | 内容 |
+|------|---------|------|
+| `src/main/workspace/WorkspaceManager.js` | 修改 | open 建 raw/ 子目录；chokidar 加 raw/ 自动归位 + 错位报告 |
+| `src/main/agent/workspaceTools.js` | 修改 | 新增 readRaw + organize 工具；改 listFiles/grep 枚举 |
+| `src/main/agent/systemPromptBuilder.js` | 修改 | 注入新工具说明给 LLM |
+| `src/main/agent/rawReader.js` | 新增 | 读文本原文纯函数（路径校验 + 大小截断 + 二进制拒绝） |
+| `src/main/agent/fileOrganizer.js` | 新增 | 归位分类逻辑（classifyByExt + buildTargetRelPath + isMisclassified） |
+| `src/main/__tests__/agent/rawReader.test.js` + `fileOrganizer.test.js` | 新增 | 84 个单测用例 |
+
+### 工作流程（用户视角）
+
+1. 文件拖进 raw/ → 自动归位 + 入库（无感）
+2. 临时补充资料丢根目录 → 跟 Agent 说"看下 XX.md"→ readRaw 直接读
+3. 整理根目录 → 跟 Agent 说"把 规范.pdf 归到 raw"→ organize 工具执行
+4. 搜原始文件 → Agent 用 grep 加 path=raw 或 path=root
+
+### 边缘情况处理
+
+- 二进制文件 readRaw 拒绝，提示先 ingest
+- `..` 越界、绝对路径、系统目录全拦截
+- 300KB 自动截断并提示
+- 同名冲突自动加后缀
+- raw 子目录类型错位只报告不挪动
+- 工作区未打开时所有新工具返回 NOT_OPEN
+
+### 测试结果
+
+4 个测试套件、84 个测试全部通过（fileOrganizer 42 + rawReader 42）
+
+---
+
 ## v10.2.0 重大版本 (2026-07-02) - 技能管理三件套 + 工作区 patches + 智能反查 + 技能更新场景提示词
 
 ### 问题现象（老板截图暴露的根因链）

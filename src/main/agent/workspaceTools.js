@@ -58,9 +58,9 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         pattern: { type: 'string', description: '正则表达式（精确字符串是其特例）。多关键字用 | 分隔，如 "水胶比|耐久性"', required: true },
         path: {
           type: 'string',
-          description: '搜索范围：sources（wiki/sources 目录，默认）、answers（wiki/answers 目录）、all（两者都搜）',
+          description: '搜索范围：sources（wiki/sources 目录，默认）、answers（wiki/answers 目录）、all（两者都搜）、raw（raw 原始文件目录全部子目录）、root（整个工作区根目录所有文本文件，含 raw）',
           required: false, default: 'sources',
-          enum: ['sources', 'answers', 'all']
+          enum: ['sources', 'answers', 'all', 'raw', 'root']
         },
         glob: { type: 'string', description: '文件名过滤，如 *.md（默认）、*.{md,json}', required: false, default: '*.md' },
         output_mode: {
@@ -186,13 +186,13 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         })
       }
     ),
-    skill('workspace_listFiles', '列出工作区指定子目录下的条目。返回 [{ name, path, size, type: "file"|"dir", ingested?, wikiPage?, lastIngestAt?, quality? }]。**关键：当 subdir="root" 且 withIngestStatus=true 时，每条记录带 ingested:true/false — 用这个字段判断文件是否已摄入到 wiki**，避免凭空猜测。',
+    skill('workspace_listFiles', '列出工作区指定子目录下的条目。返回 [{ name, path, size, type: "file"|"dir", ingested?, wikiPage?, lastIngestAt?, quality? }]。**关键：当 subdir="root" 且 withIngestStatus=true 时，每条记录带 ingested:true/false — 用这个字段判断文件是否已摄入到 wiki**，避免凭空猜测。v2026-07-03：新增 raw 及其类型子目录（raw/pdf raw/docx raw/xlsx raw/md raw/txt raw/images 等），用于查看原始文件。',
       {
         subdir: {
           type: 'string',
           description: '子目录',
           required: true,
-          enum: ['root', 'wiki', 'wiki/sources', 'wiki/reports', 'wiki/kg/sources', 'reports', 'chat-history']
+          enum: ['root', 'wiki', 'wiki/sources', 'wiki/reports', 'wiki/kg/sources', 'reports', 'chat-history', 'raw', 'raw/pdf', 'raw/docx', 'raw/xlsx', 'raw/md', 'raw/txt', 'raw/images', 'raw/json', 'raw/js', 'raw/others']
         },
         recursive: { type: 'boolean', description: '是否递归列出子目录（默认 false）', required: false, default: false },
         includeDirs: { type: 'boolean', description: '是否包含目录条目（默认 false 仅文件）', required: false, default: false },
@@ -225,6 +225,85 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           throw new WorkspaceError('NOT_OPEN', '请先打开工作区再调用 workspace_searchGraph（当前工作区路径由工具自动读取，LLM 无需传 workspacePath）', false)
         }
         return await kg.searchGraph(args.query, args.topK || 10, current.path)
+      }
+    ),
+    skill('workspace_readRaw', '读工作区任意文本类文件的原文（不经 wiki 摘要，直接看原始内容）。用于查看用户临时放在根目录或 raw/ 下的补充资料。**支持的扩展名**：.md .txt .json .csv .log .js .yaml .xml 等文本类。**不支持二进制**（.pdf .docx .xlsx .png 等），二进制请先 workspace_ingest 再 workspace_readPage。单文件超 300KB 自动截断。',
+      {
+        filePath: {
+          type: 'string',
+          description: '工作区相对路径（非绝对路径），如 "临时备注.md" 或 "raw/md/规范.md" 或 "sub/notes.txt"',
+          required: true
+        }
+      },
+      async (args) => {
+        const wm = getWM()
+        const current = wm.current()
+        if (!current || !current.path) {
+          throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
+        }
+        const { readRaw } = require('./rawReader')
+        return await readRaw(current.path, args.filePath)
+      }
+    ),
+    skill('workspace_organize', '把工作区根目录散落的指定文件按类型归位到 raw/{类型}/ 子目录。**手动触发**：用户说"把 XX 文件归到 raw"或"整理这些文件"时调用。不自动扫描整个根目录，只移动指定文件。同名文件自动加后缀（_1 _2 ...）。返回每个文件的移动结果。',
+      {
+        filenames: {
+          type: 'array',
+          description: '要归位的文件名数组（工作区根目录下的文件名，不含路径），如 ["规范.pdf", "笔记.md"]',
+          required: true,
+          items: { type: 'string' }
+        }
+      },
+      async (args) => {
+        const wm = getWM()
+        const current = wm.current()
+        if (!current || !current.path) {
+          throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
+        }
+        const fs = require('fs').promises
+        const path = require('path')
+        const { buildTargetRelPath } = require('./fileOrganizer')
+        const results = []
+        for (const filename of args.filenames || []) {
+          const srcAbs = path.posix.join(current.path, filename)
+          try {
+            await fs.access(srcAbs)
+          } catch {
+            results.push({ filename, success: false, reason: '根目录下不存在该文件' })
+            continue
+          }
+          const stat = await fs.stat(srcAbs)
+          if (!stat.isFile()) {
+            results.push({ filename, success: false, reason: '不是文件（可能是目录）' })
+            continue
+          }
+          let count = 0
+          let targetRel = buildTargetRelPath(filename, 0)
+          let targetAbs = path.posix.join(current.path, 'raw', targetRel)
+          while (true) {
+            try {
+              await fs.access(targetAbs)
+              count++
+              targetRel = buildTargetRelPath(filename, count)
+              targetAbs = path.posix.join(current.path, 'raw', targetRel)
+            } catch {
+              break
+            }
+          }
+          try {
+            await fs.mkdir(path.dirname(targetAbs), { recursive: true })
+            await fs.rename(srcAbs, targetAbs)
+            results.push({
+              filename,
+              success: true,
+              movedTo: `raw/${targetRel}`,
+              message: `已归位到 raw/${targetRel}`
+            })
+          } catch (err) {
+            results.push({ filename, success: false, reason: err.message })
+          }
+        }
+        return { organized: results }
       }
     )
   ]

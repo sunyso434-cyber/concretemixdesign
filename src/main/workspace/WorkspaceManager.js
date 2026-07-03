@@ -22,7 +22,10 @@ class WorkspaceManager extends EventEmitter {
         throw new WorkspaceError('PATH_INVALID', `${p} 不是目录`, false)
       }
       await fs.access(p, fs.constants.W_OK)
-      for (const sub of ['wiki', 'reports', 'chat-history']) {
+      // v2026-07-03：新增 raw/ 原始文件存放区，内部按文件类型分子目录
+      const rawSubdirs = ['raw', 'raw/pdf', 'raw/docx', 'raw/xlsx', 'raw/md', 'raw/txt', 'raw/images', 'raw/json', 'raw/js', 'raw/others']
+      const baseSubdirs = ['wiki', 'reports', 'chat-history']
+      for (const sub of baseSubdirs.concat(rawSubdirs)) {
         await fs.mkdir(path.join(p, sub), { recursive: true })
       }
       // v2026-06-23：清理上次崩溃留下的孤儿 .workspace-index.json.tmp.* 文件
@@ -122,10 +125,17 @@ class WorkspaceManager extends EventEmitter {
     })
     // 串行队列：前一个 ingest 完成才处理下一个，避免并发 ingest 全量 rebuild BM25 导致 N² readFile
     this._ingestQueue = Promise.resolve()
-    this._watcher.on('add', (fp) => {
+    this._watcher.on('add', async (fp) => {
       // v2026-06-19 hotfix (v4.9.1)：Windows 路径修正
       const rel = path.relative(watchPath, fp).replace(/\\/g, '/')
       console.log('[chokidar] add:', rel)
+      // v2026-07-03：raw/ 自动归位
+      // - 文件落在 raw/ 根下（非子目录）→ 按类型挪到 raw/{类型}/
+      // - 文件已在 raw/ 子目录但类型不符 → 不挪，仅报告给用户
+      if (rel.startsWith('raw/')) {
+        const handled = await this._autoOrganizeRaw(rel, wikiEngine)
+        if (handled) return
+      }
       // v2026-06-29 Task 6：图片走独立的 imageIngest 分支
       // - 异步 OCR + 入 wiki 索引，不进 _ingestQueue（视觉 API 慢，不阻塞文档 ingest）
       // - 失败 .catch() 兜底静默降级
@@ -218,6 +228,110 @@ class WorkspaceManager extends EventEmitter {
       })
       console.log('[WorkspaceManager] 图片 ingest OK:', filename)
     }
+  }
+
+  /**
+   * v2026-07-03：raw/ 自动归位
+   * - 文件落在 raw/ 根下（非子目录）→ 按类型挪到 raw/{类型}/，再 ingest
+   * - 文件已在 raw/ 子目录但类型不符 → 不挪，报告 misclassified，再 ingest
+   * - 文件已在正确类型子目录 → 直接 ingest（handled=false 让外层走原流程）
+   * @param {string} rel - 相对工作区的路径（以 raw/ 开头）
+   * @param {Object} wikiEngine
+   * @returns {Promise<boolean>} true 表示已处理（外层 return），false 表示交给外层原流程
+   */
+  async _autoOrganizeRaw(rel, wikiEngine) {
+    const { classifyByExt, isMisclassified, buildTargetRelPath } = require('../agent/fileOrganizer')
+    const relUnderRaw = rel.slice('raw/'.length)
+    const parts = relUnderRaw.split('/')
+    const filename = parts[parts.length - 1]
+    const isAtRawRoot = parts.length === 1
+    const misclassified = !isAtRawRoot && isMisclassified(relUnderRaw)
+
+    if (!isAtRawRoot && !misclassified) {
+      return false
+    }
+
+    const current = this._state.path
+    if (!current) return false
+
+    if (isAtRawRoot) {
+      const targetRel = buildTargetRelPath(filename, 0)
+      const targetAbs = path.posix.join(current, 'raw', targetRel)
+      const srcAbs = path.posix.join(current, rel)
+      try {
+        await fs.mkdir(path.dirname(targetAbs), { recursive: true })
+        let finalTarget = targetAbs
+        let count = 1
+        while (true) {
+          try {
+            await fs.access(targetAbs)
+          } catch {
+            break
+          }
+          const candidate = path.posix.join(current, 'raw', buildTargetRelPath(filename, count))
+          try {
+            await fs.access(candidate)
+            count++
+          } catch {
+            finalTarget = candidate
+            break
+          }
+        }
+        await fs.rename(srcAbs, finalTarget)
+        console.log(`[raw/auto-organize] ${rel} → raw/${path.relative(path.posix.join(current, 'raw'), finalTarget).replace(/\\/g, '/')}`)
+        this._emitOrganizeReport({
+          action: 'moved',
+          from: rel,
+          to: `raw/${buildTargetRelPath(filename, count === 0 ? 0 : count - 1)}`,
+          reason: 'raw 自动按类型归位'
+        })
+        const newRel = `raw/${buildTargetRelPath(filename, count === 0 ? 0 : count - 1)}`
+        await this._ingestAfterOrganize(newRel, filename, wikiEngine)
+        return true
+      } catch (err) {
+        console.error(`[raw/auto-organize] 移动失败 ${rel}:`, err.message)
+        return false
+      }
+    }
+
+    if (misclassified) {
+      this._emitOrganizeReport({
+        action: 'misclassified',
+        path: rel,
+        expectedSubdir: classifyByExt(filename),
+        reason: '文件类型与所在子目录不符（未自动移动，请用户确认后整理）'
+      })
+      return false
+    }
+
+    return false
+  }
+
+  async _ingestAfterOrganize(rel, filename, wikiEngine) {
+    if (imageIngest.isImageFile(filename)) {
+      const abs = path.posix.join(this._state.path, rel)
+      this._ingestImageAsync(abs).catch(err => {
+        console.error('[raw/auto-organize] 图片 ingest 失败:', rel, err.message)
+      })
+      return
+    }
+    if (/\.(pdf|md|docx|xlsx|xls|txt|csv)$/i.test(rel)) {
+      this._ingestQueue = this._ingestQueue
+        .then(async () => {
+          try {
+            const result = await wikiEngine.ingest({ filename: rel })
+            console.log('[raw/auto-organize] ingest OK:', rel, '→', result.pagesCreated)
+          } catch (err) {
+            console.error('[raw/auto-organize] ingest failed:', rel, err.message)
+          }
+        })
+        .catch(err => console.error('[raw/auto-organize] ingest queue error:', err.message))
+    }
+  }
+
+  _emitOrganizeReport(report) {
+    console.log('[raw/auto-organize] report:', JSON.stringify(report))
+    this.emit('organize-report', report)
   }
 
   current() {

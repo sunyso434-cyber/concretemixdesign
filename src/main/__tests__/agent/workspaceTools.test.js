@@ -34,17 +34,18 @@ function makeMockKG() {
 }
 
 describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
-  test('返回 8 个伪 Skill，名称集合与 brief 一致', () => {
+  test('返回 10 个伪 Skill，名称集合与 brief 一致', () => {
     const skills = buildWorkspaceSkills({
       workspaceManager: makeMockWM(),
       wikiEngine: makeMockWiki(),
       kgExtractor: null
     })
-    expect(skills).toHaveLength(8)
+    expect(skills).toHaveLength(10)
     const names = skills.map(s => s.name).sort()
     expect(names).toEqual([
       'workspace_grep', 'workspace_ingest', 'workspace_lint', 'workspace_listFiles',
-      'workspace_readPage', 'workspace_search', 'workspace_searchGraph', 'workspace_writeFile'
+      'workspace_readPage', 'workspace_search', 'workspace_searchGraph', 'workspace_writeFile',
+      'workspace_readRaw', 'workspace_organize'
     ].sort())
   })
 
@@ -278,13 +279,14 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
       // 不抛错即通过（register 内部 _validateSkill 检查 name/description/execute）
       reg.register(s, { builtin: true, filePath: '<workspace-pseudo>' })
     }
-    expect(reg.size).toBe(8)
-    // getToolSchemas 包含这 8 个
+    expect(reg.size).toBe(10)
+    // getToolSchemas 包含这 10 个
     const schemas = reg.getToolSchemas()
     const names = schemas.map(sc => sc.function.name).sort()
     expect(names).toEqual([
       'workspace_grep', 'workspace_ingest', 'workspace_lint', 'workspace_listFiles',
-      'workspace_readPage', 'workspace_search', 'workspace_searchGraph', 'workspace_writeFile'
+      'workspace_readPage', 'workspace_search', 'workspace_searchGraph', 'workspace_writeFile',
+      'workspace_readRaw', 'workspace_organize'
     ].sort())
   })
 })

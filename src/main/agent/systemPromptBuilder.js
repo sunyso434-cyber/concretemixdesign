@@ -15,10 +15,21 @@ const WORKSPACE_TOOLS_PROMPT = `
 - workspace_writeFile({ type, filename, payload }) → 写 docx/xlsx/md 到 reports/
 - workspace_listFiles({ subdir, recursive?, includeDirs?, withIngestStatus? }) → 列出工作区条目
   **判断文件是否已导入时，务必用 subdir="root" + withIngestStatus=true，结果里每个文件带 ingested:true/false 字段**——别靠文件名猜。
-  - subdir 可选：root / wiki / wiki/sources / wiki/reports / wiki/kg/sources / reports / chat-history
+  - subdir 可选：root / wiki / wiki/sources / wiki/reports / wiki/kg/sources / reports / chat-history / raw / raw/pdf / raw/docx / raw/xlsx / raw/md / raw/txt / raw/images / raw/json / raw/js / raw/others
   - recursive:true 递归子目录；includeDirs:true 列出目录条目
 - workspace_lint() → 健康检查（不阻塞）
 - workspace_searchGraph(query, topK) → 查询知识图谱，返回完整三元组。**前提：当前工作区必须已打开**。
+- workspace_readRaw(filePath) → 读工作区任意**文本类**文件原文（.md/.txt/.json/.csv/.log/.js/.yaml 等），不经 wiki 摘要。
+  - 用于查看用户临时放在根目录或 raw/ 下的补充资料原文
+  - 二进制（.pdf/.docx/.xlsx 等）不支持，需先 workspace_ingest
+  - 单文件超 300KB 自动截断
+- workspace_organize({ filenames }) → 把根目录散落的指定文件按类型归位到 raw/{类型}/。**手动触发**：用户说"把 XX 归到 raw"或"整理这些文件"时调用。不自动扫描整个根目录。
+
+raw/ 目录说明（v2026-07-03）：
+- raw/ 是原始文件存放区，内部按类型分子目录（raw/pdf raw/docx raw/xlsx raw/md raw/txt raw/images 等）
+- 文件拖进 raw/ 根下会**自动按类型归位**到对应子目录，然后自动 ingest
+- 已在子目录但类型不符的文件**不会被自动移动**，会报告给用户，需用户确认
+- 根目录的临时文件需手动用 workspace_organize 归位
 
 重要：workspace_search 返回结果已含 summary/keyPoints。如果 keyPoints 已经能回答问题，不要调 workspace_readPage。
 反模式：search 拿到了 keyPoints 里有答案，还去调 readPage → 浪费 token。
@@ -29,6 +40,8 @@ const WORKSPACE_TOOLS_PROMPT = `
 3. 不够 → workspace_readPage(path, {query, depth:'relevant'})
 4. 涉及实体关系 → workspace_searchGraph(query)
 5. 复杂问题 → 综合 search + searchGraph + readPage
+6. 需看原始文件原文（非 wiki 摘要）→ workspace_readRaw(filePath)
+7. workspace_grep 的 path 参数支持 raw 和 root，可搜原始文件
 `
 
 // 蓝图技能创建路由提示（按需加载策略）：
