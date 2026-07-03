@@ -101,6 +101,7 @@ async function initSkillSystem() {
     salesQuoteHistory: require('../services/SalesQuoteHistoryService'),
     xgboostPrediction: require('../services/XGBoostPredictionService'),
     mixDesignToQuote: require('../services/MixDesignToQuoteService'),
+    auditLogService: require('../services/AuditLogService'),
 
     // === Task 4：vision 能力注入 ===
     // systemService / visionService 用单例（与 Orchestrator.systemService 共享 SystemService），
