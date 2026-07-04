@@ -477,6 +477,7 @@ class MixDesignOptimizer {
             targetDensity: 2400,
             materials: {
               ...materials,
+              cement: combo.cementitious.cementMat,
               sand: combo.blendedSand,
               stone: stoneMat,
               flyAsh: combo.cementitious.flyAshMat,

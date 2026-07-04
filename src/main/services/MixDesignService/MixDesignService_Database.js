@@ -655,13 +655,23 @@ class MixDesignService_Database {
     const materialCosts = {}
     let totalCost = 0
     let cementitiousCost = 0
+    // ponytail: 材料可能是数组（多候选，由 optimizer 选定单个）或单数
+    // 数组场景下，MixDesignOptimizer 已在阶段 3-5 把 materials.cement 替换为选中的单个材料对象
+    // 但如果传进来仍是数组，取第一个（计算 stage 2 用）
+    const getMat = (m) => Array.isArray(m) ? m[0] : m
+    const cementMat = getMat(materials?.cement)
+    const flyAshMat = getMat(materials?.flyAsh)
+    const slagMat = getMat(materials?.slag)
+    const lithiumSlagMat = getMat(materials?.lithiumSlag)
+    const compositePowderMat = getMat(materials?.compositePowder)
+    const spMat = getMat(materials?.superplasticizer)
     // 计算每种材料的成本（用量单位：kg/m³，单价单位：元/吨，所以需要除以1000）
-    const cementPrice = MixDesignService_Aggregate.toNumber(materials?.cement?.price)
-    const flyAshPrice = MixDesignService_Aggregate.toNumber(materials?.flyAsh?.price)
-    const slagPrice = MixDesignService_Aggregate.toNumber(materials?.slag?.price)
-    const lithiumSlagPrice = MixDesignService_Aggregate.toNumber(materials?.lithiumSlag?.price)
-    const compositePowderPrice = MixDesignService_Aggregate.toNumber(materials?.compositePowder?.price)
-    const spPrice = MixDesignService_Aggregate.toNumber(materials?.superplasticizer?.price)
+    const cementPrice = MixDesignService_Aggregate.toNumber(cementMat?.price)
+    const flyAshPrice = MixDesignService_Aggregate.toNumber(flyAshMat?.price)
+    const slagPrice = MixDesignService_Aggregate.toNumber(slagMat?.price)
+    const lithiumSlagPrice = MixDesignService_Aggregate.toNumber(lithiumSlagMat?.price)
+    const compositePowderPrice = MixDesignService_Aggregate.toNumber(compositePowderMat?.price)
+    const spPrice = MixDesignService_Aggregate.toNumber(spMat?.price)
 
     console.log('成本计算调试 - 材料价格:')
     console.log('  水泥:', materials?.cement?.name, '价格:', cementPrice, '用量:', materialAmounts.cement)
@@ -672,23 +682,23 @@ class MixDesignService_Database {
     console.log('  减水剂:', materials?.superplasticizer?.name, '价格:', spPrice, '用量:', materialAmounts.superplasticizer)
 
     if (materials) {
-      if (materials.cement && cementPrice > 0) {
+      if (cementMat && cementPrice > 0) {
         materialCosts.cement = (materialAmounts.cement * cementPrice) / 1000
         totalCost += materialCosts.cement
       }
-      if (materials.flyAsh && flyAshPrice > 0) {
+      if (flyAshMat && flyAshPrice > 0) {
         materialCosts.flyAsh = (materialAmounts.flyAsh * flyAshPrice) / 1000
         totalCost += materialCosts.flyAsh
       }
-      if (materials.slag && slagPrice > 0) {
+      if (slagMat && slagPrice > 0) {
         materialCosts.slag = (materialAmounts.slag * slagPrice) / 1000
         totalCost += materialCosts.slag
       }
-      if (materials.lithiumSlag && lithiumSlagPrice > 0) {
+      if (lithiumSlagMat && lithiumSlagPrice > 0) {
         materialCosts.lithiumSlag = (materialAmounts.lithiumSlag * lithiumSlagPrice) / 1000
         totalCost += materialCosts.lithiumSlag
       }
-      if (materials.compositePowder && compositePowderPrice > 0) {
+      if (compositePowderMat && compositePowderPrice > 0) {
         materialCosts.compositePowder = (materialAmounts.compositePowder * compositePowderPrice) / 1000
         totalCost += materialCosts.compositePowder
       }
@@ -754,7 +764,7 @@ class MixDesignService_Database {
         }
       }
 
-      if (materials.superplasticizer && spPrice > 0) {
+      if (spMat && spPrice > 0) {
         materialCosts.superplasticizer = (materialAmounts.superplasticizer * spPrice) / 1000
         totalCost += materialCosts.superplasticizer
       }
