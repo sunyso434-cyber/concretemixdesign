@@ -16,8 +16,15 @@ module.exports = {
     slump: {
       type: 'number', description: '坍落度(mm)', required: true, min: 10, max: 300
     },
+    cementIds: {
+      type: 'array',
+      items: { type: 'integer' },
+      description: '水泥候选ID列表（支持多种水泥，阶段 2 全部遍历 — 老板决策：所有掺合料+水泥都进入网格）',
+      required: true,
+      minItems: 1
+    },
     cementId: {
-      type: 'integer', description: '水泥材料ID', required: true
+      type: 'integer', description: '水泥材料ID（单数兼容，已废弃，请用 cementIds）', required: false
     },
     sandIds: {
       type: 'array', items: { type: 'integer' }, description: '细骨料候选ID列表', required: true, minItems: 1
@@ -91,6 +98,12 @@ module.exports = {
       hint: '请传入 slump 参数，例如 120',
       recovery: 'add_param'
     },
+    MISSING_CEMENT_IDS: {
+      code: 'MISSING_CEMENT_IDS',
+      message: '必须传入水泥 ID',
+      hint: '请传入 cementIds 数组（多种水泥）或 cementId 单数（兼容旧版）',
+      recovery: 'add_param'
+    },
     CANCELLED: {
       code: 'CANCELLED',
       message: '优化已取消',
@@ -113,11 +126,22 @@ module.exports = {
     logger.info(`开始成本优化: ${args.strength}`)
 
     // 2. 构造 optimizer 参数（含 5 阶段所有参数）
+    // ponytail: 支持 cementIds（多水泥）或 cementId（单数，向后兼容）
+    const cementIds = args.cementIds || (args.cementId ? [args.cementId] : null)
+    if (!cementIds || cementIds.length === 0) {
+      return { success: false, error: { code: 'MISSING_CEMENT_IDS', message: '必须传入 cementIds 数组（或 cementId 单数）' } }
+    }
+
+    const materials = {
+      ...(args.materials || {}),
+      cement: cementIds  // 多水泥 ID 数组，阶段 2 内部遍历每种水泥
+    }
+
     const optimizerParams = {
       constraints: {
         strength: args.strength,
         slump: args.slump,
-        materials: args.materials,
+        materials,
         tempSettings: args.tempSettings
       },
       userLimits: {

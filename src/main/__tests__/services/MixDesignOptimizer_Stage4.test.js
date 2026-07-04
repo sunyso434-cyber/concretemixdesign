@@ -14,7 +14,7 @@ const MixDesignOptimizer = require('../../../main/services/MixDesignOptimizer')
 
 describe('MixDesignOptimizer 阶段 4', () => {
   test('阶段 4 遍历所有粗骨料 → Top5', async () => {
-    const opt = new MixDesignOptimizer()
+    const opt = MixDesignOptimizer
     const result = await opt._stage4ReassessCoarseAggregate({
       top5WithSand: [{
         totalCost: 200, waterRatio: 0.5, sandRatio: 35,

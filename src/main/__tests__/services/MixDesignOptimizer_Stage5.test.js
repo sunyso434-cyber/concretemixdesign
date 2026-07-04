@@ -14,7 +14,7 @@ const MixDesignOptimizer = require('../../../main/services/MixDesignOptimizer')
 
 describe('MixDesignOptimizer 阶段 5 + 主流程', () => {
   test('阶段 5 遍历所有减水剂品种', async () => {
-    const opt = new MixDesignOptimizer()
+    const opt = MixDesignOptimizer
     const result = await opt._stage5SuperplasticizerSearch({
       top5WithStone: [{
         totalCost: 200, waterRatio: 0.5, sandRatio: 35,
@@ -37,7 +37,7 @@ describe('MixDesignOptimizer 阶段 5 + 主流程', () => {
   })
 
   test('主流程 optimizeMixDesign 返回 { bestSolution, alternatives, totalEvaluated }', async () => {
-    const opt = new MixDesignOptimizer()
+    const opt = MixDesignOptimizer
     const result = await opt.optimizeMixDesign({
       constraints: {
         strength: 'C30', slump: 120,

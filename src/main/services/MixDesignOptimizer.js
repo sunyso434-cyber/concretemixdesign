@@ -1066,4 +1066,6 @@ _prepareMaterials(materials) {
   }
 }
 
-module.exports = MixDesignOptimizer
+// ponytail: 导出单例以匹配其他 service（agentHandler.js:99 直接 require 后注入到 context）
+// 否则 skill 收到的是 class，调用 optimizeMixDesign 会报 "is not a function"
+module.exports = new MixDesignOptimizer()

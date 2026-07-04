@@ -21,9 +21,11 @@ SystemService.getParamByName = async (name) => {
 }
 
 async function run() {
-  const optimizer = new MixDesignOptimizer((progress) => {
+  const optimizer = require('../../src/main/services/MixDesignOptimizer')
+  // ponytail: optimizer 是单例，progressCallback 通过 optimizeMixDesign 第三参数传
+  const progressCallback = (progress) => {
     console.log(`  进度 [${progress.phase}]: ${progress.message} (${progress.current}/${progress.total})`)
-  })
+  }
 
   const params = {
     constraints: {
@@ -51,7 +53,7 @@ async function run() {
   console.log('=== 开始 5 阶段成本优化 ===')
   const start = Date.now()
 
-  const result = await optimizer.optimizeMixDesign(params, { cancelled: false })
+  const result = await optimizer.optimizeMixDesign(params, { cancelled: false }, progressCallback)
   const elapsed = Date.now() - start
 
   console.log(`\n=== 完成 ===`)

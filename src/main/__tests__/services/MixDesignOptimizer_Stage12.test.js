@@ -13,7 +13,7 @@ const MixDesignOptimizer = require('../../../main/services/MixDesignOptimizer')
 
 describe('MixDesignOptimizer 阶段 1+2', () => {
   test('阶段 1 预选粗骨料', async () => {
-    const opt = new MixDesignOptimizer()
+    const opt = MixDesignOptimizer
     const stone = opt._preselectStone([
       { id: 1, specification: '5-10mm', price: 100 },
       { id: 2, specification: '5-20mm', price: 120 }
@@ -22,7 +22,7 @@ describe('MixDesignOptimizer 阶段 1+2', () => {
   })
 
   test('阶段 2 返回 Top5 胶凝组合', async () => {
-    const opt = new MixDesignOptimizer()
+    const opt = MixDesignOptimizer
     const top5 = await opt._stage2Filter({
       materials: {
         cement: [{ id: 1, price: 480, compressiveStrength28d: 48 }],
@@ -52,7 +52,7 @@ describe('MixDesignOptimizer 阶段 1+2', () => {
   })
 
   test('所有掺合料总量超 maxAdmixtureRatio 时跳过', async () => {
-    const opt = new MixDesignOptimizer()
+    const opt = MixDesignOptimizer
     const top5 = await opt._stage2Filter({
       materials: {
         cement: [{ id: 1, price: 480, compressiveStrength28d: 48 }],

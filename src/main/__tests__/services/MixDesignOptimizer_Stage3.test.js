@@ -14,19 +14,19 @@ const MixDesignOptimizer = require('../../../main/services/MixDesignOptimizer')
 
 describe('MixDesignOptimizer 阶段 3', () => {
   test('混合 fm 偏离目标 > 0.5 时拒绝', async () => {
-    const opt = new MixDesignOptimizer()
+    const opt = MixDesignOptimizer
     const blendedSand = { finenessModulus: 3.5, mbValue: 0.5 }  // 偏离 2.8 太远
     const accepted = opt._validateFinenessModulus(blendedSand.finenessModulus, 2.8, 0.5)
     expect(accepted).toBe(false)
   })
 
   test('混合 fm 偏离 ≤ 0.5 时接受', () => {
-    const opt = new MixDesignOptimizer()
+    const opt = MixDesignOptimizer
     expect(opt._validateFinenessModulus(2.9, 2.8, 0.5)).toBe(true)
   })
 
   test('阶段 3 输出 Top5', async () => {
-    const opt = new MixDesignOptimizer()
+    const opt = MixDesignOptimizer
     const result = await opt._stage3Refine({
       top5Cementitious: [{
         cementMat: { id: 1, price: 480, compressiveStrength28d: 48 },
@@ -55,7 +55,7 @@ describe('MixDesignOptimizer 阶段 3', () => {
 
   // Critical #1 回归测试：_validateConstraints 必须尊重 userLimits.waterRatioRange
   test('_validateConstraints 接受 userLimits.waterRatioRange 并拒绝越界水胶比', () => {
-    const opt = new MixDesignOptimizer()
+    const opt = MixDesignOptimizer
     const baseResult = {
       targetStrength: 40,
       waterRatio: 0.5,
