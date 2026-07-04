@@ -1,3 +1,83 @@
+## v10.6.0 功能版本 (2026-07-04) - 成本优化器 5 阶段重设计
+
+### 背景
+老板反馈：成本优化器存在多个核心问题 — "最便宜减水剂"假设错误、减水剂品种不在第一层参与、减水剂掺量固定、目标细度模数硬编码、粗骨料完全没参与优化、单种水泥假设。
+
+### 新算法（5 阶段分层搜索）
+- **阶段 1**：粗骨料预选（maxSize 最大，同粒径最便宜）→ 确定基准用水量
+- **阶段 2**：胶凝材料快速估算（BATCH_SIZE=100 并行 + 每种水泥重算水胶比）→ Top5 胶凝组合
+- **阶段 3**：Top5 + 细骨料比例（5% 步长 21 种，fm ±0.5 约束）→ Top5 胶凝+细骨料组合
+- **阶段 4**：Top5 + 重新遍历粗骨料 → Top5 胶凝+细骨料+粗骨料组合
+- **阶段 5**：Top5 + 遍历减水剂品种 → 最终最优方案
+
+### 性能
+- 总计算次数 ~6145 次（vs v10.4.0 ~32000 次）减少 81%
+
+### 改动文件清单（11 个）
+| 文件 | 改动类型 | 内容 |
+|------|---------|------|
+| `src/main/services/MixDesignService/MixDesignService_Aggregate.js` | 新增 + 修复 | `preselectCoarseAggregate` / `targetFinenessModulusByStrength` / `computeCementitiousCost` + 删除 `calculateOptimalFineAggregateRatio` 的 2.7 硬编码 |
+| `src/main/services/MixDesignService/MixDesignService_Database.js` | 修改 | `calculateMixDesign` 支持 `_overrideBaseWaterAmount` / `_overrideSpDosage` / 默认 `calculationMethod='mass'` |
+| `src/main/services/MixDesignService/index.js` | 修改 | 补 wrapper pass-through（3 个新函数暴露到主服务实例） |
+| `src/main/services/MixDesignOptimizer.js` | 重写 | 5 阶段新算法主流程 + 6 个新方法 |
+| `src/main/skills/cost-optimization.js` | 重写 | 5 阶段参数透传 + 进度回调 + 取消机制 + autoSaveDraft 可关闭 + projectName 参数化 |
+| `src/main/__tests__/services/MixDesignService_Aggregate.test.js` | 新增 | 粗骨料预选 + 目标细度模数 (7 tests) |
+| `src/main/__tests__/services/MixDesignService_Aggregate_Cement.test.js` | 新增 | 胶凝成本估算 (2 tests) |
+| `src/main/__tests__/services/MixDesignService_Database_Override.test.js` | 新增 | 覆盖参数 + 默认 mass (3 tests) |
+| `src/main/__tests__/services/MixDesignOptimizer_Stage12.test.js` | 新增 | 阶段 1+2 (3 tests) |
+| `src/main/__tests__/services/MixDesignOptimizer_Stage3.test.js` | 新增 | 阶段 3 + 约束验证 (4 tests) |
+| `src/main/__tests__/services/MixDesignOptimizer_Stage4.test.js` | 新增 | 阶段 4 粗骨料重新评估 (1 test) |
+| `src/main/__tests__/services/MixDesignOptimizer_Stage5.test.js` | 新增 | 阶段 5 + 5 阶段主流程 (2 tests) |
+| `tests/manual/test-costs.js` | 更新 | 5 阶段端到端测试脚本 |
+
+### 关键老板决策
+- 所有掺合料（粉煤灰/矿渣粉/锂渣/复合粉）全部进入阶段 2 网格
+- 所有水泥品种全部进入阶段 2 网格（每种水泥重算水胶比）
+- 粗骨料和减水剂解耦：阶段 4 重新评估粗骨料，阶段 5 遍历减水剂
+- 所有掺合料总量 ≤ maxAdmixtureRatio（默认 50%）
+- 计算方法默认质量法（calculationMethod='mass'）
+- 胶凝材料组合不影响细骨料组合（独立加性 → 阶段 2 Top5 不漏解）
+
+---
+
+## v10.5.0 功能版本 (2026-07-04) - 智能解析模块下线 + 移除 2 个工具
+
+### 背景
+
+老板反馈：
+1. 智能解析模块（AIAnalysisPage + run_parameter_diagnosis）已实际无人使用，但维护成本高（~3000 行死代码），需要下线
+2. `compare_materials` 工具无独立算法能力（只是循环 `calculate_mix_design`），Agent 完全可以自己实现
+
+### 移除能力
+
+1. **移除 `run_parameter_diagnosis` 技能**（参数诊断）
+   - 删除 `src/main/services/ParameterDiagnosisService/`（4 个文件，~500 行）
+   - 删除 `src/main/skills/parameter-diagnosis.js`
+   - 删除 `src/renderer/components/DiagnosisResultCard.jsx`
+   - 移除 DeepSeekService 工具定义 + 系统提示词引用
+
+2. **移除 `compare_materials` 技能**（材料对比）
+   - 删除 `src/main/skills/compare-materials.js`
+   - 删除 `src/renderer/components/MaterialCompareCard.jsx`
+   - Agent 改用循环 `calculate_mix_design`（每次替换材料即可）
+
+3. **移除智能解析模块**（AIAnalysisPage 系列）
+   - 删除 `AIAnalysisPage.jsx` / `AIAnalysisPage_Upload.jsx` / `AIAnalysisPage_Results.jsx` / `AIAnalysisPage.test.jsx`
+   - 移除 `aiAnalysis:analyze` IPC + `analyzeMixDesign` 后端方法
+   - 移除 `DeepSeekService.analyzeMixDesign` / `buildSystemPrompt` / `buildPrompt` / `parseResponse` / `repairJSON` / `repairTruncatedJSON`（~680 行）
+   - `executeAnalysis` / `executeAnalysisWithModes` 改为 v10.5.0 disabled（保留 UI 入口，提示用户改用其他工具）
+
+### 保留能力
+
+- `optimize_mix_cost`（成本优化）— 核心算法能力，**本版本不动**
+- `parseExcelFile` / `autoMatchMaterials` / `buildAnalysisData` / `MATERIAL_TYPE_MAP` — 迁移到 `src/renderer/utils/mixDesignParser.js` 继续支持 Excel 附件处理
+- `AnalysisReport` 组件 — 迁移到 `src/renderer/components/AnalysisReport.jsx`
+
+### 后续规划
+
+- `optimize_mix_cost` 算法重构（老板要求再梳理）：从两层粗筛+细筛改为"朴素枚举+排序"的两阶段算法（阶段 1：胶凝系统+砂组合；阶段 2：石选择）
+- `optimize_mix_cost` skill 修 4 个 BUG（执行入口/服务注册/自动保存/pre-validation）
+
 ## v10.4.0 功能版本 (2026-07-03) - ask_user 统一确认机制 + 方案管理技能化 + 审计日志
 
 ### 背景
