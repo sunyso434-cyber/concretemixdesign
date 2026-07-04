@@ -1,3 +1,21 @@
+## v10.6.1 修复版本 (2026-07-04) - 成本优化器运行 bug 修复
+
+### 背景
+老板反馈：v10.6.0 打包后实测发现 2 个 critical bug：
+1. `mixDesignOptimizer.optimizeMixDesign is not a function` — 注入的是 class 而不是单例
+2. skill schema 不支持多水泥 ID，5 阶段算法多种水泥遍历没法跑
+
+### 修复内容
+1. **MixDesignOptimizer 导出改为单例**（`new MixDesignOptimizer()`）— 与其他 service 保持一致
+2. **skill schema 增加 `cementIds: array`**（多水泥 ID）— 保留 `cementId` 单数向后兼容
+3. **修复 5 个测试文件**的 `new MixDesignOptimizer()` 调用 — 改为直接 require 单例
+4. **修复 `tests/manual/test-costs.js`** — progressCallback 改为通过 `optimizeMixDesign` 第三参数传
+
+### 端到端验证
+`node tests/manual/test-costs.js` — 14ms 出方案，最佳成本 346.49 元/m³
+
+---
+
 ## v10.6.0 功能版本 (2026-07-04) - 成本优化器 5 阶段重设计
 
 ### 打包
