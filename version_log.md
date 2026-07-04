@@ -1,3 +1,26 @@
+## v10.6.4 修复版本 (2026-07-04) - 成本优化器 3+ 种砂两两组合支持
+
+### 背景
+老板反馈：算法忽略了多种砂组合的可能性。但生产端**只有 2 个砂配料仓**（物理条件限制），所以结果最多选 2 种砂组合，但输入可以传 N 种砂让算法找出最经济的两两组合。
+
+### 修复内容
+`src/main/services/MixDesignOptimizer.js`：
+- `_generateFineAggregateRatios(fineAggregates)` v2 修订：
+  - 1 种砂：返回 `[null]`（单种无组合）
+  - 2 种砂：21 种比例（5% 步长）— 不变
+  - **N 种砂（N≥3）：遍历所有 C(N,2) 个两两配对，每个配对 21 种比例 = C(N,2)×21 种**
+- `_blendFineAggregatesForCost(sandCandidates, ratio)`：
+  - ratio 格式：`[r1, r2, idxA?, idxB?]`，4 元素版本支持 N 种砂的两两配对
+  - 用 idxA/idxB 索引到 sandCandidates 数组的指定两种
+  - 按 r1/r2 加权平均 price/fm/mbValue
+
+### 验证
+- debug 验证 3 种砂 → 63 个 ratio = C(3,2) × 21 ✓
+- 砂 A(89 元/吨, fm=2.97) + 砂 C(95 元/吨, fm=2.8) 50:50 混合 fm=2.89, price=91.7 — **比纯砂 A(89) 略贵但 fm 更接近目标 2.8** → 这个组合现在会被评估
+- 26 套件 / 95 测试 / 2 snapshots — 全绿
+
+---
+
 ## v10.6.3 修复版本 (2026-07-04) - 成本优化器 totalCost 漏算水泥成本 bug
 
 ### 背景
