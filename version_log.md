@@ -1,3 +1,22 @@
+## v10.6.2 修复版本 (2026-07-04) - 成本优化器 ID→材料对象 lookup 修复
+
+### 背景
+老板反馈：v10.6.1 测试时遇到"成本优化计算失败: 粗骨料候选为空"错误。
+根因：skill 收到的是材料 ID 数组（cementIds/sandIds/stoneIds 等），但 optimizer 期望材料对象数组。skill 没做 ID→对象 lookup，导致 materials.sand/stone 是 ID 数字（不是数组），`_preselectStone` 抛"粗骨料候选为空"。
+
+### 修复内容
+- `src/main/skills/cost-optimization.js`：
+  - 加 `resolveIds(ids, fieldName)` 辅助函数，调用 `materialService.getMaterialById(id)`
+  - 查不到抛 `MATERIAL_NOT_FOUND` 错误（不静默跳过）
+  - execute 函数对所有 7 类材料 ID（cement/flyAsh/slag/lithiumSlag/compositePowder/sand/stone/superplasticizer）做 ID→对象 lookup
+- 增加 `MATERIAL_NOT_FOUND` 错误码
+
+### 验证
+- 26 套件 / 95 测试 / 2 snapshots — 全绿
+- 老板可用真实 ID 测试验证
+
+---
+
 ## v10.6.1 修复版本 (2026-07-04) - 成本优化器运行 bug 修复
 
 ### 背景
