@@ -78,8 +78,11 @@ class MixDesignService_Aggregate {
   }
 
   // 计算多种细骨料的最佳比例，使组合后的细度模数最接近目标值
-  // targetFinenessModulus: 可选，默认为2.7
-  calculateOptimalFineAggregateRatio(fineAggregates, targetFinenessModulus = 2.7) {
+  // targetFinenessModulus: 必传（老板修正硬编码 bug，不再默认 2.7）
+  calculateOptimalFineAggregateRatio(fineAggregates, targetFinenessModulus) {
+    if (targetFinenessModulus === undefined || targetFinenessModulus === null) {
+      throw new Error('calculateOptimalFineAggregateRatio 必须传入 targetFinenessModulus（老板修正硬编码 bug）')
+    }
     if (!Array.isArray(fineAggregates) || fineAggregates.length <= 1) {
       const result = fineAggregates.map((aggregate, index) => ({ aggregate, ratio: 1 / fineAggregates.length }))
       // attach combined metrics for compatibility
