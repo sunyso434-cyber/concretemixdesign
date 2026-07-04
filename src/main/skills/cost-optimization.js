@@ -104,6 +104,12 @@ module.exports = {
       hint: '请传入 cementIds 数组（多种水泥）或 cementId 单数（兼容旧版）',
       recovery: 'add_param'
     },
+    MATERIAL_NOT_FOUND: {
+      code: 'MATERIAL_NOT_FOUND',
+      message: '材料 ID 查不到对应材料',
+      hint: '请检查材料 ID 是否正确（可能已删除）',
+      recovery: 'check_param'
+    },
     CANCELLED: {
       code: 'CANCELLED',
       message: '优化已取消',
@@ -113,7 +119,7 @@ module.exports = {
   },
 
   async execute(args, context) {
-    const { mixDesignOptimizer, mixDesignService, logger } = context
+    const { mixDesignOptimizer, mixDesignService, materialService, logger } = context
 
     // 1. 入参校验
     if (!args.strength) {
@@ -125,16 +131,48 @@ module.exports = {
 
     logger.info(`开始成本优化: ${args.strength}`)
 
-    // 2. 构造 optimizer 参数（含 5 阶段所有参数）
-    // ponytail: 支持 cementIds（多水泥）或 cementId（单数，向后兼容）
+    // 2. 校验 + 解析水泥 ID
     const cementIds = args.cementIds || (args.cementId ? [args.cementId] : null)
     if (!cementIds || cementIds.length === 0) {
       return { success: false, error: { code: 'MISSING_CEMENT_IDS', message: '必须传入 cementIds 数组（或 cementId 单数）' } }
     }
 
-    const materials = {
-      ...(args.materials || {}),
-      cement: cementIds  // 多水泥 ID 数组，阶段 2 内部遍历每种水泥
+    // 3. ID → 材料对象（修复：用户传 ID，optimizer 需要材料对象）
+    // ponytail: ID lookup 失败抛错（不静默跳过，避免后续"空候选"错误）
+    const resolveIds = async (ids, fieldName) => {
+      if (!Array.isArray(ids) || ids.length === 0) return []
+      const results = []
+      for (const id of ids) {
+        const mat = await materialService.getMaterialById(id)
+        if (!mat) throw new Error(`${fieldName} ID=${id} 查不到材料`)
+        results.push(mat)
+      }
+      return results
+    }
+
+    let materials
+    try {
+      materials = {
+        ...(args.materials || {}),
+        cement: await resolveIds(cementIds, '水泥'),
+        flyAsh: await resolveIds(args.flyAshIds, '粉煤灰'),
+        slag: await resolveIds(args.slagIds, '矿渣粉'),
+        lithiumSlag: await resolveIds(args.lithiumSlagIds, '锂渣'),
+        compositePowder: await resolveIds(args.compositePowderIds, '复合粉'),
+        sand: await resolveIds(args.sandIds, '细骨料'),
+        stone: await resolveIds(args.stoneIds, '粗骨料'),
+        superplasticizer: await resolveIds(args.superplasticizerIds, '减水剂')
+      }
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: 'MATERIAL_NOT_FOUND',
+          message: err.message,
+          hint: '请检查材料 ID 是否正确',
+          recovery: 'check_param'
+        }
+      }
     }
 
     const optimizerParams = {
