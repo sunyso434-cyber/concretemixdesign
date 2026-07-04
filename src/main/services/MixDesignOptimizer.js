@@ -328,6 +328,115 @@ class MixDesignOptimizer {
   }
 
   /**
+   * 阶段 3：Top5 胶凝 + 细骨料比例 → Top5
+   * @param {Object} params
+   * @param {Array} params.top5Cementitious - 阶段 2 产出的 Top5 胶凝组合
+   * @param {Object} params.materials - 原材料（包含 sand 数组）
+   * @param {Array<Array<number>>} params.fineAggregateRatios - 21 种细骨料比例组合
+   * @param {number} params.T_FM - 目标细度模数
+   * @param {number} params.defaultSpDosage - 默认减水剂掺量
+   * @param {Object} params.defaultSp - 默认减水剂
+   * @param {Object} params.stoneInitial - 阶段 1 选出的粗骨料
+   * @param {Object} params.constraints - 性能约束（strength/slump）
+   * @param {Object} params.cancellationToken - 取消令牌 { cancelled: boolean }
+   * @returns {Promise<Array<Object>>} Top5 胶凝+细骨料组合（按总成本升序）
+   */
+  async _stage3Refine({
+    top5Cementitious, materials, fineAggregateRatios, T_FM,
+    defaultSpDosage, defaultSp, stoneInitial,
+    constraints, cancellationToken
+  }) {
+    const results = []
+    const sandCandidates = this._getMaterialList(materials.sand).filter(s => s)
+
+    for (const combo of top5Cementitious) {
+      if (cancellationToken?.cancelled) throw new Error('cancelled')
+
+      for (const fineRatio of fineAggregateRatios) {
+        const blendedSand = this._blendFineAggregatesForCost(sandCandidates, fineRatio)
+
+        if (!this._validateFinenessModulus(blendedSand.finenessModulus, T_FM, 0.5)) continue
+
+        const sandRatio = this.mixDesignService.calculateSandRatio(
+          combo.waterRatio, constraints.slump, blendedSand.finenessModulus, 'gravel'
+        )
+
+        // 阶段 3 不遍历减水剂品种，用参考减水剂 + 阶段 1 粗骨料
+        try {
+          const result = await this.mixDesignService.calculateMixDesign({
+            strength: constraints.strength,
+            slump: constraints.slump,
+            waterRatio: combo.waterRatio,
+            flyAshDosage: combo.flyAsh,
+            slagDosage: combo.slag,
+            lithiumSlagDosage: combo.lithiumSlag,
+            compositePowderDosage: combo.compositePowder,
+            sandRatio: sandRatio * 100,
+            calculationMethod: 'mass',
+            targetDensity: 2400,
+            materials: {
+              ...materials,
+              sand: blendedSand,
+              stone: stoneInitial,
+              flyAsh: combo.flyAshMat,
+              slag: combo.slagMat,
+              lithiumSlag: combo.lithiumSlagMat,
+              compositePowder: combo.compositePowderMat,
+              superplasticizer: defaultSp
+            }
+          })
+          if (this._validateConstraints(result, constraints)) {
+            results.push({
+              ...result,
+              cementitious: combo,
+              blendedSand, fineRatio, sandRatio: sandRatio * 100
+            })
+          }
+        } catch (e) {
+          // 忽略计算失败
+        }
+      }
+    }
+
+    results.sort((a, b) => a.totalCost - b.totalCost)
+    return results.slice(0, 5)
+  }
+
+  /**
+   * 验证混合砂的细度模数是否在目标范围内（老板决策：±0.5 容忍度）
+   * @param {number} actualFM - 混合后的细度模数
+   * @param {number} targetFM - 目标细度模数
+   * @param {number} tolerance - 容忍度（默认 0.5）
+   * @returns {boolean}
+   */
+  _validateFinenessModulus(actualFM, targetFM, tolerance = 0.5) {
+    return Math.abs(actualFM - targetFM) <= tolerance
+  }
+
+  /**
+   * 按成本最优比例混合细骨料（用于阶段 3）
+   * @param {Array} sandCandidates - 细骨料候选
+   * @param {Array<number>} ratio - [r1, r2] 比例
+   * @returns {Object} 混合后的细骨料
+   */
+  _blendFineAggregatesForCost(sandCandidates, ratio) {
+    if (!Array.isArray(sandCandidates) || sandCandidates.length < 2) {
+      return sandCandidates[0] || null
+    }
+    const [r1, r2] = ratio
+    return {
+      id: 'blended_' + sandCandidates.map(s => s.id).join('_'),
+      name: '混合砂',
+      type: '细骨料',
+      price: (sandCandidates[0].price || 0) * r1 + (sandCandidates[1].price || 0) * r2,
+      finenessModulus: (sandCandidates[0].finenessModulus || 2.7) * r1 + (sandCandidates[1].finenessModulus || 2.7) * r2,
+      mbValue: (sandCandidates[0].mbValue || 0.5) * r1 + (sandCandidates[1].mbValue || 0.5) * r2,
+      originalRatios: [r1, r2],
+      originalAggregateIds: sandCandidates.map(s => s.id)
+    }
+  }
+
+  /**
    * 阶段 1：预选粗骨料（委托给 MixDesignService_Aggregate.preselectCoarseAggregate）
    * @param {Array} stoneCandidates - 粗骨料候选
    * @returns {Object} 选中的粗骨料
@@ -775,44 +884,17 @@ _prepareMaterials(materials) {
    * 验证约束条件
    * @param {Object} result - 配合比计算结果
    * @param {Object} constraints - 性能目标约束
-   * @param {Object} userLimits - 用户自定义限值
    * @returns {boolean}
    */
-  _validateConstraints(result, constraints, userLimits) {
-    // 检查配制强度是否满足（配置强度 = 强度等级 + 1.645σ，应该大于强度等级）
-    const strengthNum = parseInt(constraints.strength.replace('C', ''))
-    if (result.targetStrength && result.targetStrength < strengthNum) {
-      console.log('[验证] 强度不满足:', result.targetStrength, '<', strengthNum)
-      return false
-    }
-
-    // 检查水胶比是否在用户限制范围内（如果指定）
-    if (userLimits.waterRatioRange) {
-      const [minWbr, maxWbr] = userLimits.waterRatioRange
-      if (result.waterRatio < minWbr || result.waterRatio > maxWbr) {
-        console.log('[验证] 水胶比超出范围:', result.waterRatio, '范围:', minWbr, '-', maxWbr)
-        return false
-      }
-    }
-
-    // 检查胶凝材料用量是否合理（放宽限制）
-    const totalCementitious = (result.materials?.cement || 0) + (result.materials?.flyAsh || 0) + (result.materials?.slag || 0) + (result.materials?.lithiumSlag || 0) + (result.materials?.compositePowder || 0)
-    if (totalCementitious <= 0) {
-      console.log('[验证] 胶凝材料用量为 0 或无效:', totalCementitious)
-      return false
-    }
-    if (totalCementitious < 200 || totalCementitious > 600) {
-      console.log('[验证] 胶凝材料用量不合理:', totalCementitious, 'kg/m³')
-      return false
-    }
-
-    // 检查用水量是否合理
+  _validateConstraints(result, constraints) {
+    const strengthNum = parseInt(String(constraints.strength).replace('C', ''))
+    if (result.targetStrength && result.targetStrength < strengthNum) return false
+    const totalCementitious = (result.materials?.cement || 0) + (result.materials?.flyAsh || 0)
+      + (result.materials?.slag || 0) + (result.materials?.lithiumSlag || 0)
+      + (result.materials?.compositePowder || 0)
+    if (totalCementitious < 200 || totalCementitious > 600) return false
     const waterAmount = result.materials?.water
-    if (!waterAmount || waterAmount <= 0 || waterAmount > 250) {
-      console.log('[验证] 用水量不合理:', waterAmount)
-      return false
-    }
-
+    if (!waterAmount || waterAmount <= 0 || waterAmount > 250) return false
     return true
   }
 
