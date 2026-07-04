@@ -119,115 +119,102 @@ class MixDesignOptimizer {
    * @param {number[]} params.userLimits.slagRange - 矿渣粉掺量范围 [%]，如 [0, 20]
    * @param {number} params.userLimits.gridStep - 网格搜索步长，默认 5
    * @param {Object} cancellationToken - 取消令牌 { cancelled: boolean }
+   * @param {Function} progressCallback - 进度回调 (progress) => void
    * @returns {Promise<Object>} 最优配合比方案
    */
-  async optimizeMixDesign(params, cancellationToken = null) {
-    const { constraints, userLimits = {} } = params
+  async optimizeMixDesign(params, cancellationToken = null, progressCallback = null) {
+    const { constraints, userLimits = {}, maxAdmixtureRatio = 50 } = params
+    if (cancellationToken?.cancelled) throw new Error('cancelled')
 
-    // 检查是否已取消
-    if (cancellationToken?.cancelled) {
-      throw new Error('cancelled')
+    // 进度上报辅助
+    const report = (phase, current, total, message) => {
+      if (progressCallback) progressCallback({ phase, current, total, message })
     }
 
-    console.log('[优化器] 开始优化（分层过滤策略）...', { constraints, userLimits })
+    // 阶段 1：粗骨料预选
+    report('阶段 1 粗骨料预选', 1, 5, '选择 maxSize 最大的粗骨料')
+    const stoneInitial = this._preselectStone(constraints.materials.stone)
+    // ponytail: 'gravel' 不被 waterTable 支持，按 stone name 检测 '碎石'/'卵石'
+    // 与 MixDesignService_Database.js:267 内部检测逻辑保持一致
+    const aggregateType = stoneInitial?.name?.includes('卵石') ? '卵石' : '碎石'
+    const baseWaterAmount = this.mixDesignService.getBaseWaterAmount(
+      this.mixDesignService.extractMaxAggregateSize(stoneInitial.specification),
+      constraints.slump, aggregateType
+    )
 
-    // 1. 计算水胶比（固定值，不进入网格搜索）
-    const waterRatioResult = await this._calculateWaterRatio(constraints, constraints.materials)
-    console.log('[优化器] 水胶比:', waterRatioResult.waterRatio)
+    // 参考减水剂（用于阶段 2-4，老板决策：用 calculateSuperplasticizerDosage 算掺量，不硬编码）
+    const defaultSp = (constraints.materials.superplasticizer || [])[0] || {
+      price: 5000, waterReducingRate: 25, recommendedDosage: 1.5
+    }
+    // ponytail: calculateSuperplasticizerDosage 返回 { finalDosage, ... } 对象，取 .finalDosage
+    const defaultSpDosageResult = await this.mixDesignService.calculateSuperplasticizerDosage(
+      constraints.strength,
+      { finenessModulus: 2.7, mbValue: 0.5 },  // 默认细骨料（阶段 2-4 简化假设）
+      constraints.tempSettings
+    )
+    const defaultSpDosage = defaultSpDosageResult?.finalDosage ?? 1.5
 
-    // 2. 确定网格搜索范围（砂率由公式计算，不搜索）
+    // 阶段 2：胶凝 Top5
+    report('阶段 2 胶凝快速估算', 2, 5, '遍历水泥×掺合料×掺量')
     const flyAshRange = this._createRange(userLimits.flyAshRange || [0, 30], userLimits.gridStep || 5)
     const slagRange = this._createRange(userLimits.slagRange || [0, 20], userLimits.gridStep || 5)
     const lithiumSlagRange = this._createRange(userLimits.lithiumSlagRange || [0, 20], userLimits.gridStep || 5)
     const compositePowderRange = this._createRange(userLimits.compositePowderRange || [0, 20], userLimits.gridStep || 5)
 
-    // 3. 预处理材料（不过滤，只是浅拷贝）
-    const materials = this._prepareMaterials(constraints.materials)
-
-    // 4. 处理细骨料组合（仅支持两种，步长5%）
-    let fineAggregateRatios = [null]
-    if (materials?.sand && Array.isArray(materials.sand) && materials.sand.length > 1) {
-      fineAggregateRatios = this._generateFineAggregateRatios(materials.sand)
-      console.log('[优化器] 细骨料比例组合数:', fineAggregateRatios.length)
-    }
-
-    // 5. 第一层粗筛
-    const top5Combinations = await this._firstLayerFilter({
-      materials,
-      waterRatio: waterRatioResult.waterRatio,
-      flyAshRange,
-      slagRange,
-      lithiumSlagRange,
-      compositePowderRange,
-      fineAggregateRatios,
+    const top5Cementitious = await this._stage2Filter({
+      materials: constraints.materials,
+      baseWaterAmount,
+      defaultSpDosage, defaultSp,
+      flyAshRange, slagRange, lithiumSlagRange, compositePowderRange,
+      maxAdmixtureRatio,
       constraints,
-      userLimits,
       cancellationToken
+      // ⭐ 注意：waterRatio 不传 — 阶段 2 内部每种水泥重算
     })
 
-    if (top5Combinations.length === 0) {
-      let detail = ''
-      if (this._firstCalcError) {
-        detail = ` | 配比计算异常: ${this._firstCalcError.message} (水胶比=${this._firstCalcError.waterRatio})`
-      } else if (this._firstConstraintFail) {
-        const f = this._firstConstraintFail
-        detail = ` | 示例: 配制强度=${f.targetStrength}MPa 水胶比=${f.waterRatio} 胶材=${f.totalCementitious}kg 用水=${f.waterAmount}kg`
-      }
-      throw new Error(`第一层筛选未找到满足约束条件的配合比方案${detail}`)
+    if (top5Cementitious.length === 0) {
+      throw new Error('第一层筛选未找到满足约束条件的配合比方案')
     }
 
-    // 6. 第二层细筛
-    const { bestSolution, alternatives, allResults } = await this._secondLayerRefine(
-      { materials, waterRatio: waterRatioResult.waterRatio, constraints, userLimits, cancellationToken },
-      top5Combinations
-    )
+    // 阶段 3：细骨料 Top5
+    report('阶段 3 细骨料详细计算', 3, 5, `Top${top5Cementitious.length} + 21 种细骨料比例`)
+    const T_FM = this.mixDesignService.targetFinenessModulusByStrength(constraints.strength)
+    const fineAggregateRatios = this._generateFineAggregateRatios(constraints.materials.sand || [])
 
-    if (!bestSolution) {
-      console.log('[优化器] 警告：未找到有效方案，使用第一层结果')
-      // 第二层细筛已有回退逻辑，理论上不会走到这里
-      throw new Error('未找到满足约束条件的配合比方案，请放宽约束或更换原材料')
+    const top5WithSand = await this._stage3Refine({
+      top5Cementitious,
+      materials: constraints.materials,
+      fineAggregateRatios,
+      T_FM,
+      defaultSpDosage, defaultSp, stoneInitial,
+      constraints, cancellationToken
+    })
+
+    // 阶段 4：粗骨料 Top5
+    report('阶段 4 粗骨料重新评估', 4, 5, `Top${top5WithSand.length} + 所有粗骨料`)
+    const top5WithStone = await this._stage4ReassessCoarseAggregate({
+      top5WithSand,
+      materials: constraints.materials,
+      defaultSp,
+      constraints, cancellationToken
+    })
+
+    // 阶段 5：减水剂最终
+    report('阶段 5 减水剂遍历', 5, 5, `Top${top5WithStone.length} + 所有减水剂品种`)
+    const finalResults = await this._stage5SuperplasticizerSearch({
+      top5WithStone,
+      materials: constraints.materials,
+      constraints, cancellationToken
+    })
+
+    if (finalResults.length === 0) {
+      throw new Error('未找到满足约束条件的配合比方案')
     }
-
-    console.log('[优化器] 优化完成，总评估组合数:', allResults.length)
-
-    // 7. 添加胶凝材料成本
-    const cementitiousCost = (bestSolution.materialCosts?.cement || 0) +
-      (bestSolution.materialCosts?.flyAsh || 0) +
-      (bestSolution.materialCosts?.slag || 0) +
-      (bestSolution.materialCosts?.lithiumSlag || 0) +
-      (bestSolution.materialCosts?.compositePowder || 0)
-
-    const bestSolutionWithCost = {
-      ...bestSolution,
-      cementitiousCost
-    }
-
-    const alternativesWithCost = alternatives.map(alt => ({
-      ...alt,
-      cementitiousCost: (alt.materialCosts?.cement || 0) +
-        (alt.materialCosts?.flyAsh || 0) +
-        (alt.materialCosts?.slag || 0) +
-        (alt.materialCosts?.lithiumSlag || 0) +
-        (alt.materialCosts?.compositePowder || 0)
-    }))
-
-    // 8. 确保 bestSolution 包含 selectedMaterials
-    bestSolutionWithCost.selectedMaterials = {
-      flyAsh: bestSolution.materialSelection?.flyAsh,
-      slag: bestSolution.materialSelection?.slag,
-      lithiumSlag: bestSolution.materialSelection?.lithiumSlag,
-      compositePowder: bestSolution.materialSelection?.compositePowder,
-      superplasticizer: bestSolution.materialSelection?.superplasticizer
-    }
-
-    // 9. 保存优化历史
-    const historyRecord = await this._saveOptimizationHistory(constraints, bestSolutionWithCost, alternativesWithCost)
 
     return {
-      bestSolution: bestSolutionWithCost,
-      alternatives: alternativesWithCost,
-      totalEvaluated: allResults.length,
-      historyId: historyRecord?.id
+      bestSolution: finalResults[0],
+      alternatives: finalResults.slice(1, 5),
+      totalEvaluated: top5Cementitious.length + top5WithSand.length + top5WithStone.length + finalResults.length
     }
   }
 
@@ -501,7 +488,71 @@ class MixDesignOptimizer {
             _overrideBaseWaterAmount: baseWater
           })
           if (this._validateConstraints(result, constraints)) {
-            results.push({ ...result, stoneMat })
+            // 保留阶段 3 的 cementitious/blendedSand/fineRatio/sandRatio，供阶段 5 使用
+            results.push({
+              ...result,
+              cementitious: combo.cementitious,
+              blendedSand: combo.blendedSand,
+              fineRatio: combo.fineRatio,
+              sandRatio: combo.sandRatio,
+              stoneMat
+            })
+          }
+        } catch (e) {
+          // 忽略计算失败
+        }
+      }
+    }
+
+    results.sort((a, b) => a.totalCost - b.totalCost)
+    return results.slice(0, 5)
+  }
+
+  /**
+   * 阶段 5：Top5 + 遍历减水剂品种 → 最终
+   * @param {Object} params
+   * @param {Array} params.top5WithStone - 阶段 4 产出的 Top5
+   * @param {Object} params.materials - 原材料（包含 superplasticizer 数组）
+   * @param {Object} params.constraints - 性能约束（strength/slump）
+   * @param {Object} params.cancellationToken - 取消令牌 { cancelled: boolean }
+   * @returns {Promise<Array<Object>>} Top5（按总成本升序），每项包含 spMat
+   */
+  async _stage5SuperplasticizerSearch({
+    top5WithStone, materials, constraints, cancellationToken
+  }) {
+    const results = []
+    const spList = this._getMaterialList(materials.superplasticizer).filter(s => s)
+
+    for (const combo of top5WithStone) {
+      if (cancellationToken?.cancelled) throw new Error('cancelled')
+
+      for (const spMat of spList) {
+        try {
+          const result = await this.mixDesignService.calculateMixDesign({
+            strength: constraints.strength,
+            slump: constraints.slump,
+            waterRatio: combo.waterRatio,
+            flyAshDosage: combo.cementitious.flyAsh,
+            slagDosage: combo.cementitious.slag,
+            lithiumSlagDosage: combo.cementitious.lithiumSlag,
+            compositePowderDosage: combo.cementitious.compositePowder,
+            sandRatio: combo.sandRatio,
+            calculationMethod: 'mass',
+            targetDensity: 2400,
+            materials: {
+              ...materials,
+              cement: combo.cementitious.cementMat,
+              sand: combo.blendedSand,
+              stone: combo.stoneMat,
+              flyAsh: combo.cementitious.flyAshMat,
+              slag: combo.cementitious.slagMat,
+              lithiumSlag: combo.cementitious.lithiumSlagMat,
+              compositePowder: combo.cementitious.compositePowderMat,
+              superplasticizer: spMat
+            }
+          })
+          if (this._validateConstraints(result, constraints)) {
+            results.push({ ...result, spMat })
           }
         } catch (e) {
           // 忽略计算失败

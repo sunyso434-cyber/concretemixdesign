@@ -59,6 +59,20 @@ class MixDesignService {
     return MixDesignService_Aggregate.calculateCombinedFineAggregateParams(fineAggregates, targetFinenessModulus)
   }
 
+  // ponytail: thin pass-through — Aggregate submodule 已实现原方法（Task 1）
+  preselectCoarseAggregate(stoneCandidates) {
+    return MixDesignService_Aggregate.preselectCoarseAggregate(stoneCandidates)
+  }
+
+  targetFinenessModulusByStrength(strength) {
+    return MixDesignService_Aggregate.targetFinenessModulusByStrength(strength)
+  }
+
+  // ponytail: thin pass-through — Aggregate submodule 已实现原方法（Task 2）
+  computeCementitiousCost(params) {
+    return MixDesignService_Aggregate.computeCementitiousCost(params)
+  }
+
   getBaseWaterAmount(maxSize, slump, aggregateType) {
     return MixDesignService_Aggregate.getBaseWaterAmount(maxSize, slump, aggregateType)
   }
@@ -85,15 +99,6 @@ class MixDesignService {
 
   calculateSandRatio(waterRatio, slump, finenessModulus, aggregateType) {
     return MixDesignService_Aggregate.calculateSandRatio(waterRatio, slump, finenessModulus, aggregateType)
-  }
-
-  // ponytail: thin pass-through — Aggregate submodule 已实现原方法（Task 1/2）
-  preselectCoarseAggregate(stoneCandidates) {
-    return MixDesignService_Aggregate.preselectCoarseAggregate(stoneCandidates)
-  }
-
-  computeCementitiousCost(params) {
-    return MixDesignService_Aggregate.computeCementitiousCost(params)
   }
 
   // === Validation 模块 ===
