@@ -622,6 +622,36 @@ class MixDesignService_Aggregate {
     )
     return densityKeys.reduce((sum, key) => sum + (Number(materialAmounts[key]) || 0), 0)
   }
+
+  /**
+   * 胶凝成本快速估算（阶段 2 用）
+   * 仅算水泥+掺合料+减水剂成本，不算砂石
+   * @param {Object} params
+   * @returns {number} 胶凝成本（元/m³）
+   */
+  computeCementitiousCost({
+    baseWaterAmount,
+    waterRatio,
+    flyAsh = 0, slag = 0, lithiumSlag = 0, compositePowder = 0,
+    cementMat, flyAshMat, slagMat, lithiumSlagMat, compositePowderMat,
+    spDosage, spMat
+  }) {
+    const cementitiousAmount = baseWaterAmount / waterRatio
+    const cementAmount = cementitiousAmount * (1 - flyAsh/100 - slag/100 - lithiumSlag/100 - compositePowder/100)
+    const flyAshAmount = cementitiousAmount * flyAsh / 100
+    const slagAmount = cementitiousAmount * slag / 100
+    const lithiumSlagAmount = cementitiousAmount * lithiumSlag / 100
+    const compositePowderAmount = cementitiousAmount * compositePowder / 100
+    const spAmount = cementitiousAmount * spDosage / 100
+
+    const toCost = (kg, price) => price ? (kg * price / 1000) : 0
+    return toCost(cementAmount, cementMat?.price)
+         + toCost(flyAshAmount, flyAshMat?.price)
+         + toCost(slagAmount, slagMat?.price)
+         + toCost(lithiumSlagAmount, lithiumSlagMat?.price)
+         + toCost(compositePowderAmount, compositePowderMat?.price)
+         + toCost(spAmount, spMat?.price)
+  }
 }
 
 module.exports = new MixDesignService_Aggregate()
