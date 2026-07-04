@@ -109,7 +109,7 @@ class MixDesignService_Database {
   // 计算配合比
   async calculateMixDesign(params) {
     try {
-      const { strength, slump, tempSettings, materials, calculationMethod, targetDensity, airContent, flyAshDosage, slagDosage, lithiumSlagDosage, compositePowderDosage, sandRatio, waterRatio: inputWaterRatio } = params
+      const { strength, slump, tempSettings, materials, calculationMethod = 'mass', targetDensity = 2400, airContent, flyAshDosage, slagDosage, lithiumSlagDosage, compositePowderDosage, sandRatio, waterRatio: inputWaterRatio, _overrideBaseWaterAmount, _overrideSpDosage } = params
 
       console.log('开始JGJ 55标准配合比计算...')
       console.log('输入参数:', { strength, slump, tempSettings, calculationMethod, targetDensity, airContent, flyAshDosage, slagDosage, lithiumSlagDosage, compositePowderDosage, sandRatio })
@@ -267,12 +267,15 @@ class MixDesignService_Database {
         aggregateType = coarseAggregateMaterial.name?.includes('卵石') ? '卵石' : '碎石'
       }
 
-      const baseWaterAmount = MixDesignService_Aggregate.getBaseWaterAmount(maxSize, slump, aggregateType)
+      const baseWaterAmount = _overrideBaseWaterAmount !== undefined
+        ? _overrideBaseWaterAmount
+        : MixDesignService_Aggregate.getBaseWaterAmount(maxSize, slump, aggregateType)
 
       // 7. 计算减水剂掺量
       const fineAggregateMaterial = materials?.sand
       const superplasticizerResult = await MixDesignService_Aggregate.calculateSuperplasticizerDosage(strength, fineAggregateMaterial, tempSettings)
-      const superplasticizerDosage = superplasticizerResult.finalDosage
+      const spDosageFromCalc = superplasticizerResult.finalDosage
+      const superplasticizerDosage = _overrideSpDosage !== undefined ? _overrideSpDosage : spDosageFromCalc
 
       // 8. 计算减水率
       const superplasticizerMaterial = materials?.superplasticizer
