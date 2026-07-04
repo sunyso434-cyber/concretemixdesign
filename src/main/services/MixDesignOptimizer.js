@@ -244,27 +244,40 @@ class MixDesignOptimizer {
   }
 
   /**
-   * 生成细骨料掺配比例组合
-   * 仅考虑两种细骨料，步长5%
-   * @param {Array} fineAggregates - 细骨料列表
-   * @returns {Array<Array<number>>} 比例组合，如 [[0,1], [0.05,0.95], ..., [1,0]]
+   * 生成细骨料掺配比例组合（老板决策 v2 修订）
+   * 物理条件限制：生产端只有 2 个砂配料仓，所以结果最多选 2 种砂组合
+   *  - 1 种砂：返回 [null]（单种无组合）
+   *  - 2 种砂：21 种比例（5% 步长）
+   *  - N 种砂（N≥3）：遍历所有 C(N,2) 个两两配对，每个配对 21 种比例 = C(N,2)*21 种
+   * @param {Array} fineAggregates - 细骨料列表（任意长度）
+   * @returns {Array<Array<number>|null>} 比例组合，每项固定 2 个元素
    */
   _generateFineAggregateRatios(fineAggregates) {
     const count = fineAggregates.length
-    if (count < 2) return [null]
+    if (count < 1) return [null]
+    if (count === 1) return [null]
 
-    // 步长5%，即 0%, 5%, 10%, ..., 95%, 100%（21种比例）
     const step = 5
     const ratios = []
 
+    const pairs = []
     if (count === 2) {
-      for (let i = 0; i <= 100; i += step) {
-        ratios.push([i / 100, (100 - i) / 100])
-      }
+      pairs.push([0, 1])
     } else {
-      // 超过两种时，只取前两种进行组合（忽略第三种及以上的细骨料）
+      // ponytail: 老板决策 — N 种砂遍历所有两两配对（生产端 2 仓限制）
+      for (let i = 0; i < count; i++) {
+        for (let j = i + 1; j < count; j++) {
+          pairs.push([i, j])
+        }
+      }
+    }
+
+    for (const [idxA, idxB] of pairs) {
       for (let i = 0; i <= 100; i += step) {
-        ratios.push([i / 100, (100 - i) / 100, 0]) // 第三种及以后占比为0
+        // 注意：ratio 永远是 2 元素，对应"被选中的两种砂"，
+        // _blendFineAggregatesForCost 会按 idxA/idxB 索引到原 sandCandidates 数组取
+        // 但 ratio 是按 [r1, r2] 顺序表达两种砂的比例，第 3+ 种不参与
+        ratios.push([i / 100, (100 - i) / 100, idxA, idxB])
       }
     }
 
@@ -413,25 +426,54 @@ class MixDesignOptimizer {
   }
 
   /**
-   * 按成本最优比例混合细骨料（用于阶段 3）
-   * @param {Array} sandCandidates - 细骨料候选
-   * @param {Array<number>} ratio - [r1, r2] 比例
+   * 按比例混合细骨料（用于阶段 3，v2 修订）
+   * 老板决策：物理条件限制（2 仓），结果最多 2 种砂组合
+   * ratio 格式：[r1, r2, idxA?, idxB?]
+   *   - 2 元素：直接按 r1/r2 与 sandCandidates[0/1] 加权
+   *   - 4 元素：r1/r2 加权（按 idxA/idxB 索引）— 支持 N 种砂的两两配对
+   * @param {Array} sandCandidates - 细骨料候选（任意长度）
+   * @param {Array<number>|null} ratio - 比例数组
    * @returns {Object} 混合后的细骨料
    */
   _blendFineAggregatesForCost(sandCandidates, ratio) {
-    if (!Array.isArray(sandCandidates) || sandCandidates.length < 2) {
-      return sandCandidates[0] || null
+    if (!Array.isArray(sandCandidates) || sandCandidates.length < 1) {
+      return null
     }
-    const [r1, r2] = ratio
+    if (!ratio || ratio.length === 0) return sandCandidates[0]
+
+    // ponytail: 4 元素 ratio = [r1, r2, idxA, idxB] — 支持 N 种砂的两两配对
+    let idxA, idxB, r1, r2
+    if (ratio.length === 4) {
+      // [比例, 比例, 索引, 索引]
+      [r1, r2, idxA, idxB] = ratio
+    } else if (ratio.length === 2) {
+      [r1, r2] = ratio
+      idxA = 0
+      idxB = 1
+    } else {
+      // 单数等退化场景
+      return sandCandidates[0]
+    }
+
+    const sandA = sandCandidates[idxA]
+    const sandB = sandCandidates[idxB]
+    if (!sandA) return sandA || sandB
+
+    const blended = {
+      price: (sandA.price || 0) * r1 + (sandB.price || 0) * r2,
+      finenessModulus: (sandA.finenessModulus || 2.7) * r1 + (sandB.finenessModulus || 2.7) * r2,
+      mbValue: (sandA.mbValue || 0.5) * r1 + (sandB.mbValue || 0.5) * r2
+    }
+
     return {
-      id: 'blended_' + sandCandidates.map(s => s.id).join('_'),
-      name: '混合砂',
+      id: `blended_${sandA.id}_${sandB.id}_${Math.round(r1 * 100)}`,
+      name: `${sandA.name || '砂A'}+${sandB.name || '砂B'} 混合`,
       type: '细骨料',
-      price: (sandCandidates[0].price || 0) * r1 + (sandCandidates[1].price || 0) * r2,
-      finenessModulus: (sandCandidates[0].finenessModulus || 2.7) * r1 + (sandCandidates[1].finenessModulus || 2.7) * r2,
-      mbValue: (sandCandidates[0].mbValue || 0.5) * r1 + (sandCandidates[1].mbValue || 0.5) * r2,
+      price: blended.price,
+      finenessModulus: blended.finenessModulus,
+      mbValue: blended.mbValue,
       originalRatios: [r1, r2],
-      originalAggregateIds: sandCandidates.map(s => s.id)
+      originalAggregateIds: [sandA.id, sandB.id]
     }
   }
 
