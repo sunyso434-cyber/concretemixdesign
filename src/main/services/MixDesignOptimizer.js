@@ -161,7 +161,7 @@ class MixDesignOptimizer {
     const lithiumSlagRange = this._createRange(userLimits.lithiumSlagRange || [0, 20], userLimits.gridStep || 5)
     const compositePowderRange = this._createRange(userLimits.compositePowderRange || [0, 20], userLimits.gridStep || 5)
 
-    const top5Cementitious = await this._stage2Filter({
+    const stage2Result = await this._stage2Filter({
       materials: constraints.materials,
       baseWaterAmount,
       defaultSpDosage, defaultSp,
@@ -171,6 +171,8 @@ class MixDesignOptimizer {
       cancellationToken
       // ⭐ 注意：waterRatio 不传 — 阶段 2 内部每种水泥重算
     })
+    const top5Cementitious = stage2Result.top5
+    const stage2Evaluated = stage2Result.evaluatedCount
 
     if (top5Cementitious.length === 0) {
       throw new Error('第一层筛选未找到满足约束条件的配合比方案')
@@ -181,7 +183,7 @@ class MixDesignOptimizer {
     const T_FM = this.mixDesignService.targetFinenessModulusByStrength(constraints.strength)
     const fineAggregateRatios = this._generateFineAggregateRatios(constraints.materials.sand || [])
 
-    const top5WithSand = await this._stage3Refine({
+    const stage3Result = await this._stage3Refine({
       top5Cementitious,
       materials: constraints.materials,
       fineAggregateRatios,
@@ -189,23 +191,29 @@ class MixDesignOptimizer {
       defaultSpDosage, defaultSp, stoneInitial,
       constraints, cancellationToken
     })
+    const top5WithSand = stage3Result.top5
+    const stage3Evaluated = stage3Result.evaluatedCount
 
     // 阶段 4：粗骨料 Top5
     report('阶段 4 粗骨料重新评估', 4, 5, `Top${top5WithSand.length} + 所有粗骨料`)
-    const top5WithStone = await this._stage4ReassessCoarseAggregate({
+    const stage4Result = await this._stage4ReassessCoarseAggregate({
       top5WithSand,
       materials: constraints.materials,
       defaultSp,
       constraints, cancellationToken
     })
+    const top5WithStone = stage4Result.top5
+    const stage4Evaluated = stage4Result.evaluatedCount
 
     // 阶段 5：减水剂最终
     report('阶段 5 减水剂遍历', 5, 5, `Top${top5WithStone.length} + 所有减水剂品种`)
-    const finalResults = await this._stage5SuperplasticizerSearch({
+    const stage5Result = await this._stage5SuperplasticizerSearch({
       top5WithStone,
       materials: constraints.materials,
       constraints, cancellationToken
     })
+    const finalResults = stage5Result.top5
+    const stage5Evaluated = stage5Result.evaluatedCount
 
     if (finalResults.length === 0) {
       throw new Error('未找到满足约束条件的配合比方案')
@@ -214,7 +222,7 @@ class MixDesignOptimizer {
     return {
       bestSolution: finalResults[0],
       alternatives: finalResults.slice(1, 5),
-      totalEvaluated: top5Cementitious.length + top5WithSand.length + top5WithStone.length + finalResults.length
+      totalEvaluated: stage2Evaluated + stage3Evaluated + stage4Evaluated + stage5Evaluated
     }
   }
 
@@ -334,6 +342,7 @@ class MixDesignOptimizer {
     constraints, cancellationToken
   }) {
     const results = []
+    let evaluatedCount = 0  // 实际调 calculateMixDesign 的次数
     const sandCandidates = this._getMaterialList(materials.sand).filter(s => s)
 
     for (const combo of top5Cementitious) {
@@ -350,6 +359,7 @@ class MixDesignOptimizer {
 
         // 阶段 3 不遍历减水剂品种，用参考减水剂 + 阶段 1 粗骨料
         try {
+          evaluatedCount++
           const result = await this.mixDesignService.calculateMixDesign({
             strength: constraints.strength,
             slump: constraints.slump,
@@ -387,7 +397,8 @@ class MixDesignOptimizer {
     }
 
     results.sort((a, b) => a.totalCost - b.totalCost)
-    return results.slice(0, 5)
+    // 统计实际调 calculateMixDesign 的次数（含失败/被约束拒绝的）
+    return { top5: results.slice(0, 5), evaluatedCount }
   }
 
   /**
@@ -451,6 +462,7 @@ class MixDesignOptimizer {
     constraints, cancellationToken
   }) {
     const results = []
+    let evaluatedCount = 0  // 实际调 calculateMixDesign 的次数
     const stoneList = this._getMaterialList(materials.stone).filter(s => s)
 
     for (const combo of top5WithSand) {
@@ -464,6 +476,7 @@ class MixDesignOptimizer {
         )
 
         try {
+          evaluatedCount++
           const result = await this.mixDesignService.calculateMixDesign({
             strength: constraints.strength,
             slump: constraints.slump,
@@ -506,7 +519,8 @@ class MixDesignOptimizer {
     }
 
     results.sort((a, b) => a.totalCost - b.totalCost)
-    return results.slice(0, 5)
+    // 统计实际调 calculateMixDesign 的次数（含失败/被约束拒绝的）
+    return { top5: results.slice(0, 5), evaluatedCount }
   }
 
   /**
@@ -522,6 +536,7 @@ class MixDesignOptimizer {
     top5WithStone, materials, constraints, cancellationToken
   }) {
     const results = []
+    let evaluatedCount = 0  // 实际调 calculateMixDesign 的次数
     const spList = this._getMaterialList(materials.superplasticizer).filter(s => s)
 
     for (const combo of top5WithStone) {
@@ -529,6 +544,7 @@ class MixDesignOptimizer {
 
       for (const spMat of spList) {
         try {
+          evaluatedCount++
           const result = await this.mixDesignService.calculateMixDesign({
             strength: constraints.strength,
             slump: constraints.slump,
@@ -562,7 +578,8 @@ class MixDesignOptimizer {
     }
 
     results.sort((a, b) => a.totalCost - b.totalCost)
-    return results.slice(0, 5)
+    // 统计实际调 calculateMixDesign 的次数（含失败/被约束拒绝的）
+    return { top5: results.slice(0, 5), evaluatedCount }
   }
 
   /**
@@ -670,8 +687,9 @@ class MixDesignOptimizer {
     }
 
     // Top5
+    // Top5（按胶凝成本升序）
     results.sort((a, b) => a.cementitiousCost - b.cementitiousCost)
-    return results.slice(0, 5)
+    return { top5: results.slice(0, 5), evaluatedCount: tasks.length }
   }
 
   /**

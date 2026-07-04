@@ -23,7 +23,7 @@ describe('MixDesignOptimizer 阶段 1+2', () => {
 
   test('阶段 2 返回 Top5 胶凝组合', async () => {
     const opt = MixDesignOptimizer
-    const top5 = await opt._stage2Filter({
+    const stage2R = await opt._stage2Filter({
       materials: {
         cement: [{ id: 1, price: 480, compressiveStrength28d: 48 }],
         flyAsh: [{ id: 2, price: 180, waterDemandRatio: 92 }],
@@ -43,17 +43,17 @@ describe('MixDesignOptimizer 阶段 1+2', () => {
       constraints: { strength: 'C30', slump: 120 },
       cancellationToken: { cancelled: false }
     })
-    expect(top5.length).toBeLessThanOrEqual(5)
-    expect(top5.length).toBeGreaterThan(0)
+    expect(stage2R.top5.length).toBeLessThanOrEqual(5)
+    expect(stage2R.top5.length).toBeGreaterThan(0)
     // Top5 应该按水泥成本升序
-    for (let i = 1; i < top5.length; i++) {
-      expect(top5[i].cementitiousCost).toBeGreaterThanOrEqual(top5[i-1].cementitiousCost)
+    for (let i = 1; i < stage2R.top5.length; i++) {
+      expect(stage2R.top5[i].cementitiousCost).toBeGreaterThanOrEqual(stage2R.top5[i-1].cementitiousCost)
     }
   })
 
   test('所有掺合料总量超 maxAdmixtureRatio 时跳过', async () => {
     const opt = MixDesignOptimizer
-    const top5 = await opt._stage2Filter({
+    const stage2R = await opt._stage2Filter({
       materials: {
         cement: [{ id: 1, price: 480, compressiveStrength28d: 48 }],
         flyAsh: [{ id: 2, price: 180 }],
@@ -74,6 +74,6 @@ describe('MixDesignOptimizer 阶段 1+2', () => {
       cancellationToken: { cancelled: false }
     })
     // 所有组合都应被拒（总掺量 > 50%）
-    expect(top5.length).toBe(0)
+    expect(stage2R.top5.length).toBe(0)
   })
 })

@@ -27,7 +27,7 @@ describe('MixDesignOptimizer 阶段 3', () => {
 
   test('阶段 3 输出 Top5', async () => {
     const opt = MixDesignOptimizer
-    const result = await opt._stage3Refine({
+    const stage3R = await opt._stage3Refine({
       top5Cementitious: [{
         cementMat: { id: 1, price: 480, compressiveStrength28d: 48 },
         flyAshMat: { id: 2, price: 180 },
@@ -46,10 +46,10 @@ describe('MixDesignOptimizer 阶段 3', () => {
       constraints: { strength: 'C30', slump: 120 },
       cancellationToken: { cancelled: false }
     })
-    expect(result.length).toBeLessThanOrEqual(5)
+    expect(stage3R.top5.length).toBeLessThanOrEqual(5)
     // Top5 按 totalCost 升序
-    for (let i = 1; i < result.length; i++) {
-      expect(result[i].totalCost).toBeGreaterThanOrEqual(result[i-1].totalCost)
+    for (let i = 1; i < stage3R.top5.length; i++) {
+      expect(stage3R.top5[i].totalCost).toBeGreaterThanOrEqual(stage3R.top5[i-1].totalCost)
     }
   })
 

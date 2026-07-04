@@ -15,7 +15,7 @@ const MixDesignOptimizer = require('../../../main/services/MixDesignOptimizer')
 describe('MixDesignOptimizer 阶段 5 + 主流程', () => {
   test('阶段 5 遍历所有减水剂品种', async () => {
     const opt = MixDesignOptimizer
-    const result = await opt._stage5SuperplasticizerSearch({
+    const stage5R = await opt._stage5SuperplasticizerSearch({
       top5WithStone: [{
         totalCost: 200, waterRatio: 0.5, sandRatio: 35,
         cementitious: { flyAsh: 20, slag: 0, lithiumSlag: 0, compositePowder: 0,
@@ -32,8 +32,8 @@ describe('MixDesignOptimizer 阶段 5 + 主流程', () => {
       constraints: { strength: 'C30', slump: 120 },
       cancellationToken: { cancelled: false }
     })
-    expect(result.length).toBeGreaterThan(0)
-    expect(result.length).toBeLessThanOrEqual(5)
+    expect(stage5R.top5.length).toBeGreaterThan(0)
+    expect(stage5R.top5.length).toBeLessThanOrEqual(5)
   })
 
   test('主流程 optimizeMixDesign 返回 { bestSolution, alternatives, totalEvaluated }', async () => {
