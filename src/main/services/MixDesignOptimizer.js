@@ -317,13 +317,132 @@ class MixDesignOptimizer {
 
   /**
    * 将材料对象转换为数组（如果不是数组）
+   * 空数组/null/undefined → [null]（作为"无该选项"的占位，让下游 for 循环仍迭代一次）
    * @param {Object|Array} material - 材料对象或数组
    * @returns {Array} 材料数组
    */
   _getMaterialList(material) {
-    if (!material) return [null]
+    if (!material || (Array.isArray(material) && material.length === 0)) return [null]
     if (Array.isArray(material)) return material
     return [material]
+  }
+
+  /**
+   * 阶段 1：预选粗骨料（委托给 MixDesignService_Aggregate.preselectCoarseAggregate）
+   * @param {Array} stoneCandidates - 粗骨料候选
+   * @returns {Object} 选中的粗骨料
+   */
+  _preselectStone(stoneCandidates) {
+    return this.mixDesignService.preselectCoarseAggregate(stoneCandidates)
+  }
+
+  /**
+   * 阶段 2：胶凝材料快速估算 → Top5
+   * BATCH_SIZE=100 并行（老板决策）
+   * ⭐ 每种水泥品种内部都重算 waterRatio（保罗米公式）
+   * @param {Object} params
+   * @param {Object} params.materials - 候选原材料（cement/flyAsh/slag/lithiumSlag/compositePowder）
+   * @param {number} params.baseWaterAmount - 单位用水量 (kg/m³)
+   * @param {number} params.defaultSpDosage - 减水剂掺量 (%)
+   * @param {Object} params.defaultSp - 筛选用减水剂
+   * @param {Array<number>} params.flyAshRange - 粉煤灰掺量范围 (%)
+   * @param {Array<number>} params.slagRange - 矿渣粉掺量范围 (%)
+   * @param {Array<number>} params.lithiumSlagRange - 锂渣粉掺量范围 (%)
+   * @param {Array<number>} params.compositePowderRange - 复合粉掺量范围 (%)
+   * @param {number} params.maxAdmixtureRatio - 总掺合料上限 (%)
+   * @param {Object} params.constraints - 性能约束 (strength/slump)
+   * @param {Object} params.cancellationToken - 取消令牌 { cancelled: boolean }
+   * @returns {Promise<Array<Object>>} Top5 胶凝组合（按胶凝成本升序）
+   */
+  async _stage2Filter({
+    materials, baseWaterAmount, defaultSpDosage, defaultSp,
+    flyAshRange, slagRange, lithiumSlagRange, compositePowderRange,
+    maxAdmixtureRatio,
+    constraints,
+    cancellationToken
+  }) {
+    const results = []
+    const tasks = []
+
+    const cementList = this._getMaterialList(materials.cement)
+    const flyAshList = this._getMaterialList(materials.flyAsh)
+    const slagList = this._getMaterialList(materials.slag)
+    const lithiumSlagList = this._getMaterialList(materials.lithiumSlag)
+    const compositePowderList = this._getMaterialList(materials.compositePowder)
+
+    // ⭐ 老板决策：每种水泥重算 waterRatio（保罗米公式，spec § 6 line 313-314）
+    const stdDev = await this.mixDesignService.getStrengthStdDev(constraints.strength, constraints.tempSettings)
+    const targetStrength = this.mixDesignService.calculateTargetStrength(constraints.strength, stdDev)
+    const { alphaA, alphaB } = await this.mixDesignService.getRegressionCoefficients(constraints.tempSettings)
+
+    // 生成所有胶凝组合任务
+    for (const cementMat of cementList) {
+      if (!cementMat) continue
+      // ⭐ 每种水泥重算 waterRatio
+      const waterRatio = this.mixDesignService.calculateWaterRatio(
+        targetStrength,
+        cementMat.compressiveStrength28d || 48.0,
+        alphaA,
+        alphaB
+      )
+
+      for (const flyAshMat of flyAshList) {
+        for (const slagMat of slagList) {
+          for (const lithiumSlagMat of lithiumSlagList) {
+            for (const compositePowderMat of compositePowderList) {
+              for (const flyAsh of flyAshRange) {
+                for (const slag of slagRange) {
+                  for (const lithiumSlag of lithiumSlagRange) {
+                    for (const compositePowder of compositePowderRange) {
+                      if (flyAsh + slag + lithiumSlag + compositePowder > maxAdmixtureRatio) continue
+                      tasks.push({
+                        cementMat, waterRatio,
+                        flyAshMat: flyAshMat, slagMat, lithiumSlagMat, compositePowderMat,
+                        flyAsh, slag, lithiumSlag, compositePowder
+                      })
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // BATCH_SIZE=100 并行处理
+    const BATCH_SIZE = 100
+    for (let i = 0; i < tasks.length; i += BATCH_SIZE) {
+      if (cancellationToken?.cancelled) throw new Error('cancelled')
+
+      const batch = tasks.slice(i, i + BATCH_SIZE)
+      const batchResults = batch.map(task => {
+        try {
+          const cost = this.mixDesignService.computeCementitiousCost({
+            baseWaterAmount, waterRatio: task.waterRatio,
+            flyAsh: task.flyAsh, slag: task.slag,
+            lithiumSlag: task.lithiumSlag, compositePowder: task.compositePowder,
+            cementMat: task.cementMat,
+            flyAshMat: task.flyAshMat, slagMat: task.slagMat,
+            lithiumSlagMat: task.lithiumSlagMat, compositePowderMat: task.compositePowderMat,
+            spDosage: defaultSpDosage,
+            spMat: defaultSp
+          })
+          return { ...task, cementitiousCost: cost }
+        } catch (e) {
+          return null
+        }
+      })
+      // batchResults 是同步计算（无 await），但保留 Promise.all 形式以便将来扩展
+      for (const r of batchResults) {
+        if (r) results.push(r)
+      }
+      this._reportProgress('阶段 2 胶凝估算', Math.min(i + BATCH_SIZE, tasks.length), tasks.length)
+    }
+
+    // Top5
+    results.sort((a, b) => a.cementitiousCost - b.cementitiousCost)
+    return results.slice(0, 5)
   }
 
   /**
