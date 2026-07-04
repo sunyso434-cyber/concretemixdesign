@@ -52,4 +52,22 @@ describe('MixDesignOptimizer 阶段 3', () => {
       expect(result[i].totalCost).toBeGreaterThanOrEqual(result[i-1].totalCost)
     }
   })
+
+  // Critical #1 回归测试：_validateConstraints 必须尊重 userLimits.waterRatioRange
+  test('_validateConstraints 接受 userLimits.waterRatioRange 并拒绝越界水胶比', () => {
+    const opt = new MixDesignOptimizer()
+    const baseResult = {
+      targetStrength: 40,
+      waterRatio: 0.5,
+      materials: { cement: 300, flyAsh: 80, slag: 0, lithiumSlag: 0, compositePowder: 0, water: 175 }
+    }
+    // 1. 在范围内 → 通过
+    expect(opt._validateConstraints(baseResult, { strength: 'C30' }, { waterRatioRange: [0.4, 0.6] })).toBe(true)
+    // 2. 低于下限 → 拒绝
+    expect(opt._validateConstraints({ ...baseResult, waterRatio: 0.3 }, { strength: 'C30' }, { waterRatioRange: [0.4, 0.6] })).toBe(false)
+    // 3. 高于上限 → 拒绝
+    expect(opt._validateConstraints({ ...baseResult, waterRatio: 0.7 }, { strength: 'C30' }, { waterRatioRange: [0.4, 0.6] })).toBe(false)
+    // 4. 不传 userLimits → 默认 {} → 不做水胶比范围检查
+    expect(opt._validateConstraints({ ...baseResult, waterRatio: 0.3 }, { strength: 'C30' })).toBe(true)
+  })
 })

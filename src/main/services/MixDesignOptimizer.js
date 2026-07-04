@@ -376,6 +376,7 @@ class MixDesignOptimizer {
             targetDensity: 2400,
             materials: {
               ...materials,
+              cement: combo.cementMat,
               sand: blendedSand,
               stone: stoneInitial,
               flyAsh: combo.flyAshMat,
@@ -884,15 +885,21 @@ _prepareMaterials(materials) {
    * 验证约束条件
    * @param {Object} result - 配合比计算结果
    * @param {Object} constraints - 性能目标约束
+   * @param {Object} userLimits - 用户自定义限值（可选，默认 {}）
    * @returns {boolean}
    */
-  _validateConstraints(result, constraints) {
+  _validateConstraints(result, constraints, userLimits = {}) {
     const strengthNum = parseInt(String(constraints.strength).replace('C', ''))
     if (result.targetStrength && result.targetStrength < strengthNum) return false
+    // 用户自定义水胶比限值（如指定）
+    if (userLimits.waterRatioRange) {
+      const [minWbr, maxWbr] = userLimits.waterRatioRange
+      if (result.waterRatio < minWbr || result.waterRatio > maxWbr) return false
+    }
     const totalCementitious = (result.materials?.cement || 0) + (result.materials?.flyAsh || 0)
       + (result.materials?.slag || 0) + (result.materials?.lithiumSlag || 0)
       + (result.materials?.compositePowder || 0)
-    if (totalCementitious < 200 || totalCementitious > 600) return false
+    if (totalCementitious <= 0 || totalCementitious < 200 || totalCementitious > 600) return false
     const waterAmount = result.materials?.water
     if (!waterAmount || waterAmount <= 0 || waterAmount > 250) return false
     return true
