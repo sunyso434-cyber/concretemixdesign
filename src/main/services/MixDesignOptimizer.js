@@ -447,6 +447,73 @@ class MixDesignOptimizer {
   }
 
   /**
+   * 阶段 4：Top5 + 重新遍历粗骨料 → Top5
+   * 在阶段 3 Top5 基础上遍历所有粗骨料品种，按总成本排序得 Top5。
+   * mass 法（默认），用 _overrideBaseWaterAmount 覆盖基准用水量。
+   * 不遍历减水剂（用 defaultSp，减水剂遍历留到阶段 5）。
+   * @param {Object} params
+   * @param {Array} params.top5WithSand - 阶段 3 产出的 Top5
+   * @param {Object} params.materials - 原材料（包含 stone 数组）
+   * @param {Object} params.defaultSp - 默认减水剂
+   * @param {Object} params.constraints - 性能约束（strength/slump）
+   * @param {Object} params.cancellationToken - 取消令牌 { cancelled: boolean }
+   * @returns {Promise<Array<Object>>} Top5 组合（按总成本升序）
+   */
+  async _stage4ReassessCoarseAggregate({
+    top5WithSand, materials, defaultSp,
+    constraints, cancellationToken
+  }) {
+    const results = []
+    const stoneList = this._getMaterialList(materials.stone).filter(s => s)
+
+    for (const combo of top5WithSand) {
+      if (cancellationToken?.cancelled) throw new Error('cancelled')
+
+      for (const stoneMat of stoneList) {
+        const aggregateType = stoneMat.name?.includes('卵石') ? '卵石' : '碎石'
+        const baseWater = this.mixDesignService.getBaseWaterAmount(
+          this.mixDesignService.extractMaxAggregateSize(stoneMat.specification),
+          constraints.slump, aggregateType
+        )
+
+        try {
+          const result = await this.mixDesignService.calculateMixDesign({
+            strength: constraints.strength,
+            slump: constraints.slump,
+            waterRatio: combo.waterRatio,
+            flyAshDosage: combo.cementitious.flyAsh,
+            slagDosage: combo.cementitious.slag,
+            lithiumSlagDosage: combo.cementitious.lithiumSlag,
+            compositePowderDosage: combo.cementitious.compositePowder,
+            sandRatio: combo.sandRatio,
+            calculationMethod: 'mass',
+            targetDensity: 2400,
+            materials: {
+              ...materials,
+              sand: combo.blendedSand,
+              stone: stoneMat,
+              flyAsh: combo.cementitious.flyAshMat,
+              slag: combo.cementitious.slagMat,
+              lithiumSlag: combo.cementitious.lithiumSlagMat,
+              compositePowder: combo.cementitious.compositePowderMat,
+              superplasticizer: defaultSp
+            },
+            _overrideBaseWaterAmount: baseWater
+          })
+          if (this._validateConstraints(result, constraints)) {
+            results.push({ ...result, stoneMat })
+          }
+        } catch (e) {
+          // 忽略计算失败
+        }
+      }
+    }
+
+    results.sort((a, b) => a.totalCost - b.totalCost)
+    return results.slice(0, 5)
+  }
+
+  /**
    * 阶段 2：胶凝材料快速估算 → Top5
    * BATCH_SIZE=100 并行（老板决策）
    * ⭐ 每种水泥品种内部都重算 waterRatio（保罗米公式）
