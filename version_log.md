@@ -1,3 +1,25 @@
+## v10.6.3 修复版本 (2026-07-04) - 成本优化器 totalCost 漏算水泥成本 bug
+
+### 背景
+老板实测 v10.6.2 报告：`totalCost=164.48`，但实测成本应约 245 元/m³。老板一眼看出 totalCost 明显漏算水泥成本。
+
+### 根因
+`MixDesignService_Database.js` 的成本计算用 `materials.cement.price`，但材料在多水泥 ID 场景下是**数组**（如 `[{id: 25, ...}, {id: 54, ...}]`），`array.price` 是 undefined → cementPrice=0 → 漏算水泥/掺合料/减水剂成本。
+另外 `MixDesignOptimizer` 阶段 4 漏传 `cement: combo.cementitious.cementMat`，导致 `...materials` 让数组的 `materials.cement` 传过去。
+
+### 修复内容
+1. `MixDesignService_Database.js`：
+   - 加 `getMat(m)` 辅助：数组取第一个
+   - `cementMat/flyAshMat/slagMat/lithiumSlagMat/compositePowderMat/spMat` 全部用 `getMat()` 解析
+   - 6 个 `materials.xxx &&` 改成 `xxxMat &&`（水泥/粉煤灰/矿渣粉/锂渣/复合粉/减水剂）
+2. `MixDesignOptimizer.js` 阶段 4：补 `cement: combo.cementitious.cementMat` 透传
+
+### 验证
+- 26 套件 / 95 测试 / 2 snapshots — 全绿
+- `node tests/manual/test-costs.js`：水泥价格 480 元/吨已正确读取，totalCost = 346.49 元/m³（含全部材料成本）
+
+---
+
 ## v10.6.2 修复版本 (2026-07-04) - 成本优化器 ID→材料对象 lookup 修复
 
 ### 背景
