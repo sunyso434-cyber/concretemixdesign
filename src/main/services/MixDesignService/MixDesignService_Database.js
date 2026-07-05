@@ -302,16 +302,22 @@ class MixDesignService_Database {
       calculationSteps.push({ step: 6, title: '减水剂计算', details: spDetails })
 
       // 9. 计算实际用水量
+      // ponytail: 4 个掺合料修正公式里 `*Dosage / 100` 是把"百分比数字"（如 20）转成小数（0.2）
+      // 不要传 0.20（小数）— 公式会被压扁 100 倍，修正量变成 0.000333 → 静默不修正
+      // 老板决策：所有 *Dosage 入参是百分数（0-100），waterRatio/sandRatio 是各自独立单位（见 schema）
       let waterAmount = baseWaterAmount * (1 - waterReducingRate / 100)
       const waterAdjustments = [{ label: '基准用水量', value: `${baseWaterAmount} kg/m³` }]
 
+      // 粉煤灰修正：waterDemandRatio < 100 减水（GB/T 1596 一级粉煤灰通常 92-95）
       if (flyAshDosage && flyAshDosage > 0 && materials?.flyAsh?.waterDemandRatio) {
         const flyAshWaterDemandRatio = materials.flyAsh.waterDemandRatio
+        // 注：除数 30 是经验分母，JGJ 55 未明确（老板可验证）
         const flyAshInfluence = 1 - (100 - flyAshWaterDemandRatio) / 30 * (flyAshDosage / 100)
         waterAmount *= flyAshInfluence
         waterAdjustments.push({ label: `粉煤灰需水量比修正（${flyAshWaterDemandRatio}%）`, value: `× ${flyAshInfluence.toFixed(4)}` })
       }
 
+      // 矿渣粉修正：fluidityRatio < 100 增水（流动度差需要更多水）
       if (slagDosage && slagDosage > 0 && materials?.slag?.fluidityRatio) {
         const slagFluidityRatio = materials.slag.fluidityRatio
         const slagInfluence = 1 + (100 - slagFluidityRatio) / 50 * (slagDosage / 100)
@@ -319,6 +325,7 @@ class MixDesignService_Database {
         waterAdjustments.push({ label: `矿渣粉流动度比修正（${slagFluidityRatio}%）`, value: `× ${slagInfluence.toFixed(4)}` })
       }
 
+      // 锂渣修正：与粉煤灰公式相同（需水量比）
       if (lithiumSlagDosage && lithiumSlagDosage > 0 && materials?.lithiumSlag?.waterDemandRatio) {
         const lithiumSlagWaterDemandRatio = materials.lithiumSlag.waterDemandRatio
         const lithiumSlagInfluence = 1 - (100 - lithiumSlagWaterDemandRatio) / 30 * (lithiumSlagDosage / 100)
@@ -326,6 +333,7 @@ class MixDesignService_Database {
         waterAdjustments.push({ label: `锂渣需水量比修正（${lithiumSlagWaterDemandRatio}%）`, value: `× ${lithiumSlagInfluence.toFixed(4)}` })
       }
 
+      // 复合粉修正：与矿渣粉公式相同（流动度比）
       if (compositePowderDosage && compositePowderDosage > 0 && materials?.compositePowder?.fluidityRatio) {
         const compositePowderFluidityRatio = materials.compositePowder.fluidityRatio
         const compositePowderInfluence = 1 + (100 - compositePowderFluidityRatio) / 50 * (compositePowderDosage / 100)

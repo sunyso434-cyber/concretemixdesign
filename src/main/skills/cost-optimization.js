@@ -48,22 +48,42 @@ module.exports = {
       type: 'array', items: { type: 'integer' }, description: '减水剂候选ID列表（可选）', required: false
     },
     flyAshRange: {
-      type: 'array', items: { type: 'number' }, description: '粉煤灰掺量范围 [min, max]，默认 [0, 30]', required: false
+      type: 'array',
+      items: { type: 'number', minimum: 0, maximum: 100 },
+      description: '粉煤灰掺量范围 [min, max]，单位 %（如 [10, 30] 表示 10%~30%），默认 [0, 30]',
+      required: false,
+      minItems: 2,
+      maxItems: 2
     },
     slagRange: {
-      type: 'array', items: { type: 'number' }, description: '矿渣粉掺量范围，默认 [0, 20]', required: false
+      type: 'array',
+      items: { type: 'number', minimum: 0, maximum: 100 },
+      description: '矿渣粉掺量范围，单位 %，默认 [0, 20]',
+      required: false,
+      minItems: 2,
+      maxItems: 2
     },
     lithiumSlagRange: {
-      type: 'array', items: { type: 'number' }, description: '锂渣掺量范围，默认 [0, 20]', required: false
+      type: 'array',
+      items: { type: 'number', minimum: 0, maximum: 100 },
+      description: '锂渣掺量范围，单位 %，默认 [0, 20]',
+      required: false,
+      minItems: 2,
+      maxItems: 2
     },
     compositePowderRange: {
-      type: 'array', items: { type: 'number' }, description: '复合粉掺量范围，默认 [0, 20]', required: false
+      type: 'array',
+      items: { type: 'number', minimum: 0, maximum: 100 },
+      description: '复合粉掺量范围，单位 %，默认 [0, 20]',
+      required: false,
+      minItems: 2,
+      maxItems: 2
     },
     gridStep: {
-      type: 'number', description: '网格搜索步长，默认 5', required: false, min: 1, max: 20
+      type: 'number', description: '网格搜索步长（单位 %），默认 5', required: false, min: 1, max: 20
     },
     maxAdmixtureRatio: {
-      type: 'number', description: '所有掺合料总量上限（%），默认 50', required: false, min: 0, max: 80
+      type: 'number', description: '所有掺合料总量上限（单位 %），默认 50', required: false, min: 0, max: 80
     },
     calculationMethod: {
       type: 'string', description: '计算方法：mass（质量法，默认）或 absolute（绝对体积法）', required: false
