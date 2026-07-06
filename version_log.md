@@ -7275,3 +7275,68 @@ v10.6.6 我只清洗了**顶层 properties** 的非法 `type`，**没处理嵌�
   - `dist-10.6.8/砼智 Setup 10.6.8.exe`（NSIS 安装包，147 MB）
   - `dist-10.6.8/砼智-10.6.8-portable-x64.exe`（Portable 免安装版，147 MB）
 - 验证 4 项（请老板亲自跑）：菜单只剩 7 项 / 默认 tab 是 LLM管理 / σ 参数 label 是 C25~C45 / agent 能调用 5 件套 skill
+
+## v10.7.0 (2026-07-07) - agent.md v2 重设计 + 记忆系统大清理
+
+### 核心变更：agent.md v2
+
+#### agent.md 解析器完全重写
+- v1 → v2：从 5 个硬编码 section（回复风格/专业偏好/工作流程/自定义知识/已忽略建议类型）改为**纯结构解析**
+- 新格式只识别 `## 一级标题` + `### 二级标题` + `- 列表项`，不解析语义
+- `formatToMarkdown` 双向幂等（parse → format → parse 不丢数据）
+- section 命名完全自定义，不再受限（老板可以写自己想要的任意标题）
+
+#### 路径工作区隔离（关键痛点修复）
+- agent.md 从全局 `~/.concrete-mixdesign/agent.md` 改为**工作区路径 `<workspace>/.agent/agent.md`**
+- 不同工作区不再共享偏好（A 项目用海螺、B 项目用冀东，不会互相污染）
+- 老 agent.md 启动时自动检测 v1 → 备份到 `.v1.bak` → 覆盖 v2 模板（只警告不转换）
+- 新增 `setWorkspacePath()` 运行时切换路径
+
+#### 首次启动模板
+- 新用户首次启动自动写入 v2 模板（含回复规范/代码编写原则/业务规则/注意事项）
+- 模板按 CLAUDE.md 风格设计（老板可直接用）
+
+#### 持久化加固
+- saveToFile：.bak 自动备份（主文件损坏时自动恢复）
+- saveToFile：Promise 串行队列防并发（+ 队列错误后恢复不死锁）
+- saveMessage：Schema 校验（tool 消息缺 toolCallId 拒绝、assistant 需 content 或 toolCalls）
+- 退出前强制 flush 未导出会话 × before-quit 钩子
+- 定时清理 30 天前老会话（仅清除 DB，工作区文件保留）
+
+### core 级记忆改造
+
+#### Prompt 链路（最大改动，影响所有对话）
+- `buildSystemPrompt` 签名简化：删 `agentMdRules`/`preferenceSummary`/`SIZE_LIMIT`/`tokenWarn`
+- 新入参 `userRulesMarkdown`：agent.md 整段注入 + HTML 注释包裹（去重"用户记忆"段）
+- `buildMemoryContext` 改名 `buildAgentMdBlock`，只返回 agent.md 规则整段（不再拼接乱码 history）
+
+#### 修正规则检索提升
+- `findSimilarCorrections` 从伪 TF-IDF（字段相等/包含匹配）改为**项目自带 BM25 + 中文分词**
+- 中文召回准确率从不可靠跳升至 BM25 标准水平
+- 彻底删除 `_tfidfSimilarity` 方法
+
+#### LearningService IPC 接通
+- `getSuggestions()` + `acceptSuggestion()` 方法
+- `agent:suggestions:list` + `agent:suggestions:accept` IPC
+
+#### IPC 适配层
+- 加 `v2ToV1Proxy` 适配器（Object.defineProperty getter/setter 写回），让老前端 IPC 调用方无痛迁移
+
+### 测试验证
+- 14 suites / 80+ tests 全部 PASS
+- 6 个新测试文件：AgentMdParser / AgentMdService / migration / path / SessionCleanupService / LearningService
+- systemPromptBuilder 41 tests（完全重写为 v2）
+- BM25 检索测试：坍落度查询 → 命中 2 条结果，score/context字段完整
+
+### 打包记录（2026-07-07）
+- `npm run electron:build` 成功（vite 12.82s + electron-builder NSIS + portable）
+- 产物（git-ignored，未入仓）：
+  - `dist-10.7.0/砼智 Setup 10.7.0.exe`（NSIS 安装包，140 MB）
+  - `dist-10.7.0/砼智-10.7.0-portable-x64.exe`（Portable 免安装版，139 MB）
+- 验证要点（请老板亲测）：
+  1. 新工作区 → 自动生成 `/.agent/agent.md` 模板
+  2. 改 agent.md → 保存 → 到 `.bak` 备份存在
+  3. 切工作区 → 各工作区独立 agent.md
+  4. 老 v1 agent.md → 自动迁移（备份 .v1.bak + 覆盖 v2 模板）
+  5. 系统提示不再重复注入 agent.md（查 agent-debug.log 确认）
+  6. `npm run test` 回归通过
