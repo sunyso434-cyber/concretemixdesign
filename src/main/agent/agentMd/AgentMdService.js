@@ -29,27 +29,63 @@ class AgentMdService {
    * 文件不存在时初始化为空结构(不抛错)
    * 文件过大(>1MB)时输出 warning
    * 非 UTF-8 编码时抛出友好错误
+   *
+   * 兜底策略:
+   *  - 读盘失败(非 ENOENT)时尝试 .bak
+   *  - 解析失败时尝试 .bak,成功则自动把 .bak 写回主文件(最佳努力)
    */
   loadFromFile() {
+    let content = null
     try {
-      // 1. 读 buffer 以检测编码
       const buf = fs.readFileSync(this.path)
-      const content = this._decodeUtf8(buf)
-      this.rawCache = content
-      this.cache = AgentMdParser.parse(content)
+      content = this._decodeUtf8(buf)
 
-      // 2. 文件大小警告
+      // 文件大小警告
       if (buf.length > 1024 * 1024) {
         console.warn(`[AgentMdService] 文件过大 (${buf.length} 字节 > 1MB)，建议精简以提升加载速度`)
       }
     } catch (err) {
       if (err.code === 'ENOENT') {
-        this.rawCache = ''
-        this.cache = AgentMdParser.parse('')
+        content = ''
       } else {
-        // 编码错误/IO 错误均透传，由 IPC handler 兜底提示
+        // 读盘失败:尝试 .bak
+        content = this._tryLoadBackup()
+        if (content === null) throw err
+      }
+    }
+
+    try {
+      this.rawCache = content
+      this.cache = AgentMdParser.parse(content)
+    } catch (err) {
+      // 解析失败:尝试 .bak
+      console.warn(`[AgentMdService] 主文件解析失败，尝试 .bak fallback: ${err.message}`)
+      const backup = this._tryLoadBackup()
+      if (backup !== null) {
+        this.rawCache = backup
+        this.cache = AgentMdParser.parse(backup)
+        // 自动恢复:把 .bak 写回主文件(最佳努力)
+        try {
+          fs.writeFileSync(this.path, backup, 'utf8')
+          console.warn('[AgentMdService] 已自动从 .bak 恢复主文件')
+        } catch (_) {
+          // 恢复失败不影响本次内存态,下次再试
+        }
+      } else {
         throw err
       }
+    }
+  }
+
+  /**
+   * 尝试加载 .bak 备份内容
+   * @returns {string|null} 成功返回内容,失败返回 null
+   */
+  _tryLoadBackup() {
+    try {
+      return fs.readFileSync(this.path + '.bak', 'utf8')
+    } catch (_) {
+      return null
     }
   }
 
@@ -143,14 +179,23 @@ class AgentMdService {
     // 1. 先解析校验（失败会抛错，不写盘）
     const nextCache = AgentMdParser.parse(content)
 
-    // 2. 校验通过才写盘
+    // 2. 自动 .bak 备份（仅在主文件已存在时）
+    if (fs.existsSync(this.path)) {
+      try {
+        fs.copyFileSync(this.path, this.path + '.bak')
+      } catch (err) {
+        console.warn(`[AgentMdService] .bak 备份失败（继续写入）: ${err.message}`)
+      }
+    }
+
+    // 3. 写盘
     const dir = path.dirname(this.path)
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true })
     }
     fs.writeFileSync(this.path, content, 'utf8')
 
-    // 3. 同步缓存
+    // 4. 同步缓存
     this.rawCache = content
     this.cache = nextCache
   }
