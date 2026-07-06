@@ -3,8 +3,7 @@
  *
  * 验证两个关键流程：
  * 1. saveMessage 后能用 getHistory(sessionId) 找回（基础对话历史）
- * 2. TF-IDF 召回：C1 修复后 buildMemoryContext 把 queryContext 透传给
- *    findSimilarCorrections，相关 CorrectionRule 能被召回
+ * 2. buildAgentMdBlock（Task 8 改名）只读 agent.md，不再召回 CorrectionRule
  *
  * 关键点（与 plan 不同的实际 API）：
  * - AgentMemoryService 是单例导出（module.exports = new AgentMemoryService()），
@@ -157,8 +156,8 @@ describe('AgentMemoryService 集成测试（真实 SQLite）', () => {
     )
   })
 
-  test('buildMemoryContext 改读 agent.md（不再召回调 CorrectionRule）', async () => {
-    // 写一条修正规则：即使存在也不应再被 buildMemoryContext 注入
+  test('buildAgentMdBlock 只读 agent.md（不再召回调 CorrectionRule）', async () => {
+    // 写一条修正规则：即使存在也不应再被 buildAgentMdBlock 注入
     await AgentMemoryService.saveCorrection({
       context: { material: '42.5水泥' },
       originalSuggestion: { strength: 'C30' },
@@ -166,14 +165,13 @@ describe('AgentMemoryService 集成测试（真实 SQLite）', () => {
       toolName: null
     })
 
-    const ctx = await AgentMemoryService.buildMemoryContext('s1', {
-      queryContext: { material: '42.5水泥' }
-    })
+    const block = await AgentMemoryService.buildAgentMdBlock('s1')
 
-    // 新实现：返回 "用户自定义规则" + "历史摘要"，不再注入 CorrectionRule
-    expect(ctx).toContain('用户自定义规则')
-    expect(ctx).toContain('历史摘要')
-    expect(ctx).not.toContain('PO42.5')
-    expect(ctx).not.toContain('修正记录')
+    // v2（Task 8）：只返回 agent.md 整段，不再注入 CorrectionRule、不再拼历史摘要
+    expect(block).not.toContain('PO42.5')
+    expect(block).not.toContain('修正记录')
+    expect(block).not.toContain('历史摘要')
+    // 形参 _sessionId 已标记 unused，调用不崩即可
+    expect(typeof block).toBe('string')
   })
 })

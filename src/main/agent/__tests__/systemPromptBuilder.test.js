@@ -1,11 +1,11 @@
 const { buildSystemPrompt, REPORT_SKILL_MATRIX } = require('../systemPromptBuilder')
 
-describe('systemPromptBuilder', () => {
+describe('systemPromptBuilder v2 基础', () => {
   test('应输出包含角色定义的字符串', () => {
     const prompt = buildSystemPrompt({
       memoryContext: '',
       skillNames: ['skill_a', 'skill_b'],
-      agentMdRules: ''
+      userRulesMarkdown: ''
     })
     expect(prompt).toContain('混凝土配合比')
   })
@@ -14,7 +14,7 @@ describe('systemPromptBuilder', () => {
     const prompt = buildSystemPrompt({
       memoryContext: '',
       skillNames: ['query_material', 'calculate_ratio'],
-      agentMdRules: ''
+      userRulesMarkdown: ''
     })
     expect(prompt).toContain('query_material')
     expect(prompt).toContain('calculate_ratio')
@@ -24,7 +24,7 @@ describe('systemPromptBuilder', () => {
     const prompt = buildSystemPrompt({
       memoryContext: '用户偏好 42.5 水泥',
       skillNames: [],
-      agentMdRules: ''
+      userRulesMarkdown: ''
     })
     expect(prompt).toContain('用户偏好 42.5 水泥')
   })
@@ -33,66 +33,72 @@ describe('systemPromptBuilder', () => {
     const prompt = buildSystemPrompt({
       memoryContext: '',
       skillNames: [],
-      agentMdRules: ''
+      userRulesMarkdown: ''
     })
     expect(typeof prompt).toBe('string')
     expect(prompt.length).toBeGreaterThan(0)
   })
-
-  test('agentMdRules 应注入到"用户自定义规则"章节', () => {
-    const prompt = buildSystemPrompt({
-      memoryContext: '',
-      skillNames: [],
-      agentMdRules: '## 回复风格\n- 语气：非常专业\n- 称呼：王工'
-    })
-    expect(prompt).toContain('非常专业')
-    expect(prompt).toContain('王工')
-    expect(prompt).toContain('用户自定义规则')
-  })
-
-  test('agentMdRules 超过 4KB 应追加截断警告', () => {
-    const big = 'x'.repeat(5000)
-    const prompt = buildSystemPrompt({
-      memoryContext: '',
-      skillNames: [],
-      agentMdRules: big
-    })
-    expect(prompt).toContain('截断')
-  })
-
-  test('总长度超 4000 字符应追加 token 警告', () => {
-    const bigMemory = 'y'.repeat(3000)
-    const bigRules = 'z'.repeat(1500)
-    const prompt = buildSystemPrompt({
-      memoryContext: bigMemory,
-      skillNames: [],
-      agentMdRules: bigRules
-    })
-    expect(prompt).toContain('token')
-  })
 })
 
-describe('buildSystemPrompt 注入 preferenceSummary', () => {
-  test('应把 preferenceSummary 嵌入用户偏好段落', () => {
-    const prompt = buildSystemPrompt({
-      memoryContext: '历史摘要',
-      skillNames: ['calculate_mix_design'],
-      agentMdRules: '规则',
-      preferenceSummary: '- 选材：水泥厂家偏好拉法基\n- 计算方法：体积法'
+// Task 8 v2：userRulesMarkdown 整段注入 + HTML 注释包裹
+describe('buildSystemPrompt v2 - userRulesMarkdown（Task 8）', () => {
+  test('userRulesMarkdown 整段注入并用 HTML 注释包裹', () => {
+    const result = buildSystemPrompt({
+      userRulesMarkdown: '## 业务规则\n- 老板偏好 C30',
+      skillNames: []
     })
-    expect(prompt).toContain('- 选材：水泥厂家偏好拉法基')
-    expect(prompt).toContain('- 计算方法：体积法')
+    expect(result).toContain('<!-- 老板自定义规则开始 -->')
+    expect(result).toContain('## 业务规则')
+    expect(result).toContain('- 老板偏好 C30')
+    expect(result).toContain('<!-- 老板自定义规则结束 -->')
+    // 开始/结束注释之间的内容顺序：开始 → 内容 → 结束
+    const startIdx = result.indexOf('<!-- 老板自定义规则开始 -->')
+    const contentIdx = result.indexOf('## 业务规则')
+    const endIdx = result.indexOf('<!-- 老板自定义规则结束 -->')
+    expect(startIdx).toBeGreaterThan(-1)
+    expect(contentIdx).toBeGreaterThan(startIdx)
+    expect(endIdx).toBeGreaterThan(contentIdx)
   })
 
-  test('preferenceSummary 为空时不应输出该段落', () => {
-    const prompt = buildSystemPrompt({})
-    expect(prompt).not.toContain('# 用户偏好')
+  test('userRulesMarkdown 为空时显示"未配置"', () => {
+    const result = buildSystemPrompt({ skillNames: [] })
+    expect(result).toContain('（未配置，使用系统默认）')
   })
 
-  test('preferenceSummary 非空时应有独立小标题', () => {
-    const prompt = buildSystemPrompt({ preferenceSummary: '- 计算方法：体积法' })
-    expect(prompt).toContain('# 用户偏好')
-    expect(prompt).toContain('- 计算方法：体积法')
+  test('无 agentMdRules / preferenceSummary 旧参数（验证删除）', () => {
+    // 旧参数即使传了也应被忽略
+    const result = buildSystemPrompt({
+      agentMdRules: '## 旧规则',
+      preferenceSummary: '- 老摘要',
+      skillNames: []
+    })
+    // 旧参数不应被注入
+    expect(result).not.toContain('## 旧规则')
+    expect(result).not.toContain('老摘要')
+  })
+
+  test('v2 已删除 SIZE_LIMIT 截断警告', () => {
+    // 旧逻辑：超过 4KB 追加 "（agent.md 过大，已截断...）"
+    const big = 'x'.repeat(5000)
+    const result = buildSystemPrompt({
+      userRulesMarkdown: big,
+      skillNames: []
+    })
+    expect(result).not.toContain('已截断')
+    expect(result).toContain('x')
+  })
+
+  test('v2 已删除 tokenWarn 警告', () => {
+    // 旧逻辑：memoryContext + rulesText 总长 >4000 追加 "⚠️ system prompt 接近 2000 token 上限"
+    const bigMemory = 'y'.repeat(3000)
+    const bigRules = 'z'.repeat(1500)
+    const result = buildSystemPrompt({
+      memoryContext: bigMemory,
+      userRulesMarkdown: bigRules,
+      skillNames: []
+    })
+    expect(result).not.toContain('2000 token 上限')
+    expect(result).not.toContain('请精简 agent.md')
   })
 })
 
@@ -113,7 +119,7 @@ describe('buildSystemPrompt 注入 workspace 工具说明（Task 4.4）', () => 
     const prompt = buildSystemPrompt({
       memoryContext: '',
       skillNames: ['calculate_mix_design'],
-      agentMdRules: ''
+      userRulesMarkdown: ''
     })
     for (const name of EXPECTED_TOOLS) {
       expect(prompt).toContain(name)
@@ -148,7 +154,7 @@ describe('buildSystemPrompt 注入 5 类报告 Skill 矩阵（Task 4.3 软约束
     const prompt = buildSystemPrompt({
       memoryContext: '',
       skillNames: ['calculate_mix_design', 'performance_prediction'],
-      agentMdRules: ''
+      userRulesMarkdown: ''
     })
     expect(prompt).toContain('5 类报告')
     expect(prompt).toContain('配合比设计报告')
@@ -174,11 +180,11 @@ describe('buildSystemPrompt 注入 5 类报告 Skill 矩阵（Task 4.3 软约束
     expect(prompt).toContain('performance_prediction')
   })
 
-  test('matrix 应出现在 agentMdRules 之后、回答风格之前（位置正确）', () => {
+  test('matrix 应出现在 userRulesMarkdown 之后、回答风格之前（位置正确）', () => {
     const prompt = buildSystemPrompt({
       memoryContext: '',
       skillNames: [],
-      agentMdRules: '我的规则占位'
+      userRulesMarkdown: '我的规则占位'
     })
     const idxRules = prompt.indexOf('我的规则占位')
     const idxMatrix = prompt.indexOf('5 类报告')
@@ -186,5 +192,91 @@ describe('buildSystemPrompt 注入 5 类报告 Skill 矩阵（Task 4.3 软约束
     expect(idxRules).toBeGreaterThan(-1)
     expect(idxMatrix).toBeGreaterThan(idxRules)
     expect(idxStyle).toBeGreaterThan(idxMatrix)
+  })
+})
+
+// skillInfos：按 category 自动分组生成技能列表（避免硬编码漏技能）
+describe('buildSystemPrompt 注入 skillInfos 按 category 分组', () => {
+  const sampleInfos = [
+    { name: 'calculate_mix_design', category: 'core', description: '根据给定参数计算混凝土配合比。返回各材料用量、水胶比、砂率、容重、成本等结果。' },
+    { name: 'cost_optimization', category: 'core', description: '对给定材料和约束条件执行网格搜索，找出成本最低的混凝土配合比方案。' },
+    { name: 'list_mix_designs', category: 'query', description: '列出配合比方案（正式/草稿）。支持按状态/强度/关键词过滤。' },
+    { name: 'ask_user', category: 'meta', description: '向用户提问/澄清，前端弹窗收集回答后回灌。' }
+  ]
+
+  test('应按 category 自动分组生成技能段', () => {
+    const prompt = buildSystemPrompt({
+      memoryContext: '',
+      skillNames: [],
+      skillInfos: sampleInfos,
+      userRulesMarkdown: ''
+    })
+    expect(prompt).toContain('【core】')
+    expect(prompt).toContain('【query】')
+    expect(prompt).toContain('【meta】')
+  })
+
+  test('每个技能应显示 name + 截断后的 description', () => {
+    const prompt = buildSystemPrompt({
+      memoryContext: '',
+      skillNames: [],
+      skillInfos: sampleInfos,
+      userRulesMarkdown: ''
+    })
+    expect(prompt).toContain('calculate_mix_design：')
+    expect(prompt).toContain('list_mix_designs：')
+    // description 截断到 30 字
+    expect(prompt).toContain('根据给定参数计算混凝土配合比')
+    expect(prompt).not.toContain('根据给定参数计算混凝土配合比。返回各材料用量、水胶比、砂率、容重、成本等结果')
+  })
+
+  test('应显示技能总数', () => {
+    const prompt = buildSystemPrompt({
+      memoryContext: '',
+      skillNames: [],
+      skillInfos: sampleInfos,
+      userRulesMarkdown: ''
+    })
+    expect(prompt).toContain('共 4 个')
+  })
+
+  test('应包含反模式提示（禁止硬编技能名）', () => {
+    const prompt = buildSystemPrompt({
+      memoryContext: '',
+      skillNames: [],
+      skillInfos: sampleInfos,
+      userRulesMarkdown: ''
+    })
+    expect(prompt).toContain('不要硬编')
+  })
+
+  test('category 缺失时应降级到 general', () => {
+    const prompt = buildSystemPrompt({
+      memoryContext: '',
+      skillNames: [],
+      skillInfos: [{ name: 'unknown_skill', category: undefined, description: '测试' }],
+      userRulesMarkdown: ''
+    })
+    expect(prompt).toContain('【general】')
+  })
+
+  test('skillInfos 缺失时应降级到 skillNames（只列名字）', () => {
+    const prompt = buildSystemPrompt({
+      memoryContext: '',
+      skillNames: ['fallback_skill'],
+      userRulesMarkdown: ''
+    })
+    expect(prompt).toContain('- fallback_skill')
+    expect(prompt).not.toContain('【core】')
+  })
+
+  test('skillInfos 为空数组时应降级到 skillNames', () => {
+    const prompt = buildSystemPrompt({
+      memoryContext: '',
+      skillNames: ['fallback_skill'],
+      skillInfos: [],
+      userRulesMarkdown: ''
+    })
+    expect(prompt).toContain('- fallback_skill')
   })
 })

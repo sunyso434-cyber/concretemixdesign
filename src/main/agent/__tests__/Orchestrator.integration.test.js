@@ -20,7 +20,7 @@ describe('Orchestrator.run 集成测试', () => {
       skillRegistry: { getSkill: jest.fn(), getToolSchemas: jest.fn(() => []) },
       skillExecutor: { execute: jest.fn() },
       agentMemoryService: {
-        buildMemoryContext: jest.fn(async () => ''),
+        buildAgentMdBlock: jest.fn(async () => ''),
         buildHistoryMessages: jest.fn(async () => []),
         saveMessage: jest.fn(async () => {})
       }

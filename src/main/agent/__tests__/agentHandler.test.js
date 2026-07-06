@@ -16,7 +16,7 @@ describe('agent:run IPC 兼容性', () => {
       deepseekService: { chatWithTools: jest.fn().mockResolvedValue({ content: 'ok' }) },
       skillRegistry: { getToolSchemas: () => [] },
       skillExecutor: {},
-      agentMemoryService: { buildMemoryContext: async () => '', buildHistoryMessages: async () => [], saveMessage: async () => {} }
+      agentMemoryService: { buildAgentMdBlock: async () => '', buildHistoryMessages: async () => [], saveMessage: async () => {} }
     })
     const result = await orch.run({ sessionId: 's', message: 'hi' })
     // IPC handler 期望的格式（D5 保持兼容）
@@ -29,7 +29,7 @@ describe('agent:run IPC 兼容性', () => {
       deepseekService: { chatWithTools: jest.fn().mockRejectedValue(new Error('fatal')) },
       skillRegistry: { getToolSchemas: () => [] },
       skillExecutor: {},
-      agentMemoryService: { buildMemoryContext: async () => '', buildHistoryMessages: async () => [], saveMessage: async () => {} }
+      agentMemoryService: { buildAgentMdBlock: async () => '', buildHistoryMessages: async () => [], saveMessage: async () => {} }
     })
     try {
       await orch.run({ sessionId: 's', message: 'hi' })

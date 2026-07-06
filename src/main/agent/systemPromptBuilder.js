@@ -75,31 +75,52 @@ const REPORT_SKILL_MATRIX = `## 5 类报告 → 必调 Skill 矩阵（软约束�
 写报告时：\`payload = { title, sections: [{type:'h1'|'h2'|'p'|'list'|'table'|'code', ...}] }\` → \`workspace_writeFile({ type:'docx'|'xlsx'|'md', filename, payload })\`。**payload 必须包含 sections 数组**——只传 title 会只生成标题没正文。`
 
 /**
- * 构造 system prompt
+ * 构造 system prompt（v2）
+ *
+ * 改造点（Task 8）：
+ * - 入参从 `{ memoryContext, agentMdRules, preferenceSummary, ... }` 改为 `{ memoryContext, userRulesMarkdown, ... }`
+ * - 整段 agent.md 通过 `userRulesMarkdown` 单字段注入，外层用 HTML 注释包裹
+ * - 删除 `SIZE_LIMIT` 截断 + `tokenWarn` 警告（v2 不再做 prompt 级尺寸管控）
+ * - 删除 `preferenceSummary` 入参（agent.md 已是规则唯一来源，不再单独注入偏好摘要）
+ *
  * @param {Object} params
- * @param {string} params.memoryContext - AgentMemoryService.buildMemoryContext 的输出
- * @param {string[]} params.skillNames - 当前 session 可用技能名列表
- * @param {string} params.agentMdRules - agent.md 解析后的 Markdown（用户自定义规则）
- * @param {string} [params.preferenceSummary] - agent.md 偏好的中文摘要（用于注入 prompt）
+ * @param {string} [params.memoryContext] - 用户历史记忆（来自 AgentMemoryService.buildHistoryMessages 之外的旁路）
+ * @param {string[]} [params.skillNames] - 当前 session 可用技能名列表（降级用）
+ * @param {Array<{name, category, description}>} [params.skillInfos] - 技能详细信息（按 category 分组生成第 4 段，零硬编码、零漏技能）
+ * @param {string} [params.userRulesMarkdown] - agent.md 解析后的整段 Markdown（用 HTML 注释包裹注入）
  * @returns {string} 完整的 system prompt
  */
-function buildSystemPrompt({ memoryContext = '', skillNames = [], agentMdRules = '', preferenceSummary = '' } = {}) {
-  const skillList = skillNames.length > 0
-    ? skillNames.map(s => `- ${s}`).join('\n')
-    : '（当前无可用技能）'
-
-  // 4KB 阈值警告
-  const SIZE_LIMIT = 4 * 1024
-  let rulesText = agentMdRules
-  if (rulesText.length > SIZE_LIMIT) {
-    rulesText = rulesText.slice(0, SIZE_LIMIT) + '\n\n（agent.md 过大，已截断。完整内容请查看文件）'
+function buildSystemPrompt({
+  memoryContext = '',
+  userRulesMarkdown = '',
+  skillNames = [],
+  skillInfos = null
+} = {}) {
+  // 优先用 skillInfos（带 description + category）按类别分组生成；降级用 skillNames（只名字）
+  let skillSection
+  if (skillInfos && skillInfos.length > 0) {
+    const groups = {}
+    for (const s of skillInfos) {
+      const cat = s.category || 'general'
+      if (!groups[cat]) groups[cat] = []
+      groups[cat].push(s)
+    }
+    const blocks = []
+    for (const [cat, skills] of Object.entries(groups)) {
+      const lines = skills.map(s => `- ${s.name}：${(s.description || '').slice(0, 30)}`)
+      blocks.push(`【${cat}】\n${lines.join('\n')}`)
+    }
+    skillSection = `（共 ${skillInfos.length} 个，按类别分组）\n\n${blocks.join('\n\n')}`
+  } else {
+    skillSection = skillNames.length > 0
+      ? skillNames.map(s => `- ${s}`).join('\n')
+      : '（当前无可用技能）'
   }
 
-  // 2000 token 警告（粗略按 2 字符/token）
-  const totalLen = (memoryContext.length || 0) + (rulesText.length || 0)
-  const tokenWarn = totalLen > 4000
-    ? '\n\n⚠️ system prompt 接近 2000 token 上限，请精简 agent.md。'
-    : ''
+  // v2：用单一 userRulesMarkdown 段 + HTML 注释包裹
+  const userRulesBlock = userRulesMarkdown
+    ? `<!-- 老板自定义规则开始 -->\n${userRulesMarkdown}\n<!-- 老板自定义规则结束 -->`
+    : '（未配置，使用系统默认）'
 
   return `你是混凝土配合比设计专家助手，名字叫"小砼"。
 
@@ -112,14 +133,16 @@ function buildSystemPrompt({ memoryContext = '', skillNames = [], agentMdRules =
 ${WORKSPACE_TOOLS_PROMPT}
 
 # 当前可用技能
-${skillList}
+${skillSection}
+
+# 反模式（禁止）
+不要硬编一个不在「当前可用技能」列表里的技能名。
 
 # 用户记忆
 ${memoryContext || '（无）'}
-${preferenceSummary ? `# 用户偏好\n${preferenceSummary}\n` : ''}
 
-# 用户自定义规则（agent.md）
-${rulesText || '（未配置，使用系统默认）'}
+# 用户自定义规则
+${userRulesBlock}
 
 ${REPORT_SKILL_MATRIX}
 
@@ -132,8 +155,7 @@ ${TODO_MANAGE_PROMPT}
 # 回答风格
 - 简洁专业，避免冗长
 - 涉及数据时引用具体数值
-- 不确定时主动调用工具查询
-${tokenWarn}`
+- 不确定时主动调用工具查询`
 }
 
 const TODO_MANAGE_PROMPT = `# 任务规划要求

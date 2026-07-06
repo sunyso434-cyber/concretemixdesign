@@ -27,7 +27,7 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
       execute: jest.fn()
     }
     const agentMemoryService = {
-      buildMemoryContext: jest.fn(async () => ''),
+      buildAgentMdBlock: jest.fn(async () => ''),
       buildHistoryMessages: jest.fn(async () => []),
       saveMessage: jest.fn(async () => {})
     }

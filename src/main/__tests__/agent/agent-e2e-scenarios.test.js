@@ -107,7 +107,7 @@ function makeFakeDeepseekService(scriptedResponses) {
 
 function makeFakeAgentMemory() {
   return {
-    buildMemoryContext: jest.fn(async () => ''),
+    buildAgentMdBlock: jest.fn(async () => ''),
     buildHistoryMessages: jest.fn(async () => []),
     saveMessage: jest.fn(async () => {})
   }

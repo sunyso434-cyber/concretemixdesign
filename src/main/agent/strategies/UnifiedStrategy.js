@@ -191,16 +191,20 @@ class UnifiedStrategy {
     const threshold = HARD_FUSE_THRESHOLD
 
     // 1. 构造 messages
-    const memoryContext = await this.agentMemoryService.buildMemoryContext(sessionId, {
-      queryContext: { lastUserMessage: message }
-    })
+    // v2 改造（Task 8）：单字段 userRulesMarkdown 整段注入
+    // - 不再调 agentMemoryService.buildMemoryContext（已重命名为 buildAgentMdBlock，且 v2 不再拼 history）
+    // - agent.md 整段从 agentMdService.getFormattedRules() 拿，走 userRulesMarkdown 单一字段
     const historyMessages = await this.agentMemoryService.buildHistoryMessages(sessionId)
     const skillNames = this.skillRegistry.getToolSchemas().map(s => s.function.name)
+    const skillInfos = skillNames.map(name => this.skillRegistry.getSkillMeta(name)).filter(Boolean)
+
+    const userRulesMarkdown = this.agentMdService.getFormattedRules()
 
     const systemPrompt = buildSystemPrompt({
-      memoryContext,
+      memoryContext: '',
+      userRulesMarkdown,
       skillNames,
-      agentMdRules: this.agentMdService.getFormattedRules()
+      skillInfos
     })
 
     const messages = [

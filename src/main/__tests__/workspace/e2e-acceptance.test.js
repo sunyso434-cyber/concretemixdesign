@@ -384,7 +384,7 @@ describe('E2E 验收 4：/rounds → 主循环停止（v10.2.0 范围 5-200）',
     }
     const agentMemoryMock = {
       saveMessage: jest.fn(async () => {}),
-      buildMemoryContext: jest.fn(async () => ({})),
+      buildAgentMdBlock: jest.fn(async () => ''),
       buildHistoryMessages: jest.fn(async () => [])
     }
     const systemServiceMock = {

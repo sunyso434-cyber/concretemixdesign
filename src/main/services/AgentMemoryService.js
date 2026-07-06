@@ -188,21 +188,12 @@ class AgentMemoryService {
 
   // ===== 窗口截断提示词构建 =====
 
-  async buildMemoryContext(sessionId, { windowSize = DEFAULT_WINDOW_SIZE, queryContext = {} } = {}) {
-    // 1. 读取 agent.md(全局,不依赖 sessionId)
+  // v2（Task 8）：buildMemoryContext 改名 buildAgentMdBlock，只返回 agent.md 规则整段
+  // - 不再拼接 history（历史走 buildHistoryMessages 单独走 messages 流）
+  // - 参数 _sessionId 标记 unused（保留签名避免破坏其它调用点；下个 step 改调用方）
+  async buildAgentMdBlock(_sessionId) {
     const agentMdService = this.agentMdService || require('../agent/agentMd').getInstance()
-    const agentMdRules = agentMdService.getFormattedRules() || '（未配置）'
-
-    // 2. 保留 sessionId 用于其他用途(如历史摘要)
-    const history = await this.getHistory(sessionId)
-
-    // 3. 组装
-    return `# 用户自定义规则
-${agentMdRules}
-
-# 历史摘要
-${history}
-`
+    return agentMdService.getFormattedRules() || '（未配置）'
   }
 
   async buildHistoryMessages(sessionId, { limit = DEFAULT_WINDOW_SIZE } = {}) {
