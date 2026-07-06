@@ -14,14 +14,14 @@ import { PARAM_CONFIG, PARAM_TABS } from '../config/paramConfig'
 
 const { Text, Paragraph } = Typography
 
-const PARAM_TAB_KEYS = ['使用帮助', 'JGJ55标准', '备份设置', 'AI设置', '技能管理']
+const PARAM_TAB_KEYS = ['JGJ55标准', '备份设置', '技能管理']
 
 const SettingsPage = forwardRef((props, ref) => {
   const [params, setParams] = useState([])
   const [modifiedParams, setModifiedParams] = useState({})
   const [loading, setLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState('使用帮助')
+  const [activeTab, setActiveTab] = useState('LLM管理')
 
   const [exportWizardVisible, setExportWizardVisible] = useState(false)
   const [importWizardVisible, setImportWizardVisible] = useState(false)
@@ -189,7 +189,6 @@ const SettingsPage = forwardRef((props, ref) => {
 
   // 根据 activeTab 渲染对应内容（不再使用 Tabs 顶部切换，由左侧导航控制）
   const renderActiveContent = () => {
-    if (activeTab === '使用帮助') return <HelpContent />
     if (activeTab === '技能管理') return <SkillManager />
     if (activeTab === '销售报价') return <SalesQuoteSettings />
     if (activeTab === 'agent.md 编辑') return <AgentRulesPanel />
@@ -607,128 +606,6 @@ const AppVersionInfo = () => {
       <p className="settings-about-line">版本：{version}</p>
       <p className="settings-about-line">基于 Electron + React + SQLite 开发</p>
       <p>依据标准：JGJ 55, GB 50010-2010, GB 50204-2015, JGJ/T 193-2009</p>
-    </div>
-  )
-}
-
-// 使用帮助内容组件
-const HelpContent = () => {
-  return (
-    <div className="help-content">
-      {/* 软件简介 */}
-      <Card size="small" className="help-card">
-        <Paragraph>
-          <BookOutlined style={{ marginRight: 8 }} />
-          <strong>混凝土配合比设计软件</strong>是一款专业的混凝土配合比管理工具，支持配合比设计、成本优化、AI智能分析等功能，帮助用户高效管理混凝土配合比数据。
-        </Paragraph>
-      </Card>
-
-      {/* 功能模块说明 */}
-      <Card size="small" title="功能模块说明" className="help-card">
-        <List
-          size="small"
-          dataSource={[
-            {
-              icon: <ExperimentOutlined />,
-              title: '配合比设计',
-              desc: '根据设计要求，计算并生成混凝土配合比。支持水泥、粉煤灰、矿渣粉、砂、骨料、外加剂等多种材料的配比计算。'
-            },
-            {
-              icon: <AppstoreOutlined />,
-              title: '方案管理',
-              desc: '管理和查看所有配合比方案。可查看方案详情、进行强度验证、对比不同方案的性能和成本。'
-            },
-            {
-              icon: <DatabaseOutlined />,
-              title: '材料管理',
-              desc: '管理水泥、粉煤灰、矿渣粉、细骨料、粗骨料、外加剂等材料库。支持材料的增删改查，包含价格和性能参数。'
-            },
-            {
-              icon: <SettingOutlined />,
-              title: '成本优化',
-              desc: '基于数学优化算法，在满足强度、坍落度等约束条件下，自动寻找最低成本的配合比方案。',
-              tag: '数学优化'
-            },
-            {
-              icon: <RobotOutlined />,
-              title: 'AI分析',
-              desc: '基于大模型AI技术，分析配合比数据，提供材料性能影响分析、配合比参数影响分析、最优配合比推荐、参数调整建议和综合评价。',
-              tag: 'AI智能'
-            },
-            {
-              icon: <SettingOutlined />,
-              title: '系统设置',
-              desc: '配置配合比计算参数、管理数据库备份和恢复、设置AI模型参数等。'
-            }
-          ]}
-          renderItem={(item) => (
-            <List.Item>
-              <List.Item.Meta
-                avatar={item.icon}
-                title={
-                  <Space>
-                    {item.title}
-                    {item.tag && <Tag color="blue">{item.tag}</Tag>}
-                  </Space>
-                }
-                description={item.desc}
-              />
-            </List.Item>
-          )}
-        />
-      </Card>
-
-      {/* 快速开始 */}
-      <Card size="small" title="快速开始" className="help-card">
-        <Alert
-          message="建议按以下步骤操作，以获得最佳使用体验"
-          type="info"
-          showIcon
-          className="help-alert"
-        />
-        <List
-          size="small"
-          dataSource={[
-            { step: '步骤1：录入材料库', desc: '在"材料管理"中添加水泥、砂、石、外加剂等材料，填写价格和性能参数。' },
-            { step: '步骤2：设计配合比', desc: '在"配合比设计"中输入设计要求，系统自动计算配合比。' },
-            { step: '步骤3：保存方案', desc: '将配合比保存为方案，便于后续管理和查看。' },
-            { step: '步骤4：成本优化（可选）', desc: '在"成本优化"中设置约束条件，系统自动寻找满足条件的最低成本方案。' },
-            { step: '步骤5：AI分析（可选）', desc: '在"AI分析"中导入配合比数据，获取AI提供的优化建议和综合评价。' }
-          ]}
-          renderItem={(item) => (
-            <List.Item>
-              <Text strong>{item.step}</Text>
-              <br />
-              <Text type="secondary">{item.desc}</Text>
-            </List.Item>
-          )}
-        />
-      </Card>
-
-      {/* 注意事项 */}
-      <Card size="small" title="注意事项">
-        <Alert
-          message="数据安全"
-          description="建议定期备份数据库，操作路径：系统设置 → 数据管理 → 备份数据库"
-          type="warning"
-          showIcon
-          icon={<WarningOutlined />}
-          className="help-alert"
-        />
-        <Alert
-          message="AI分析"
-          description="使用AI分析功能需要配置DeepSeek API密钥，配置路径：系统设置 → AI设置"
-          type="info"
-          showIcon
-          className="help-alert"
-        />
-        <Alert
-          message="参数配置"
-          description="JGJ55标准参数影响配合比计算结果，请根据实际工程要求合理设置"
-          type="info"
-          showIcon
-        />
-      </Card>
     </div>
   )
 }
