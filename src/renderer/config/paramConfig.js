@@ -144,11 +144,6 @@ export const PARAM_CONFIG = {
     type: 'input',
     description: '用于 AI 配合比分析的 DeepSeek API 密钥',
   },
-  agentEnabled: {
-    label: 'AI Agent 功能',
-    type: 'switch',
-    description: '开启后可使用 Agent 模式——AI 自主规划并执行多步骤任务。关闭后回退到传统单轮工具调用',
-  },
   agentDefaultMode: {
     label: 'Agent 默认模式',
     type: 'select',
@@ -170,5 +165,4 @@ export const PARAM_TABS = {
     'superplasticizerDosage_C50', 'waterReducingRatePer01Dosage'],
   '系统设置': [],
   '备份设置': ['autoBackup', 'backupInterval'],
-  'AI设置': ['deepseekApiKey', 'agentEnabled', 'agentDefaultMode'],
 }
