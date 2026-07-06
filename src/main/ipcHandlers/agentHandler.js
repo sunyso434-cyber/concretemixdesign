@@ -988,7 +988,7 @@ module.exports = {
       if (content && content.length > 4 * 1024) {
         console.warn(`[AgentMd] 保存内容 ${content.length} 字节，超过 4KB 阈值`)
       }
-      svc.saveToFile(content || '')
+      await svc.saveToFile(content || '')
       return { success: true }
     } catch (err) {
       return { success: false, error: err.message }
@@ -1015,7 +1015,7 @@ module.exports = {
       if (content && content.length > 4 * 1024) {
         console.warn(`[AgentMd] 保存内容 ${content.length} 字节，超过 4KB 阈值`)
       }
-      svc.saveToFile(content)
+      await svc.saveToFile(content)
       return { success: true, data: svc.getCached() }
     } catch (err) {
       console.error('[AgentHandler] agent:rules:upsert 失败:', err.message)
@@ -1082,7 +1082,7 @@ module.exports = {
       if (!exists) prefs.materials.push(newItem)
     }
     cached.parsed.professionalPrefs = prefs
-    agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
+    await agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
     return { success: true, newMaterials: prefs.materials }
   }))
 
@@ -1103,7 +1103,7 @@ module.exports = {
       list.push(type)
     }
     cached.parsed.ignoredSuggestionTypes = list
-    agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
+    await agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
     return { success: true }
   }))
 
@@ -1118,7 +1118,7 @@ module.exports = {
     const agentMdSvc = getAgentMdService()
     const cached = agentMdSvc.getCached()
     cached.parsed.professionalPrefs = { materials, method }
-    agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
+    await agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
     return { success: true }
   }))
 
@@ -1131,7 +1131,7 @@ module.exports = {
     }
     mats.splice(index, 1)
     cached.parsed.professionalPrefs.materials = mats
-    agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
+    await agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
     return { success: true }
   }))
 }

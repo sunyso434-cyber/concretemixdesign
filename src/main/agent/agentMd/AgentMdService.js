@@ -22,6 +22,7 @@ class AgentMdService {
     this.cache = null
     this.rawCache = null
     this.watcher = null
+    this._writeQueue = Promise.resolve()  // 串行队列
   }
 
   /**
@@ -166,16 +167,33 @@ class AgentMdService {
   }
 
   /**
-   * 写入 agent.md 并同步更新缓存
-   * 自动创建不存在的父目录
+   * 写入 agent.md 并同步更新缓存（串行化，防并发竞态）
+   *
+   * 串行队列（关键）：
+   *  - chokidar 外部编辑触发 loadFromFile 与 IPC 触发的 saveToFile 可能并发
+   *  - 用 Promise 链 (_writeQueue) 串行化所有 saveToFile 调用
+   *  - 避免两次写入交错导致 cache 与磁盘不一致
+   *
+   * @param {string} content - 完整 Markdown 内容
+   * @returns {Promise<void>}
+   */
+  async saveToFile(content) {
+    // 串行化所有 saveToFile 调用，避免并发竞态
+    return this._writeQueue = this._writeQueue.then(() => this._saveToFileImpl(content))
+  }
+
+  /**
+   * saveToFile 的实际同步实现（私有）
    *
    * 顺序保护（关键）：
    *  - 先 parse 内容做格式校验，通过后才写盘
    *  - 这样脏数据不会落地，cache 与磁盘永远一致
    *  - 解析失败抛出的错误由调用方（IPC handler）兜底，转成用户友好提示
-   * @param {string} content - 完整 Markdown 内容
+   *
+   * 自动 .bak 备份：仅在主文件已存在时备份
+   * 自动创建不存在的父目录
    */
-  saveToFile(content) {
+  _saveToFileImpl(content) {
     // 1. 先解析校验（失败会抛错，不写盘）
     const nextCache = AgentMdParser.parse(content)
 

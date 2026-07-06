@@ -80,7 +80,7 @@ version: 1
   })
 
   // 测试 4: saveToFile 持久化 + 更新缓存（v2 professionalPrefs 形态：fenced YAML code block）
-  test('saveToFile 应写入文件并同步更新缓存', () => {
+  test('saveToFile 应写入文件并同步更新缓存', async () => {
     const svc = new AgentMdService({ path: tmpFile })
     const content = `---
 version: 1
@@ -101,7 +101,7 @@ materials:
 method: 假定表观密度法
 \`\`\`
 `
-    svc.saveToFile(content)
+    await svc.saveToFile(content)
 
     expect(fs.existsSync(tmpFile)).toBe(true)
     expect(fs.readFileSync(tmpFile, 'utf8')).toBe(content)
@@ -115,10 +115,10 @@ method: 假定表观密度法
   })
 
   // 测试 5: saveToFile 自动创建目录
-  test('saveToFile 应在目录不存在时自动创建', () => {
+  test('saveToFile 应在目录不存在时自动创建', async () => {
     const nestedPath = path.join(tmpDir, 'nested', 'sub', 'agent.md')
     const svc = new AgentMdService({ path: nestedPath })
-    svc.saveToFile('# 我的智能助手规则\n')
+    await svc.saveToFile('# 我的智能助手规则\n')
 
     expect(fs.existsSync(nestedPath)).toBe(true)
     expect(fs.readFileSync(nestedPath, 'utf8')).toContain('智能助手规则')

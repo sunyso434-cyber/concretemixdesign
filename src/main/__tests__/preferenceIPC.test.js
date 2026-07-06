@@ -16,7 +16,6 @@ const path = require('path')
 const tmpFile = path.join(os.tmpdir(), `agent-md-preftest-${Date.now()}.md`)
 const { AgentMdService } = require('../agent/agentMd/AgentMdService')
 const svc = new AgentMdService({ path: tmpFile })
-svc.saveToFile('---\nversion: 2\n---\n\n# 我的智能助手规则\n\n## 专业偏好\n\n```yaml\nmaterials: []\nmethod: null\n```\n')
 
 // 注入 svc 到 agentMd 模块
 jest.doMock('../agent/agentMd', () => ({
@@ -43,6 +42,12 @@ store.add({
 // 注册 handler
 const { registerAgentHandlers } = require('../ipcHandlers/agentHandler')
 registerAgentHandlers()
+
+// 顶层 saveToFile 现为 async（Promise 串行队列），需在 beforeAll 中 await
+// 确保后续测试读到的 cached 是已写入的状态
+beforeAll(async () => {
+  await svc.saveToFile('---\nversion: 2\n---\n\n# 我的智能助手规则\n\n## 专业偏好\n\n```yaml\nmaterials: []\nmethod: null\n```\n')
+})
 
 describe('7 个偏好 IPC channel', () => {
   test('agent:suggestions:list 应返回 pending 列表', async () => {

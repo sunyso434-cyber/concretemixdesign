@@ -19,10 +19,10 @@ describe('agent.md 端到端集成', () => {
     }
   })
 
-  test('保存 → 加载 → 注入 system prompt 完整链路', () => {
+  test('保存 → 加载 → 注入 system prompt 完整链路', async () => {
     // 1. 创建并保存
     const svc = new AgentMdService({ path: agentMdPath })
-    svc.saveToFile(`## 回复风格
+    await svc.saveToFile(`## 回复风格
 - 语气：非常专业
 - 称呼：王工
 
@@ -63,16 +63,16 @@ describe('agent.md 端到端集成', () => {
     }, 200)
   }, 10000)
 
-  test('保存后缓存一致性（自身 save 后 cache 立即反映新值）', () => {
+  test('保存后缓存一致性（自身 save 后 cache 立即反映新值）', async () => {
     const svc = new AgentMdService({ path: agentMdPath })
     svc.init() // init 内部先 loadFromFile（空文件）+ startWatching
 
     // 自身 save 后缓存应立即更新（不等 chokidar 回调）
-    svc.saveToFile('## 回复风格\n- 语气：自身保存')
+    await svc.saveToFile('## 回复风格\n- 语气：自身保存')
     expect(svc.getCached().parsed.replyStyle['语气']).toBe('自身保存')
 
     // 再次 save 也应一致
-    svc.saveToFile('## 回复风格\n- 语气：再次保存')
+    await svc.saveToFile('## 回复风格\n- 语气：再次保存')
     expect(svc.getCached().parsed.replyStyle['语气']).toBe('再次保存')
 
     // 磁盘上也应一致
