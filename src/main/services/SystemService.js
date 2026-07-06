@@ -142,6 +142,13 @@ class SystemService {
   // 初始化默认系统参数
   async initDefaultParams() {
     try {
+      // 一次性迁移：清理历史遗留的 strengthStdDev_C25 orphan 记录（2026-07-04 规格统一为 C45）
+      const orphan = await SystemParam.findOne({ where: { paramName: 'strengthStdDev_C25' } })
+      if (orphan) {
+        logger.info('清理历史遗留的 strengthStdDev_C25 orphan 记录')
+        await orphan.destroy()
+      }
+
       const defaultParams = [
         // JGJ 55标准 - 回归系数
         {
@@ -162,12 +169,6 @@ class SystemService {
           paramValue: '4.0',
           paramType: 'jgj55',
           description: 'C20及以下强度标准差σ(MPa)'
-        },
-        {
-          paramName: 'strengthStdDev_C25',
-          paramValue: '5.0',
-          paramType: 'jgj55',
-          description: 'C25-C45强度标准差σ(MPa)'
         },
         {
           paramName: 'strengthStdDev_C45',

@@ -17,7 +17,7 @@ class MixDesignService_Strength {
         stdDevParam = await SystemService.getParamByName('strengthStdDev_C50')
       } else {
         // C25-C45
-        stdDevParam = await SystemService.getParamByName('strengthStdDev_C25')
+        stdDevParam = await SystemService.getParamByName('strengthStdDev_C45')
       }
 
       if (stdDevParam) {

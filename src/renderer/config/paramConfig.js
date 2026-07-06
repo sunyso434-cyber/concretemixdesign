@@ -41,7 +41,7 @@ export const PARAM_CONFIG = {
     step: 0.1,
     description: 'C20及以下强度等级标准差',
   },
-  strengthStdDev_C25: {
+  strengthStdDev_C45: {
     label: '强度标准差 σ — C25~C45 (MPa)',
     type: 'range',
     min: 4.0,
@@ -159,7 +159,7 @@ export const PARAM_CONFIG = {
  * 按 tab 类型分组参数
  */
 export const PARAM_TABS = {
-  'JGJ55标准': ['regressionAlphaA', 'regressionAlphaB', 'strengthStdDev_C20', 'strengthStdDev_C25', 'strengthStdDev_C50',
+  'JGJ55标准': ['regressionAlphaA', 'regressionAlphaB', 'strengthStdDev_C20', 'strengthStdDev_C45', 'strengthStdDev_C50',
     'superplasticizerDosage_C20', 'superplasticizerDosage_C25', 'superplasticizerDosage_C30',
     'superplasticizerDosage_C35', 'superplasticizerDosage_C40', 'superplasticizerDosage_C45',
     'superplasticizerDosage_C50', 'waterReducingRatePer01Dosage'],

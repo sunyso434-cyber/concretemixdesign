@@ -27,7 +27,7 @@
   "overrideMechanism": {
     "priority": [
       "tempSettings.strengthStdDev",
-      "全局参数 SystemService.getParamByName('strengthStdDev_C20' | 'strengthStdDev_C25' | 'strengthStdDev_C50')",
+      "全局参数 SystemService.getParamByName('strengthStdDev_C20' | 'strengthStdDev_C45' | 'strengthStdDev_C50')",
       "本表 buckets 默认值"
     ]
   },
