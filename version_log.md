@@ -7138,6 +7138,103 @@ ICO header magic: ✓ 有效ICO
 
 ---
 
+## v10.6.5 修复版本 (2026-07-05) - Agent 工具调用结果显示人性化 & 实时思考过程呼吸灯修复
+
+### 背景
+老板反馈两个问题：
+1. 工具调用结果在 UI 上以原始 JSON 展示（`JSON.stringify(item.result, null, 2)`），对无代码基础的用户不友好。
+2. 流式 Agent 思考过程虽然代码里写了"💭 AI思考中"标签 + 呼吸灯 + 三点跳动动画，但实际**永远不会触发**——因为渲染管线接错了：UI 只能从消息对象上的 `item.timeline` 读取，而实时数据停在 `state.agent.timeline` 上（合并到消息对象要等到 AI 整个回复完毕），那时 status 都已经是 'done'，动画条件 `isRunning` 永远是 false。
+
+### 修复内容
+
+#### A. 工具调用结果摘要化（人话版）
+
+`src/renderer/components/StreamingAgentCard.jsx`：
+- 新增 `renderResultSummary(toolName, result)` —— "翻译官"，把 11 种工具的结果翻译成中文人话
+- 覆盖：list_available_materials / calculate_mix_design / optimize_mix_cost / check_compliance / predict_performance / save_mix_design / save_to_basic_mix_library / list_standards / calculate_sales_quote / prepare_sales_quote_draft / create_sales_quote_rule
+- 未知工具兜底显示"执行完成"，**不再裸 JSON**
+- 重写 `renderArgsSummary(toolName, args)`，覆盖所有已知工具
+
+#### B. ToolBlock 展开区改造
+
+- 默认展示"输入条件 / 执行结果"两段中文摘要
+- 底部 `<details>` 折叠"查看原始数据"开关（给小懂代码的人留调试口，默认收起）
+
+#### C. 实时推理管线修复
+
+- `StreamingAgentCard` 新增 `liveTimeline` + `live` props
+- `live=true` 时优先用 `liveTimeline`（来自 `state.agent.timeline`），让 `ReasoningBlock` 的呼吸灯 / 三点跳动 / 蓝色斜体标签真正能跑
+
+#### D. 调用侧适配
+
+`src/renderer/components/SmartDesignChat.jsx:1681`：
+- 流式过程中：传 `live={true}` + `liveTimeline={state.agent.timeline}` + `status={state.agent.status}` + `showControls=true`
+- 已完成：传 `timeline={item.timeline}` + `live={false}` + `status="done"`
+
+### 验证（8 个边缘场景）
+| # | 场景 | 表现 |
+|---|------|------|
+| 1 | 流式极早期 timeline 为空 | 不渲染卡片，靠"AI 思考中"占位 |
+| 2 | 切换会话 | 旧消息从 item.timeline 取，新消息从 state.agent.timeline 取 |
+| 3 | 工具运行中查看详情 | 显示"正在执行..." |
+| 4 | 工具失败 | 标题 ✗ + "执行失败"摘要 |
+| 5 | 未知工具结果 | 兜底"执行完成"，不暴露 JSON |
+| 6 | 参数为空 | 显示"（默认参数）" |
+| 7 | 历史消息（_streaming undefined） | 走 done 路径 |
+| 8 | reasoning 块有/无内容 | 区别渲染"AI思考中"+三点 vs "AI思考中..."+折叠 |
+
+---
+
+## v10.6.6 修复版本 (2026-07-05) - DeepSeek/AGI 协议校验：蓝图 select 类型翻译 + Schema 防御层
+
+> ⚠️ **说明**：v10.6.6/7 的完整 changelog 段落因之前误操作（`git checkout HEAD~1 -- version_log.md`）丢失，本节根据「工具调用结果改为摘要形式」会话（`ed9ec273`）的对话历史重写。**代码改动已存在**，详见 git log。
+
+### 背景
+老板装 v10.6.5 后发消息报 `[E-AGENT-001]`，scc_mixdesign 蓝图 skill 报错：
+```
+"Invalid schema for function 'scc_mixdesign':
+ \"select\" is not valid under any of the schemas listed in the 'anyOf' keyword"
+```
+
+根因：DeepSeek/AGI 协议对蓝图 skill schema 中 `select` 类型字段的翻译规则不兼容（"select" 不在 anyOf 白名单内）。
+
+### 修复
+- 蓝图 schema 生成器对 `select` 类型做翻译：渲染成"单选 enum" + 限制值
+- `toJsonSchemaProperties` 加 `type` 字段白名单兜底：非标准 type 字段被丢弃
+- **2 个文件，4 行带注释的实际代码**
+
+### 打包（v10.6.6）
+- `dist-10.6.6/砼智 Setup 10.6.6.exe`（NSIS，147 MB）
+- `dist-10.6.6/砼智-10.6.6-portable-x64.exe`（Portable，147 MB）
+- 跑测试：仍是 9 suite / 15 failed — **没有新增任何失败**（15 failed 是历史遗留的 pdf-parse experimental-vm-modules 环境问题，跟本次改动无关）
+
+---
+
+## v10.6.7 修复版本 (2026-07-05) - 嵌套 object schema 清洗：remove 属性级 required/default
+
+> ⚠️ **说明**：同上，v10.6.7 完整 changelog 段落已丢失，本节根据会话对话重写。**代码改动已存在**。
+
+### 背景
+老板装 v10.6.6 后再次发消息报 `[E-AGENT-001]`，这次报错从 `scc_mixdesign` 换成了 `workspace_writeFile`：
+
+```
+"Invalid schema for function 'workspace_writeFile':
+ ...nested items.properties.find has 'required' and 'default'..."
+```
+
+v10.6.6 我只清洗了**顶层 properties** 的非法 `type`，**没处理嵌套**。
+`toJsonSchemaProperties` 复制 `items` 时整块照搬，结果嵌套 properties 里携带了非标准 `required` 和 `default`（DeepSeek/AGI 协议不接受属性级的 `required` 和 `default`）。
+
+### 修复
+- `toJsonSchemaProperties` 改为**递归**清洗：每层 properties 都做属性级 `required` / `default` 移除
+- 同时把 `type` 字段做白名单兜底（沿用 v10.6.6 的逻辑）
+
+### 打包（v10.6.7）
+- `dist-10.6.7/砼智 Setup 10.6.7.exe`（NSIS，147 MB）
+- `dist-10.6.7/砼智-10.6.7-portable-x64.exe`（Portable，147 MB）
+
+---
+
 ## v10.6.8 (2026-07-06) - JGJ55 参数管理 skill + 系统设置清理
 
 ### 新增
