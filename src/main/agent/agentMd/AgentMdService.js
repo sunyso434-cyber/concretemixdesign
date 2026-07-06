@@ -179,7 +179,11 @@ class AgentMdService {
    */
   async saveToFile(content) {
     // 串行化所有 saveToFile 调用，避免并发竞态
-    return this._writeQueue = this._writeQueue.then(() => this._saveToFileImpl(content))
+    // 队列在 _saveToFileImpl 抛错后会永久 reject（旧错误传播，新写入永远不执行）
+    // 拆成 result（返回给 caller，传递真实错误）+ _writeQueue（.catch 兜底，保持队列存活）
+    const result = this._writeQueue.then(() => this._saveToFileImpl(content))
+    this._writeQueue = result.catch(() => {})
+    return result
   }
 
   /**

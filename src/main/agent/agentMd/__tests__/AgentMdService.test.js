@@ -72,4 +72,37 @@ describe('AgentMdService 写锁', () => {
     // 每次写入前 .bak 应保留前一次内容
     expect(fs.existsSync(agentMdPath + '.bak')).toBe(true)
   })
+
+  test('队列在 _saveToFileImpl 抛错后能恢复（不死锁）', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-md-recover-'))
+    const agentMdPath = path.join(tmpDir, 'agent.md')
+    // 先写一个合法文件作为起点
+    fs.writeFileSync(agentMdPath, '## 起点\n- 内容', 'utf8')
+    const svc = new AgentMdService({ path: agentMdPath })
+    svc.loadFromFile()
+
+    // 第一次保存：故意让 _saveToFileImpl 抛错（传入无法 parse 的内容会抛）
+    // AgentMdParser v2 是宽松解析不抛错，所以我们用 mock 替换 _saveToFileImpl 让它抛
+    const originalImpl = svc._saveToFileImpl.bind(svc)
+    let callCount = 0
+    svc._saveToFileImpl = function(content) {
+      callCount++
+      if (callCount === 1) {
+        throw new Error('模拟磁盘满或 parse 失败')
+      }
+      return originalImpl(content)
+    }
+
+    // 第一次调用：应该 reject
+    await expect(svc.saveToFile('## 第一次\n- 坏内容')).rejects.toThrow('模拟磁盘满')
+
+    // 第二次调用：应该能正常执行（不死锁）
+    await expect(svc.saveToFile('## 第二次\n- 好内容')).resolves.toBeUndefined()
+
+    // 验证文件是第二次的内容
+    const final = fs.readFileSync(agentMdPath, 'utf8')
+    expect(final).toContain('第二次')
+
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
 })
