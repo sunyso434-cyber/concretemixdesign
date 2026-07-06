@@ -26,7 +26,6 @@ const BLOCKED_IN_QUOTE_FLOW = new Set([
   'list_available_materials',
   'calculate_mix_design',
   'optimize_mix_cost',
-  'compare_materials',
   'predict_performance'
 ])
 

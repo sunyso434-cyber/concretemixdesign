@@ -1,0 +1,458 @@
+{
+  "version": 1,
+  "workspacePath": "D:/C-c/NEWConcrete-mixdesign - 副本/src/main/__tests__/workspace/fixtures/p3-int-25148-1783339733649-ansd9w",
+  "createdAt": "2026-07-06T12:08:59.927Z",
+  "updatedAt": "2026-07-06T12:08:59.927Z",
+  "lastFullRebuild": "2026-07-06T12:08:59.927Z",
+  "files": {},
+  "bm25Index": {
+    "vocabulary": {},
+    "postings": {},
+    "docLengths": {},
+    "avgDocLength": 0,
+    "totalDocs": 0
+  },
+  "chatBM25Index": {
+    "vocabulary": {
+      "0": {
+        "df": 1
+      },
+      "1": {
+        "df": 1
+      },
+      "2": {
+        "df": 1
+      },
+      "20": {
+        "df": 1
+      },
+      "45": {
+        "df": 1
+      },
+      "53": {
+        "df": 1
+      },
+      "59": {
+        "df": 1
+      },
+      "2026": {
+        "df": 1
+      },
+      "25148": {
+        "df": 1
+      },
+      "sessionid": {
+        "df": 1
+      },
+      "p3": {
+        "df": 1
+      },
+      "int": {
+        "df": 1
+      },
+      "sess": {
+        "df": 1
+      },
+      "001": {
+        "df": 1
+      },
+      "workspacepath": {
+        "df": 1
+      },
+      "d": {
+        "df": 1
+      },
+      "c": {
+        "df": 1
+      },
+      "newconcrete": {
+        "df": 1
+      },
+      "mixdesign": {
+        "df": 1
+      },
+      "src": {
+        "df": 1
+      },
+      "main": {
+        "df": 1
+      },
+      "tests": {
+        "df": 1
+      },
+      "workspace": {
+        "df": 1
+      },
+      "fixtures": {
+        "df": 1
+      },
+      "1783339733649": {
+        "df": 1
+      },
+      "ansd9w": {
+        "df": 1
+      },
+      "messagecount": {
+        "df": 1
+      },
+      "firstactivity": {
+        "df": 1
+      },
+      "07": {
+        "df": 1
+      },
+      "06t12": {
+        "df": 1
+      },
+      "08": {
+        "df": 1
+      },
+      "656z": {
+        "df": 1
+      },
+      "lastactivity": {
+        "df": 1
+      },
+      "exportedat": {
+        "df": 1
+      },
+      "924z": {
+        "df": 1
+      },
+      "mon": {
+        "df": 1
+      },
+      "jul": {
+        "df": 1
+      },
+      "06": {
+        "df": 1
+      },
+      "gmt": {
+        "df": 1
+      },
+      "0800": {
+        "df": 1
+      },
+      "副本": {
+        "df": 1
+      },
+      "会话": {
+        "df": 1
+      },
+      "话摘": {
+        "df": 1
+      },
+      "摘要": {
+        "df": 1
+      },
+      "条消": {
+        "df": 1
+      },
+      "消息": {
+        "df": 1
+      },
+      "用户": {
+        "df": 1
+      },
+      "助手": {
+        "df": 1
+      },
+      "起始": {
+        "df": 1
+      },
+      "中国": {
+        "df": 1
+      },
+      "国标": {
+        "df": 1
+      },
+      "标准": {
+        "df": 1
+      },
+      "准时": {
+        "df": 1
+      },
+      "时间": {
+        "df": 1
+      },
+      "末次": {
+        "df": 1
+      },
+      "工作": {
+        "df": 1
+      },
+      "作区": {
+        "df": 1
+      },
+      "老板": {
+        "df": 1
+      },
+      "抗渗": {
+        "df": 1
+      },
+      "渗混": {
+        "df": 1
+      },
+      "混凝": {
+        "df": 1
+      },
+      "凝土": {
+        "df": 1
+      },
+      "土水": {
+        "df": 1
+      },
+      "水胶": {
+        "df": 1
+      },
+      "胶比": {
+        "df": 1
+      },
+      "比怎": {
+        "df": 1
+      },
+      "怎么": {
+        "df": 1
+      },
+      "么定": {
+        "df": 1
+      },
+      "一般": {
+        "df": 1
+      },
+      "般不": {
+        "df": 1
+      },
+      "不大": {
+        "df": 1
+      },
+      "大于": {
+        "df": 1
+      }
+    },
+    "postings": {
+      "0": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "1": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "2": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "20": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "45": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "53": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "59": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "2026": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "25148": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "sessionid": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "p3": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "int": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "sess": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "001": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "workspacepath": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "d": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "c": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "newconcrete": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "mixdesign": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "src": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "main": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "tests": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "workspace": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "fixtures": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "1783339733649": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "ansd9w": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "messagecount": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "firstactivity": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "07": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "06t12": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "08": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "656z": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "lastactivity": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "exportedat": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "924z": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "mon": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "jul": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "06": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "gmt": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "0800": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "副本": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "会话": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "话摘": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "摘要": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "条消": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "消息": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "用户": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "助手": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "起始": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "中国": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "国标": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "标准": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "准时": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "时间": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "末次": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "工作": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "作区": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "老板": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "抗渗": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "渗混": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "混凝": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "凝土": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "土水": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "水胶": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "胶比": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "比怎": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "怎么": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "么定": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "一般": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "般不": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "不大": [
+        "chat-history/p3-int-s/session.md"
+      ],
+      "大于": [
+        "chat-history/p3-int-s/session.md"
+      ]
+    },
+    "docLengths": {
+      "chat-history/p3-int-s/session.md": 72
+    },
+    "avgDocLength": 72,
+    "totalDocs": 1
+  }
+}

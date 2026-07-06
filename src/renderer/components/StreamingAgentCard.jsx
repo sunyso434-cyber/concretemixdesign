@@ -14,9 +14,7 @@ const TOOL_LABELS = {
   list_available_materials: '查询材料库',
   calculate_mix_design: '计算配合比',
   optimize_mix_cost: '成本优化',
-  compare_materials: '材料对比',
   check_compliance: '规范审查',
-  run_parameter_diagnosis: '参数诊断',
   predict_performance: '性能预测',
   list_standards: '查询规范库',
   prepare_sales_quote_draft: '准备报价草稿',
@@ -50,19 +48,127 @@ if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
   document.head.appendChild(style)
 }
 
-/** 构建工具参数摘要 */
-function buildArgsSummary(toolName, args = {}) {
+/**
+ * 工具结果的"翻译官" — 把结构化 JSON 翻成普通人看得懂的中文摘要。
+ * 不认识的字段一律兜底成"已成功"之类的话术，绝不再裸 JSON。
+ */
+function renderResultSummary(toolName, result) {
+  if (!result || typeof result !== 'object') return ''
+  if (result._mdInstruction) return '通过 markdown 指令处理'
+
+  switch (toolName) {
+    case 'list_available_materials': {
+      const count = result.count ?? result.materials?.length ?? 0
+      const byType = {}
+      for (const m of result.materials || []) {
+        const t = m.type || m.category || '其他'
+        byType[t] = (byType[t] || 0) + 1
+      }
+      const breakdown = Object.entries(byType).map(([t, n]) => `${t} ${n}`).join('、')
+      return breakdown ? `找到 ${count} 种材料（${breakdown}）` : `找到 ${count} 种材料`
+    }
+    case 'calculate_mix_design': {
+      const d = result.data || {}
+      const parts = []
+      if (d.cement != null) parts.push(`水泥 ${d.cement}`)
+      if (d.water != null) parts.push(`水 ${d.water}`)
+      if (d.sand != null) parts.push(`砂 ${d.sand}`)
+      if (d.stone != null || d.gravel != null) parts.push(`石 ${d.stone ?? d.gravel}`)
+      if (d.waterBinderRatio != null || d.wcratio != null) {
+        parts.push(`水胶比 ${d.waterBinderRatio ?? d.wcratio}`)
+      }
+      return parts.length ? `草稿已生成：${parts.join('，')}（kg/m³）${result.draftId ? ' ✓' : ''}` : '草稿已生成'
+    }
+    case 'optimize_mix_cost': {
+      const d = result.data || {}
+      const meta = result.meta || {}
+      const total = meta.totalEvaluated || d.totalEvaluated
+      const stages = meta.stagesCompleted || d.stagesCompleted || 5
+      const best = d.top5?.[0]
+      const bestCost = best?.totalCost ?? best?.cost
+      let text = `完成 ${stages} 阶段成本优化`
+      if (total) text += `，共评估 ${total} 组方案`
+      if (bestCost) text += `，最优成本 ${Number(bestCost).toFixed(1)} 元/m³`
+      return text
+    }
+    case 'check_compliance': {
+      const violations = result.data?.violations || result.violations || []
+      const warnings = result.data?.warnings || result.warnings || []
+      const passed = result.data?.passed ?? result.passed
+      if (passed) return '符合规范 ✓'
+      const total = violations.length + warnings.length
+      return total ? `不符合规范：${violations.length} 项违规、${warnings.length} 项警告（合计 ${total} 条）` : '不符合规范'
+    }
+    case 'predict_performance': {
+      const d = result.data || {}
+      const parts = []
+      if (d.fc28 != null || d.strength28d != null || d.compressiveStrength != null) {
+        parts.push(`28d 强度 ${d.fc28 ?? d.strength28d ?? d.compressiveStrength} MPa`)
+      }
+      if (d.slump != null) parts.push(`坍落度 ${d.slump} mm`)
+      if (d.density != null || d.unitWeight != null) parts.push(`容重 ${d.density ?? d.unitWeight} kg/m³`)
+      return parts.length ? `预测完成：${parts.join('，')}` : '预测完成'
+    }
+    case 'save_mix_design':
+      return result.message ? `✓ ${result.message}` : '✓ 方案已保存'
+    case 'save_to_basic_mix_library':
+      return result.message ? `✓ ${result.message}` : '✓ 已保存到基准库'
+    case 'list_standards': {
+      const count = result.count ?? result.standards?.length ?? 0
+      return count ? `找到 ${count} 条规范` : '查询完成'
+    }
+    case 'prepare_sales_quote_draft':
+    case 'calculate_sales_quote': {
+      const d = result.data || result
+      const total = d.totalPrice ?? d.total ?? d.price
+      if (total != null) return `报价完成：总价 ${Number(total).toFixed(2)} 元${result.draftId ? '（草稿已保存）' : ''}`
+      return '报价已生成'
+    }
+    case 'create_sales_quote_rule':
+      return result.message ? `✓ ${result.message}` : '✓ 报价规则已创建'
+    default:
+      // 兜底：未知工具，提示成功而不暴露 JSON
+      return result.success === false ? '执行失败' : '执行完成'
+  }
+}
+
+/**
+ * 把参数 args 翻译成简短的"输入条件"摘要，显示在标题旁。
+ * 覆盖所有已知工具；未识别就给空字符串，不暴露原始 JSON。
+ */
+function renderArgsSummary(toolName, args = {}) {
+  if (!args || typeof args !== 'object') return ''
   if (toolName === 'list_available_materials') {
-    return args.type ? `类型: ${args.type}` : '全部材料'
+    return args.type ? `类型：${args.type}` : '全部材料'
   }
   if (toolName === 'calculate_mix_design' || toolName === 'optimize_mix_cost') {
-    return [args.strength, args.slump ? `坍落度 ${args.slump}mm` : null].filter(Boolean).join(' | ')
-  }
-  if (toolName === 'compare_materials') {
-    return [args.compareType, args.candidateIds?.length ? `${args.candidateIds.length}个候选` : null].filter(Boolean).join(' | ')
+    const parts = [args.strength, args.slump ? `坍落度 ${args.slump}mm` : null]
+    if (toolName === 'optimize_mix_cost' && args.gridStep) parts.push(`步长 ${args.gridStep}`)
+    return parts.filter(Boolean).join(' | ')
   }
   if (toolName === 'check_compliance') {
     return args.mixDesign?.strengthGrade || args.mixDesign?.strength || '规范审查'
+  }
+  if (toolName === 'save_mix_design') {
+    return args.schemeName || args.name || '保存方案'
+  }
+  if (toolName === 'save_to_basic_mix_library') {
+    return args.name || '保存到基准库'
+  }
+  if (toolName === 'predict_performance') {
+    return '预测强度 / 坍落度 / 容重'
+  }
+  if (toolName === 'calculate_sales_quote') {
+    return [args.strength, args.volume ? `${args.volume} m³` : null].filter(Boolean).join(' | ')
+  }
+  if (toolName === 'prepare_sales_quote_draft') {
+    return args.schemeName || '准备报价草稿'
+  }
+  if (toolName === 'create_sales_quote_rule') {
+    return args.ruleName || '创建报价规则'
+  }
+  if (toolName === 'list_standards') {
+    return args.category || args.keyword || '查询规范库'
   }
   return ''
 }
@@ -178,9 +284,11 @@ const ReasoningBlock = ({ item }) => {
 /** 单个工具块 */
 const ToolBlock = ({ item }) => {
   const [expanded, setExpanded] = useState(false)
+  const [showRaw, setShowRaw] = useState(false) // ponytail: 给开发/调试留的 JSON 折叠开关，默认收起
   const isRunning = item.status === 'running'
   const label = TOOL_LABELS[item.toolName] || item.toolName || '未知工具'
-  const argsSummary = buildArgsSummary(item.toolName, item.args)
+  const argsSummary = renderArgsSummary(item.toolName, item.args)
+  const resultSummary = item.result && item.status !== 'running' ? renderResultSummary(item.toolName, item.result) : ''
 
   return (
     <div style={{
@@ -216,7 +324,7 @@ const ToolBlock = ({ item }) => {
         }
       </Space>
 
-      {/* 展开的工具详情 */}
+      {/* 展开的工具详情 — 默认展示人话摘要，底部可折叠出原始 JSON 给调试用 */}
       {expanded && (
         <div style={{
           marginTop: 4,
@@ -225,47 +333,56 @@ const ToolBlock = ({ item }) => {
           background: 'var(--color-bg, #f5f5f7)',
           borderRadius: 4,
           fontSize: 12,
-          color: 'var(--color-text-secondary, #666)',
-          lineHeight: 1.6
+          color: 'var(--color-text-body, #333)',
+          lineHeight: 1.7
         }}>
           {item.args && Object.keys(item.args).length > 0 && (
-            <div style={{ marginBottom: 4 }}>
-              <Text strong style={{ fontSize: 11 }}>参数：</Text>
-              <pre style={{
-                margin: '2px 0 0 0',
-                fontSize: 11,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                fontFamily: 'inherit',
-                background: 'rgba(0,0,0,0.03)',
-                padding: '4px 8px',
-                borderRadius: 3,
-                maxHeight: 150,
-                overflowY: 'auto'
-              }}>
-                {JSON.stringify(item.args, null, 2)}
-              </pre>
+            <div style={{ marginBottom: 6 }}>
+              <Text strong style={{ fontSize: 11, color: 'var(--color-text-secondary, #666)' }}>输入条件：</Text>
+              <div style={{ marginTop: 2 }}>{argsSummary || '（默认参数）'}</div>
             </div>
           )}
-          {item.result && (
-            <div>
-              <Text strong style={{ fontSize: 11 }}>结果：</Text>
-              <pre style={{
-                margin: '2px 0 0 0',
-                fontSize: 11,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                fontFamily: 'inherit',
-                background: 'rgba(0,0,0,0.03)',
-                padding: '4px 8px',
-                borderRadius: 3,
-                maxHeight: 200,
-                overflowY: 'auto'
-              }}>
-                {typeof item.result === 'string' ? item.result : JSON.stringify(item.result, null, 2)}
-              </pre>
+          {item.result && item.status !== 'running' && (
+            <div style={{ marginBottom: 6 }}>
+              <Text strong style={{ fontSize: 11, color: 'var(--color-text-secondary, #666)' }}>执行结果：</Text>
+              <div style={{ marginTop: 2 }}>{resultSummary || '已完成'}</div>
             </div>
           )}
+          {item.status === 'running' && (
+            <div style={{ color: 'var(--color-primary, #0071e3)', fontStyle: 'italic' }}>正在执行...</div>
+          )}
+          {/* ponytail: 给开发/调试留的原始 JSON 折叠开关，默认收起 */}
+          <details style={{ marginTop: 4 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 11, color: 'var(--color-text-secondary, #999)', userSelect: 'none' }}>
+              查看原始数据
+            </summary>
+            {item.args && Object.keys(item.args).length > 0 && (
+              <div style={{ marginTop: 4 }}>
+                <Text strong style={{ fontSize: 10 }}>args：</Text>
+                <pre style={{
+                  margin: '2px 0 0 0', fontSize: 10,
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                  fontFamily: 'inherit', background: 'rgba(0,0,0,0.03)',
+                  padding: '4px 8px', borderRadius: 3,
+                  maxHeight: 120, overflowY: 'auto'
+                }}>{JSON.stringify(item.args, null, 2)}</pre>
+              </div>
+            )}
+            {item.result && (
+              <div style={{ marginTop: 4 }}>
+                <Text strong style={{ fontSize: 10 }}>result：</Text>
+                <pre style={{
+                  margin: '2px 0 0 0', fontSize: 10,
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                  fontFamily: 'inherit', background: 'rgba(0,0,0,0.03)',
+                  padding: '4px 8px', borderRadius: 3,
+                  maxHeight: 150, overflowY: 'auto'
+                }}>
+                  {typeof item.result === 'string' ? item.result : JSON.stringify(item.result, null, 2)}
+                </pre>
+              </div>
+            )}
+          </details>
         </div>
       )}
 
@@ -290,9 +407,15 @@ const ToolBlock = ({ item }) => {
  * - 运行中的项目呼吸灯效果
  * - "AI思考中..." 动画提示
  * - 流式回复文本预览 + 打字机光标
+ *
+ * 数据来源：
+ * - `timeline`     — 消息对象上的 timeline（AI 回复完毕后落地的那份）
+ * - `liveTimeline` — `state.agent.timeline`（流式过程中的实时数据）
+ * - `live`         — true 时优先用 `liveTimeline`，让呼吸灯/三点动画真正转起来
  */
-const StreamingAgentCard = ({ timeline, status, agentReplyText, isPaused, showControls, onPause, onResume, onAbort }) => {
-  if (!timeline || timeline.length === 0) {
+const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyText, isPaused, showControls, onPause, onResume, onAbort }) => {
+  const effectiveTimeline = live && liveTimeline?.length ? liveTimeline : timeline
+  if (!effectiveTimeline || effectiveTimeline.length === 0) {
     // 如果没有 timeline，但 agent 在运行，显示 "AI思考中..."
     if (status === 'running') {
       return (
@@ -319,7 +442,7 @@ const StreamingAgentCard = ({ timeline, status, agentReplyText, isPaused, showCo
     return null
   }
 
-  const hasRunningItems = timeline.some(item => item.status === 'running')
+  const hasRunningItems = effectiveTimeline.some(item => item.status === 'running')
 
   return (
     <div style={{ marginBottom: 4 }}>
@@ -367,10 +490,10 @@ const StreamingAgentCard = ({ timeline, status, agentReplyText, isPaused, showCo
 
       {/* 时间线 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {timeline.map((item, index) => (
+        {effectiveTimeline.map((item, index) => (
           item.type === 'reasoning'
-            ? <ReasoningBlock key={`r-${index}`} item={item} />
-            : <ToolBlock key={`t-${item.toolCallId || index}`} item={item} />
+            ? <ReasoningBlock key={`r-${item.roundIndex ?? index}`} item={item} />
+            : <ToolBlock key={`t-${item.toolCallId || item.id || index}`} item={item} />
         ))}
       </div>
 

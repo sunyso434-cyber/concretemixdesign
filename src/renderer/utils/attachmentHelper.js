@@ -3,7 +3,7 @@
  * 用于检测消息中的配合比数据、处理上传的Excel和MD附件
  */
 
-import { parseExcelFile, autoMatchMaterials } from '../pages/AIAnalysisPage_Upload'
+import { parseExcelFile, autoMatchMaterials } from './mixDesignParser'
 import { getAllMaterials } from '../services/MaterialService'
 
 /**

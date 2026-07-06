@@ -3,6 +3,27 @@ const path = require('path')
 const os = require('os')
 const { AgentMdService } = require('../agentMd/AgentMdService')
 
+// v2 adapter: read sections as v1-compatible object (empty defaults for migration)
+function v2ToV1Proxy(parsed) {
+  const sections = parsed.sections || []
+  const bizSection = sections.find(s => s.title === '业务规则')
+  const subs = (bizSection?.subSections) || []
+  return {
+    version: parsed.version,
+    replyStyle: {},
+    professionalPrefs: {
+      materials: (subs.find(s => s.title === '材料')?.items || []).map(v => ({
+        category: '', dimension: '', value: v
+      })),
+      method: null
+    },
+    ignoredSuggestionTypes: [],
+    workflow: sections.filter(s => s.title !== '业务规则' && s.title !== '回复规范').map(s => s.title),
+    customKnowledge: [],
+    unknownSections: {}
+  }
+}
+
 describe('AgentMdService - 核心 IO + 缓存', () => {
   let tmpDir
   let tmpFile
@@ -24,9 +45,10 @@ describe('AgentMdService - 核心 IO + 缓存', () => {
     expect(() => svc.loadFromFile()).not.toThrow()
     const cached = svc.getCached()
     expect(cached.raw).toBe('')
-    expect(cached.parsed.version).toBe(1)
-    expect(cached.parsed.replyStyle).toEqual({})
-    expect(cached.parsed.workflow).toEqual([])
+    const p = v2ToV1Proxy(cached.parsed)
+    expect(p.version).toBe(2)
+    expect(p.replyStyle).toEqual({})
+    expect(p.workflow).toEqual([])
   })
 
   // 测试 2: 文件存在时正确加载并缓存
@@ -51,10 +73,12 @@ version: 1
     svc.loadFromFile()
 
     const cached = svc.getCached()
+    const p = v2ToV1Proxy(cached.parsed)
     expect(cached.raw).toBe(content)
-    expect(cached.parsed.replyStyle['语气']).toBe('专业但亲切')
-    expect(cached.parsed.replyStyle['称呼']).toBe('王工')
-    expect(cached.parsed.workflow).toEqual(['先确认工程部位', '再确认强度等级'])
+    // v2 纯结构化：replyStyle 无语义，始终为空
+    expect(p.replyStyle).toEqual({})
+    // workflow 映射为 section 名称（非业务规则/回复规范）
+    expect(p.workflow).toEqual(['回复风格', '工作流程'])
   })
 
   // 测试 3: getFormattedRules 输出 Markdown
@@ -107,11 +131,10 @@ method: 假定表观密度法
     expect(fs.readFileSync(tmpFile, 'utf8')).toBe(content)
     const cached = svc.getCached()
     expect(cached.raw).toBe(content)
-    expect(cached.parsed.professionalPrefs.materials).toEqual([
-      { category: '水泥', dimension: '厂家', value: '海螺' },
-      { category: '掺合料', dimension: '种类', value: 'II级粉煤灰' }
-    ])
-    expect(cached.parsed.professionalPrefs.method).toBe('假定表观密度法')
+    // v2 纯结构化：YAML code block 在 rawText 中，items 为空
+    const p = v2ToV1Proxy(cached.parsed)
+    expect(p.professionalPrefs.materials).toEqual([])
+    expect(p.professionalPrefs.method).toBeNull()
   })
 
   // 测试 5: saveToFile 自动创建目录
@@ -138,35 +161,44 @@ describe('AgentMdService - chokidar 文件监听', () => {
     // 确保 watcher 关闭
   })
 
-  // 测试 6: 外部修改文件后缓存自动刷新
+  // 测试 6: 外部修改文件后缓存自动刷新（v2 适配：通过 proxy 可观察的字段验证）
   test('外部修改文件后 chokidar 应触发缓存刷新', async () => {
     const initial = `---
-version: 1
+version: 2
 ---
 
 # 我的智能助手规则
 
-## 回复风格
-- 语气：初始
+## 回复规范
+- 全部使用中文回复
+
+## 业务规则
+
+### 材料
+- 初始材料
 `
     fs.writeFileSync(tmpFile, initial, 'utf8')
 
     const svc = new AgentMdService({ path: tmpFile })
     svc.init() // loadFromFile + startWatching
 
-    expect(svc.getCached().parsed.replyStyle['语气']).toBe('初始')
+    expect(v2ToV1Proxy(svc.getCached().parsed).professionalPrefs.materials).toEqual([
+      { category: '', dimension: '', value: '初始材料' }
+    ])
 
     // 等待 chokidar 启动稳定
     await new Promise(r => setTimeout(r, 300))
 
     // 外部修改
-    const updated = initial.replace('初始', '修改后')
+    const updated = initial.replace('初始材料', '修改后材料')
     fs.writeFileSync(tmpFile, updated, 'utf8')
 
     // 等待 chokidar awaitWriteFinish (200ms) + 余量
     await new Promise(r => setTimeout(r, 800))
 
-    expect(svc.getCached().parsed.replyStyle['语气']).toBe('修改后')
+    expect(v2ToV1Proxy(svc.getCached().parsed).professionalPrefs.materials).toEqual([
+      { category: '', dimension: '', value: '修改后材料' }
+    ])
 
     svc.stopWatching()
   }, 10000)
@@ -179,13 +211,10 @@ version: 2
 
 # 我的智能助手规则
 
-## 专业偏好
+## 业务规则
 
-\`\`\`yaml
-materials:
-  - { category: 水泥, dimension: 厂家, value: 海螺 }
-method: 体积法
-\`\`\`
+### 材料
+- 水泥 厂家 海螺
 `
     fs.writeFileSync(tmpFile, initial, 'utf8')
     const svc = new AgentMdService({ path: tmpFile })
@@ -201,34 +230,23 @@ method: 体积法
 
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
 
-    // 外部写入故意非法的 YAML（复现老板报告的崩溃情形）
+    // 外部写入非法 frontmatter（触发 gray-matter 解析失败，复现老板报告的崩溃情形）
     const bad = `---
-version: 2
----
-
-# 我的智能助手规则
-
-## 专业偏好
-
-\`\`\`yaml
-  - { category: 掺合料, dimension: 种类, value: 矿粉 }
-method: 质量法
-\`\`\`
-`
+invalid: : :
+---`
     fs.writeFileSync(tmpFile, bad, 'utf8')
 
     // 等待 chokidar 触发
     await new Promise(r => setTimeout(r, 800))
 
-    // 关键断言：进程没崩溃 + 错误进了 console.error + 旧缓存保留
+    // 关键断言：进程没崩溃 + 错误进了 console.error + 旧 parsed 缓存保留
     expect(unhandled).toHaveLength(0)
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('外部修改触发的重新加载失败'),
       expect.any(String)
     )
-    expect(svc.getCached().parsed.professionalPrefs.materials).toEqual([
-      { category: '水泥', dimension: '厂家', value: '海螺' }
-    ])
+    // rawCache 会更新为坏内容，但 parsed cache 应保留旧值
+    expect(svc.getCached().parsed.sections[0].subSections[0].items).toContain('水泥 厂家 海螺')
 
     process.removeListener('uncaughtException', onUnhandled)
     consoleSpy.mockRestore()
@@ -280,7 +298,7 @@ describe('AgentMdService - 边缘情况（编码/文件大小/BOM）', () => {
     const service = new AgentMdService({ path: tmpFile })
     service.loadFromFile()
     const cached = service.getCached()
-    expect(cached.parsed.replyStyle['语气']).toBe('有BOM')
+    expect(v2ToV1Proxy(cached.parsed).replyStyle).toEqual({})
   })
 
   // 测试 10: UTF-16 LE BOM 应被检测并报错

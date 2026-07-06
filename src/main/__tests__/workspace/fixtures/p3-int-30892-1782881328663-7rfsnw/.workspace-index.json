@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "workspacePath": "D:/C-c/NEWConcrete-mixdesign - 副本/src/main/__tests__/workspace/fixtures/p3-int-30892-1782881328663-7rfsnw",
+  "createdAt": "2026-07-01T04:48:48.708Z",
+  "updatedAt": "2026-07-01T12:48:48.713+08:00",
+  "lastFullRebuild": "2026-07-01T04:48:48.708Z",
+  "files": {
+    "抗渗.md": {
+      "hash": "sha256:1bc54e703304e328a28ed88f792e74666aacc05e4488f80111ee34115e29e04f",
+      "mtime": 1782881328679,
+      "size": 63,
+      "wikiPage": "sources/抗渗-797a48.md",
+      "lastIngestAt": 1782881328713,
+      "quality": "high",
+      "ingestVersion": 2
+    }
+  },
+  "bm25Index": {
+    "vocabulary": {
+      "0": {
+        "df": 1
+      },
+      "45": {
+        "df": 1
+      },
+      "抗渗": {
+        "df": 1
+      },
+      "渗混": {
+        "df": 1
+      },
+      "混凝": {
+        "df": 1
+      },
+      "凝土": {
+        "df": 1
+      },
+      "土水": {
+        "df": 1
+      },
+      "水胶": {
+        "df": 1
+      },
+      "胶比": {
+        "df": 1
+      },
+      "比不": {
+        "df": 1
+      },
+      "不应": {
+        "df": 1
+      },
+      "应大": {
+        "df": 1
+      },
+      "大于": {
+        "df": 1
+      }
+    },
+    "postings": {
+      "0": [
+        "sources/抗渗-797a48.md"
+      ],
+      "45": [
+        "sources/抗渗-797a48.md"
+      ],
+      "抗渗": [
+        "sources/抗渗-797a48.md"
+      ],
+      "渗混": [
+        "sources/抗渗-797a48.md"
+      ],
+      "混凝": [
+        "sources/抗渗-797a48.md"
+      ],
+      "凝土": [
+        "sources/抗渗-797a48.md"
+      ],
+      "土水": [
+        "sources/抗渗-797a48.md"
+      ],
+      "水胶": [
+        "sources/抗渗-797a48.md"
+      ],
+      "胶比": [
+        "sources/抗渗-797a48.md"
+      ],
+      "比不": [
+        "sources/抗渗-797a48.md"
+      ],
+      "不应": [
+        "sources/抗渗-797a48.md"
+      ],
+      "应大": [
+        "sources/抗渗-797a48.md"
+      ],
+      "大于": [
+        "sources/抗渗-797a48.md"
+      ]
+    },
+    "docLengths": {
+      "sources/抗渗-797a48.md": 13
+    },
+    "avgDocLength": 13,
+    "totalDocs": 1
+  },
+  "chatBM25Index": {
+    "vocabulary": {},
+    "postings": {},
+    "docLengths": {},
+    "avgDocLength": 0,
+    "totalDocs": 0
+  }
+}

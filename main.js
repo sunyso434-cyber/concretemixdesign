@@ -312,9 +312,9 @@ app.whenReady().then(async () => {
   const workspaceRefs = { workspaceManager: null, wikiEngine: null, kgExtractor: null, chatHistorySync: null }
   workspaceRefs.workspaceManager = new WorkspaceManager()
   // Task 6：工作区切换 → agent.md 路径切到 <workspacePath>/.agent/agent.md + 老 v1 自动迁移
-  workspaceRefs.workspaceManager.on('opened', newWsPath => {
+  workspaceRefs.workspaceManager.on('opened', async newWsPath => {
     try {
-      setAgentMdWorkspacePath(newWsPath)
+      await setAgentMdWorkspacePath(newWsPath)
     } catch (err) {
       console.warn('[main] setAgentMdWorkspacePath 失败:', err.message)
     }

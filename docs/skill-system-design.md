@@ -126,9 +126,7 @@ src/main/skills/                    # 内置技能（随应用分发）
 | standards-list.js | list_standards | query | 已加载规范列表 |
 | design-history.js | query_design_history | query | 历史设计查询 |
 | prepare-quote-draft.js | prepare_sales_quote_draft | query | 报价草稿生成 |
-| compare-materials.js | compare_materials | analysis | 材料对比分析 |
 | performance-prediction.js | predict_performance | analysis | XGBoost 强度预测 |
-| parameter-diagnosis.js | run_parameter_diagnosis | analysis | 参数诊断 |
 | save-mix-design.js | save_mix_design | save | 保存配合比方案 |
 | save-to-basic-mix.js | save_to_basic_mix_library | save | 保存到基准库 |
 | save-sales-quote.js | save_sales_quote | save | 保存报价记录 |

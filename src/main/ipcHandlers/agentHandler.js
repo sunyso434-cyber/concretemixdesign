@@ -44,6 +44,70 @@ const { getInstance: getAgentMdService, agentMdPath } = require('../agent/agentM
 const { AgentMdParser } = require('../agent/agentMd/AgentMdParser')
 const { getSuggestionStore } = require('../agent/preferences')
 
+// v2 adapter: read sections as v1-compatible object + write-back to v2 sections
+function v2ToV1Proxy(parsed) {
+  const sections = parsed.sections || []
+  // helpers to find-or-create nested structure
+  function ensureSection(title) {
+    let sec = sections.find(s => s.title === title)
+    if (!sec) { sec = { title, subSections: [] }; sections.push(sec) }
+    return sec
+  }
+  function ensureSubSection(sectionTitle, subTitle) {
+    const sec = ensureSection(sectionTitle)
+    let sub = sec.subSections.find(s => s.title === subTitle)
+    if (!sub) { sub = { title: subTitle, items: [], rawText: '' }; sec.subSections.push(sub) }
+    return sub
+  }
+  // Create a persistent professionalPrefs object with mutable materials/method that sync back
+  const _prefs = {}
+  const bizSection = sections.find(s => s.title === '业务规则')
+  const subs = (bizSection?.subSections) || []
+  let _materials = (subs.find(s => s.title === '材料')?.items || []).map(v => ({ category: '', dimension: '', value: v }))
+  const methodSub = subs.find(s => s.title === '计算方法')
+  let _method = methodSub?.items?.[0] || null
+  Object.defineProperty(_prefs, 'materials', {
+    get() { return _materials },
+    set(v) {
+      _materials = v
+      const sub = ensureSubSection('业务规则', '材料')
+      sub.items = (v || []).map(m => [m.category, m.dimension, m.value].filter(Boolean).join(' '))
+    },
+    enumerable: true, configurable: true
+  })
+  Object.defineProperty(_prefs, 'method', {
+    get() { return _method },
+    set(v) {
+      _method = v
+      if (v) { const sub = ensureSubSection('业务规则', '计算方法'); sub.items = [v] }
+    },
+    enumerable: true, configurable: true
+  })
+  return {
+    version: parsed.version,
+    replyStyle: {},
+    get professionalPrefs() { return _prefs },
+    set professionalPrefs(v) {
+      if (!v) return
+      _prefs.materials = v.materials || []
+      _prefs.method = v.method || null
+    },
+    get ignoredSuggestionTypes() {
+      const bizSection = sections.find(s => s.title === '业务规则')
+      const subs = (bizSection?.subSections) || []
+      const ignoredSub = subs.find(s => s.title === '忽略的建议类型')
+      return ignoredSub?.items || []
+    },
+    set ignoredSuggestionTypes(v) {
+      const sub = ensureSubSection('业务规则', '忽略的建议类型')
+      sub.items = v || []
+    },
+    get workflow() { return sections.filter(s => s.title !== '业务规则' && s.title !== '回复规范').map(s => s.title) },
+    get customKnowledge() { return [] },
+    get unknownSections() { return {} }
+  }
+}
+
 /**
  * v1.5.3 Task 4.1：注册 7 个 workspace 伪 Skill。
  *
@@ -1067,7 +1131,7 @@ module.exports = {
     // 合并到 agent.md.materials
     const agentMdSvc = getAgentMdService()
     const cached = agentMdSvc.getCached()
-    const prefs = cached.parsed.professionalPrefs || { materials: [], method: null }
+    const prefs = v2ToV1Proxy(cached.parsed).professionalPrefs
     const newItem = sugg.proposedYaml
     if (newItem.method) {
       prefs.method = newItem.method
@@ -1081,7 +1145,7 @@ module.exports = {
       )
       if (!exists) prefs.materials.push(newItem)
     }
-    cached.parsed.professionalPrefs = prefs
+    v2ToV1Proxy(cached.parsed).professionalPrefs = prefs
     await agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
     return { success: true, newMaterials: prefs.materials }
   }))
@@ -1098,11 +1162,11 @@ module.exports = {
     getSuggestionStore().dismissById(id)
     const agentMdSvc = getAgentMdService()
     const cached = agentMdSvc.getCached()
-    const list = cached.parsed.ignoredSuggestionTypes || []
+    const list = v2ToV1Proxy(cached.parsed).ignoredSuggestionTypes
     if (!list.includes(type)) {
       list.push(type)
     }
-    cached.parsed.ignoredSuggestionTypes = list
+    v2ToV1Proxy(cached.parsed).ignoredSuggestionTypes = list
     await agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
     return { success: true }
   }))
@@ -1110,14 +1174,14 @@ module.exports = {
   ipcMain.handle('agent:preferences:get', _wrap(async () => {
     const agentMdSvc = getAgentMdService()
     const cached = agentMdSvc.getCached()
-    const prefs = cached.parsed.professionalPrefs || { materials: [], method: null }
+    const prefs = v2ToV1Proxy(cached.parsed).professionalPrefs
     return { materials: prefs.materials, method: prefs.method }
   }))
 
   ipcMain.handle('agent:preferences:upsert', _wrap(async (_event, { materials, method }) => {
     const agentMdSvc = getAgentMdService()
     const cached = agentMdSvc.getCached()
-    cached.parsed.professionalPrefs = { materials, method }
+    v2ToV1Proxy(cached.parsed).professionalPrefs = { materials, method }
     await agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
     return { success: true }
   }))
@@ -1125,25 +1189,16 @@ module.exports = {
   ipcMain.handle('agent:preferences:delete', _wrap(async (_event, { index }) => {
     const agentMdSvc = getAgentMdService()
     const cached = agentMdSvc.getCached()
-    const mats = (cached.parsed.professionalPrefs && cached.parsed.professionalPrefs.materials) || []
+    const mats = v2ToV1Proxy(cached.parsed).professionalPrefs.materials
     if (index < 0 || index >= mats.length) {
       return { success: false, error: `索引越界: ${index}` }
     }
     mats.splice(index, 1)
-    cached.parsed.professionalPrefs.materials = mats
+    v2ToV1Proxy(cached.parsed).professionalPrefs.materials = mats
     await agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
     return { success: true }
   }))
 
-  ipcMain.handle('agent:suggestions:list', async () => {
-    const { LearningService } = require('../services/LearningService')
-    return LearningService.getSuggestions()
-  })
-
-  ipcMain.handle('agent:suggestions:accept', async (_e, id) => {
-    const { LearningService } = require('../services/LearningService')
-    return LearningService.acceptSuggestion(id)
-  })
 }
 
 module.exports = {

@@ -9,7 +9,6 @@ const SystemService = require('../services/SystemService')
 const MaterialService = require('../services/MaterialService')
 const MixDesignService = require('../services/MixDesignService/index')
 const MixDesignOptimizer = require('../services/MixDesignOptimizer')
-const ParameterDiagnosisService = require('../services/ParameterDiagnosisService')
 const AnalysisClassifier = require('../services/AnalysisClassifier')
 const AnalysisPreprocessor = require('../services/AnalysisPreprocessor')
 const BasicMixDesignService = require('../services/BasicMixDesignService')
@@ -39,63 +38,6 @@ const defaultGetDeepSeekService = async () => {
 let getDeepSeekService = defaultGetDeepSeekService
 
 /**
- * 分析配合比数据
- */
-const analyzeMixDesign = async (event, { data, customPrompt, analysisModes, preprocessedData }) => {
-  const service = await getDeepSeekService()
-  if (!service) {
-    throw new Error('DeepSeek API未配置，请在系统设置中配置API密钥')
-  }
-
-  try {
-    // 第一步：参数诊断
-    let diagnosisResult = null
-    try {
-      const mixDesigns = data.mixDesigns || []
-      if (mixDesigns.length > 0) {
-        // 为每个 mixDesign 构建 materialMapping（从 data 中提取）
-        const globalMapping = data.materialMapping || {}
-        for (const mix of mixDesigns) {
-          if (!mix.materialMapping) {
-            mix.materialMapping = globalMapping[mix.id] || {}
-          }
-        }
-        diagnosisResult = await ParameterDiagnosisService.diagnose(mixDesigns)
-      }
-    } catch (diagError) {
-      console.error('参数诊断失败:', diagError)
-      // 诊断失败不阻塞主流程
-    }
-
-    // 第二步：将诊断结果注入到分析数据中
-    if (diagnosisResult) {
-      data = { ...data, parameterDiagnosis: diagnosisResult }
-    }
-
-    // 注入分析模式数据
-    if (analysisModes && analysisModes.length > 0) {
-      data.analysisModes = analysisModes
-    }
-    if (preprocessedData) {
-      data.preprocessedData = preprocessedData
-    }
-
-    // 第三步：AI 分析
-    const result = await service.analyzeMixDesign(data, customPrompt || '')
-
-    // 将诊断结果附加到返回结果中
-    if (diagnosisResult) {
-      result.parameterDiagnosis = diagnosisResult
-    }
-
-    return result
-  } catch (error) {
-    console.error('AI分析失败:', error)
-    throw error
-  }
-}
-
-/**
  * 检查API配置状态
  */
 const checkApiStatus = async () => {
@@ -118,19 +60,6 @@ const executeToolCall = async (toolName, args) => {
   }
 
   switch (toolName) {
-    case 'run_parameter_diagnosis': {
-      const mixDesigns = args._mixDesigns || []
-      if (mixDesigns.length === 0) {
-        return { success: false, error: '没有配合比数据可供诊断。请先在智能解析中上传数据。' }
-      }
-      const diagnosisResult = await ParameterDiagnosisService.diagnose(mixDesigns)
-      return {
-        success: true,
-        type: 'parameter_diagnosis',
-        data: diagnosisResult
-      }
-    }
-
     case 'list_standards': {
       const standards = await standardKnowledgeService.listStandards()
       const category = args.category ? String(args.category).replace(/类$/, '') : ''
@@ -304,88 +233,6 @@ const executeToolCall = async (toolName, args) => {
         }
       }
       return optimizeResult
-    }
-
-    case 'compare_materials': {
-      const requiredParams = ['strength', 'slump', 'compareType', 'baseParams', 'candidateIds']
-      const missing = requiredParams.filter(p => args[p] === undefined || args[p] === null)
-      if (missing.length > 0) {
-        return { success: false, missingParams: missing, hint: `缺少必填参数: ${missing.join(', ')}` }
-      }
-
-      const allMaterials = await MaterialService.getAllMaterials()
-      const findById = (id) => allMaterials.find(m => m.id === id)
-      const bp = args.baseParams
-
-      const compareKey = ({ cement: 'cement', flyAsh: 'flyAsh', slag: 'slag', lithiumSlag: 'lithiumSlag', compositePowder: 'compositePowder', superplasticizer: 'superplasticizer', sand: 'sand', stone: 'stone' })[args.compareType]
-
-      const buildMaterials = (candidateId) => {
-        const materials = {}
-
-        if (compareKey === 'cement') {
-          materials.cement = findById(candidateId)
-        } else {
-          materials.cement = bp.cementId ? findById(bp.cementId) : undefined
-        }
-
-        if (compareKey === 'sand') {
-          materials.sand = [findById(candidateId)].filter(Boolean)
-        } else {
-          materials.sand = bp.sandIds ? bp.sandIds.map(id => findById(id)).filter(Boolean) : undefined
-        }
-
-        if (compareKey === 'stone') {
-          materials.stone = [findById(candidateId)].filter(Boolean)
-        } else {
-          materials.stone = bp.stoneIds ? bp.stoneIds.map(id => findById(id)).filter(Boolean) : undefined
-        }
-
-        if (compareKey === 'flyAsh') materials.flyAsh = findById(candidateId)
-        else if (bp.flyAshId) materials.flyAsh = findById(bp.flyAshId)
-
-        if (compareKey === 'slag') materials.slag = findById(candidateId)
-        else if (bp.slagId) materials.slag = findById(bp.slagId)
-
-        if (compareKey === 'lithiumSlag') materials.lithiumSlag = findById(candidateId)
-        else if (bp.lithiumSlagId) materials.lithiumSlag = findById(bp.lithiumSlagId)
-
-        if (compareKey === 'compositePowder') materials.compositePowder = findById(candidateId)
-        else if (bp.compositePowderId) materials.compositePowder = findById(bp.compositePowderId)
-
-        if (compareKey === 'superplasticizer') materials.superplasticizer = findById(candidateId)
-        else if (bp.superplasticizerId) materials.superplasticizer = findById(bp.superplasticizerId)
-
-        return materials
-      }
-
-      const results = []
-      for (const candidateId of args.candidateIds) {
-        const materials = buildMaterials(candidateId)
-        const result = await MixDesignService.calculateMixDesign({
-          strength: args.strength,
-          slump: args.slump,
-          materials,
-          flyAshDosage: bp.flyAshDosage || 0,
-          slagDosage: bp.slagDosage || 0,
-          lithiumSlagDosage: bp.lithiumSlagDosage || 0,
-          compositePowderDosage: bp.compositePowderDosage || 0,
-          sandRatio: bp.sandRatio,
-          calculationMethod: bp.calculationMethod || 'absolute',
-          tempSettings: bp.tempSettings
-        })
-        const candidateMaterial = findById(candidateId)
-        results.push({
-          materialId: candidateId,
-          materialName: candidateMaterial?.name || `ID=${candidateId}`,
-          targetStrength: result.targetStrength,
-          totalCost: result.totalCost,
-          waterRatio: result.waterRatio,
-          sandRatio: result.sandRatio,
-          cementitiousAmount: (result.materials?.cement || 0) + (result.materials?.flyAsh || 0) + (result.materials?.slag || 0) + (result.materials?.lithiumSlag || 0) + (result.materials?.compositePowder || 0)
-        })
-      }
-
-      return { success: true, type: 'material_compare', data: { compareType: args.compareType, results } }
     }
 
     case 'predict_performance': {
@@ -846,7 +693,9 @@ const registerAiAnalysisHandlers = (deps = {}) => {
   }
   const targetIpcMain = deps.ipcMain || require('electron').ipcMain
 
-  targetIpcMain.handle('aiAnalysis:analyze', analyzeMixDesign)
+  targetIpcMain.handle('aiAnalysis:analyze', async () => {
+    throw new Error('aiAnalysis:analyze 已废弃（v10.5.0 移除智能解析模块），请使用 calculate_mix_design / list_available_materials 等工具')
+  })
   targetIpcMain.handle('analysis:prepare', prepareAnalysis)
   targetIpcMain.handle('aiAnalysis:checkStatus', checkApiStatus)
   targetIpcMain.handle('aiAnalysis:chat', chatWithAI)
@@ -908,7 +757,6 @@ if (process.env.NODE_ENV !== 'test') {
 module.exports = {
   register: registerAiAnalysisHandlers,
   registerAiAnalysisHandlers,
-  analyzeMixDesign,
   checkApiStatus,
   chatWithAI,
   chatWithAIStream,

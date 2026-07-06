@@ -61,7 +61,6 @@ function createMockSystemService() {
 }
 
 const all28Tools = [
-  { type: 'function', function: { name: 'compare_materials', description: '对比不同材料对配合比结果的影响', parameters: { type: 'object', properties: { strength: { type: 'string' }, compareType: { type: 'string' }, baseParams: { type: 'object' } }, required: ['strength', 'compareType', 'baseParams'] } } },
   { type: 'function', function: { name: 'check_compliance', description: '检查配合比是否合规', parameters: { type: 'object', properties: { mixDesignId: { type: 'integer' } }, required: ['mixDesignId'] } } },
   { type: 'function', function: { name: 'query_compliance_check', description: '查询合规检查结果', parameters: { type: 'object', properties: { checkId: { type: 'integer' } }, required: ['checkId'] } } },
   { type: 'function', function: { name: 'optimize_mix_cost', description: '网格搜索找出最低成本方案', parameters: { type: 'object', properties: { strength: { type: 'string' }, cementId: { type: 'integer' }, sandIds: { type: 'array' }, stoneIds: { type: 'array' } }, required: ['strength', 'cementId', 'sandIds', 'stoneIds'] } } },
@@ -69,7 +68,6 @@ const all28Tools = [
   { type: 'function', function: { name: 'query_design_history', description: '查询历史配合比设计', parameters: { type: 'object', properties: { limit: { type: 'integer' } }, required: [] } } },
   { type: 'function', function: { name: 'list_available_materials', description: '查询材料库可用原材料', parameters: { type: 'object', properties: { type: { type: 'string' } }, required: [] } } },
   { type: 'function', function: { name: 'calculate_mix_design', description: '计算混凝土配合比', parameters: { type: 'object', properties: { strength: { type: 'string' }, slump: { type: 'number' }, cementId: { type: 'integer' }, sandIds: { type: 'array' }, stoneIds: { type: 'array' } }, required: ['strength', 'slump', 'cementId', 'sandIds', 'stoneIds'] } } },
-  { type: 'function', function: { name: 'run_parameter_diagnosis', description: '运行配合比参数诊断', parameters: { type: 'object', properties: { mixDesignId: { type: 'integer' } }, required: ['mixDesignId'] } } },
   { type: 'function', function: { name: 'predict_performance', description: '预测混凝土性能', parameters: { type: 'object', properties: { mixDesignId: { type: 'integer' } }, required: ['mixDesignId'] } } },
   { type: 'function', function: { name: 'prepare_sales_quote_draft', description: '准备销售报价草稿', parameters: { type: 'object', properties: { mixDesignId: { type: 'integer' } }, required: ['mixDesignId'] } } },
   { type: 'function', function: { name: 'calculate_sales_quote', description: '计算销售报价', parameters: { type: 'object', properties: { mixDesignId: { type: 'integer' }, profitRate: { type: 'number' } }, required: ['mixDesignId'] } } },

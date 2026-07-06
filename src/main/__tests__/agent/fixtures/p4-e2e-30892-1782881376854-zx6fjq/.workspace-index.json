@@ -1,0 +1,182 @@
+{
+  "version": 1,
+  "workspacePath": "D:/C-c/NEWConcrete-mixdesign - 副本/src/main/__tests__/agent/fixtures/p4-e2e-30892-1782881376854-zx6fjq",
+  "createdAt": "2026-07-01T04:49:36.892Z",
+  "updatedAt": "2026-07-01T12:49:36.947+08:00",
+  "lastFullRebuild": "2026-07-01T04:49:36.892Z",
+  "files": {
+    "设计参数.md": {
+      "hash": "sha256:b3234a084f0cd7966eb70f26c56c671e81e4984e3a2187ceb8b88181a5f538b2",
+      "mtime": 1782881376860,
+      "size": 70,
+      "wikiPage": "sources/设计参数-7a06e8.md",
+      "lastIngestAt": 1782881376895,
+      "quality": "high",
+      "ingestVersion": 2
+    },
+    "reports/C30配合比报告.docx": {
+      "hash": "sha256:36624cdc92fd6111f8d2d2f261bb75bb14f83cc93ff608b7ff9f712938f83e4e",
+      "mtime": 1782881376947,
+      "size": 134,
+      "wikiPage": "sources/c30配合比报告-0aa212.md",
+      "lastIngestAt": 1782881376947,
+      "quality": "high",
+      "ingestVersion": 2
+    }
+  },
+  "bm25Index": {
+    "vocabulary": {
+      "0": {
+        "df": 2
+      },
+      "45": {
+        "df": 2
+      },
+      "171": {
+        "df": 1
+      },
+      "380": {
+        "df": 1
+      },
+      "180mm": {
+        "df": 2
+      },
+      "c30": {
+        "df": 1
+      },
+      "设计": {
+        "df": 2
+      },
+      "计参": {
+        "df": 2
+      },
+      "参数": {
+        "df": 2
+      },
+      "水胶": {
+        "df": 2
+      },
+      "胶比": {
+        "df": 2
+      },
+      "坍落": {
+        "df": 2
+      },
+      "落度": {
+        "df": 2
+      },
+      "强度": {
+        "df": 1
+      },
+      "度等": {
+        "df": 1
+      },
+      "等级": {
+        "df": 1
+      },
+      "kg": {
+        "df": 1
+      },
+      "m": {
+        "df": 1
+      },
+      "材料": {
+        "df": 1
+      },
+      "用量": {
+        "df": 1
+      },
+      "水泥": {
+        "df": 1
+      }
+    },
+    "postings": {
+      "0": [
+        "sources/设计参数-7a06e8.md",
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "45": [
+        "sources/设计参数-7a06e8.md",
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "171": [
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "380": [
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "180mm": [
+        "sources/设计参数-7a06e8.md",
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "c30": [
+        "sources/设计参数-7a06e8.md"
+      ],
+      "设计": [
+        "sources/设计参数-7a06e8.md",
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "计参": [
+        "sources/设计参数-7a06e8.md",
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "参数": [
+        "sources/设计参数-7a06e8.md",
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "水胶": [
+        "sources/设计参数-7a06e8.md",
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "胶比": [
+        "sources/设计参数-7a06e8.md",
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "坍落": [
+        "sources/设计参数-7a06e8.md",
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "落度": [
+        "sources/设计参数-7a06e8.md",
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "强度": [
+        "sources/设计参数-7a06e8.md"
+      ],
+      "度等": [
+        "sources/设计参数-7a06e8.md"
+      ],
+      "等级": [
+        "sources/设计参数-7a06e8.md"
+      ],
+      "kg": [
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "m": [
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "材料": [
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "用量": [
+        "sources/c30配合比报告-0aa212.md"
+      ],
+      "水泥": [
+        "sources/c30配合比报告-0aa212.md"
+      ]
+    },
+    "docLengths": {
+      "sources/设计参数-7a06e8.md": 14,
+      "sources/c30配合比报告-0aa212.md": 17
+    },
+    "avgDocLength": 15.5,
+    "totalDocs": 2
+  },
+  "chatBM25Index": {
+    "vocabulary": {},
+    "postings": {},
+    "docLengths": {},
+    "avgDocLength": 0,
+    "totalDocs": 0
+  }
+}

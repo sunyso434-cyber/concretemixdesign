@@ -46,8 +46,11 @@ function normalizeParameters(arrayParams) {
   const obj = {}
   for (const p of arrayParams) {
     if (!p || !p.name) continue
+    // ponytail: 将项目自定义的 select 类型翻译为 OpenAI 标准 string+enum；
+    // 否则 DeepSeek/OpenAI 协议会在请求阶段拒收并报 "select is not valid under anyOf" 400 错误
+    const jsonType = (p.type === 'select') ? 'string' : (p.type || 'string')
     obj[p.name] = {
-      type: p.type || 'string',
+      type: jsonType,
       required: p.required || false,
       description: p.label || p.description || ''
     }

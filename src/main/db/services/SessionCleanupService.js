@@ -8,8 +8,16 @@ const { Op } = require('sequelize')
 async function cleanupOldSessions({ keepDays = 30 } = {}) {
   const cutoff = new Date(Date.now() - keepDays * 24 * 60 * 60 * 1000)
 
+  const where = { lastActivity: { [Op.lt]: cutoff } }
+  // If isStarred field exists, don't delete starred sessions
+  try {
+    const { isStarred } = ChatSession.rawAttributes
+    if (isStarred) {
+      where.isStarred = { [Op.ne]: true }
+    }
+  } catch (_) {}
   const oldSessions = await ChatSession.findAll({
-    where: { lastActivity: { [Op.lt]: cutoff } },
+    where,
     attributes: ['sessionId']
   })
   const oldIds = oldSessions.map(s => s.sessionId)

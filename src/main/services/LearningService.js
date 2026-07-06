@@ -33,10 +33,18 @@ class LearningService {
       // 查询材料 ID → name 映射
       const materialNames = await this._resolveMaterialNames(args)
 
-      // 加载当前 agent.md 偏好
+      // 加载当前 agent.md 偏好（v2 adapter：从 sections 读取）
       const agentMd = getAgentMdService().getCached()
-      const prefs = (agentMd.parsed && agentMd.parsed.professionalPrefs) || { materials: [], method: null }
-      const blacklist = (agentMd.parsed && agentMd.parsed.ignoredSuggestionTypes) || []
+      const sections = (agentMd.parsed && agentMd.parsed.sections) || []
+      const bizSection = sections.find(s => s.title === '业务规则')
+      const subs = (bizSection?.subSections) || []
+      const prefs = {
+        materials: (subs.find(s => s.title === '材料')?.items || []).map(v => ({
+          category: '', dimension: '', value: v
+        })),
+        method: null
+      }
+      const blacklist = []
 
       // 调用 PatternDetector
       const detector = new PreferencePatternDetector({

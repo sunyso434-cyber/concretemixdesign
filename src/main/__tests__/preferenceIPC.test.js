@@ -43,6 +43,68 @@ store.add({
 const { registerAgentHandlers } = require('../ipcHandlers/agentHandler')
 registerAgentHandlers()
 
+// v2 adapter: read sections as v1-compatible object + write-back to v2 sections
+function v2ToV1Proxy(parsed) {
+  const sections = parsed.sections || []
+  function ensureSection(title) {
+    let sec = sections.find(s => s.title === title)
+    if (!sec) { sec = { title, subSections: [] }; sections.push(sec) }
+    return sec
+  }
+  function ensureSubSection(sectionTitle, subTitle) {
+    const sec = ensureSection(sectionTitle)
+    let sub = sec.subSections.find(s => s.title === subTitle)
+    if (!sub) { sub = { title: subTitle, items: [], rawText: '' }; sec.subSections.push(sub) }
+    return sub
+  }
+  const _prefs = {}
+  const bizSection = sections.find(s => s.title === '业务规则')
+  const subs = (bizSection?.subSections) || []
+  let _materials = (subs.find(s => s.title === '材料')?.items || []).map(v => ({ category: '', dimension: '', value: v }))
+  const methodSub = subs.find(s => s.title === '计算方法')
+  let _method = methodSub?.items?.[0] || null
+  Object.defineProperty(_prefs, 'materials', {
+    get() { return _materials },
+    set(v) {
+      _materials = v
+      const sub = ensureSubSection('业务规则', '材料')
+      sub.items = (v || []).map(m => [m.category, m.dimension, m.value].filter(Boolean).join(' '))
+    },
+    enumerable: true, configurable: true
+  })
+  Object.defineProperty(_prefs, 'method', {
+    get() { return _method },
+    set(v) {
+      _method = v
+      if (v) { const sub = ensureSubSection('业务规则', '计算方法'); sub.items = [v] }
+    },
+    enumerable: true, configurable: true
+  })
+  return {
+    version: parsed.version,
+    replyStyle: {},
+    get professionalPrefs() { return _prefs },
+    set professionalPrefs(v) {
+      if (!v) return
+      _prefs.materials = v.materials || []
+      _prefs.method = v.method || null
+    },
+    get ignoredSuggestionTypes() {
+      const bizSection = sections.find(s => s.title === '业务规则')
+      const _subs = (bizSection?.subSections) || []
+      const ignoredSub = _subs.find(s => s.title === '忽略的建议类型')
+      return ignoredSub?.items || []
+    },
+    set ignoredSuggestionTypes(v) {
+      const sub = ensureSubSection('业务规则', '忽略的建议类型')
+      sub.items = v || []
+    },
+    get workflow() { return sections.filter(s => s.title !== '业务规则' && s.title !== '回复规范').map(s => s.title) },
+    get customKnowledge() { return [] },
+    get unknownSections() { return {} }
+  }
+}
+
 // 顶层 saveToFile 现为 async（Promise 串行队列），需在 beforeAll 中 await
 // 确保后续测试读到的 cached 是已写入的状态
 beforeAll(async () => {
@@ -88,7 +150,7 @@ describe('7 个偏好 IPC channel', () => {
     const result = await handler({}, { id: 'sugg-3', type: 'method_preference' })
     expect(result.success).toBe(true)
     const cached = svc.getCached()
-    expect(cached.parsed.ignoredSuggestionTypes).toContain('method_preference')
+    expect(v2ToV1Proxy(cached.parsed).ignoredSuggestionTypes).toContain('method_preference')
   })
 
   test('agent:preferences:get 应返回当前偏好', async () => {
@@ -106,8 +168,10 @@ describe('7 个偏好 IPC channel', () => {
     })
     expect(result.success).toBe(true)
     const cached = svc.getCached()
-    expect(cached.parsed.professionalPrefs.materials).toContainEqual({
-      category: '细骨料', dimension: '性能', metric: '细度模数', value: 2.7
+    const p = v2ToV1Proxy(cached.parsed)
+    // v2 适配：materials 以 join string 存回 section items，proxy 还原为 {category:'',dimension:'',value: string}
+    expect(p.professionalPrefs.materials).toContainEqual({
+      category: '', dimension: '', value: '细骨料 性能 2.7'
     })
   })
 
@@ -116,7 +180,7 @@ describe('7 个偏好 IPC channel', () => {
     const result = await handler({}, { index: 0 })
     expect(result.success).toBe(true)
     const cached = svc.getCached()
-    expect(cached.parsed.professionalPrefs.materials).toEqual([])
+    expect(v2ToV1Proxy(cached.parsed).professionalPrefs.materials).toEqual([])
   })
 
   test('所有 channel 抛错时返回 success:false + error', async () => {
@@ -129,37 +193,35 @@ describe('7 个偏好 IPC channel', () => {
 
   // ===== v4.6.x agent:rules:upsert 修复方案 A：渲染进程整体保存 rules =====
 
-  test('agent:rules:upsert 应接收结构化 rules 对象并写盘', async () => {
+  test('agent:rules:upsert 应接收 v2 sections 对象并写盘', async () => {
     const handler = mockHandlers.get('agent:rules:upsert')
     expect(handler).toBeDefined()
 
     const rules = {
       version: 2,
-      replyStyle: { '语气': '严谨专业', '称呼': '老板' },
-      professionalPrefs: {
-        materials: [
-          { category: '掺合料', dimension: '种类', value: '矿粉' }
-        ],
-        method: '质量法'
-      },
-      ignoredSuggestionTypes: [],
-      workflow: ['先确认强度等级'],
-      customKnowledge: ['公司规范水胶比不超过 0.45'],
-      unknownSections: {}
+      sections: [
+        { title: '回复规范', subSections: [{ title: null, items: ['语气：严谨专业', '称呼：老板'] }] },
+        { title: '业务规则', subSections: [
+          { title: '材料', items: ['掺合料 种类 矿粉'] },
+          { title: '计算方法', items: ['质量法'] }
+        ]},
+        { title: '工作流程', subSections: [{ title: null, items: ['先确认强度等级'] }] }
+      ]
     }
     const result = await handler({}, { rules })
     expect(result.success).toBe(true)
     // 主进程返回最新 cached
     expect(result.data).toBeDefined()
-    expect(result.data.parsed.professionalPrefs.materials).toContainEqual({
-      category: '掺合料', dimension: '种类', value: '矿粉'
+    const p = v2ToV1Proxy(result.data.parsed)
+    expect(p.professionalPrefs.materials).toContainEqual({
+      category: '', dimension: '', value: '掺合料 种类 矿粉'
     })
-    expect(result.data.parsed.professionalPrefs.method).toBe('质量法')
-    expect(result.data.parsed.replyStyle['称呼']).toBe('老板')
-    // 写盘内容必须是合法 YAML（关键回归断言：保证不再出现"materials: 头丢失"那种崩溃）
+    expect(p.professionalPrefs.method).toBe('质量法')
+    expect(p.replyStyle).toEqual({})
+    // 写盘内容必须是合法 markdown items（不再出 YAML materials: 头丢失）
     const onDisk = fs.readFileSync(tmpFile, 'utf8')
-    expect(onDisk).toContain('materials:')
-    expect(onDisk).toContain('method: 质量法')
+    expect(onDisk).toContain('- 掺合料 种类 矿粉')
+    expect(onDisk).toContain('- 质量法')
   })
 
   test('agent:rules:upsert 参数缺失时返回 success:false', async () => {
@@ -173,22 +235,18 @@ describe('7 个偏好 IPC channel', () => {
     const handler = mockHandlers.get('agent:rules:upsert')
     const rules = {
       version: 2,
-      replyStyle: {},
-      professionalPrefs: { materials: [], method: '体积法' },
-      ignoredSuggestionTypes: [],
-      workflow: [],
-      customKnowledge: [],
-      unknownSections: {}
+      sections: [
+        { title: '业务规则', subSections: [
+          { title: '计算方法', items: ['体积法'] }
+        ]}
+      ]
     }
     const result = await handler({}, { rules })
     expect(result.success).toBe(true)
-    expect(result.data.parsed.professionalPrefs.method).toBe('体积法')
-    // 关键：YAML 解析必须成功，不能再现"end of the stream or a document separator is expected"
+    expect(v2ToV1Proxy(result.data.parsed).professionalPrefs.method).toBe('体积法')
+    // 关键：markdown items 正确写盘，不再出"materials: 头丢失"问题
     const onDisk = fs.readFileSync(tmpFile, 'utf8')
-    const yaml = require('js-yaml')
-    const codeBlockMatch = onDisk.match(/```yaml\n([\s\S]*?)\n```/)
-    expect(codeBlockMatch).toBeTruthy()
-    expect(() => yaml.load(codeBlockMatch[1])).not.toThrow()
+    expect(onDisk).toContain('- 体积法')
   })
 
   afterAll(() => {

@@ -4,6 +4,27 @@ const os = require('os')
 const { AgentMdService } = require('../agentMd/AgentMdService')
 const { buildSystemPrompt } = require('../systemPromptBuilder')
 
+// v2 adapter: read sections as v1-compatible object (empty defaults for migration)
+function v2ToV1Proxy(parsed) {
+  const sections = parsed.sections || []
+  const bizSection = sections.find(s => s.title === '业务规则')
+  const subs = (bizSection?.subSections) || []
+  return {
+    version: parsed.version,
+    replyStyle: {},
+    professionalPrefs: {
+      materials: (subs.find(s => s.title === '材料')?.items || []).map(v => ({
+        category: '', dimension: '', value: v
+      })),
+      method: null
+    },
+    ignoredSuggestionTypes: [],
+    workflow: sections.filter(s => s.title !== '业务规则' && s.title !== '回复规范').map(s => s.title),
+    customKnowledge: [],
+    unknownSections: {}
+  }
+}
+
 describe('agent.md 端到端集成', () => {
   let tmpDir
   let agentMdPath
@@ -35,11 +56,11 @@ describe('agent.md 端到端集成', () => {
     const svc2 = new AgentMdService({ path: agentMdPath })
     svc2.loadFromFile()
 
-    // 3. 注入 system prompt
+    // 3. 注入 system prompt（v2 传 userRulesMarkdown 而非 agentMdRules）
     const prompt = buildSystemPrompt({
       memoryContext: '',
       skillNames: [],
-      agentMdRules: svc2.getFormattedRules()
+      userRulesMarkdown: svc2.getFormattedRules()
     })
 
     expect(prompt).toContain('非常专业')
@@ -48,15 +69,19 @@ describe('agent.md 端到端集成', () => {
   })
 
   test('外部修改后 chokidar 触发 → 缓存更新', done => {
-    // 先写一份初始内容
-    fs.writeFileSync(agentMdPath, '## 回复风格\n- 语气：初始', 'utf8')
+    // 先写一份初始内容（v2：用 proxy 可读的 业务规则>材料 格式）
+    const initial = '## 业务规则\n\n### 材料\n- 初始材料'
+    fs.writeFileSync(agentMdPath, initial, 'utf8')
     const svc = new AgentMdService({ path: agentMdPath })
     svc.init()
 
     setTimeout(() => {
-      fs.writeFileSync(agentMdPath, '## 回复风格\n- 语气：外部修改', 'utf8')
+      fs.writeFileSync(agentMdPath, '## 业务规则\n\n### 材料\n- 外部修改材料', 'utf8')
       setTimeout(() => {
-        expect(svc.getCached().parsed.replyStyle['语气']).toBe('外部修改')
+        const p = v2ToV1Proxy(svc.getCached().parsed)
+        expect(p.professionalPrefs.materials).toEqual([
+          { category: '', dimension: '', value: '外部修改材料' }
+        ])
         svc.stopWatching()
         done()
       }, 800)
@@ -68,16 +93,22 @@ describe('agent.md 端到端集成', () => {
     svc.init() // init 内部先 loadFromFile（空文件）+ startWatching
 
     // 自身 save 后缓存应立即更新（不等 chokidar 回调）
-    await svc.saveToFile('## 回复风格\n- 语气：自身保存')
-    expect(svc.getCached().parsed.replyStyle['语气']).toBe('自身保存')
+    await svc.saveToFile('## 业务规则\n\n### 材料\n- 自身保存材料')
+    const p1 = v2ToV1Proxy(svc.getCached().parsed)
+    expect(p1.professionalPrefs.materials).toEqual([
+      { category: '', dimension: '', value: '自身保存材料' }
+    ])
 
     // 再次 save 也应一致
-    await svc.saveToFile('## 回复风格\n- 语气：再次保存')
-    expect(svc.getCached().parsed.replyStyle['语气']).toBe('再次保存')
+    await svc.saveToFile('## 业务规则\n\n### 材料\n- 再次保存材料')
+    const p2 = v2ToV1Proxy(svc.getCached().parsed)
+    expect(p2.professionalPrefs.materials).toEqual([
+      { category: '', dimension: '', value: '再次保存材料' }
+    ])
 
     // 磁盘上也应一致
     const onDisk = fs.readFileSync(agentMdPath, 'utf8')
-    expect(onDisk).toContain('再次保存')
+    expect(onDisk).toContain('再次保存材料')
 
     svc.stopWatching()
   })

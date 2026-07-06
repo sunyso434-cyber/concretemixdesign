@@ -10,9 +10,7 @@ import StreamingAgentCard from './StreamingAgentCard'
 import FileMessageCard from './FileMessageCard'
 import MixDesignResultCard from './MixDesignResultCard'
 import OptimizationResultCard from './OptimizationResultCard'
-import MaterialCompareCard from './MaterialCompareCard'
 import MaterialPicker from './MaterialPicker'
-import DiagnosisResultCard from './DiagnosisResultCard'
 import SalesQuoteResultCard from './SalesQuoteResultCard'
 import SaveBasicMixModal from './SaveBasicMixModal'
 import LintReportModal from './LintReportModal'
@@ -28,9 +26,9 @@ import { sendMessage, abortAgent, createSession, loadSessionList, switchSession,
 import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, processImageAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
 import ContextIndicator from './ContextIndicator'
 import { getContextPercent, DEFAULT_CONTEXT_LIMIT } from '../utils/contextStats'
-import { AnalysisReport } from '../pages/AIAnalysisPage_Results'
+import { AnalysisReport } from './AnalysisReport'
 import { getAllMaterials } from '../services/MaterialService'
-import { buildAnalysisData, MATERIAL_TYPE_MAP } from '../pages/AIAnalysisPage_Upload'
+import { buildAnalysisData, MATERIAL_TYPE_MAP } from '../utils/mixDesignParser'
 import { parseMixedMessage, isInCommandMode, tabComplete, buildAllCommandNames } from '../utils/slashCommandParser'
 
 const { Text } = Typography
@@ -49,7 +47,6 @@ const ANALYSIS_RESULT_KEYS = [
   'adjustmentSuggestions',
   'furtherTestSuggestions',
   'comprehensiveEvaluation',
-  'parameterDiagnosis',
 ]
 
 /** 主进程 analyze 返回的是 parse 后的报告对象；兼容带 reply 字符串的旧形态 */
@@ -111,12 +108,6 @@ function createToolSummary(toolName, args = {}) {
   }
   if (toolName === 'optimize_mix_cost') {
     return [args.strength, args.slump ? `坍落度 ${args.slump}mm` : null, args.gridStep ? `步长 ${args.gridStep}` : null].filter(Boolean).join('|')
-  }
-  if (toolName === 'compare_materials') {
-    return [args.compareType, args.candidateIds?.length ? `${args.candidateIds.length} 个候选` : null].filter(Boolean).join('|')
-  }
-  if (toolName === 'run_parameter_diagnosis') {
-    return '分析上传数据'
   }
   if (toolName === 'predict_performance') {
     return '预测强度、坍落度和容重'
@@ -1212,6 +1203,11 @@ const SmartDesignChat = () => {
 
   // 使用已确定的模式执行分析（跳过 prepare 步骤，避免重复检测）
   const executeAnalysisWithModes = async (mixDesigns, materialMapping, effectivePrompt, { modes, preprocessedData }) => {
+    // v10.5.0：智能解析模块已移除，提示用户使用其他工具
+    message.warning('智能解析模块已在 v10.5.0 移除。如需分析配合比数据，可使用 calculate_mix_design / optimize_mix_cost / predict_performance 等工具。')
+    chatState.setAnalysisMode(false)
+    return
+    /* v10.5.0 disabled
     try {
       const analysisDataBuilt = buildAnalysisData(mixDesigns, materialMapping)
       chatState.setAnalysisData(analysisDataBuilt)
@@ -1250,6 +1246,11 @@ const SmartDesignChat = () => {
 
   // 执行AI分析
   const executeAnalysis = async (mixDesigns, materialMapping, opts = {}) => {
+    // v10.5.0：智能解析模块已移除，提示用户使用其他工具
+    message.warning('智能解析模块已在 v10.5.0 移除。如需分析配合比数据，可使用 calculate_mix_design / optimize_mix_cost / predict_performance 等工具。')
+    chatState.setAnalysisMode(false)
+    return
+    /* v10.5.0 disabled
     try {
       const effectivePrompt = opts.customPrompt !== undefined && opts.customPrompt !== null ? opts.customPrompt : state.input
 
@@ -1353,6 +1354,7 @@ const SmartDesignChat = () => {
       message.error('分析执行失败: ' + error.message)
       chatState.setAnalysisMode(false)
     }
+    */
   }
 
   // 分析模式后续追问
@@ -1593,12 +1595,6 @@ const SmartDesignChat = () => {
                           {item.toolCall.type === 'sales_quote' && (
                             <SalesQuoteResultCard data={item.toolCall.data} pumpingFeeItems={chatState.pumpingFeeItems} />
                           )}
-                          {item.toolCall.type === 'material_compare' && (
-                            <MaterialCompareCard data={item.toolCall.data} />
-                          )}
-                          {item.toolCall.type === 'parameter_diagnosis' && (
-                            <DiagnosisResultCard data={item.toolCall.data} />
-                          )}
                         </>
                       )}
                       {item.materialPicker?.type === 'contrast_selection' && (
@@ -1663,9 +1659,6 @@ const SmartDesignChat = () => {
                       {item.analysisReport && (
                         <div className="analysis-report-wrapper" style={{ marginBottom: 12, maxWidth: '100%' }}>
                           <Alert type="info" showIcon icon={<BarChartOutlined />} message="分析报告已生成" style={{ marginBottom: 8 }} />
-                          {item.analysisReport.parameterDiagnosis && (
-                            <DiagnosisResultCard data={item.analysisReport.parameterDiagnosis} />
-                          )}
                           <AnalysisReport result={item.analysisReport} />
                         </div>
                       )}
@@ -1685,10 +1678,16 @@ const SmartDesignChat = () => {
                           ))}
                         </div>
                       )}
-                      {item.timeline && item.timeline.length > 0 && (
+                      {((item._streaming && state.agent.timeline?.length > 0) ||
+                        (item.timeline && item.timeline.length > 0)) && (
                         <StreamingAgentCard
                           timeline={item.timeline}
-                          status="done"
+                          liveTimeline={state.agent.timeline}
+                          live={!!item._streaming}
+                          status={item._streaming ? state.agent.status : 'done'}
+                          showControls={!!item._streaming}
+                          agentReplyText={item._streaming ? state.agent.replyText : ''}
+                          isPaused={item._streaming ? state.agent.status === 'paused' : false}
                         />
                       )}
                       <MessageContent

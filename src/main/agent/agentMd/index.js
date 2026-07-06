@@ -43,9 +43,9 @@ async function ensureMigrated(agentMdPath) {
   await migrateV1ToV2(workspacePath)
 }
 
-function init() {
+async function init() {
   const svc = getInstance()
-  ensureMigrated(agentMdPath)
+  await ensureMigrated(agentMdPath)
   svc.init()
   return svc
 }

@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "workspacePath": "D:/C-c/NEWConcrete-mixdesign - 副本/src/main/__tests__/workspace/fixtures/p3-int-30892-1782881328728-irffcc",
+  "createdAt": "2026-07-01T04:48:48.753Z",
+  "updatedAt": "2026-07-01T12:48:48.755+08:00",
+  "lastFullRebuild": "2026-07-01T04:48:48.753Z",
+  "files": {
+    "混凝土.md": {
+      "hash": "sha256:84252ec03e075ed35adf4590596af4022113eee444a8cdb39ac634551caa07f1",
+      "mtime": 1782881328732,
+      "size": 31,
+      "wikiPage": "sources/混凝土-ad7baf.md",
+      "lastIngestAt": 1782881328755,
+      "quality": "high",
+      "ingestVersion": 2
+    }
+  },
+  "bm25Index": {
+    "vocabulary": {
+      "混凝": {
+        "df": 1
+      },
+      "凝土": {
+        "df": 1
+      },
+      "配合": {
+        "df": 1
+      },
+      "合比": {
+        "df": 1
+      },
+      "比设": {
+        "df": 1
+      },
+      "设计": {
+        "df": 1
+      }
+    },
+    "postings": {
+      "混凝": [
+        "sources/混凝土-ad7baf.md"
+      ],
+      "凝土": [
+        "sources/混凝土-ad7baf.md"
+      ],
+      "配合": [
+        "sources/混凝土-ad7baf.md"
+      ],
+      "合比": [
+        "sources/混凝土-ad7baf.md"
+      ],
+      "比设": [
+        "sources/混凝土-ad7baf.md"
+      ],
+      "设计": [
+        "sources/混凝土-ad7baf.md"
+      ]
+    },
+    "docLengths": {
+      "sources/混凝土-ad7baf.md": 6
+    },
+    "avgDocLength": 6,
+    "totalDocs": 1
+  },
+  "chatBM25Index": {
+    "vocabulary": {},
+    "postings": {},
+    "docLengths": {},
+    "avgDocLength": 0,
+    "totalDocs": 0
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "workspacePath": "D:/C-c/NEWConcrete-mixdesign - 副本/src/main/__tests__/agent/fixtures/p4-e2e-30892-1782881377089-852gwv",
+  "createdAt": "2026-07-01T04:49:37.111Z",
+  "updatedAt": "2026-07-01T12:49:37.157+08:00",
+  "lastFullRebuild": "2026-07-01T04:49:37.111Z",
+  "files": {
+    "数据源.md": {
+      "hash": "sha256:ba860b9251acd6cab3c0435be8e6fbbeca1ff88427eed4c228b0ef7131a7ac6a",
+      "mtime": 1782881377095,
+      "size": 28,
+      "wikiPage": "sources/数据源-bad2d9.md",
+      "lastIngestAt": 1782881377113,
+      "quality": "high",
+      "ingestVersion": 2
+    },
+    "reports/wiki-listing-report.md": {
+      "hash": "sha256:f4f8e67f74d60f6aaef5d2fdb882cbd5a18098bdca142c578a86d6607e005565",
+      "mtime": 1782881377132,
+      "size": 125,
+      "wikiPage": "sources/wiki-listing-report.md",
+      "lastIngestAt": 1782881377157,
+      "quality": "high",
+      "ingestVersion": 2
+    }
+  },
+  "bm25Index": {
+    "vocabulary": {
+      "数据": {
+        "df": 1
+      },
+      "据源": {
+        "df": 1
+      },
+      "基本": {
+        "df": 1
+      },
+      "本数": {
+        "df": 1
+      },
+      "wiki": {
+        "df": 1
+      },
+      "现状": {
+        "df": 1
+      },
+      "工作": {
+        "df": 1
+      },
+      "作区": {
+        "df": 1
+      },
+      "含若": {
+        "df": 1
+      },
+      "若干": {
+        "df": 1
+      },
+      "干源": {
+        "df": 1
+      },
+      "源文": {
+        "df": 1
+      },
+      "文件": {
+        "df": 1
+      }
+    },
+    "postings": {
+      "数据": [
+        "sources/数据源-bad2d9.md"
+      ],
+      "据源": [
+        "sources/数据源-bad2d9.md"
+      ],
+      "基本": [
+        "sources/数据源-bad2d9.md"
+      ],
+      "本数": [
+        "sources/数据源-bad2d9.md"
+      ],
+      "wiki": [
+        "sources/wiki-listing-report.md"
+      ],
+      "现状": [
+        "sources/wiki-listing-report.md"
+      ],
+      "工作": [
+        "sources/wiki-listing-report.md"
+      ],
+      "作区": [
+        "sources/wiki-listing-report.md"
+      ],
+      "含若": [
+        "sources/wiki-listing-report.md"
+      ],
+      "若干": [
+        "sources/wiki-listing-report.md"
+      ],
+      "干源": [
+        "sources/wiki-listing-report.md"
+      ],
+      "源文": [
+        "sources/wiki-listing-report.md"
+      ],
+      "文件": [
+        "sources/wiki-listing-report.md"
+      ]
+    },
+    "docLengths": {
+      "sources/数据源-bad2d9.md": 4,
+      "sources/wiki-listing-report.md": 9
+    },
+    "avgDocLength": 6.5,
+    "totalDocs": 2
+  },
+  "chatBM25Index": {
+    "vocabulary": {},
+    "postings": {},
+    "docLengths": {},
+    "avgDocLength": 0,
+    "totalDocs": 0
+  }
+}

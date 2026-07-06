@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "workspacePath": "D:/C-c/NEWConcrete-mixdesign - 副本/src/main/__tests__/workspace/fixtures/p3-int-30892-1782881334529-b7nljj",
+  "createdAt": "2026-07-01T04:48:54.555Z",
+  "updatedAt": "2026-07-01T12:48:54.557+08:00",
+  "lastFullRebuild": "2026-07-01T04:48:54.555Z",
+  "files": {
+    "数据.md": {
+      "hash": "sha256:4631d3cb740dcebb79c919ab7b5d5ba8bb06a62447f53aa7d39279f2b2c48f7f",
+      "mtime": 1782881334533,
+      "size": 25,
+      "wikiPage": "sources/数据-69ef35.md",
+      "lastIngestAt": 1782881334557,
+      "quality": "high",
+      "ingestVersion": 2
+    }
+  },
+  "bm25Index": {
+    "vocabulary": {
+      "数据": {
+        "df": 1
+      },
+      "基础": {
+        "df": 1
+      },
+      "础数": {
+        "df": 1
+      }
+    },
+    "postings": {
+      "数据": [
+        "sources/数据-69ef35.md"
+      ],
+      "基础": [
+        "sources/数据-69ef35.md"
+      ],
+      "础数": [
+        "sources/数据-69ef35.md"
+      ]
+    },
+    "docLengths": {
+      "sources/数据-69ef35.md": 3
+    },
+    "avgDocLength": 3,
+    "totalDocs": 1
+  },
+  "chatBM25Index": {
+    "vocabulary": {},
+    "postings": {},
+    "docLengths": {},
+    "avgDocLength": 0,
+    "totalDocs": 0
+  }
+}

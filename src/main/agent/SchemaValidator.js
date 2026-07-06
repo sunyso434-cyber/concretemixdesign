@@ -202,16 +202,34 @@ class SchemaValidator {
    */
   toJsonSchemaProperties(parameters) {
     const properties = {}
-    for (const [key, value] of Object.entries(parameters)) {
-      properties[key] = {
-        type: value.type,
-        description: value.description || ''
+    // ponytail: OpenAI/DeepSeek 只接受这 6 种 JSON Schema 类型；其他（含项目自定义 'select'/'range'/'switch'）兜底成 'string'，防御 schema 报错
+    const JSON_SCHEMA_TYPES = new Set(['string', 'number', 'integer', 'boolean', 'array', 'object'])
+
+    // ponytail: 递归清洗嵌套 schema（items.properties/properties 内部不能再含 'required'/'default' 这类项目自定义字段；只对 items.properties 自身与外层 required 数组生效）
+    const clean = (v) => {
+      if (!v || typeof v !== 'object') return v
+      const out = { ...v }
+      if (out.type && !JSON_SCHEMA_TYPES.has(out.type)) out.type = 'string'
+      delete out.required  // 项目自定义标记位：必填项应通过外层 required 数组表达
+      delete out.default   // 项目自定义标记位：DeepSeek 协议不接受 default
+      if (out.items && typeof out.items === 'object') out.items = clean(out.items)
+      if (out.properties && typeof out.properties === 'object') {
+        const cleanedProps = {}
+        for (const [k, val] of Object.entries(out.properties)) cleanedProps[k] = clean(val)
+        out.properties = cleanedProps
       }
-      if (value.items) properties[key].items = value.items
-      if (value.enum) properties[key].enum = value.enum
-      if (value.examples) properties[key].examples = value.examples
-      if (value.min !== undefined) properties[key].minimum = value.min
-      if (value.max !== undefined) properties[key].maximum = value.max
+      return out
+    }
+
+    for (const [key, value] of Object.entries(parameters)) {
+      const c = clean(value)
+      properties[key] = { type: c.type, description: c.description || '' }
+      if (c.items) properties[key].items = c.items
+      if (c.enum) properties[key].enum = c.enum
+      if (c.examples) properties[key].examples = c.examples
+      if (c.min !== undefined) properties[key].minimum = c.min
+      if (c.max !== undefined) properties[key].maximum = c.max
+      if (c.properties) properties[key].properties = c.properties
     }
     return properties
   }

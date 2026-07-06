@@ -1,0 +1,160 @@
+{
+  "version": 1,
+  "workspacePath": "D:/C-c/NEWConcrete-mixdesign - 副本/src/main/__tests__/agent/fixtures/p4-e2e-30892-1782881377000-6tecdx",
+  "createdAt": "2026-07-01T04:49:37.031Z",
+  "updatedAt": "2026-07-01T12:49:37.033+08:00",
+  "lastFullRebuild": "2026-07-01T04:49:37.031Z",
+  "files": {
+    "抗冻.md": {
+      "hash": "sha256:56dc914583b7f3b2838d8b98e6ea5c2363dfca268467d1d6b63e4c925293c66d",
+      "mtime": 1782881377006,
+      "size": 34,
+      "wikiPage": "sources/抗冻-8996a6.md",
+      "lastIngestAt": 1782881377033,
+      "quality": "high",
+      "ingestVersion": 2
+    }
+  },
+  "bm25Index": {
+    "vocabulary": {
+      "抗冻": {
+        "df": 1
+      },
+      "冻融": {
+        "df": 1
+      },
+      "融混": {
+        "df": 1
+      },
+      "混凝": {
+        "df": 1
+      },
+      "凝土": {
+        "df": 1
+      }
+    },
+    "postings": {
+      "抗冻": [
+        "sources/抗冻-8996a6.md"
+      ],
+      "冻融": [
+        "sources/抗冻-8996a6.md"
+      ],
+      "融混": [
+        "sources/抗冻-8996a6.md"
+      ],
+      "混凝": [
+        "sources/抗冻-8996a6.md"
+      ],
+      "凝土": [
+        "sources/抗冻-8996a6.md"
+      ]
+    },
+    "docLengths": {
+      "sources/抗冻-8996a6.md": 5
+    },
+    "avgDocLength": 5,
+    "totalDocs": 1
+  },
+  "chatBM25Index": {
+    "vocabulary": {
+      "0": {
+        "df": 1
+      },
+      "45": {
+        "df": 1
+      },
+      "sessionid": {
+        "df": 1
+      },
+      "sessg001xx": {
+        "df": 1
+      },
+      "历史": {
+        "df": 1
+      },
+      "史问": {
+        "df": 1
+      },
+      "问答": {
+        "df": 1
+      },
+      "聊到": {
+        "df": 1
+      },
+      "抗渗": {
+        "df": 1
+      },
+      "水胶": {
+        "df": 1
+      },
+      "胶比": {
+        "df": 1
+      },
+      "配合": {
+        "df": 1
+      },
+      "合比": {
+        "df": 1
+      },
+      "比设": {
+        "df": 1
+      },
+      "设计": {
+        "df": 1
+      }
+    },
+    "postings": {
+      "0": [
+        "chat-history/sessG001/session.md"
+      ],
+      "45": [
+        "chat-history/sessG001/session.md"
+      ],
+      "sessionid": [
+        "chat-history/sessG001/session.md"
+      ],
+      "sessg001xx": [
+        "chat-history/sessG001/session.md"
+      ],
+      "历史": [
+        "chat-history/sessG001/session.md"
+      ],
+      "史问": [
+        "chat-history/sessG001/session.md"
+      ],
+      "问答": [
+        "chat-history/sessG001/session.md"
+      ],
+      "聊到": [
+        "chat-history/sessG001/session.md"
+      ],
+      "抗渗": [
+        "chat-history/sessG001/session.md"
+      ],
+      "水胶": [
+        "chat-history/sessG001/session.md"
+      ],
+      "胶比": [
+        "chat-history/sessG001/session.md"
+      ],
+      "配合": [
+        "chat-history/sessG001/session.md"
+      ],
+      "合比": [
+        "chat-history/sessG001/session.md"
+      ],
+      "比设": [
+        "chat-history/sessG001/session.md"
+      ],
+      "设计": [
+        "chat-history/sessG001/session.md"
+      ]
+    },
+    "docLengths": {
+      "chat-history/sessG001/session.md": 15
+    },
+    "avgDocLength": 15,
+    "totalDocs": 1
+  }
+}
