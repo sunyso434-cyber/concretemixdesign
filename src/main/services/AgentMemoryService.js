@@ -153,6 +153,8 @@ class AgentMemoryService {
   }
 
   async findSimilarCorrections(queryContext, toolName, limit = 3) {
+    const { buildBM25, queryBM25 } = require('../workspace/bm25')
+
     const where = {}
     if (toolName) where.toolName = toolName
 
@@ -164,18 +166,24 @@ class AgentMemoryService {
 
     if (rules.length === 0) return []
 
-    const scored = rules.map(r => ({
-      rule: r,
-      score: this._tfidfSimilarity(queryContext, r.context)
-    }))
+    const queryText = typeof queryContext === 'string'
+      ? queryContext
+      : JSON.stringify(queryContext)
 
-    scored.sort((a, b) => b.score - a.score)
-    return scored.slice(0, limit).map(s => ({
-      context: s.rule.context,
-      originalSuggestion: s.rule.originalSuggestion,
-      userCorrection: s.rule.userCorrection,
-      score: s.score
-    }))
+    const corpus = rules.map(r => ({ path: String(r.id), content: r.context || '' }))
+    const bm25Index = buildBM25(corpus)
+    const hits = queryBM25(bm25Index, queryText, limit)
+
+    return hits.map(hit => {
+      const rule = rules.find(r => String(r.id) === hit.path)
+      if (!rule) return null
+      return {
+        context: rule.context,
+        originalSuggestion: rule.originalSuggestion,
+        userCorrection: rule.userCorrection,
+        score: hit.score
+      }
+    }).filter(Boolean)
   }
 
   async deleteCorrection(id) {
@@ -340,30 +348,6 @@ class AgentMemoryService {
     }
   }
 
-  // ===== TF-IDF 相似度 =====
-
-  _tfidfSimilarity(ctx1, ctx2) {
-    if (!ctx1 || !ctx2) return 0
-    // 将输入统一转为对象
-    const obj1 = typeof ctx1 === 'string' ? (() => { try { return JSON.parse(ctx1) } catch { return {} } })() : ctx1
-    const obj2 = typeof ctx2 === 'string' ? (() => { try { return JSON.parse(ctx2) } catch { return {} } })() : ctx2
-    // 逐字段精确匹配，避免整体分词导致 "C30" 和 "C50" 虚高
-    const keys = new Set([...Object.keys(obj1), ...Object.keys(obj2)])
-    if (keys.size === 0) return 0
-    let matchScore = 0
-    for (const key of keys) {
-      const v1 = obj1[key]
-      const v2 = obj2[key]
-      if (v1 !== undefined && v2 !== undefined) {
-        if (String(v1) === String(v2)) {
-          matchScore += 1 // 精确匹配
-        } else if (String(v1).includes(String(v2)) || String(v2).includes(String(v1))) {
-          matchScore += 0.5 // 包含关系
-        }
-      }
-    }
-    return matchScore / keys.size
-  }
 }
 
 module.exports = new AgentMemoryService()

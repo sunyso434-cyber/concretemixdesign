@@ -30,6 +30,7 @@ jest.mock('../../db/database', () => {
 })
 
 const AgentMemoryService = require('../AgentMemoryService')
+const { CorrectionRule } = require('../../db/database')
 
 describe('AgentMemoryService.getResourceSummary v2', () => {
   test('返回新结构（含 userRulesSummary，无 userPreferences）', async () => {
@@ -66,5 +67,47 @@ describe('AgentMemoryService.getResourceSummary v2', () => {
   test('getResourceSummary 不再调用 agentMdService（v2 无 professionalPrefs）', () => {
     // 确认 _formatPreferenceSummary 已删（v2 改造完成）
     expect(typeof AgentMemoryService._formatPreferenceSummary).toBe('undefined')
+  })
+})
+
+describe('AgentMemoryService.findSimilarCorrections v2 (BM25)', () => {
+  const testRules = [
+    { context: '设计 C30 混凝土配合比', originalSuggestion: 'P.O42.5 水泥', userCorrection: 'P.O52.5 水泥', toolName: 'calculate_mix_design' },
+    { context: '砂率偏低需要调整', originalSuggestion: '0.32', userCorrection: '0.36', toolName: 'calculate_mix_design' },
+    { context: '坍落度太大', originalSuggestion: '180mm', userCorrection: '120mm', toolName: 'calculate_mix_design' }
+  ]
+
+  beforeAll(async () => {
+    // 清理 + 插入测试数据
+    await CorrectionRule.destroy({ truncate: true })
+    for (const r of testRules) {
+      await CorrectionRule.create(r)
+    }
+  })
+
+  afterAll(async () => {
+    await CorrectionRule.destroy({ truncate: true })
+  })
+
+  test('走 BM25 检索应返回命中记录', async () => {
+    // 查询 C30 应命中规则 1（设计 C30 混凝土配合比）；查询 坍落度 应命中规则 3（坍落度太大）
+    const results = await AgentMemoryService.findSimilarCorrections(
+      '坍落度太大怎么调',
+      null,
+      2
+    )
+    expect(results.length).toBeGreaterThan(0)
+    expect(results[0]).toHaveProperty('score')
+    expect(results[0]).toHaveProperty('context')
+    expect(results[0]).toHaveProperty('originalSuggestion')
+    expect(results[0]).toHaveProperty('userCorrection')
+    // 第一条应是坍落度相关（score 最高）
+    expect(results[0].context).toContain('坍落度')
+  })
+
+  test('空规则时返回空数组', async () => {
+    await CorrectionRule.destroy({ truncate: true })
+    const results = await AgentMemoryService.findSimilarCorrections({}, null, 3)
+    expect(results).toEqual([])
   })
 })
