@@ -7138,7 +7138,7 @@ ICO header magic: ✓ 有效ICO
 
 ---
 
-## v10.6.4 changelog (2026-07-06) - JGJ55 参数管理 skill + 系统设置清理（hotfix，未升版）
+## v10.6.8 (2026-07-06) - JGJ55 参数管理 skill + 系统设置清理
 
 ### 新增
 - **jgj55-params skill**：agent 可通过对话管理 JGJ 55 标准参数（数组导出 5 个工具）
@@ -7172,13 +7172,9 @@ ICO header magic: ✓ 有效ICO
 ### 已知遗留
 - `SystemService.js:253` 还有 `agentEnabled` DB seed（dead write，DB 多一条永远没人读的记录，不影响功能，后续清理）
 
-### 未升版说明
-老板指示 `package.json` 保持 10.6.4 不动，本次改动作为 hotfix 记录。下次正式发版时合并到新版本号。
-
 ### 打包记录（2026-07-06）
-- `npm run electron:build` 成功（vite 14.85s + electron-builder NSIS + portable）
+- `npm run electron:build` 成功（vite 11.81s + electron-builder NSIS + portable，exit 0）
 - 产物（git-ignored，未入仓）：
-  - `dist-10.6.4/砼智 Setup 10.6.4.exe`（NSIS 安装包，147 MB）
-  - `dist-10.6.4/砼智-10.6.4-portable-x64.exe`（Portable 免安装版，147 MB）
-- 已用 `npx asar list` 验证 `src/main/skills/jgj55-params.js` 和 `src/main/__tests__/skills/jgj55-params.test.js` 都在 asar 里
-- 验证 4 项（请老板亲自跑，详见项目交付总结）：菜单只剩 7 项 / 默认 tab 是 LLM管理 / σ 参数 label 是 C25~C45 / agent 能调用 5 件套 skill
+  - `dist-10.6.8/砼智 Setup 10.6.8.exe`（NSIS 安装包，147 MB）
+  - `dist-10.6.8/砼智-10.6.8-portable-x64.exe`（Portable 免安装版，147 MB）
+- 验证 4 项（请老板亲自跑）：菜单只剩 7 项 / 默认 tab 是 LLM管理 / σ 参数 label 是 C25~C45 / agent 能调用 5 件套 skill
