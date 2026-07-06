@@ -1134,6 +1134,16 @@ module.exports = {
     await agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
     return { success: true }
   }))
+
+  ipcMain.handle('agent:suggestions:list', async () => {
+    const { LearningService } = require('../services/LearningService')
+    return LearningService.getSuggestions()
+  })
+
+  ipcMain.handle('agent:suggestions:accept', async (_e, id) => {
+    const { LearningService } = require('../services/LearningService')
+    return LearningService.acceptSuggestion(id)
+  })
 }
 
 module.exports = {

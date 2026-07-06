@@ -98,6 +98,27 @@ class LearningService {
   async saveCorrection(correction) {
     await this._onUserCorrection(correction)
   }
+
+  /**
+   * 获取当前建议列表（按 confidence 倒序）
+   */
+  getSuggestions() {
+    const store = getSuggestionStore()
+    if (!store || !store._items) return []
+    return [...store._items].sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+  }
+
+  /**
+   * 接受一条建议（标记 accepted）
+   */
+  acceptSuggestion(id) {
+    const store = getSuggestionStore()
+    if (!store) return null
+    const item = (store._items || []).find(i => i.id === id)
+    if (!item) return null
+    item.status = 'accepted'
+    return item
+  }
 }
 
 module.exports = new LearningService()
