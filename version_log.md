@@ -7135,3 +7135,42 @@ ICO header magic: ✓ 有效ICO
 
 - 16 个技能文件全部通过 `node -e "require('./...')"` 加载验证（语法无误）
 - `npm run electron:build` 打包成功（exit 0），产物 `dist-10.3.0/砼智 Setup 10.4.0.exe` + `砼智-10.4.0-portable-x64.exe`
+
+---
+
+## v10.6.4 changelog (2026-07-06) - JGJ55 参数管理 skill + 系统设置清理（hotfix，未升版）
+
+### 新增
+- **jgj55-params skill**：agent 可通过对话管理 JGJ 55 标准参数（数组导出 5 个工具）
+  - `list_jgj55_params` — 列出全部 13 项（含 label/min/max/step/description）
+  - `get_jgj55_param` — 按名查单个
+  - `update_jgj55_param` — 改单个（含范围/类型校验，错误返回 OUT_OF_RANGE / INVALID_TYPE / INVALID_NAME）
+  - `batch_update_jgj55_params` — 批量改，非事务（失败项收集到 `failed` 数组，不影响其他）
+  - `reset_jgj55_params` — 全部恢复出厂默认（不可逆）
+- 10 个 jest 单元测试覆盖 happy path + 6 种 error path，全部 PASS
+
+### 清理
+- 系统设置左侧菜单从 9 项减为 7 项：
+  - 移除「使用帮助」菜单项（删 `SettingsPage.jsx` 整个 `HelpContent` 组件，~120 行）
+  - 移除「AI设置」菜单项（功能已由「LLM管理」取代）
+- 默认 tab 改为「LLM管理」
+- 清理 `paramConfig.js` 里历史遗留的 `agentEnabled` 死开关配置（无 UI consumer 读取）
+
+### 修复
+- **JGJ 55 强度标准差 σ 参数统一为 `strengthStdDev_C45`**（关键 bug）
+  - 此前 `paramConfig.js` 用 `strengthStdDev_C25` key，DB seed 用 `strengthStdDev_C45`，**两端不一致**导致用户在前端改 σ 值实际不参与计算
+  - 修复：`paramConfig.js` key 改为 C45，`SystemService.initDefaultParams` 删除冗余 C25 块，加一次性 orphan 清理迁移老用户 DB
+  - 同步修 `MixDesignService_Strength.js:20` 计算路径（之前读 `strengthStdDev_C25`，改为 C45）
+  - 同步更新 `BlueprintEngine/resources/tables/强度标准差.json` 文档注释
+  - **影响**：C25~C45 这一档 σ 现在用户在前端改的值真正生效了
+
+### 关键保留（红线，未触碰）
+- `SystemService._tryMigrateLegacyLlm` 函数 — 老用户 DeepSeek API Key 迁移必须
+- `PARAM_CONFIG.deepseekApiKey` — 迁移源
+- `SystemService.initDefaultParams` 里 `deepseekApiKey` 默认值写入 — 新用户首次初始化源
+
+### 已知遗留
+- `SystemService.js:253` 还有 `agentEnabled` DB seed（dead write，DB 多一条永远没人读的记录，不影响功能，后续清理）
+
+### 未升版说明
+老板指示 `package.json` 保持 10.6.4 不动，本次改动作为 hotfix 记录。下次正式发版时合并到新版本号。
