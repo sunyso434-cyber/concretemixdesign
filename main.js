@@ -69,7 +69,8 @@ const { registerLlmHandlers } = require('./src/main/ipcHandlers/llmHandler')
 registerLlmHandlers()
 
 // agent.md 用户自定义规则服务（单例，启动时初始化）
-const { init: initAgentMd } = require('./src/main/agent/agentMd')
+// Task 6：setWorkspacePath 跟随 WorkspaceManager 切换工作区，触发老 v1 自动迁移
+const { init: initAgentMd, setWorkspacePath: setAgentMdWorkspacePath } = require('./src/main/agent/agentMd')
 
 // 数据库就绪状态
 let isDatabaseReady = false
@@ -309,6 +310,14 @@ app.whenReady().then(async () => {
 
   const workspaceRefs = { workspaceManager: null, wikiEngine: null, kgExtractor: null, chatHistorySync: null }
   workspaceRefs.workspaceManager = new WorkspaceManager()
+  // Task 6：工作区切换 → agent.md 路径切到 <workspacePath>/.agent/agent.md + 老 v1 自动迁移
+  workspaceRefs.workspaceManager.on('opened', newWsPath => {
+    try {
+      setAgentMdWorkspacePath(newWsPath)
+    } catch (err) {
+      console.warn('[main] setAgentMdWorkspacePath 失败:', err.message)
+    }
+  })
   // Task 2.12-2.15：实例化 ChatHistorySync + ChatHistoryExporter，绑定到 WorkspaceManager
   const chatHistoryExporter = new ChatHistoryExporter()
   workspaceRefs.chatHistorySync = new ChatHistorySync({
