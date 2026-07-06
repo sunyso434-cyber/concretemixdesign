@@ -337,49 +337,16 @@ ${history}
       console.warn('[AgentMemoryService] getResourceSummary: failed to query commonStrengthGrades:', strengthResult.reason?.message)
     }
 
-    // 从 agent.md 读取偏好（v2 改造：不再走 UserPreference 表）
-    const { getInstance: getAgentMdService } = require('../agent/agentMd')
-    let agentMdPrefs = { materials: [], method: null }
-    try {
-      const agentMd = getAgentMdService().getCached()
-      agentMdPrefs = agentMd.parsed.professionalPrefs || { materials: [], method: null }
-    } catch (err) {
-      console.warn('[AgentMemoryService] 读取 agent.md 偏好失败:', err.message)
-    }
+    // v2: userRulesSummary 简化为"常用强度 + 备注"（不再读取 agent.md professionalPrefs）
+    const userRulesSummary = commonStrengthGrades.length > 0
+      ? `常用强度：${commonStrengthGrades.slice(0, 3).join('、')}`
+      : ''
 
     return {
       designHistoryCount,
       optimizationCount,
-      userPreferences: {
-        commonStrengthGrades,
-        materials: agentMdPrefs.materials,
-        method: agentMdPrefs.method
-      },
-      // 新增字段：注入到 prompt 的中文摘要（spec §7.2）
-      preferenceSummary: this._formatPreferenceSummary(agentMdPrefs)
+      userRulesSummary
     }
-  }
-
-  /**
-   * 把 agent.md 偏好格式化为中文摘要（用于 prompt 注入）
-   * @param {{materials: Array, method: string|null}} prefs
-   * @returns {string}
-   */
-  _formatPreferenceSummary(prefs) {
-    const lines = []
-    const mats = (prefs && prefs.materials) || []
-    if (mats.length > 0) {
-      const parts = mats.map(m => {
-        const v = m.values ? m.values.join('、') : m.value
-        const metric = m.metric ? `${m.metric} ` : ''
-        return `${m.category}${m.dimension}偏好${metric}${v}`
-      })
-      lines.push(`- 选材：${parts.join('；')}`)
-    }
-    if (prefs && prefs.method) {
-      lines.push(`- 计算方法：${prefs.method}`)
-    }
-    return lines.join('\n')
   }
 
   // ===== TF-IDF 相似度 =====
