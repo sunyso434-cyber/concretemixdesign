@@ -111,3 +111,47 @@ describe('AgentMemoryService.findSimilarCorrections v2 (BM25)', () => {
     expect(results).toEqual([])
   })
 })
+
+describe('AgentMemoryService.saveMessage schema 校验', () => {
+  // singleton 直接引用，调 saveMessage 会写真实 SQLite
+  test('tool 消息无 toolCallId 时拒绝', async () => {
+    await expect(
+      AgentMemoryService.saveMessage({
+        sessionId: 'test-session',
+        role: 'tool',
+        content: '{}',
+        toolCallId: null
+      })
+    ).rejects.toThrow(/toolCallId/)
+  })
+
+  test('user 消息不需要 toolCallId', async () => {
+    await expect(
+      AgentMemoryService.saveMessage({
+        sessionId: 'test-session',
+        role: 'user',
+        content: '你好'
+      })
+    ).resolves.toBeDefined()
+  })
+
+  test('assistant 消息必须至少有 content 或 toolCalls', async () => {
+    await expect(
+      AgentMemoryService.saveMessage({
+        sessionId: 'test-session',
+        role: 'assistant',
+        content: null,
+        toolCalls: null
+      })
+    ).rejects.toThrow(/content 或 toolCalls/)
+  })
+
+  test('sessionId 或 role 缺失时拒绝', async () => {
+    await expect(
+      AgentMemoryService.saveMessage({
+        role: 'user',
+        content: '你好'
+      })
+    ).rejects.toThrow(/sessionId/)
+  })
+})

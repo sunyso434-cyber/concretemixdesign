@@ -51,6 +51,21 @@ class ChatHistorySync {
   }
 
   /**
+   * 强制导出所有 pending 会话（用于 before-quit，不等待 debounce）
+   */
+  async flush() {
+    const pendingIds = Array.from(this.pendingQueue || [])
+    for (const sessionId of pendingIds) {
+      try {
+        await this.exportSession(sessionId)
+      } catch (err) {
+        console.warn(`[ChatHistorySync] flush ${sessionId} 失败: ${err.message}`)
+      }
+    }
+    if (this.pendingQueue) this.pendingQueue.clear()
+  }
+
+  /**
    * v1.5.3 关键：exportSession 是 IO 编排，调用 exporter 做格式转换
    * @param {string} sessionId
    * @param {string} workspacePath

@@ -33,6 +33,17 @@ class AgentMemoryService {
    * - `stopReason` 当前仅支持 `'aborted'`，其他取值会被当作 null（视为无停止原因）。
    */
   async saveMessage({ sessionId, role, content, toolCallId, toolCalls, metadata, stopReason }) {
+    // Schema 校验（v2 新增）
+    if (!sessionId || !role) {
+      throw new Error('saveMessage: sessionId 和 role 必填')
+    }
+    if (role === 'tool' && !toolCallId) {
+      throw new Error('saveMessage: tool 消息必须有 toolCallId')
+    }
+    if (role === 'assistant' && !content && (!toolCalls || toolCalls.length === 0)) {
+      throw new Error('saveMessage: assistant 消息必须至少有 content 或 toolCalls')
+    }
+
     // v1.5.3 关键：自动绑当前工作区
     const workspacePath = global.workspaceManager?.current()?.path?.replace(/\\/g, '/') || null
 

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, protocol } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const { cleanupOldSessions } = require('./src/main/db/services/SessionCleanupService')
 
 // 设置日志文件路径（在 app ready 后获取）
 let logFilePath = null
@@ -389,6 +390,18 @@ app.whenReady().then(async () => {
   global.summaryExtractor = summaryExtractor   // 仅在 main 启动时设置一次
   console.log('[main] P5 阶段：KGExtractor + SummaryExtractor 已实例化（searchGraph 启用）')
 
+  // 定时清理 30 天前的老会话（每 24 小时）
+  setInterval(async () => {
+    try {
+      const result = await cleanupOldSessions({ keepDays: 30 })
+      if (result.deleted > 0) {
+        console.log(`[Cleanup] 清理了 ${result.deleted} 条老消息`)
+      }
+    } catch (err) {
+      console.error('[Cleanup] 失败:', err.message)
+    }
+  }, 24 * 60 * 60 * 1000)
+
   // 重新注册 7 个 workspace 伪 Skill（searchGraph 闭包现在能拿到 kgExtractor）
   try {
     const { getSkillRegistry } = require('./src/main/ipcHandlers/agentHandler')
@@ -428,6 +441,13 @@ app.whenReady().then(async () => {
 
   app.on('activate', async function () {
     if (BrowserWindow.getAllWindows().length === 0) await createWindow()
+  })
+
+  // 退出前强制 flush 未导出的会话
+  app.on('before-quit', async () => {
+    if (global.chatHistorySync?.flush) {
+      await global.chatHistorySync.flush()
+    }
   })
 })
 
