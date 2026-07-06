@@ -3,6 +3,65 @@ const path = require('path')
 const os = require('os')
 const { AgentMdService } = require('../AgentMdService')
 
+describe('AgentMdService 首次启动模板', () => {
+  let tmpDir, agentMdPath
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-md-init-'))
+    agentMdPath = path.join(tmpDir, 'agent.md')
+  })
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+
+  test('init 时主文件不存在则自动写入 v2 模板', () => {
+    const svc = new AgentMdService({ path: agentMdPath })
+    svc.init()
+
+    expect(fs.existsSync(agentMdPath)).toBe(true)
+    const content = fs.readFileSync(agentMdPath, 'utf8')
+    expect(content).toContain('## 回复规范')
+    expect(content).toContain('## 业务规则')
+  })
+})
+
+describe('AgentMdService diff / validate / getCached', () => {
+  test('diff 标识行级差异', () => {
+    const svc = new AgentMdService({ path: '/tmp/nonexistent' })
+    // 注: 测试数据不能用 "- a" 这种以 "- " 开头的,会和 diff 标记 "-" 撞前缀
+    const old = '## 老\na'
+    const newC = '## 老\nb'
+    const result = svc.diff(old, newC)
+    expect(result).toContain('- a')
+    expect(result).toContain('+ b')
+  })
+
+  test('validate 合法内容返回 ok=true', () => {
+    const svc = new AgentMdService({ path: '/tmp/nonexistent' })
+    const result = svc.validate('## 规则\n- 内容')
+    expect(result.ok).toBe(true)
+  })
+
+  test('getCached 返回深拷贝（外部改不影响内部）', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-md-deep-'))
+    const p = path.join(tmpDir, 'agent.md')
+    fs.writeFileSync(p, '## 规则\n- 内容', 'utf8')
+    const svc = new AgentMdService({ path: p })
+    svc.loadFromFile()
+
+    const cached = svc.getCached()
+    cached.parsed.sections[0].title = '外部修改'
+    cached.parsed.sections[0].subSections[0].items.push('污染')
+
+    // 内部 cache 应不变
+    expect(svc.cache.sections[0].title).toBe('规则')
+    expect(svc.cache.sections[0].subSections[0].items).toEqual(['内容'])
+
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  })
+})
+
 describe('AgentMdService.bak 备份', () => {
   let tmpDir, agentMdPath
 

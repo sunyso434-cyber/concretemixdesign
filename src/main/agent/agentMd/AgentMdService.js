@@ -4,6 +4,39 @@ const chokidar = require('chokidar')
 const { AgentMdParser } = require('./AgentMdParser')
 
 /**
+ * 首次启动写入的 v2 模板内容
+ * - YAML frontmatter 声明 version: 2
+ * - 含 ## 一级 + ### 二级 + - 列表项 三种结构
+ * - 留空位让老板后续填业务规则
+ */
+const V2_TEMPLATE = `---
+version: 2
+---
+
+# 我的智能助手规则
+
+## 回复规范
+- 全部使用中文回复
+- 每次回复前使用固定称呼：**老板**
+
+## 代码编写原则
+- 不写兼容性代码，除非主动要求
+- 写代码前先描述方案，等待老板批准后再动手
+
+## 业务规则
+
+### 材料
+- (老板填常用材料)
+
+### 报告
+- (老板填报告要求)
+
+## 注意事项
+- 保持耐心
+- 定期反思
+`
+
+/**
  * AgentMdService - agent.md 的 IO + 缓存 + 文件监听服务
  *
  * 职责:
@@ -159,11 +192,62 @@ class AgentMdService {
   }
 
   /**
-   * 初始化: 加载一次 + 启动监听
+   * 初始化: 首次启动写 v2 模板 + 加载 + 启动监听
+   *
+   * 顺序保证（关键）：
+   *  - 主文件不存在时先写模板，再 loadFromFile，否则 loadFromFile 拿到空字符串
+   *  - startWatching 放最后，确保监听启动时 cache 已是模板解析结果
    */
   init() {
+    if (!fs.existsSync(this.path)) {
+      // 首次启动：写入 v2 模板
+      const dir = path.dirname(this.path)
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true })
+      }
+      fs.writeFileSync(this.path, V2_TEMPLATE, 'utf8')
+    }
     this.loadFromFile()
     this.startWatching()
+  }
+
+  /**
+   * 校验 Markdown 内容能否被 AgentMdParser 解析
+   * @param {string} content
+   * @returns {{ok: boolean, errors: string[]}}
+   */
+  validate(content) {
+    const errors = []
+    if (typeof content !== 'string') {
+      errors.push('内容必须是字符串')
+      return { ok: false, errors }
+    }
+    try {
+      AgentMdParser.parse(content)
+    } catch (err) {
+      errors.push(`解析失败: ${err.message}`)
+    }
+    return { ok: errors.length === 0, errors }
+  }
+
+  /**
+   * 简单行级 diff：相同行跳过，不同行输出 "- 老" / "+ 新"
+   * @param {string} oldContent
+   * @param {string} newContent
+   * @returns {string}
+   */
+  diff(oldContent, newContent) {
+    const oldLines = oldContent.split('\n')
+    const newLines = newContent.split('\n')
+    const diff = []
+    const max = Math.max(oldLines.length, newLines.length)
+    for (let i = 0; i < max; i++) {
+      if (oldLines[i] !== newLines[i]) {
+        diff.push(`- ${oldLines[i] || ''}`)
+        diff.push(`+ ${newLines[i] || ''}`)
+      }
+    }
+    return diff.join('\n')
   }
 
   /**
@@ -232,13 +316,14 @@ class AgentMdService {
   }
 
   /**
-   * 获取当前缓存的原始文本和解析结果
+   * 获取当前缓存的原始文本和解析结果（深拷贝）
    * @returns {{raw: string, parsed: Object}}
    */
   getCached() {
+    // 深拷贝：防止外部修改污染内部 cache
     return {
       raw: this.rawCache || '',
-      parsed: this.cache || AgentMdParser.parse('')
+      parsed: JSON.parse(JSON.stringify(this.cache || AgentMdParser.parse('')))
     }
   }
 }
