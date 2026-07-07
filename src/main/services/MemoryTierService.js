@@ -161,5 +161,6 @@ class MemoryTierService {
   }
 }
 
-module.exports = { MemoryTierService }
-module.exports.MemoryTierService.instance = new MemoryTierService()
+const instance = new MemoryTierService()
+module.exports = instance
+module.exports.MemoryTierService = MemoryTierService

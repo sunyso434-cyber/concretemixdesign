@@ -403,7 +403,7 @@ app.whenReady().then(async () => {
   }, 24 * 60 * 60 * 1000)
 
   // P0：每日幂律衰减（对标 Mneme power-law decay）
-  const { MemoryTierService } = require('./src/main/services/MemoryTierService')
+  const MemoryTierService = require('./src/main/services/MemoryTierService')
   setInterval(async () => {
     try {
       const result = await MemoryTierService.applyDecay()

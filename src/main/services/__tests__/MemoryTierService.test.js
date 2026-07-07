@@ -1,15 +1,15 @@
-const { MemoryTierService } = require('../MemoryTierService')
+const MemoryTierService = require('../MemoryTierService')
 const { SessionSummary } = require('../../db/database')
 const { ChatHistory } = require('../../db/database')
 
 // ponytail: 测试环境无 LLM 密钥，直接把 stub 注入到单例实例上
 const STUB_LLM = { chat: async () => ({ content: '{"summary":"测试摘要","keyDecisions":[],"toolCalls":[]}', tool_calls: null, role: 'assistant' }) }
 beforeEach(() => {
-  MemoryTierService.instance.deepseekService = STUB_LLM
+  MemoryTierService.deepseekService = STUB_LLM
 })
 afterAll(() => {
   // ponytail: 还原真实 LLM，避免影响其他测试
-  delete MemoryTierService.instance.deepseekService
+  delete MemoryTierService.deepseekService
 })
 
 describe('MemoryTierService', () => {
@@ -32,7 +32,7 @@ describe('MemoryTierService', () => {
     const rangeStart = ids[0]
     const rangeEnd = ids[ids.length - 1]
 
-    const svc = MemoryTierService.instance
+    const svc = MemoryTierService
     const result = await svc.summarizeOldMessages('test-sess', { rangeStart, rangeEnd })
 
     expect(result).toHaveProperty('id')
@@ -48,7 +48,7 @@ describe('MemoryTierService', () => {
       { sessionId: 's2', rangeStart: 1, rangeEnd: 10, summary: 'JGJ 55 标准里坍落度的规定' }
     ])
 
-    const svc = MemoryTierService.instance
+    const svc = MemoryTierService
     const results = await svc.recall('砂率', { topK: 5 })
 
     expect(results.length).toBeGreaterThan(0)
@@ -62,7 +62,7 @@ describe('MemoryTierService', () => {
       recallCount: 0, lastRecalledAt: old, decayScore: 1.0
     })
 
-    const svc = MemoryTierService.instance
+    const svc = MemoryTierService
     const result = await svc.applyDecay()
 
     expect(result.updated).toBeGreaterThan(0)

@@ -1,4 +1,4 @@
-const { MemoryTierService } = require('../../services/MemoryTierService')
+const MemoryTierService = require('../../services/MemoryTierService')
 const { SessionSummary } = require('../../db/database')
 const { ChatHistory } = require('../../db/database')
 const { sequelize } = require('../../db/database')

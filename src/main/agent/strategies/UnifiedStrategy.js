@@ -24,7 +24,7 @@ const { DEFAULT_AGENT_MAX_STEPS } = require('../../utils/agentConstants')
 const { getInstance: getAgentMdService } = require('../agentMd')
 const { classifyError } = require('../errorClassifier')
 const { rotateIfNeeded } = require('../../utils/logRotator')
-const { MemoryTierService } = require('../../services/MemoryTierService')
+const MemoryTierService = require('../../services/MemoryTierService')
 const { ChatHistory } = require('../../db/database')
 
 // 诊断日志：写到 agent-debug.log（与 agentHandler._log 同一文件）
