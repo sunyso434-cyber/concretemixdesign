@@ -94,7 +94,8 @@ function buildSystemPrompt({
   memoryContext = '',
   userRulesMarkdown = '',
   skillNames = [],
-  skillInfos = null
+  skillInfos = null,
+  l3Summary = null  // 新增：L3 核心记忆摘要（对标 MemGPT core memory）
 } = {}) {
   // 优先用 skillInfos（带 description + category）按类别分组生成；降级用 skillNames（只名字）
   let skillSection
@@ -121,6 +122,21 @@ function buildSystemPrompt({
   const userRulesBlock = userRulesMarkdown
     ? `<!-- 老板自定义规则开始 -->\n${userRulesMarkdown}\n<!-- 老板自定义规则结束 -->`
     : '（未配置，使用系统默认）'
+
+  // v2 P0：L3 核心记忆段（对标 MemGPT core memory + TencentDB L3）
+  let l3Block = ''
+  if (l3Summary && (l3Summary.currentSession || l3Summary.keyDecisions?.length || l3Summary.recalled?.length)) {
+    const lines = []
+    if (l3Summary.currentSession) lines.push(`- 当前会话：${l3Summary.currentSession}`)
+    if (l3Summary.keyDecisions?.length) {
+      lines.push(`- 老板关键决策：${l3Summary.keyDecisions.join('、')}`)
+    }
+    if (l3Summary.recalled?.length) {
+      const recalled = l3Summary.recalled.map(r => `${r.summary}`).join('；')
+      lines.push(`- 历史相关记忆：${recalled}`)
+    }
+    l3Block = `\n# 核心记忆摘要\n${lines.join('\n')}\n`
+  }
 
   return `你是混凝土配合比设计专家助手，名字叫"小砼"。
 
@@ -151,7 +167,7 @@ ${BLUEPRINT_AUTHORING_ROUTE}
 ${SKILL_UPDATE_GUIDE}
 
 ${TODO_MANAGE_PROMPT}
-
+${l3Block}
 # 回答风格
 - 简洁专业，避免冗长
 - 涉及数据时引用具体数值

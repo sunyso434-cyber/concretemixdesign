@@ -280,3 +280,26 @@ describe('buildSystemPrompt 注入 skillInfos 按 category 分组', () => {
     expect(prompt).toContain('- fallback_skill')
   })
 })
+
+describe('systemPromptBuilder L3 核心记忆', () => {
+  test('L3 核心记忆注入：含 sessionSummary + keyDecisions', () => {
+    const result = buildSystemPrompt({
+      userRulesMarkdown: '## 规则',
+      skillNames: [],
+      l3Summary: {
+        currentSession: '本会话：讨论 C30 配合比',
+        keyDecisions: ['砂率 36%', 'P.O42.5 水泥'],
+        recalled: [{ sessionId: 's-old', summary: '上次用过河砂' }]
+      }
+    })
+
+    expect(result).toContain('本会话：讨论 C30 配合比')
+    expect(result).toContain('砂率 36%')
+    expect(result).toContain('上次用过河砂')
+  })
+
+  test('L3 为空时不注入（向后兼容）', () => {
+    const result = buildSystemPrompt({ skillNames: [] })
+    expect(result).not.toContain('# 核心记忆摘要')
+  })
+})
