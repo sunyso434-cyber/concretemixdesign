@@ -6,8 +6,10 @@
  */
 
 // 替换 require:
-const { getSuggestionStore } = require('../agent/preferences')  // 保持不变（接口没改，内部实现变了）
-const PreferenceSuggestion = require('../db/database').PreferenceSuggestion  // 新增
+const { getSuggestionStore } = require('../agent/preferences')
+const PreferenceSuggestion = require('../db/database').PreferenceSuggestion
+const { Op } = require('sequelize')
+const { AgentMdParser } = require('../agent/agentMd/AgentMdParser')
 
 const eventBus = require('../agent/EventBus')
 const { PreferencePatternDetector } = require('../agent/preferences')
@@ -143,6 +145,46 @@ class LearningService {
       }
     }
     return ids.length
+  }
+
+  /**
+   * 自动接受高置信度建议（对标 TencentDB L3 自动沉淀）
+   * - threshold >= threshold 的 pending 建议标 accepted
+   * - material 类型建议自动回写到 agent.md 的 业务规则 > 材料 段
+   * @returns {Promise<{accepted: number}>}
+   */
+  async autoAcceptHighConfidence({ threshold = 0.95 } = {}) {
+    const candidates = await PreferenceSuggestion.findAll({
+      where: { status: 'pending', confidence: { [Op.gte]: threshold } }
+    })
+
+    let accepted = 0
+    for (const c of candidates) {
+      await c.update({ status: 'accepted', decayScore: 1.0, recallCount: c.recallCount + 1 })
+
+      // material 类型回写 agent.md
+      if (c.type === 'material' && c.payload?.value) {
+        const agentMd = getAgentMdService()
+        const cached = agentMd.getCached()
+        const sections = cached.parsed.sections || []
+        let bizSection = sections.find(s => s.title === '业务规则')
+        if (!bizSection) {
+          bizSection = { title: '业务规则', subSections: [] }
+          sections.push(bizSection)
+        }
+        let matSection = bizSection.subSections.find(s => s.title === '材料')
+        if (!matSection) {
+          matSection = { title: '材料', items: [], rawText: '' }
+          bizSection.subSections.push(matSection)
+        }
+        if (!matSection.items.includes(c.payload.value)) {
+          matSection.items.push(c.payload.value)
+          await agentMd.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
+        }
+      }
+      accepted++
+    }
+    return { accepted }
   }
 }
 
