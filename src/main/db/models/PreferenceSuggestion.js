@@ -11,16 +11,18 @@ const PreferenceSuggestion = sequelize.define('PreferenceSuggestion', {
   type: { type: DataTypes.STRING, allowNull: false },
   payload: { type: DataTypes.JSON, allowNull: false },
   confidence: { type: DataTypes.REAL, allowNull: false },
-  // [借鉴 Mneme] 召回次数 + 衰减分
+  // [借鉴 Mneme] 召回次数 + 衰减分 + 最近召回时间
   recallCount: { type: DataTypes.INTEGER, defaultValue: 0 },
   decayScore: { type: DataTypes.REAL, defaultValue: 1.0 },
+  lastRecalledAt: { type: DataTypes.DATE, allowNull: true, defaultValue: DataTypes.NOW },
   status: { type: DataTypes.STRING, defaultValue: 'pending' }
 }, {
   tableName: 'preference_suggestions',
   indexes: [
     { fields: ['status'] },
     { fields: ['type'] },
-    { fields: ['decayScore'] }
+    { fields: ['decayScore'] },
+    { fields: ['lastRecalledAt'] }
   ]
 })
 

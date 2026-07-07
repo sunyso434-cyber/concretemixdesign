@@ -114,9 +114,9 @@ class LearningService {
   /**
    * 获取当前建议列表（按 confidence 倒序）
    */
-  getSuggestions() {
+  async getSuggestions() {
     // v2: 从 SQLite 读 + 按 confidence 倒序
-    return PreferenceSuggestion.findAll({
+    return await PreferenceSuggestion.findAll({
       where: { status: 'pending' },
       order: [['confidence', 'DESC']]
     })

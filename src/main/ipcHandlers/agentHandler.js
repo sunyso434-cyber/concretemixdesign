@@ -43,6 +43,8 @@ let orchestrator = null
 const { getInstance: getAgentMdService, agentMdPath } = require('../agent/agentMd')
 const { AgentMdParser } = require('../agent/agentMd/AgentMdParser')
 const { getSuggestionStore } = require('../agent/preferences')
+const LearningService = require('../services/LearningService')
+const { PreferenceSuggestion } = require('../db/database')
 
 // v2 adapter: read sections as v1-compatible object + write-back to v2 sections
 function v2ToV1Proxy(parsed) {
@@ -1120,19 +1122,22 @@ module.exports = {
   }
 
   ipcMain.handle('agent:suggestions:list', _wrap(async () => {
-    return { success: true, suggestions: getSuggestionStore().list() }
+    const suggestions = await LearningService.getSuggestions()
+    return { success: true, suggestions }
   }))
 
   ipcMain.handle('agent:suggestions:accept', _wrap(async (_event, { id }) => {
-    const sugg = getSuggestionStore().acceptById(id)
-    if (!sugg) {
+    // v2 改造：直接从 DB 读 + 走 LearningService.acceptSuggestion
+    const sugg = await PreferenceSuggestion.findByPk(id)
+    if (!sugg || sugg.status !== 'pending') {
       return { success: false, error: '建议不存在或已被处理' }
     }
     // 合并到 agent.md.materials
     const agentMdSvc = getAgentMdService()
     const cached = agentMdSvc.getCached()
     const prefs = v2ToV1Proxy(cached.parsed).professionalPrefs
-    const newItem = sugg.proposedYaml
+    // payload JSON 中含 proposedYaml（detect 阶段写入），兼容 v1 直接放顶层的旧数据
+    const newItem = sugg.payload?.proposedYaml || sugg.proposedYaml
     if (newItem.method) {
       prefs.method = newItem.method
     } else {
@@ -1147,19 +1152,27 @@ module.exports = {
     }
     v2ToV1Proxy(cached.parsed).professionalPrefs = prefs
     await agentMdSvc.saveToFile(AgentMdParser.formatToMarkdown(cached.parsed))
+    // 标 accepted 并触发 Mneme +0.05 + lastRecalledAt
+    await LearningService.acceptSuggestion(id)
     return { success: true, newMaterials: prefs.materials }
   }))
 
   ipcMain.handle('agent:suggestions:dismiss', _wrap(async (_event, { id }) => {
-    const ok = getSuggestionStore().dismissById(id)
-    if (!ok) {
+    const [count] = await PreferenceSuggestion.update(
+      { status: 'rejected' },
+      { where: { id, status: 'pending' } }
+    )
+    if (count === 0) {
       return { success: false, error: '建议不存在或已被处理' }
     }
     return { success: true }
   }))
 
   ipcMain.handle('agent:suggestions:blacklist', _wrap(async (_event, { id, type }) => {
-    getSuggestionStore().dismissById(id)
+    await PreferenceSuggestion.update(
+      { status: 'rejected' },
+      { where: { id, status: 'pending' } }
+    )
     const agentMdSvc = getAgentMdService()
     const cached = agentMdSvc.getCached()
     const list = v2ToV1Proxy(cached.parsed).ignoredSuggestionTypes

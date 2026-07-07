@@ -14,7 +14,9 @@ class SuggestionStore {
 
     return PreferenceSuggestion.create({
       type: suggestion.type,
-      payload: suggestion.payload || {},
+      // 整条建议塞 payload（包含 proposedYaml / title / reason / createdAt），
+      // 后续 accept/dismiss 时能完整还原
+      payload: suggestion,
       confidence: suggestion.confidence || 0.5,
       status: 'pending',
       decayScore: 1.0
@@ -38,4 +40,4 @@ class SuggestionStore {
   }
 }
 
-module.exports = { SuggestionStore: new SuggestionStore() }
+module.exports = { SuggestionStore }
