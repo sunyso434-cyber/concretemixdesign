@@ -7413,3 +7413,18 @@ v10.6.6 我只清洗了**顶层 properties** 的非法 `type`，**没处理嵌�
 - 产物（git-ignored，未入仓）：
   - `dist-10.7.2/砼智 Setup 10.7.2.exe`（NSIS 安装包，140 MB）
   - `dist-10.7.2/砼智-10.7.2-portable-x64.exe`（Portable 免安装版，139 MB）
+
+## v10.7.3 (2026-07-07) - Hotfix: MemoryTierService 导出修复
+
+### 修复
+- **MemoryTierService 导出 class 而非 instance**（根因：P0/P1 的 UnifiedStrategy 在 class 上调用实例方法）
+  - 改为项目统一样式 `module.exports = new MemoryTierService()`，保留 class 给测试
+  - 修复 UnifiedStrategy / recallSession / main.js 三处 import
+  - 导致 10.7.2 在 `agent:run` 时报 E-SYS-999（Cannot convert undefined or null to object）
+  - 105 tests PASS
+
+### 打包记录（2026-07-07）
+- `npm run electron:build` 成功（vite + electron-builder NSIS + portable，exit 0）
+- 产物（git-ignored，未入仓）：
+  - `dist-10.7.3/砼智 Setup 10.7.3.exe`（NSIS 安装包，140 MB）
+  - `dist-10.7.3/砼智-10.7.3-portable-x64.exe`（Portable 免安装版，139 MB）
