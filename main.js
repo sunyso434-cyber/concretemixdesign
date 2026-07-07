@@ -402,6 +402,17 @@ app.whenReady().then(async () => {
     }
   }, 24 * 60 * 60 * 1000)
 
+  // P0：每日幂律衰减（对标 Mneme power-law decay）
+  const { MemoryTierService } = require('./src/main/services/MemoryTierService')
+  setInterval(async () => {
+    try {
+      const result = await MemoryTierService.applyDecay()
+      if (result.updated > 0) console.log(`[MemoryDecay] 衰减了 ${result.updated} 条记忆`)
+    } catch (err) {
+      console.error('[MemoryDecay] 失败:', err.message)
+    }
+  }, 24 * 60 * 60 * 1000)
+
   // 重新注册 7 个 workspace 伪 Skill（searchGraph 闭包现在能拿到 kgExtractor）
   try {
     const { getSkillRegistry } = require('./src/main/ipcHandlers/agentHandler')

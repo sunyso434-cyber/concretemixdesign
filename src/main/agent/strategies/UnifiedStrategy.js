@@ -24,6 +24,8 @@ const { DEFAULT_AGENT_MAX_STEPS } = require('../../utils/agentConstants')
 const { getInstance: getAgentMdService } = require('../agentMd')
 const { classifyError } = require('../errorClassifier')
 const { rotateIfNeeded } = require('../../utils/logRotator')
+const { MemoryTierService } = require('../../services/MemoryTierService')
+const { ChatHistory } = require('../../db/database')
 
 // 诊断日志：写到 agent-debug.log（与 agentHandler._log 同一文件）
 const _diagLogFile = path.join(os.homedir(), '.concrete-mixdesign', 'agent-debug.log')
@@ -200,11 +202,32 @@ class UnifiedStrategy {
 
     const userRulesMarkdown = this.agentMdService.getFormattedRules()
 
+    // P0：每 20 轮自动触发归档摘要（异步，不阻塞主流程）
+    try {
+      const msgCount = await ChatHistory.count({ where: { sessionId } })
+      if (msgCount >= 20 && msgCount % 20 === 0) {
+        MemoryTierService.summarizeOldMessages(sessionId, {
+          rangeStart: Math.max(1, msgCount - 19),
+          rangeEnd: msgCount
+        }).catch(err => console.warn('[UnifiedStrategy] 归档摘要失败:', err.message))
+      }
+    } catch (_) {}
+
+    // P0：L3 归档记忆召回（用当前用户消息关键词）
+    let l3Summary = null
+    try {
+      const recalled = await MemoryTierService.recall(message || '', { topK: 3 })
+      if (recalled.length > 0) {
+        l3Summary = { currentSession: (message || '').slice(0, 100), recalled }
+      }
+    } catch (_) {}
+
     const systemPrompt = buildSystemPrompt({
       memoryContext: '',
       userRulesMarkdown,
       skillNames,
-      skillInfos
+      skillInfos,
+      l3Summary
     })
 
     const messages = [
