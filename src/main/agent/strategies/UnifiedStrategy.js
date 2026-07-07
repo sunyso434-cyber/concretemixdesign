@@ -222,12 +222,23 @@ class UnifiedStrategy {
       }
     } catch (_) {}
 
+    // P1-1：跨会话摘要注入（从 SessionSummary 取最近 3 个不同会话）
+    let crossSessionBlock = ''
+    try {
+      const recentSessions = await MemoryTierService._getRecentSessions(3)
+      if (recentSessions.length > 0) {
+        const lines = recentSessions.map(s => `- 【${s.sessionId.slice(0, 8)}】${s.summary}`)
+        crossSessionBlock = `\n# 老板最近会话\n${lines.join('\n')}\n`
+      }
+    } catch (_) {}
+
     const systemPrompt = buildSystemPrompt({
       memoryContext: '',
       userRulesMarkdown,
       skillNames,
       skillInfos,
-      l3Summary
+      l3Summary,
+      crossSessionBlock
     })
 
     const messages = [

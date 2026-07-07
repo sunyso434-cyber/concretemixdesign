@@ -95,7 +95,8 @@ function buildSystemPrompt({
   userRulesMarkdown = '',
   skillNames = [],
   skillInfos = null,
-  l3Summary = null  // 新增：L3 核心记忆摘要（对标 MemGPT core memory）
+  l3Summary = null,  // L3 核心记忆摘要（对标 MemGPT core memory）
+  crossSessionBlock = ''  // P1-1: 跨会话摘要块
 } = {}) {
   // 优先用 skillInfos（带 description + category）按类别分组生成；降级用 skillNames（只名字）
   let skillSection
@@ -161,6 +162,8 @@ ${memoryContext || '（无）'}
 ${userRulesBlock}
 
 ${REPORT_SKILL_MATRIX}
+
+${crossSessionBlock}
 
 ${BLUEPRINT_AUTHORING_ROUTE}
 

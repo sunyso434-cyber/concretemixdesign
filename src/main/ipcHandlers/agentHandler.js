@@ -148,6 +148,15 @@ async function initSkillSystem() {
   // 之后才能正确调用。
   registerWorkspacePseudoSkills()
 
+  // P1-1: 注册 recall_session 内置 skill（FTS5 记忆检索）
+  try {
+    const { execute: recallSession, metadata: recallMeta } = require('../agent/skills/recallSession')
+    skillRegistry.register({ execute: recallSession, ...recallMeta }, { builtin: true, filePath: '<builtin>' })
+    console.log('[AgentHandler] 已注册 recall_session skill')
+  } catch (err) {
+    console.warn('[AgentHandler] 注册 recall_session 失败:', err.message)
+  }
+
   // 设置 DeepSeekService 的 SkillRegistry
   DeepSeekService.setSkillRegistry(skillRegistry)
 

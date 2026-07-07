@@ -136,6 +136,29 @@ class MemoryTierService {
     }
     return { updated }
   }
+
+  /**
+   * P1-1: 获取最近 limit 个不同会话的摘要（去重）
+   * @param {number} limit - 最多返回的会话数，默认 3
+   * @returns {Promise<SessionSummary[]>}
+   */
+  async _getRecentSessions(limit = 3) {
+    // 取最近不同 session 的摘要（按 createdAt DESC，按 sessionId 去重）
+    const summaries = await SessionSummary.findAll({
+      order: [['createdAt', 'DESC']],
+      limit: limit * 5
+    })
+    const seen = new Set()
+    const result = []
+    for (const s of summaries) {
+      if (!seen.has(s.sessionId)) {
+        seen.add(s.sessionId)
+        result.push(s)
+        if (result.length >= limit) break
+      }
+    }
+    return result
+  }
 }
 
 module.exports = { MemoryTierService }
