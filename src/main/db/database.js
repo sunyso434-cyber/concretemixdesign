@@ -69,6 +69,7 @@ const ChatHistory = require('./models/ChatHistory')
 const UserPreference = require('./models/UserPreference')
 const CorrectionRule = require('./models/CorrectionRule')
 const AuditLog = require('./models/AuditLog')
+const SessionSummary = require('./models/SessionSummary')
 
 // ChatSession 是工厂函数模型（需传入 sequelize），其他模型已自加载 sequelize
 const ChatSessionModel = require('./models/ChatSession')
@@ -158,7 +159,7 @@ async function syncModels() {
   const backupFile = backupDatabase()
 
   // UserPreference 已在阶段 B 迁移中废弃，不在此处注册
-  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, SalesQuoteRule, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog]
+  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, SalesQuoteRule, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary]
   let migrationFailed = false
 
   for (const model of allModels) {
@@ -174,6 +175,29 @@ async function syncModels() {
 
   if (migrationFailed && backupFile) {
     console.error('Agent模型迁移失败，请检查备份文件:', backupFile)
+  }
+
+  // FTS5 virtual table（参考 Mneme）— 幂等，model 上的 afterSync hook 也会建
+  if (SessionSummary) {
+    await sequelize.query(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS session_summaries_fts USING fts5(
+        summary, key_decisions_unfolded,
+        content='session_summaries', content_rowid='id',
+        tokenize='unicode61 remove_diacritics 2'
+      )
+    `)
+    await sequelize.query(`
+      CREATE TRIGGER IF NOT EXISTS session_summaries_ai AFTER INSERT ON session_summaries BEGIN
+        INSERT INTO session_summaries_fts(rowid, summary, key_decisions_unfolded)
+        VALUES (new.id, new.summary, '');
+      END
+    `)
+    await sequelize.query(`
+      CREATE TRIGGER IF NOT EXISTS session_summaries_ad AFTER DELETE ON session_summaries BEGIN
+        INSERT INTO session_summaries_fts(session_summaries_fts, rowid, summary, key_decisions_unfolded)
+        VALUES ('delete', old.id, old.summary, '');
+      END
+    `)
   }
 
   console.log('数据库模型同步完成')
@@ -243,3 +267,4 @@ module.exports.UserPreference = UserPreference
 module.exports.CorrectionRule = CorrectionRule
 module.exports.ChatSession = ChatSession
 module.exports.AuditLog = AuditLog
+module.exports.SessionSummary = SessionSummary
