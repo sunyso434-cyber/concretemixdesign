@@ -683,6 +683,13 @@ class MixDesignOptimizer {
                   for (const lithiumSlag of lithiumSlagRange) {
                     for (const compositePowder of compositePowderRange) {
                       if (flyAsh + slag + lithiumSlag + compositePowder > maxAdmixtureRatio) continue
+                      // 修复（v10.7.6 补）：与 _firstLayerFilter 同理——掺合料材料为 null 但掺量 > 0 时跳过该任务。
+                      // 主流程从 _stage2Filter 开始（_firstLayerFilter 是孤儿函数未调用），
+                      // v10.7.6 只修了 _firstLayerFilter 导致实测仍有锂渣。
+                      if ((flyAsh > 0 && !flyAshMat) ||
+                          (slag > 0 && !slagMat) ||
+                          (lithiumSlag > 0 && !lithiumSlagMat) ||
+                          (compositePowder > 0 && !compositePowderMat)) continue
                       tasks.push({
                         cementMat, waterRatio,
                         flyAshMat: flyAshMat, slagMat, lithiumSlagMat, compositePowderMat,

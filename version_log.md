@@ -1,3 +1,36 @@
+## v10.7.6 修复版本 (2026-07-07 第二版) - 空掺合料"幽灵用量" bug + JGJ55 减水剂上限扩大
+
+### 老板二次反馈打脸（v10.7.6 第一版修复失效）
+老板反映："我装了 v10.7.6，仍然给我加入锂渣 20%。" 立刻 grep 验证主流程：
+
+- `_firstLayerFilter` 在 [MixDesignOptimizer.js:750](src/main/services/MixDesignOptimizer.js#L750) **没人调用**——孤儿函数
+- 真正的 task 生成在 [_stage2Filter @ 677-698](src/main/services/MixDesignOptimizer.js#L677-L698) — **同样的 bug 没修！**
+- 主流程：`optimizeMixDesign` → `_stage2Filter` → `_stage3Refine` → ...
+
+### v10.7.6 第二版修复
+- [_stage2Filter @ 685 后](src/main/services/MixDesignOptimizer.js#L685-L691) 加同样的过滤：
+  ```js
+  if ((flyAsh > 0 && !flyAshMat) ||
+      (slag > 0 && !slagMat) ||
+      (lithiumSlag > 0 && !lithiumSlagMat) ||
+      (compositePowder > 0 && !compositePowderMat)) continue
+  ```
+- 同步给 [_firstLayerFilter](src/main/services/MixDesignOptimizer.js#L813-L820) 加同样过滤（孤儿函数也修，避免未来调用者踩同样的雷）
+- 测试 [MixDesignOptimizer_EmptyAdmixture.test.js](src/main/__tests__/services/MixDesignOptimizer_EmptyAdmixture.test.js) 新增 _stage2Filter 用例（覆盖主流程入口），原有 2 个用例仍有效
+- **services + skills 全套 270/270 全绿**
+- 老板之前看到的 workspace/LearningService 失败是**预存的，与本修复无关**（已通过 git stash 在 master 上复现确认）
+
+### 这次的反思
+- **测试要在主流程入口写，而不是在孤儿函数上**：_firstLayerFilter 没被调用，写 100 个测试也救不了 v10.7.6 第一版老板看到的现场
+- **patch 之前先 grep 验证函数是否被调用**——一句话就能避免这种"patch 在错地方"的事故
+
+### 打包
+- `dist-10.7.6/砼智 Setup 10.7.6.exe` — NSIS 安装版
+- `dist-10.7.6/砼智-10.7.6-portable-x64.exe` — 便携版
+- 打包耗时：vite 13.40s + electron-builder ~5min，全程 exit 0
+
+---
+
 ## v10.7.6 修复版本 (2026-07-07) - 空掺合料"幽灵用量" bug（老板实测反馈）+ JGJ55 减水剂上限扩大
 
 ### 打包

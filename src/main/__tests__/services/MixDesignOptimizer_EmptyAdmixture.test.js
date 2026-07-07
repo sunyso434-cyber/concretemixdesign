@@ -5,13 +5,17 @@
  *   2026-07-07 老板实测：optimize_mix_cost 调 lithiumSlagIds=[] 或不传，
  *   bestSolution.materials.lithiumSlag 仍为 50.14 kg
  *
+ *   教训：
+ *     - v10.7.6 第一版 patch 只修了 _firstLayerFilter，但优化器主流程实际从 _stage2Filter 开始，
+ *       _firstLayerFilter 是孤儿函数（无调用方）。v10.7.6 第一版完全没起作用。
+ *     - v10.7.6 第二版 patch 补修了 _stage2Filter 并加了本测试覆盖主路径，
+ *       真正解决老板实测问题。
+ *
  *   根因（双层漏洞）：
- *   - src/main/services/MixDesignOptimizer.js:807-815 任务生成时，
- *     掺合料材料为 null 但掺量 > 0 仍生成 task
+ *   - src/main/services/MixDesignOptimizer.js:677-698 _stage2Filter / :809-820 _firstLayerFilter
+ *     任务生成时掺合料材料为 null 但掺量 > 0 仍生成 task
  *   - src/main/services/MixDesignService/MixDesignService_Database.js:391
  *     直接用 lithiumSlagPercentage 计算 lithiumSlag 用量，不校验 materials.lithiumSlag
- *
- *   本测试当前预期红灯（bug 修复前会失败）。修复完成后转绿。
  */
 
 // SystemService mock
@@ -97,5 +101,41 @@ describe('MixDesignOptimizer 空掺合料材料不应出现掺量', () => {
     const slagContaminated = results.filter(r => (r.materials?.slag || 0) > 0)
     expect(flyAshContaminated).toEqual([])
     expect(slagContaminated).toEqual([])
+  })
+
+  /**
+   * 关键测试（v10.7.6 第二版必修）：
+   * 主流程从 _stage2Filter 开始（_firstLayerFilter 是孤儿函数），
+   * _stage2Filter 也要有同样过滤。这一测之前只在 _firstLayerFilter 测了等于没测主路径。
+   */
+  test('_stage2Filter (主流程入口)：top5 不应含 (空材料 + 掺量>0) 的组合', async () => {
+    const opt = MixDesignOptimizer
+    const stage2R = await opt._stage2Filter({
+      materials: {
+        cement: [{ id: 55, name: 'P.O42.5', price: 480, compressiveStrength28d: 48 }],
+        flyAsh: [{ id: 58, name: 'II级粉煤灰', price: 180, waterDemandRatio: 92 }],
+        slag: [{ id: 60, name: 'S95矿渣粉', price: 220, waterDemandRatio: 95 }],
+        lithiumSlag: [],          // ← 关键：空
+        compositePowder: [],      // ← 关键：空
+        superplasticizer: [{ id: 81, name: '聚羧酸减水剂', price: 5000, waterReducingRate: 25, recommendedDosage: 1.5 }]
+      },
+      baseWaterAmount: 180,
+      defaultSpDosage: 1.5,
+      defaultSp: { id: 81, price: 5000, waterReducingRate: 25, recommendedDosage: 1.5 },
+      flyAshRange: [0, 10, 20],
+      slagRange: [0, 10, 15],
+      lithiumSlagRange: [0, 10, 15, 20],    // 范围默认开启
+      compositePowderRange: [0, 10, 15, 20],
+      maxAdmixtureRatio: 50,
+      constraints: { strength: 'C30', slump: 180 },
+      cancellationToken: { cancelled: false }
+    })
+
+    // 任何 top5 组合都不应同时有 (lithiumSlagMat===null && lithiumSlagDosage>0)
+    const contaminated = stage2R.top5.filter(t =>
+      (!t.lithiumSlagMat && t.lithiumSlag > 0) ||
+      (!t.compositePowderMat && t.compositePowder > 0)
+    )
+    expect(contaminated).toEqual([])
   })
 })
