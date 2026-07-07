@@ -3,7 +3,7 @@ const { SessionSummary } = require('../../db/database')
 const { ChatHistory } = require('../../db/database')
 
 // ponytail: 测试环境无 LLM 密钥，直接把 stub 注入到单例实例上
-const STUB_LLM = { chat: async () => ({ reply: '{"summary":"测试摘要","keyDecisions":[],"toolCalls":[]}', toolCalls: null, messages: [] }) }
+const STUB_LLM = { chat: async () => ({ content: '{"summary":"测试摘要","keyDecisions":[],"toolCalls":[]}', tool_calls: null, role: 'assistant' }) }
 beforeEach(() => {
   MemoryTierService.instance.deepseekService = STUB_LLM
 })

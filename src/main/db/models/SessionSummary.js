@@ -16,7 +16,7 @@ const SessionSummary = sequelize.define('SessionSummary', {
   toolCalls: { type: DataTypes.JSON, allowNull: true },
   // [借鉴 Mneme] 召回次数（用于幂律衰减计算）
   recallCount: { type: DataTypes.INTEGER, defaultValue: 0 },
-  lastRecalledAt: { type: DataTypes.DATE, allowNull: true },
+  lastRecalledAt: { type: DataTypes.DATE, allowNull: true, defaultValue: DataTypes.NOW },
   // [借鉴 Mneme] 衰减分（每次召回或创建时初始化，按幂律更新）
   decayScore: { type: DataTypes.REAL, defaultValue: 1.0 }
 }, {

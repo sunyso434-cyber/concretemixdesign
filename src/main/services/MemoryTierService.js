@@ -41,11 +41,11 @@ class MemoryTierService {
       null,
       { rawMode: true }
     )
-    // ponytail: chat() 真实返回 {reply, toolCalls, messages}，非 {content}
-    let parsed = { summary: response.reply?.slice(0, 200) || '空摘要', keyDecisions: [], toolCalls: [] }
+    // ponytail: chat() 真实返回 {role, content, tool_calls}（OpenAI 兼容），非 {reply}
+    let parsed = { summary: response.content?.slice(0, 200) || '空摘要', keyDecisions: [], toolCalls: [] }
     try {
       // 尝试解析 JSON（如 LLM 严格按 JSON 输出）
-      const jsonMatch = response.reply?.match(/\{[\s\S]*\}/)
+      const jsonMatch = response.content?.match(/\{[\s\S]*\}/)
       if (jsonMatch) parsed = { ...parsed, ...JSON.parse(jsonMatch[0]) }
     } catch (_) {}
 
@@ -80,16 +80,16 @@ class MemoryTierService {
     }
     // ponytail: FTS5 unicode61 不分中文，0 命中时用 LIKE %query% 兜底
     if (candidates.length === 0) {
+      // ponytail: 转义 LIKE 通配符 % _ \，避免 query 含通配符时全表乱匹配
+      const escaped = query.replace(/[%_\\]/g, '\\$&')
       const likeRows = await sequelize.query(
-        `SELECT id FROM session_summaries WHERE summary LIKE ? LIMIT 50`,
-        { replacements: [`%${query}%`], type: sequelize.QueryTypes.SELECT }
+        `SELECT id FROM session_summaries WHERE summary LIKE ? ESCAPE '\\' LIMIT 50`,
+        { replacements: [`%${escaped}%`], type: sequelize.QueryTypes.SELECT }
       )
       if (likeRows.length > 0) {
         candidates = await SessionSummary.findAll({ where: { id: likeRows.map(r => r.id) } })
-      } else {
-        // ponytail: 全表扫兜底（数据量 < 10k 够用；超过 1w 改 trigram tokenizer + 中英文分词）
-        candidates = await SessionSummary.findAll({ limit: 200 })
       }
+      // ponytail: 全表扫兜底删除（PK 排序与 query 无关，等价于随机采样；改 trigram tokenizer 后再考虑）
     }
     if (candidates.length === 0) return []
 
@@ -127,7 +127,7 @@ class MemoryTierService {
     for (const m of all) {
       const daysSinceLastRecall = m.lastRecalledAt
         ? (Date.now() - new Date(m.lastRecalledAt).getTime()) / (24 * 60 * 60 * 1000)
-        : 30  // 从未召回 → 视为 30 天没动
+        : (Date.now() - new Date(m.createdAt).getTime()) / (24 * 60 * 60 * 1000)  // 用 createdAt 替代 30 天假值
       const newDecay = Math.min(1.0, 1 / (1 + daysSinceLastRecall * 0.1))
       if (Math.abs(newDecay - m.decayScore) > 0.01) {
         await m.update({ decayScore: newDecay })
