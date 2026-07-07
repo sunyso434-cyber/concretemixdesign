@@ -70,6 +70,7 @@ const UserPreference = require('./models/UserPreference')
 const CorrectionRule = require('./models/CorrectionRule')
 const AuditLog = require('./models/AuditLog')
 const SessionSummary = require('./models/SessionSummary')
+const PreferenceSuggestion = require('./models/PreferenceSuggestion')
 
 // ChatSession 是工厂函数模型（需传入 sequelize），其他模型已自加载 sequelize
 const ChatSessionModel = require('./models/ChatSession')
@@ -159,7 +160,7 @@ async function syncModels() {
   const backupFile = backupDatabase()
 
   // UserPreference 已在阶段 B 迁移中废弃，不在此处注册
-  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, SalesQuoteRule, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary]
+  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, SalesQuoteRule, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion]
   let migrationFailed = false
 
   for (const model of allModels) {
@@ -268,3 +269,4 @@ module.exports.CorrectionRule = CorrectionRule
 module.exports.ChatSession = ChatSession
 module.exports.AuditLog = AuditLog
 module.exports.SessionSummary = SessionSummary
+module.exports.PreferenceSuggestion = PreferenceSuggestion
