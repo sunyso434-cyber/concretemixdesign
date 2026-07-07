@@ -41,4 +41,22 @@ async function recallSession(args, context = {}) {
   }
 }
 
-module.exports = { execute: recallSession, metadata: { name: 'recall_session', category: '记忆', description: '按关键词检索历史对话摘要与原文' } }
+module.exports = {
+  name: 'recall_session',
+  category: '记忆',
+  description: '按关键词检索历史对话摘要与原文（跨会话召回老板之前讨论过的内容）',
+  execute: recallSession,
+  parameters: {
+    query: {
+      type: 'string',
+      description: '检索关键词（如"砂率"、"C30 配合比"、"上次报告"）',
+      required: true
+    },
+    topK: {
+      type: 'integer',
+      description: '返回结果数（默认 5）',
+      required: false,
+      default: 5
+    }
+  }
+}

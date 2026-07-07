@@ -202,6 +202,8 @@ class SchemaValidator {
    */
   toJsonSchemaProperties(parameters) {
     const properties = {}
+    // ponytail: parameters 可能是 undefined（skill 未声明参数），防御性兜底
+    if (!parameters || typeof parameters !== 'object') return properties
     // ponytail: OpenAI/DeepSeek 只接受这 6 种 JSON Schema 类型；其他（含项目自定义 'select'/'range'/'switch'）兜底成 'string'，防御 schema 报错
     const JSON_SCHEMA_TYPES = new Set(['string', 'number', 'integer', 'boolean', 'array', 'object'])
 
