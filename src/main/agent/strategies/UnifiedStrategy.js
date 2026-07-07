@@ -512,6 +512,13 @@ class UnifiedStrategy {
               const errorMsg = typeof execResult.error === 'object'
                 ? (execResult.error.title || execResult.error.message || execResult.error.error || JSON.stringify(execResult.error))
                 : String(execResult.error || '未知错误')
+
+              // P1-2：失败教训自动记录
+              try {
+                const LearningService = require('../../services/LearningService')
+                LearningService.recordFailure({ skillName: name, args, error: errorMsg }).catch(() => {})
+              } catch (_) {}
+
               failureCounters.skillExec++
 
               // v8.2.5: 软提醒 — 连续失败 3 次后向 LLM 注入"换路"提示

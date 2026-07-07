@@ -114,6 +114,42 @@ class LearningService {
   }
 
   /**
+   * 记录工具失败教训（对标 AutoGPT task_outcome → memory）
+   */
+  async recordFailure({ skillName, args, error }) {
+    const { CorrectionRule } = require('../db/database')
+    const context = { skillName, args: JSON.stringify(args) }
+    await CorrectionRule.create({
+      context: JSON.stringify(context),
+      originalSuggestion: '',
+      userCorrection: `[自动记录] ${error}`,
+      toolName: skillName,
+      usageCount: 0
+    })
+  }
+
+  /**
+   * 找同类失败教训（BM25 检索）
+   */
+  async findFailurePatterns(skillName, query = '') {
+    const { CorrectionRule } = require('../db/database')
+    const rules = await CorrectionRule.findAll({
+      where: { toolName: skillName },
+      order: [['updatedAt', 'DESC']],
+      limit: 20
+    })
+    if (rules.length === 0 || !query) return rules.slice(0, 3)
+
+    const { buildBM25, queryBM25 } = require('../workspace/bm25')
+    const corpus = rules.map(r => ({ path: String(r.id), content: r.context + ' ' + r.userCorrection }))
+    const index = buildBM25(corpus)
+    return queryBM25(index, query, 3).map(hit => {
+      const rule = rules.find(r => String(r.id) === hit.path)
+      return rule ? { context: rule.context, userCorrection: rule.userCorrection, score: hit.score } : null
+    }).filter(Boolean)
+  }
+
+  /**
    * 获取当前建议列表（按 confidence 倒序）
    */
   async getSuggestions() {
