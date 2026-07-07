@@ -44,6 +44,13 @@ class AgentMemoryService {
       throw new Error('saveMessage: assistant 消息必须至少有 content 或 toolCalls')
     }
 
+    // P1-3：toolCalls 非 null 时必须是数组
+    if (toolCalls !== null && toolCalls !== undefined) {
+      if (!Array.isArray(toolCalls)) {
+        throw new Error('saveMessage: toolCalls 必须是数组或 null')
+      }
+    }
+
     // v1.5.3 关键：自动绑当前工作区
     const workspacePath = global.workspaceManager?.current()?.path?.replace(/\\/g, '/') || null
 
