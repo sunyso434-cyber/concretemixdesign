@@ -7340,3 +7340,51 @@ v10.6.6 我只清洗了**顶层 properties** 的非法 `type`，**没处理嵌�
   4. 老 v1 agent.md → 自动迁移（备份 .v1.bak + 覆盖 v2 模板）
   5. 系统提示不再重复注入 agent.md（查 agent-debug.log 确认）
   6. `npm run test` 回归通过
+
+## v10.7.1 (2026-07-07) - P0: 分层记忆 + 自动用户画像
+
+### 新增
+
+#### SessionSummary 模型 + FTS5 全文索引（L1 归档记忆）
+- 新表 `session_summaries`：存储对话摘要（sessionId/rangeStart/rangeEnd/summary/keyDecisions/toolCalls/recallCount/lastRecalledAt/decayScore/createdAt）
+- FTS5 virtual table `session_summaries_fts`，中文 `unicode61 remove_diacritics 2`
+- INSERT/DELETE 触发器自动同步全文索引
+
+#### MemoryTierService 分层记忆核心
+- `summarizeOldMessages(sessionId, range)` → 异步 LLM 摘要写入 `session_summaries`
+- `recall(query)` → FTS5 候选 + BM25 重排 + decay 权重过滤（对标 MemGPT recall + Mneme FTS5）
+- `applyDecay()` → 幂律衰减 `decay = 1 / (1 + days * 0.1)`，每日定时更新
+
+#### PreferenceSuggestion 模型 + 持久化
+- 新表 `preference_suggestions`：自动用户画像（type/payload/confidence/recallCount/decayScore/status）
+- suggestionStore 从内存 Array → SQLite 持久化（重启不丢）
+- `acceptSuggestion` 触发 Mneme +0.05 decayScore + lastRecalledAt
+
+#### L3 核心记忆注入 prompt
+- `buildSystemPrompt` 新增 `l3Summary` 参数：当前会话 + 关键决策 + 历史相关记忆
+- L3 段仅在 l3Summary 非空时注入（向后兼容）
+
+#### 主循环接入
+- 每 20 轮自动触发归档摘要
+- 每次消息走 `MemoryTierService.recall` 召回相关记忆
+- 每日衰减调度（main.js 24h setInterval）
+
+#### 自动回写高置信度建议
+- `LearningService.autoAcceptHighConfidence({ threshold = 0.95 })`
+- 高置信度 material 建议自动回写到 agent.md 的 `业务规则 > 材料` 段
+
+### 修复
+- MemoryTierService 响应字段 `response.reply` → `response.content`（之前摘要永远是"空摘要"）
+- `lastRecalledAt` 默认值 + createdAt 兜底（未召回记忆不再永久 decay=0.25）
+- LIKE 通配符 `%` / `_` 转义（防 `100%` 类查询语义破坏）
+- suggestionStore IPC handler 调用 LearningService（修复运行时崩溃）
+
+### 测试验证
+- 130 tests / 20 suites 全部 PASS（含 systemPromptBuilder 43 tests + MemoryTierService 3 tests + LearningService 3 tests + SessionSummary/PreferenceSuggestion model tests）
+- 9 个新文件：SessionSummary / PreferenceSuggestion / MemoryTierService / suggestionStore v2 / 4 个测试文件
+
+### 打包记录（2026-07-07）
+- `npm run electron:build` 成功（vite + electron-builder NSIS + portable，exit 0）
+- 产物（git-ignored，未入仓）：
+  - `dist-10.7.1/砼智 Setup 10.7.1.exe`（NSIS 安装包，140 MB）
+  - `dist-10.7.1/砼智-10.7.1-portable-x64.exe`（Portable 免安装版，139 MB）
