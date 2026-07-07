@@ -5,8 +5,12 @@
  * - 建议由老板在 UI 采纳后才会落到 agent.md
  */
 
+// 替换 require:
+const { getSuggestionStore } = require('../agent/preferences')  // 保持不变（接口没改，内部实现变了）
+const PreferenceSuggestion = require('../db/database').PreferenceSuggestion  // 新增
+
 const eventBus = require('../agent/EventBus')
-const { getSuggestionStore, PreferencePatternDetector } = require('../agent/preferences')
+const { PreferencePatternDetector } = require('../agent/preferences')
 const MaterialService = require('./MaterialService')
 const { getInstance: getAgentMdService } = require('../agent/agentMd')
 
@@ -111,21 +115,34 @@ class LearningService {
    * 获取当前建议列表（按 confidence 倒序）
    */
   getSuggestions() {
-    const store = getSuggestionStore()
-    if (!store || !store._items) return []
-    return [...store._items].sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+    // v2: 从 SQLite 读 + 按 confidence 倒序
+    return PreferenceSuggestion.findAll({
+      where: { status: 'pending' },
+      order: [['confidence', 'DESC']]
+    })
   }
 
   /**
-   * 接受一条建议（标记 accepted）
+   * 接受建议（支持单 id 或 id 数组）
    */
-  acceptSuggestion(id) {
-    const store = getSuggestionStore()
-    if (!store) return null
-    const item = (store._items || []).find(i => i.id === id)
-    if (!item) return null
-    item.status = 'accepted'
-    return item
+  async acceptSuggestion(idOrIds) {
+    const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds]
+    await PreferenceSuggestion.update(
+      { status: 'accepted' },
+      { where: { id: ids } }
+    )
+    // [借鉴 Mneme] 接受时 +0.05 recallCount + decayScore 重置
+    for (const id of ids) {
+      const m = await PreferenceSuggestion.findByPk(id)
+      if (m) {
+        await m.update({
+          recallCount: m.recallCount + 1,
+          decayScore: Math.min(1.0, m.decayScore + 0.05),
+          lastRecalledAt: new Date()
+        })
+      }
+    }
+    return ids.length
   }
 }
 

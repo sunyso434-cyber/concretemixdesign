@@ -1,79 +1,41 @@
+const { PreferenceSuggestion } = require('../../db/database')
+
 /**
- * SuggestionStore - 偏好建议内存存储（主进程单例）
- * 不持久化（老板重启后清空）
+ * 建议存储 v2 — 改为 SQLite 持久化（第一批清理时是内存版）
+ * 不再重启即清空，老板重启后建议还在
  */
 class SuggestionStore {
-  constructor() {
-    this._items = []
-    this._webContents = new Set()
+  async add(suggestion) {
+    // 用 (type + payload JSON) 去重
+    const exists = await PreferenceSuggestion.findOne({
+      where: { type: suggestion.type, status: 'pending' }
+    })
+    if (exists) return exists
+
+    return PreferenceSuggestion.create({
+      type: suggestion.type,
+      payload: suggestion.payload || {},
+      confidence: suggestion.confidence || 0.5,
+      status: 'pending',
+      decayScore: 1.0
+    })
   }
 
-  registerWebContents(wc) {
-    if (wc && !this._webContents.has(wc)) {
-      this._webContents.add(wc)
-    }
+  async list() {
+    return PreferenceSuggestion.findAll({ where: { status: 'pending' } })
   }
 
-  unregisterWebContents(wc) {
-    this._webContents.delete(wc)
+  async get(id) {
+    return PreferenceSuggestion.findByPk(id)
   }
 
-  /**
-   * 追加建议（去重 by id）
-   * @param {Object} suggestion
-   */
-  add(suggestion) {
-    if (!suggestion || !suggestion.id) return
-    if (this._items.some(s => s.id === suggestion.id)) return
-    this._items.push(suggestion)
-    this._broadcast()
+  async remove(id) {
+    return PreferenceSuggestion.destroy({ where: { id } })
   }
 
-  /**
-   * @returns {Array<Object>} 当前所有 pending 建议
-   */
-  list() {
-    return [...this._items]
-  }
-
-  /**
-   * 采纳建议（从列表移除并返回）
-   * @param {string} id
-   * @returns {Object|null}
-   */
-  acceptById(id) {
-    const idx = this._items.findIndex(s => s.id === id)
-    if (idx === -1) return null
-    const [sugg] = this._items.splice(idx, 1)
-    this._broadcast()
-    return sugg
-  }
-
-  /**
-   * 忽略建议（从列表移除）
-   * @param {string} id
-   * @returns {boolean}
-   */
-  dismissById(id) {
-    const idx = this._items.findIndex(s => s.id === id)
-    if (idx === -1) return false
-    this._items.splice(idx, 1)
-    this._broadcast()
-    return true
-  }
-
-  _broadcast() {
-    const payload = { suggestions: this.list() }
-    for (const wc of this._webContents) {
-      try {
-        if (wc && !wc.isDestroyed()) {
-          wc.send('agent:suggestions:new', payload)
-        }
-      } catch (_) {
-        // 渲染进程已断开，忽略
-      }
-    }
+  async clear() {
+    return PreferenceSuggestion.destroy({ where: { status: 'pending' } })
   }
 }
 
-module.exports = { SuggestionStore }
+module.exports = { SuggestionStore: new SuggestionStore() }
