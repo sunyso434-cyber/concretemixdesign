@@ -7428,3 +7428,18 @@ v10.6.6 我只清洗了**顶层 properties** 的非法 `type`，**没处理嵌�
 - 产物（git-ignored，未入仓）：
   - `dist-10.7.3/砼智 Setup 10.7.3.exe`（NSIS 安装包，140 MB）
   - `dist-10.7.3/砼智-10.7.3-portable-x64.exe`（Portable 免安装版，139 MB）
+
+## v10.7.4 (2026-07-07) - Hotfix: recall_session skill schema 修复
+
+### 修复
+- **recall_session skill 注册时缺 `parameters` 字段**（P1-1 引入）
+  - `SkillRegistry.getToolSchemas()` 调 `toJsonSchemaParameters(undefined)` → `Object.entries(undefined)` 抛 `Cannot convert undefined or null to object`
+  - 即使 v10.7.3 修了 MemoryTierService 导出，schema 错在更早的 `getToolSchemas()` 阶段就崩了
+  - 用户仍看到 `agent:run 💥 Cannot convert undefined or null to object`
+- **SchemaValidator 加防御性兜底**：`if (!parameters) return {}` 防止任何未传 parameters 的 skill 再次触发该 bug
+
+### 打包记录（2026-07-07）
+- `npm run electron:build` 成功（vite + electron-builder NSIS + portable，exit 0）
+- 产物（git-ignored，未入仓）：
+  - `dist-10.7.4/砼智 Setup 10.7.4.exe`（NSIS 安装包，140 MB）
+  - `dist-10.7.4/砼智-10.7.4-portable-x64.exe`（Portable 免安装版，139 MB）
