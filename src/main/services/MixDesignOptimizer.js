@@ -811,6 +811,14 @@ class MixDesignOptimizer {
                 for (const lithiumSlag of _lr) {
                   for (const compositePowder of _cr) {
                     if (flyAsh + slag + lithiumSlag + compositePowder > 50) continue
+                    // 修复（v10.7.6）：掺合料材料为 null 但掺量 > 0 时跳过该任务，
+                    // 否则下游 calculateMixDesign 会用"掺量百分比 × 胶材总量"算出非 0 用量，
+                    // 老板没传该材料时却得到一个"幽灵用量"。搭配 _getMaterialList([])=[null]，
+                    // 跳过所有 (mat===null && dosage>0) 的组合。
+                    if ((flyAsh > 0 && !flyAshMat) ||
+                        (slag > 0 && !slagMat) ||
+                        (lithiumSlag > 0 && !lithiumSlagMat) ||
+                        (compositePowder > 0 && !compositePowderMat)) continue
                     for (const fineAggregateRatio of fineAggregateRatios) {
                       tasks.push({ flyAshMat, slagMat, lithiumSlagMat, compositePowderMat, flyAsh, slag, lithiumSlag, compositePowder, fineAggregateRatio })
                     }

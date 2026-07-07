@@ -15,13 +15,13 @@ const JGJ55_SCHEMA = {
   strengthStdDev_C20: { label: '强度标准差 σ — C20及以下 (MPa)', type: 'range', min: 3.0, max: 5.0, step: 0.1, description: 'JGJ 55 强度标准差 σ — C20及以下' },
   strengthStdDev_C45: { label: '强度标准差 σ — C25~C45 (MPa)', type: 'range', min: 4.0, max: 6.0, step: 0.1, description: 'JGJ 55 强度标准差 σ — C25~C45' },
   strengthStdDev_C50: { label: '强度标准差 σ — C50及以上 (MPa)', type: 'range', min: 5.0, max: 7.0, step: 0.1, description: 'JGJ 55 强度标准差 σ — C50及以上' },
-  superplasticizerDosage_C20: { label: '减水剂掺量 — C20 (%)', type: 'range', min: 1.0, max: 2.5, step: 0.1, description: 'JGJ 55 C20 减水剂掺量' },
-  superplasticizerDosage_C25: { label: '减水剂掺量 — C25 (%)', type: 'range', min: 1.0, max: 2.5, step: 0.1, description: 'JGJ 55 C25 减水剂掺量' },
-  superplasticizerDosage_C30: { label: '减水剂掺量 — C30 (%)', type: 'range', min: 1.0, max: 2.5, step: 0.1, description: 'JGJ 55 C30 减水剂掺量' },
-  superplasticizerDosage_C35: { label: '减水剂掺量 — C35 (%)', type: 'range', min: 1.0, max: 2.5, step: 0.1, description: 'JGJ 55 C35 减水剂掺量' },
-  superplasticizerDosage_C40: { label: '减水剂掺量 — C40 (%)', type: 'range', min: 1.0, max: 2.5, step: 0.1, description: 'JGJ 55 C40 减水剂掺量' },
-  superplasticizerDosage_C45: { label: '减水剂掺量 — C45 (%)', type: 'range', min: 1.0, max: 2.5, step: 0.1, description: 'JGJ 55 C45 减水剂掺量' },
-  superplasticizerDosage_C50: { label: '减水剂掺量 — C50 (%)', type: 'range', min: 1.0, max: 2.5, step: 0.1, description: 'JGJ 55 C50 减水剂掺量' },
+  superplasticizerDosage_C20: { label: '减水剂掺量 — C20 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C20 减水剂掺量' },
+  superplasticizerDosage_C25: { label: '减水剂掺量 — C25 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C25 减水剂掺量' },
+  superplasticizerDosage_C30: { label: '减水剂掺量 — C30 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C30 减水剂掺量' },
+  superplasticizerDosage_C35: { label: '减水剂掺量 — C35 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C35 减水剂掺量' },
+  superplasticizerDosage_C40: { label: '减水剂掺量 — C40 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C40 减水剂掺量' },
+  superplasticizerDosage_C45: { label: '减水剂掺量 — C45 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C45 减水剂掺量' },
+  superplasticizerDosage_C50: { label: '减水剂掺量 — C50 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C50 减水剂掺量' },
   waterReducingRatePer01Dosage: { label: '每+0.1%减水剂掺量减水率增加 (%)', type: 'range', min: 0.5, max: 2.5, step: 0.1, description: '每 +0.1% 减水剂掺量对应减水率提升百分比' }
 }
 
