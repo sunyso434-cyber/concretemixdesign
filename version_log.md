@@ -7388,3 +7388,28 @@ v10.6.6 我只清洗了**顶层 properties** 的非法 `type`，**没处理嵌�
 - 产物（git-ignored，未入仓）：
   - `dist-10.7.1/砼智 Setup 10.7.1.exe`（NSIS 安装包，140 MB）
   - `dist-10.7.1/砼智-10.7.1-portable-x64.exe`（Portable 免安装版，139 MB）
+
+## v10.7.2 (2026-07-07) - P1: 跨会话 recall_session + 失败教训库
+
+### 新增
+
+#### recall_session skill + 跨会话摘要
+- 新 skill `recall_session(query, topK)`：走 FTS5 + BM25 检索 `session_summaries` 和原始 ChatHistory
+- 切换会话时 system prompt 注入上 3 个最近活跃会话摘要（对标 MemGPT recall + LangGraph Checkpointer）
+
+#### 失败教训库
+- 工具执行失败时自动调用 `LearningService.recordFailure` 写入 `correction_rules`
+- `findFailurePatterns(skillName, query)` 走 BM25 检索同类失败模式（对标 AutoGPT task_outcome → memory）
+
+#### 校验流水线
+- `saveMessage` 加 toolCalls 类型校验（非 null 时必须是数组）
+- 脏数据清理脚本 `scripts/cleanup-dirty-data.js`
+
+### 测试验证
+- 4 schema 测试 + 2 LearningService 测试全部 PASS
+
+### 打包记录（2026-07-07）
+- `npm run electron:build` 成功（vite + electron-builder NSIS + portable，exit 0）
+- 产物（git-ignored，未入仓）：
+  - `dist-10.7.2/砼智 Setup 10.7.2.exe`（NSIS 安装包，140 MB）
+  - `dist-10.7.2/砼智-10.7.2-portable-x64.exe`（Portable 免安装版，139 MB）
