@@ -10,11 +10,11 @@ const MDParser = require('./MDParser')
 const { wrapBlueprintAsSkill } = require('../skills/blueprint-loader')
 
 class SkillRegistry {
-  constructor() {
+  constructor(options = {}) {
     this._skills = new Map()
     this._validator = new SchemaValidator()
     this._builtinDir = path.join(__dirname, '../skills')
-    this._userDir = path.join(
+    this._userDir = options.userDir || path.join(
       require('os').homedir(),
       '.concrete-mixdesign',
       'skills'
@@ -197,6 +197,11 @@ module.exports = {
   _loadMDSkill(filePath) {
     const parsed = this._mdParser.parse(filePath)
 
+    // 合法 trigger_mode 白名单，非法值降级为 function（不抛异常）
+    const triggerMode = ['function', 'soft'].includes(parsed.triggerMode)
+      ? parsed.triggerMode
+      : 'function'
+
     // MD技能不需要execute函数，但需要标记为MD技能
     return {
       name: parsed.name,
@@ -208,6 +213,7 @@ module.exports = {
       _isMDSkill: true,
       _mdBody: parsed.body,
       _placeholders: parsed.placeholders,
+      _triggerMode: triggerMode,
       _filePath: filePath
     }
   }
@@ -261,6 +267,31 @@ module.exports = {
         }
       }
     }))
+  }
+
+  /**
+   * 列出所有 triggerMode=soft 的 skill（用于 system-prompt 注入）
+   * @returns {Array<{name, description, version, category}>}
+   */
+  listSoftSkills() {
+    return Array.from(this._skills.values())
+      .filter(s => s._triggerMode === 'soft')
+      .map(s => ({
+        name: s.name,
+        description: s.description,
+        version: s.version,
+        category: s.category
+      }))
+  }
+
+  /**
+   * 判断指定 skill 是否为 soft trigger
+   * @param {string} skillName
+   * @returns {boolean}
+   */
+  isSoftTrigger(skillName) {
+    const skill = this._skills.get(skillName)
+    return skill ? skill._triggerMode === 'soft' : false
   }
 
   /**
