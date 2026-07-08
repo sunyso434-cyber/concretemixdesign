@@ -32,7 +32,7 @@ class MDParser {
       category: data.category || 'custom',
       version: data.version || '1.0.0',
       parameters: data.parameters || {},
-      triggerMode: data.trigger_mode,
+      triggerMode: data.trigger_mode || 'function',
       body: body,
       placeholders: placeholders,
       filePath: filePath
