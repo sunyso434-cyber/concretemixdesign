@@ -53,7 +53,8 @@ const SkillManager = () => {
   const [createModalVisible, setCreateModalVisible] = useState(false)
   const [newSkillName, setNewSkillName] = useState('')
   const [newSkillDesc, setNewSkillDesc] = useState('')
-  const [newSkillTemplate, setNewSkillTemplate] = useState('query')
+  const [createType, setCreateType] = useState('tool')
+  const [createSubType, setCreateSubType] = useState('md')
 
   // 加载技能列表
   const loadSkills = async () => {
@@ -142,10 +143,10 @@ const SkillManager = () => {
 
     try {
       const result = await window.electronAPI?.invoke('skill:create', {
+        type: createType,
+        subType: createType === 'tool' ? createSubType : undefined,
         skillName: newSkillName.trim(),
-        description: newSkillDesc.trim() || '自定义技能',
-        functionality: newSkillDesc.trim() || '自定义功能',
-        template: newSkillTemplate
+        description: newSkillDesc.trim() || '自定义技能'
       })
 
       if (result?.success) {
@@ -183,6 +184,18 @@ const SkillManager = () => {
           )}
         </Space>
       )
+    },
+    {
+      title: '类型',
+      dataIndex: 'triggerMode',
+      key: 'triggerMode',
+      width: 80,
+      render: (tm) => {
+        if (tm === 'soft') return <Tag color="purple">方法论</Tag>
+        if (tm === 'function') return <Tag color="blue">工具</Tag>
+        if (tm === 'blueprint') return <Tag color="orange">蓝图</Tag>
+        return <Tag>{tm || '未知'}</Tag>
+      }
     },
     {
       title: '描述',
@@ -362,49 +375,32 @@ const SkillManager = () => {
           setCreateModalVisible(false)
           setNewSkillName('')
           setNewSkillDesc('')
-          setNewSkillTemplate('query')
+          setCreateType('tool')
+          setCreateSubType('md')
         }}
         okText="创建"
         cancelText="取消"
       >
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
           <div>
-            <Text strong>技能模板</Text>
-            <Radio.Group
-              value={newSkillTemplate}
-              onChange={(e) => setNewSkillTemplate(e.target.value)}
-              style={{ marginTop: 8, width: '100%' }}
-            >
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Radio.Button value="query" style={{ width: '100%', height: 'auto', padding: '8px 12px', textAlign: 'left' }}>
-                  <Space>
-                    <SearchOutlined />
-                    <div>
-                      <div><Text strong>查询类</Text></div>
-                      <Text type="secondary" style={{ fontSize: 12 }}>查询数据、搜索记录、检索信息</Text>
-                    </div>
-                  </Space>
-                </Radio.Button>
-                <Radio.Button value="calculate" style={{ width: '100%', height: 'auto', padding: '8px 12px', textAlign: 'left' }}>
-                  <Space>
-                    <CalculatorOutlined />
-                    <div>
-                      <div><Text strong>计算类</Text></div>
-                      <Text type="secondary" style={{ fontSize: 12 }}>工程计算、数值分析、公式求解</Text>
-                    </div>
-                  </Space>
-                </Radio.Button>
-                <Radio.Button value="check" style={{ width: '100%', height: 'auto', padding: '8px 12px', textAlign: 'left' }}>
-                  <Space>
-                    <SafetyOutlined />
-                    <div>
-                      <div><Text strong>检查类</Text></div>
-                      <Text type="secondary" style={{ fontSize: 12 }}>合规校验、参数验证、规则检查</Text>
-                    </div>
-                  </Space>
-                </Radio.Button>
-              </Space>
-            </Radio.Group>
+            <Text strong>技能类型</Text>
+            <div style={{ marginTop: 8 }}>
+              <Radio.Group value={createType} onChange={(e) => setCreateType(e.target.value)}>
+                <Radio.Button value="tool">工具（tool）</Radio.Button>
+                <Radio.Button value="skill">方法论（skill）</Radio.Button>
+              </Radio.Group>
+            </div>
+            {createType === 'tool' && (
+              <div style={{ marginTop: 8 }}>
+                <Text style={{ fontSize: 12 }}>工具子类型</Text>
+                <div style={{ marginTop: 4 }}>
+                  <Radio.Group value={createSubType} onChange={(e) => setCreateSubType(e.target.value)}>
+                    <Radio.Button value="md">Markdown</Radio.Button>
+                    <Radio.Button value="blueprint">蓝图</Radio.Button>
+                  </Radio.Group>
+                </div>
+              </div>
+            )}
           </div>
           <div>
             <Text strong>技能名称（英文）</Text>
