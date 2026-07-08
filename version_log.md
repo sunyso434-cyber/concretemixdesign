@@ -1,4 +1,63 @@
-## v10.7.6 修复版本 (2026-07-07 第二版) - 空掺合料"幽灵用量" bug + JGJ55 减水剂上限扩大
+## v10.7.7 (2026-07-08) - 减水剂掺量新规则（基准+派生）
+
+### 老板 2026-07-08 决策
+替换旧规则（每个强度等级独立硬编码默认值 1.6%-2.2%）。新规则核心：
+
+- **C30 基准掺量** = 减水剂材料 `recommendedDosage`（兜底 1.8%）
+- **等级掺量**：用户单点指定 > 从 C30 基准派生（±0.1%/5强度）
+- **减水率公式**：`waterReducingRate + (strengthDosage - 材料推荐) / 0.1 × waterReducingRatePer01Dosage`
+- **砂石 MB/细度模数 微调产生的掺量变化不影响减水率**（老板规则）
+- **没选减水剂材料** → 掺量=0, 减水率=0, 用水量不修正
+
+### 三个独立概念（不要混）
+| 概念 | 来源 | 作用 |
+|------|------|------|
+| 材料推荐掺量 | `Material.recommendedDosage` | 减水率公式的"基准"（厂家标定） |
+| C30 基准掺量 | 优先级: 用户覆盖 > 材料推荐 > 1.8% 兜底 | 决定 C20-C50 派生 |
+| 各等级使用掺量 | 用户单点 > C30 基准 / 派生公式 | 配合比实际用 |
+
+### 涉及 8 个文件改动
+1. `src/main/services/MixDesignService/MixDesignService_WaterRatio.js` — 新增 `getC30Baseline`，重写 `getSuperplasticizerDosageByStrength` 透传材料
+2. `src/main/services/MixDesignService/MixDesignService_Aggregate.js` — 透传材料 + 没选材料短路 + 减水率公式改用 `strengthDosage`（不含砂石微调）
+3. `src/main/services/MixDesignService/MixDesignService_Database.js` — 主流程透传 + 没选材料时减水率=0
+4. `src/main/services/MixDesignService/index.js` — facade 透传
+5. `src/main/services/MixDesignOptimizer.js` — 阶段 2-4 透传 `defaultSp`
+6. `src/main/services/SystemService.js` — 默认种子表更新（删 6 个加 1 个基准）
+7. `src/main/skills/jgj55-params.js` — schema + DEFAULTS 同步
+8. `src/renderer/config/paramConfig.js` — UI 标签区分基准/单点/派生
+9. `src/renderer/main.jsx` — 浏览器复刻版同步
+
+### 新增 3 个文件
+- `src/main/services/MixDesignService/__tests__/superplasticizerDosage.test.js` — 24 个单元测试
+- `tests/manual/verify-superplasticizer-rule-v2.js` — 端到端验证脚本（6 个真实场景，24 个断言）
+- `docs/superpowers/specs/2026-07-08-superplasticizer-dosage-rule-v2.md` — 新规则说明
+
+### 同步更新的 spec/plan
+- `docs/superpowers/specs/2026-07-04-jgj55-skill-and-settings-cleanup-spec.md` — 参数表 + DEFAULTS
+- `docs/superpowers/specs/2026-07-04-cost-optimizer-v2-design.md` — 函数签名
+- `docs/superpowers/plans/2026-05-08-code-structure-refactor-implementation.md` — API 表
+
+### 验证
+- ✅ 单元测试 24/24 通过
+- ✅ 端到端验证 24/24 通过
+- ✅ 现有 MixDesignService 测试 63/63 通过（无破坏）
+
+### 行为变化（破坏性）
+- 调 C30 基准过去只影响 C30 → 现在影响**全部派生等级**（C20-C50）
+- 减水率公式用 `strengthDosage`（不含砂石微调），不再用 `finalDosage`
+- 没选减水剂材料 → 整步骤短路（掺量=0, 减水率=0）
+- 函数签名变更：`getSuperplasticizerDosageByStrength(strength, superplasticizerMaterial, tempSettings)`、`calculateSuperplasticizerDosage(strength, fineAggregateMaterial, superplasticizerMaterial, tempSettings)` 等
+
+### 不破坏的部分
+- 已存在 DB 里的存量用户掺量值仍然生效（向后兼容）
+- `Material.waterReducingRatePer01Dosage` 字段已存在（默认 2.0），新规则直接用
+
+### commit
+- `73f5221` feat(配合比): 减水剂掺量新规则（基准+派生）
+
+---
+
+
 
 ### 老板二次反馈打脸（v10.7.6 第一版修复失效）
 老板反映："我装了 v10.7.6，仍然给我加入锂渣 20%。" 立刻 grep 验证主流程：
