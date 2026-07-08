@@ -1,426 +1,489 @@
-## v10.8.0 功能版本 (2026-07-08) - Todo 计划实时面板：用户能"看见" LLM 在想什么
+## v10.9.0 功能版本 (2026-07-08) - Soft Trigger Skill：渐进披露 + 方法论 skill 机制
 
 ### 背景
-老板反馈："项目中的 todo 技能用户完全看不到 LLM 计划了什么，只看到 todo 在跑，用户看不见计划的进度，也看不到具体什么计划。"
+借鉴 Claude Code 的渐进披露（Progressive Disclosure）架构，让方法论类 .md 技能通过 description 触发 + body 注入到 system prompt 的方式生效，取代原来只能作为 function call tool 的局限。
 
-后端 `todo_manage` Skill（v9.1.0）实现完整（6 种 action + 内存存储 + 会话隔离），但**前端零组件**。LLM 调 `todo_manage` 时，结果只回到 LLM 自己，前端用户只能从 LLM 流式文本里猜，体验差。
+### 新增
+- **Soft Trigger 机制（3 层渐进披露）**
+  - Layer 1：所有 soft skill 的完整 description 进 system prompt（不截 30 字）
+  - Layer 2：命中后 body 持续注入激活区，LLM 受约束执行
+  - Layer 3：子文件按需加载（reference.md / examples.md）
+- **SkillRegistry** 加 _triggerMode 字段，listSoftSkills() / isSoftTrigger() 方法
+- **MDParser** 解析 frontmatter trigger_mode 字段
+- **getToolSchemas()** 过滤 soft skill（避免双轨暴露）
+- **systemPromptBuilder** 加 softSkillSection 参数
+- **SoftSkillInjector** 触发/退激活/Layer 1+2+3 拼装
+- **SubFileResolver** Layer 3 子文件加载（路径穿越防护）
+- **UnifiedStrategy** 集成注入
+- **create_skill** 重构：顶层分 type='tool'|'skill'，废弃旧 format 参数
+- **skill-manager** list/info 返回 triggerMode 字段
+- **SkillManager.jsx** 前添加"类型"列 + 创建弹窗 type/subType 选择
 
-### 方案
-最小改动 6 个文件（0 兼容代码）：
-- **后端推送**：`todo-manage.js` 在 5 个写操作（create/add/update/complete/clear）完成后，通过 `context.webContents.send('todo:updated', { sessionId, todos, total, completed })` 推事件。`list` 只读不推。
-- **IPC 兜底**：[`src/main/ipcHandlers/agentHandler.js`](src/main/ipcHandlers/agentHandler.js) 新增 `ipcMain.handle('todo:list', ...)`，复用 skill 的 list action。
-- **preload 暴露**：[`src/main/preload.js`](src/main/preload.js) 新增 `electronAPI.todo.{list, onUpdate, removeUpdateListener}`。
-- **TodoPanel 组件**：[`src/renderer/components/TodoPanel.jsx`](src/renderer/components/TodoPanel.jsx) 新建：进度条 + 列表（完成打勾、进行中蓝高亮、待办灰着）+ 优先级 Tag（高/中/低）。
-- **集成聊天页**：[`src/renderer/components/SmartDesignChat.jsx`](src/renderer/components/SmartDesignChat.jsx) 在 `StreamingAgentCard` 上方挂 `<TodoPanel sessionId={state.session.currentId} />`，仅对正在 streaming 的消息挂载。
+### 重写
+- **concrete_innovation_brainstorm.md** — 修复文件名 BUG（连字符→下划线），改为 trigger_mode: soft，新增 Layer 3 子文件（reference.md / examples.md）
 
-### 端到端数据流
-```
-LLM 调 todo_manage
-  → todo-manage.execute() 修改 _sessionTodos
-  → _notifyTodoUpdate(context, sessionId, todos) 推 todo:updated
-  → preload 的 todo.onUpdate 回调
-  → TodoPanel setTodos → 重渲染
-  → 用户看到面板（进度条 + 列表 + 状态可视化）
-```
-
-兜底（页面刷新 / 重新挂载）：
-```
-TodoPanel mount → todo.list(sessionId) → IPC todo:list → 复用 skill list action 返回清单
-```
-
-### 关键设计
-- **空态不渲染**：`todos.length === 0` 时返回 `null`（不显示空面板）
-- **sessionId 过滤**：前端收到事件后按 `payload.sessionId === props.sessionId` 过滤，忽略其他 session 的事件
-- **静默容错**：后端 `webContents` 不存在/已销毁/`send` 抛错 — 全部 catch 吞掉，不影响 skill 主流程
-- **折叠态**：标题栏始终可见，列表可点折叠，折叠后只剩 `📋 LLM 计划 (2/5) + 进度条`
-- **priority 中文标签**：high/medium/low 渲染为 高/中/低，颜色 red/orange/default
-
-### 改动文件
-| 文件 | 改动 |
-|---|---|
-| [`src/main/skills/todo-manage.js`](src/main/skills/todo-manage.js) | 加 `_notifyTodoUpdate` 工具函数 + 5 处写操作插入推送调用 |
-| [`src/main/ipcHandlers/agentHandler.js`](src/main/ipcHandlers/agentHandler.js) | 新增 IPC `todo:list`（兜底查询） |
-| [`src/main/preload.js`](src/main/preload.js) | 暴露 `todo.list` / `todo.onUpdate` / `todo.removeUpdateListener` |
-| [`src/renderer/components/TodoPanel.jsx`](src/renderer/components/TodoPanel.jsx) | 新建（约 160 行） |
-| [`src/renderer/components/SmartDesignChat.jsx`](src/renderer/components/SmartDesignChat.jsx) | import + 1 行 JSX 挂载 |
-| [`src/main/__tests__/skills/todo-manage.test.js`](src/main/__tests__/skills/todo-manage.test.js) | 新增 9 个推送事件测试 |
-| [`tests/todoPanelSubscription.test.js`](tests/todoPanelSubscription.test.js) | 新建 8 个数据流合约测试（无 jsdom 也能跑） |
+### 破坏性变更
+- create_skill 参数 format 废弃，老调用返回 E_LEGACY_FORMAT，需改为 type/subType
 
 ### 测试
-- ✅ `todo-manage.test.js` 42/42 全绿（33 旧 + 9 新推送测试）
-- ✅ `todoPanelSubscription.test.js` 8/8 全绿（mount 拉取 / sessionId 过滤 / unmount 注销 / payload 形状 / 多次更新 / 失败容错）
-- ✅ 相关模块回归（agentHandler / errorCodes / errorClassifier）72/73 全绿（1 个 `abortBehavior` 测试是 pre-existing 失败，与本次改动无关，git stash 验证过）
+- 新增 7 个测试文件，约 400 行测试代码
+- agent + skills 测试：32 suites / 320 tests 全绿
 
-### 边缘情况覆盖
-- LLM 没调 todo_manage → 面板不渲染
-- LLM 调 create 后立刻 complete 全部 → 进度条 100%，列表全打勾
-- LLM 调 clear → 面板消失
-- 用户切会话 → 新 sessionId 重新拉清单
-- 用户刷新页面 → mount 时 `todo.list` 拉兜底数据
-- webContents 已销毁（关闭中）→ 推送静默跳过
-- IPC 通道断 → catch 吞掉，不影响 skill 返回
-- 事件 payload.sessionId 不匹配 → 前端忽略
-- 同一 session 多次 update → 事件按顺序覆盖（最新事件赢）
+## v10.9.0 功能版本 (2026-07-08) - Soft Trigger Skill：渐进披露 + 方法论 skill 机制
 
-### 设计文档
-- spec：[`docs/superpowers/specs/2026-07-08-todo-panel-design.md`](docs/superpowers/specs/2026-07-08-todo-panel-design.md)
-- plan：[`docs/superpowers/plans/2026-07-08-todo-panel-plan.md`](docs/superpowers/plans/2026-07-08-todo-panel-plan.md)
+### 背景
+借鉴 Claude Code 的渐进披露（Progressive Disclosure）架构，让方法论类 .md 技能通过 description 触发 + body 注入到 system prompt 的方式生效，取代原来只能作为 function call tool 的局限。
 
-### 版本号同步（按 CLAUDE.md 规则 7）
-- ✅ `package.json` version: 10.7.9 → 10.8.0
-- ✅ `package.json` build.output: `dist-10.7.9` → `dist-10.8.0`
-- ✅ [`src/renderer/pages/WorkspacePage.jsx:152`](src/renderer/pages/WorkspacePage.jsx#L152) `topbar-version`: v10.7.9 → v10.8.0
-- ⚠️ main.js BrowserWindow 没显式 setTitle（依赖 package.json `productName` = "砼智"），无需改
-- ⚠️ `index.html` `<title>` 写死"砼智"（无版本号），无需改
-- ✅ grep 复查 10.7.9 在源码区已无匹配（仅剩测试文件里引用历史场景的注释，不应改）
+### 新增
+- **Soft Trigger 机制（3 层渐进披露）**
+  - Layer 1：所有 soft skill 的完整 description 进 system prompt（不截 30 字）
+  - Layer 2：命中后 body 持续注入激活区，LLM 受约束执行
+  - Layer 3：子文件按需加载（reference.md / examples.md）
+- **SkillRegistry** 加 `_triggerMode` 字段，`listSoftSkills()` / `isSoftTrigger()` 方法
+- **MDParser** 解析 frontmatter `trigger_mode` 字段
+- **getToolSchemas()** 过滤 soft skill（避免双轨暴露）
+- **systemPromptBuilder** 加 `softSkillSection` 参数
+- **SoftSkillInjector** 触发/退激活/Layer 1+2+3 拼装
+- **SubFileResolver** Layer 3 子文件加载（路径穿越防护）
+- **UnifiedStrategy** 集成注入
+- **create_skill** 重构：顶层分 `type='tool'|'skill'`，废弃旧 `format` 参数
+- **skill-manager** list/info 返回 `triggerMode` 字段
+- **SkillManager.jsx** 前添加"类型"列 + 创建弹窗 type/subType 选择
 
-### 打包
-本次已 `npm run electron:build` 打包完成：
-- 输出目录：`dist-10.8.0/`
-- `dist-10.8.0/砼智 Setup 10.8.0.exe` — NSIS 安装版（**140M**，约 145.9MB → 140M，比 v10.7.9 略小）
-- `dist-10.8.0/砼智-10.8.0-portable-x64.exe` — Portable 免安装版（**139M**）
-- `dist-10.8.0/win-unpacked/` — 免安装解压目录
+### 重写
+- **concrete_innovation_brainstorm.md** — 修复文件名 BUG（连字符→下划线），改为 `trigger_mode: soft`，新增 Layer 3 子文件（reference.md / examples.md）
 
-vite 打包提示：WorkspacePage 拆出独立 chunk 后（`WorkspacePage-CNNmkUzL.js 2,322.17 kB`）仍超过 500kB 警告阈值，是 echart/sequelize/sqlite3/xlsx 等重依赖的固有体积，不影响功能。后续如需优化可走 dynamic import 拆 SettingsPage 内的子页面（待老板指示）。
+### 破坏性变更
+- create_skill 参数 `format` 废弃，老调用返回 `E_LEGACY_FORMAT`，需改为 `type/subType`
+
+### 测试
+- 新增 7 个测试文件，~400 行测试代码
+- agent + skills 测试：32 suites / 320 tests 全绿
+
+## v10.8.0 鍔熻兘鐗堟湰 (2026-07-08) - Todo 璁″垝瀹炴椂闈㈡澘锛氱敤鎴疯兘"鐪嬭" LLM 鍦ㄦ兂浠€涔?
+
+### 鑳屾櫙
+鑰佹澘鍙嶉锛?椤圭洰涓殑 todo 鎶€鑳界敤鎴峰畬鍏ㄧ湅涓嶅埌 LLM 璁″垝浜嗕粈涔堬紝鍙湅鍒?todo 鍦ㄨ窇锛岀敤鎴风湅涓嶈璁″垝鐨勮繘搴︼紝涔熺湅涓嶅埌鍏蜂綋浠€涔堣鍒掋€?
+
+鍚庣 `todo_manage` Skill锛坴9.1.0锛夊疄鐜板畬鏁达紙6 绉?action + 鍐呭瓨瀛樺偍 + 浼氳瘽闅旂锛夛紝浣?*鍓嶇闆剁粍浠?*銆侺LM 璋?`todo_manage` 鏃讹紝缁撴灉鍙洖鍒?LLM 鑷繁锛屽墠绔敤鎴峰彧鑳戒粠 LLM 娴佸紡鏂囨湰閲岀寽锛屼綋楠屽樊銆?
+
+### 鏂规
+鏈€灏忔敼鍔?6 涓枃浠讹紙0 鍏煎浠ｇ爜锛夛細
+- **鍚庣鎺ㄩ€?*锛歚todo-manage.js` 鍦?5 涓啓鎿嶄綔锛坈reate/add/update/complete/clear锛夊畬鎴愬悗锛岄€氳繃 `context.webContents.send('todo:updated', { sessionId, todos, total, completed })` 鎺ㄤ簨浠躲€俙list` 鍙涓嶆帹銆?
+- **IPC 鍏滃簳**锛歔`src/main/ipcHandlers/agentHandler.js`](src/main/ipcHandlers/agentHandler.js) 鏂板 `ipcMain.handle('todo:list', ...)`锛屽鐢?skill 鐨?list action銆?
+- **preload 鏆撮湶**锛歔`src/main/preload.js`](src/main/preload.js) 鏂板 `electronAPI.todo.{list, onUpdate, removeUpdateListener}`銆?
+- **TodoPanel 缁勪欢**锛歔`src/renderer/components/TodoPanel.jsx`](src/renderer/components/TodoPanel.jsx) 鏂板缓锛氳繘搴︽潯 + 鍒楄〃锛堝畬鎴愭墦鍕俱€佽繘琛屼腑钃濋珮浜€佸緟鍔炵伆鐫€锛? 浼樺厛绾?Tag锛堥珮/涓?浣庯級銆?
+- **闆嗘垚鑱婂ぉ椤?*锛歔`src/renderer/components/SmartDesignChat.jsx`](src/renderer/components/SmartDesignChat.jsx) 鍦?`StreamingAgentCard` 涓婃柟鎸?`<TodoPanel sessionId={state.session.currentId} />`锛屼粎瀵规鍦?streaming 鐨勬秷鎭寕杞姐€?
+
+### 绔埌绔暟鎹祦
+```
+LLM 璋?todo_manage
+  鈫?todo-manage.execute() 淇敼 _sessionTodos
+  鈫?_notifyTodoUpdate(context, sessionId, todos) 鎺?todo:updated
+  鈫?preload 鐨?todo.onUpdate 鍥炶皟
+  鈫?TodoPanel setTodos 鈫?閲嶆覆鏌?
+  鈫?鐢ㄦ埛鐪嬪埌闈㈡澘锛堣繘搴︽潯 + 鍒楄〃 + 鐘舵€佸彲瑙嗗寲锛?
+```
+
+鍏滃簳锛堥〉闈㈠埛鏂?/ 閲嶆柊鎸傝浇锛夛細
+```
+TodoPanel mount 鈫?todo.list(sessionId) 鈫?IPC todo:list 鈫?澶嶇敤 skill list action 杩斿洖娓呭崟
+```
+
+### 鍏抽敭璁捐
+- **绌烘€佷笉娓叉煋**锛歚todos.length === 0` 鏃惰繑鍥?`null`锛堜笉鏄剧ず绌洪潰鏉匡級
+- **sessionId 杩囨护**锛氬墠绔敹鍒颁簨浠跺悗鎸?`payload.sessionId === props.sessionId` 杩囨护锛屽拷鐣ュ叾浠?session 鐨勪簨浠?
+- **闈欓粯瀹归敊**锛氬悗绔?`webContents` 涓嶅瓨鍦?宸查攢姣?`send` 鎶涢敊 鈥?鍏ㄩ儴 catch 鍚炴帀锛屼笉褰卞搷 skill 涓绘祦绋?
+- **鎶樺彔鎬?*锛氭爣棰樻爮濮嬬粓鍙锛屽垪琛ㄥ彲鐐规姌鍙狅紝鎶樺彔鍚庡彧鍓?`馃搵 LLM 璁″垝 (2/5) + 杩涘害鏉
+- **priority 涓枃鏍囩**锛歨igh/medium/low 娓叉煋涓?楂?涓?浣庯紝棰滆壊 red/orange/default
+
+### 鏀瑰姩鏂囦欢
+| 鏂囦欢 | 鏀瑰姩 |
+|---|---|
+| [`src/main/skills/todo-manage.js`](src/main/skills/todo-manage.js) | 鍔?`_notifyTodoUpdate` 宸ュ叿鍑芥暟 + 5 澶勫啓鎿嶄綔鎻掑叆鎺ㄩ€佽皟鐢?|
+| [`src/main/ipcHandlers/agentHandler.js`](src/main/ipcHandlers/agentHandler.js) | 鏂板 IPC `todo:list`锛堝厹搴曟煡璇級 |
+| [`src/main/preload.js`](src/main/preload.js) | 鏆撮湶 `todo.list` / `todo.onUpdate` / `todo.removeUpdateListener` |
+| [`src/renderer/components/TodoPanel.jsx`](src/renderer/components/TodoPanel.jsx) | 鏂板缓锛堢害 160 琛岋級 |
+| [`src/renderer/components/SmartDesignChat.jsx`](src/renderer/components/SmartDesignChat.jsx) | import + 1 琛?JSX 鎸傝浇 |
+| [`src/main/__tests__/skills/todo-manage.test.js`](src/main/__tests__/skills/todo-manage.test.js) | 鏂板 9 涓帹閫佷簨浠舵祴璇?|
+| [`tests/todoPanelSubscription.test.js`](tests/todoPanelSubscription.test.js) | 鏂板缓 8 涓暟鎹祦鍚堢害娴嬭瘯锛堟棤 jsdom 涔熻兘璺戯級 |
+
+### 娴嬭瘯
+- 鉁?`todo-manage.test.js` 42/42 鍏ㄧ豢锛?3 鏃?+ 9 鏂版帹閫佹祴璇曪級
+- 鉁?`todoPanelSubscription.test.js` 8/8 鍏ㄧ豢锛坢ount 鎷夊彇 / sessionId 杩囨护 / unmount 娉ㄩ攢 / payload 褰㈢姸 / 澶氭鏇存柊 / 澶辫触瀹归敊锛?
+- 鉁?鐩稿叧妯″潡鍥炲綊锛坅gentHandler / errorCodes / errorClassifier锛?2/73 鍏ㄧ豢锛? 涓?`abortBehavior` 娴嬭瘯鏄?pre-existing 澶辫触锛屼笌鏈鏀瑰姩鏃犲叧锛実it stash 楠岃瘉杩囷級
+
+### 杈圭紭鎯呭喌瑕嗙洊
+- LLM 娌¤皟 todo_manage 鈫?闈㈡澘涓嶆覆鏌?
+- LLM 璋?create 鍚庣珛鍒?complete 鍏ㄩ儴 鈫?杩涘害鏉?100%锛屽垪琛ㄥ叏鎵撳嬀
+- LLM 璋?clear 鈫?闈㈡澘娑堝け
+- 鐢ㄦ埛鍒囦細璇?鈫?鏂?sessionId 閲嶆柊鎷夋竻鍗?
+- 鐢ㄦ埛鍒锋柊椤甸潰 鈫?mount 鏃?`todo.list` 鎷夊厹搴曟暟鎹?
+- webContents 宸查攢姣侊紙鍏抽棴涓級鈫?鎺ㄩ€侀潤榛樿烦杩?
+- IPC 閫氶亾鏂?鈫?catch 鍚炴帀锛屼笉褰卞搷 skill 杩斿洖
+- 浜嬩欢 payload.sessionId 涓嶅尮閰?鈫?鍓嶇蹇界暐
+- 鍚屼竴 session 澶氭 update 鈫?浜嬩欢鎸夐『搴忚鐩栵紙鏈€鏂颁簨浠惰耽锛?
+
+### 璁捐鏂囨。
+- spec锛歔`docs/superpowers/specs/2026-07-08-todo-panel-design.md`](docs/superpowers/specs/2026-07-08-todo-panel-design.md)
+- plan锛歔`docs/superpowers/plans/2026-07-08-todo-panel-plan.md`](docs/superpowers/plans/2026-07-08-todo-panel-plan.md)
+
+### 鐗堟湰鍙峰悓姝ワ紙鎸?CLAUDE.md 瑙勫垯 7锛?
+- 鉁?`package.json` version: 10.7.9 鈫?10.8.0
+- 鉁?`package.json` build.output: `dist-10.7.9` 鈫?`dist-10.8.0`
+- 鉁?[`src/renderer/pages/WorkspacePage.jsx:152`](src/renderer/pages/WorkspacePage.jsx#L152) `topbar-version`: v10.7.9 鈫?v10.8.0
+- 鈿狅笍 main.js BrowserWindow 娌℃樉寮?setTitle锛堜緷璧?package.json `productName` = "鐮兼櫤"锛夛紝鏃犻渶鏀?
+- 鈿狅笍 `index.html` `<title>` 鍐欐"鐮兼櫤"锛堟棤鐗堟湰鍙凤級锛屾棤闇€鏀?
+- 鉁?grep 澶嶆煡 10.7.9 鍦ㄦ簮鐮佸尯宸叉棤鍖归厤锛堜粎鍓╂祴璇曟枃浠堕噷寮曠敤鍘嗗彶鍦烘櫙鐨勬敞閲婏紝涓嶅簲鏀癸級
+
+### 鎵撳寘
+鏈宸?`npm run electron:build` 鎵撳寘瀹屾垚锛?
+- 杈撳嚭鐩綍锛歚dist-10.8.0/`
+- `dist-10.8.0/鐮兼櫤 Setup 10.8.0.exe` 鈥?NSIS 瀹夎鐗堬紙**140M**锛岀害 145.9MB 鈫?140M锛屾瘮 v10.7.9 鐣ュ皬锛?
+- `dist-10.8.0/鐮兼櫤-10.8.0-portable-x64.exe` 鈥?Portable 鍏嶅畨瑁呯増锛?*139M**锛?
+- `dist-10.8.0/win-unpacked/` 鈥?鍏嶅畨瑁呰В鍘嬬洰褰?
+
+vite 鎵撳寘鎻愮ず锛歐orkspacePage 鎷嗗嚭鐙珛 chunk 鍚庯紙`WorkspacePage-CNNmkUzL.js 2,322.17 kB`锛変粛瓒呰繃 500kB 璀﹀憡闃堝€硷紝鏄?echart/sequelize/sqlite3/xlsx 绛夐噸渚濊禆鐨勫浐鏈変綋绉紝涓嶅奖鍝嶅姛鑳姐€傚悗缁闇€浼樺寲鍙蛋 dynamic import 鎷?SettingsPage 鍐呯殑瀛愰〉闈紙寰呰€佹澘鎸囩ず锛夈€?
 
 ---
 
-## v10.7.9 修复版本 (2026-07-08) - 减水剂掺量 fmAdjustment 不应叠加 strengthDosage 梯度
+## v10.7.9 淇鐗堟湰 (2026-07-08) - 鍑忔按鍓傛幒閲?fmAdjustment 涓嶅簲鍙犲姞 strengthDosage 姊害
 
-### 背景
-老板反馈：v10.7.8 实测 C30/C40/C50/C60 配合比，finalDosage 梯度是 0.4%/10 强度（不是 0.2%）。
+### 鑳屾櫙
+鑰佹澘鍙嶉锛歷10.7.8 瀹炴祴 C30/C40/C50/C60 閰嶅悎姣旓紝finalDosage 姊害鏄?0.4%/10 寮哄害锛堜笉鏄?0.2%锛夈€?
 
-老板追问："目标细度模数只用来计算砂的比例；计算砂的外加剂影响用的实际细度模数哦"
+鑰佹澘杩介棶锛?鐩爣缁嗗害妯℃暟鍙敤鏉ヨ绠楃爞鐨勬瘮渚嬶紱璁＄畻鐮傜殑澶栧姞鍓傚奖鍝嶇敤鐨勫疄闄呯粏搴︽ā鏁板摝"
 
-### 根因
-[`src/main/services/MixDesignService/MixDesignService_Aggregate.js:360`](src/main/services/MixDesignService/MixDesignService_Aggregate.js#L360) v10.7.7 把 `baseFinenessModulus` 写成了 `targetFinenessModulus`：
+### 鏍瑰洜
+[`src/main/services/MixDesignService/MixDesignService_Aggregate.js:360`](src/main/services/MixDesignService/MixDesignService_Aggregate.js#L360) v10.7.7 鎶?`baseFinenessModulus` 鍐欐垚浜?`targetFinenessModulus`锛?
 
 ```js
-const baseFinenessModulus = targetFinenessModulus  // ← BUG
+const baseFinenessModulus = targetFinenessModulus  // 鈫?BUG
 ```
 
-`targetFinenessModulus` 是**强度等级的目标**（C30=2.8, C40=3.0, C50=3.0, C60=3.2）。
-`fmAdjustment = (targetFM - 砂 FM) × 系数`，所以跨档（C30→C40）时 fmAdjustment 跟着台阶式变化：
+`targetFinenessModulus` 鏄?*寮哄害绛夌骇鐨勭洰鏍?*锛圕30=2.8, C40=3.0, C50=3.0, C60=3.2锛夈€?
+`fmAdjustment = (targetFM - 鐮?FM) 脳 绯绘暟`锛屾墍浠ヨ法妗ｏ紙C30鈫扖40锛夋椂 fmAdjustment 璺熺潃鍙伴樁寮忓彉鍖栵細
 
-| 等级 | targetFM | 砂FM=2.81 | fmAdjustment |
+| 绛夌骇 | targetFM | 鐮侳M=2.81 | fmAdjustment |
 |:---:|:---:|:---:|:---:|
 | C30 | 2.8 | 2.81 | -0.01 |
 | C40 | 3.0 | 2.81 | +0.19 |
 | C50 | 3.0 | 2.81 | +0.19 |
 | C60 | 3.2 | 2.81 | +0.39 |
 
-跟 strengthDosage 的 0.2%/10 强度**叠加**，导致 finalDosage 梯度 = 0.4%/10 强度。
+璺?strengthDosage 鐨?0.2%/10 寮哄害**鍙犲姞**锛屽鑷?finalDosage 姊害 = 0.4%/10 寮哄害銆?
 
-### 老板语义（正确）
-- `targetFinenessModulus` → 用来计算砂的**比例**（`calculateOptimalFineAggregateRatio`）
-- 外加剂掺量的微调基准 → 应该是用户配置的 `targetFinenessModulusBase`（默认 2.7），跟 [`MixDesignService_Database.js:160-162`](src/main/services/MixDesignService/MixDesignService_Database.js#L160) 里的 `baseFm` 一致
+### 鑰佹澘璇箟锛堟纭級
+- `targetFinenessModulus` 鈫?鐢ㄦ潵璁＄畻鐮傜殑**姣斾緥**锛坄calculateOptimalFineAggregateRatio`锛?
+- 澶栧姞鍓傛幒閲忕殑寰皟鍩哄噯 鈫?搴旇鏄敤鎴烽厤缃殑 `targetFinenessModulusBase`锛堥粯璁?2.7锛夛紝璺?[`MixDesignService_Database.js:160-162`](src/main/services/MixDesignService/MixDesignService_Database.js#L160) 閲岀殑 `baseFm` 涓€鑷?
 
-### 改动（最小 1 行 + 注释）
-[`MixDesignService_Aggregate.js:355-374`](src/main/services/MixDesignService/MixDesignService_Aggregate.js#L355)：
+### 鏀瑰姩锛堟渶灏?1 琛?+ 娉ㄩ噴锛?
+[`MixDesignService_Aggregate.js:355-374`](src/main/services/MixDesignService/MixDesignService_Aggregate.js#L355)锛?
 
 ```js
-// 修复（v10.7.9）：用 tempSettings.targetFinenessModulusBase（默认 2.7）当基准
+// 淇锛坴10.7.9锛夛細鐢?tempSettings.targetFinenessModulusBase锛堥粯璁?2.7锛夊綋鍩哄噯
 const baseFinenessModulus = parseFloat(tempSettings?.targetFinenessModulusBase) || 2.7
 ```
 
-### 修复后行为
+### 淇鍚庤涓?
 
-| 等级 | strengthDosage | fmAdjustment（基准 2.7） | finalDosage | 差 |
+| 绛夌骇 | strengthDosage | fmAdjustment锛堝熀鍑?2.7锛?| finalDosage | 宸?|
 |:---:|:---:|:---:|:---:|:---:|
-| C30 | 2.0% | (2.7-2.81)/0.1 × 0.1 = -0.11 | 1.89 | — |
-| C40 | 2.2% | -0.11（不变） | 2.09 | +0.20 ✓ |
-| C50 | 2.4% | -0.11 | 2.29 | +0.20 ✓ |
-| C60 | 2.6% | -0.11 | 2.49 | +0.20 ✓ |
+| C30 | 2.0% | (2.7-2.81)/0.1 脳 0.1 = -0.11 | 1.89 | 鈥?|
+| C40 | 2.2% | -0.11锛堜笉鍙橈級 | 2.09 | +0.20 鉁?|
+| C50 | 2.4% | -0.11 | 2.29 | +0.20 鉁?|
+| C60 | 2.6% | -0.11 | 2.49 | +0.20 鉁?|
 
-**finalDosage 梯度 = 0.2%/10 强度**，跟 strengthDosage 梯度一致，符合 v10.7.7 设计意图。
+**finalDosage 姊害 = 0.2%/10 寮哄害**锛岃窡 strengthDosage 姊害涓€鑷达紝绗﹀悎 v10.7.7 璁捐鎰忓浘銆?
 
-### 验证
-- ✅ `superplasticizerDosage.test.js` 27/27 全绿（24 旧 + 3 新）
-  - 场景 F：各级 strengthDosage 差 0.2%/5强度
-  - 场景 G：fmAdjustment 不跨强度变化（核心 bug 验证）
-  - 场景 H：用户显式覆盖 base=2.8 → fmAdjustment 相应改变
-- ✅ `MixDesignOptimizer/MixDesignService_Database_Override/MixDesignService_Aggregate_Cement` 全套 62/62 全绿
-- ✅ `verify-superplasticizer-rule-v2.js` 端到端 24/24 通过
+### 楠岃瘉
+- 鉁?`superplasticizerDosage.test.js` 27/27 鍏ㄧ豢锛?4 鏃?+ 3 鏂帮級
+  - 鍦烘櫙 F锛氬悇绾?strengthDosage 宸?0.2%/5寮哄害
+  - 鍦烘櫙 G锛歠mAdjustment 涓嶈法寮哄害鍙樺寲锛堟牳蹇?bug 楠岃瘉锛?
+  - 鍦烘櫙 H锛氱敤鎴锋樉寮忚鐩?base=2.8 鈫?fmAdjustment 鐩稿簲鏀瑰彉
+- 鉁?`MixDesignOptimizer/MixDesignService_Database_Override/MixDesignService_Aggregate_Cement` 鍏ㄥ 62/62 鍏ㄧ豢
+- 鉁?`verify-superplasticizer-rule-v2.js` 绔埌绔?24/24 閫氳繃
 
-### 不破坏的部分
-- `targetFinenessModulus` 仍用于砂配比计算（`calculateOptimalFineAggregateRatio`）
-- 减水率公式仍用 `strengthDosage`（不受 fmAdjustment 影响，v10.7.7 已设计）
-- 用户显式覆盖 `targetFinenessModulusBase` 仍生效（场景 H 验证）
+### 涓嶇牬鍧忕殑閮ㄥ垎
+- `targetFinenessModulus` 浠嶇敤浜庣爞閰嶆瘮璁＄畻锛坄calculateOptimalFineAggregateRatio`锛?
+- 鍑忔按鐜囧叕寮忎粛鐢?`strengthDosage`锛堜笉鍙?fmAdjustment 褰卞搷锛寁10.7.7 宸茶璁★級
+- 鐢ㄦ埛鏄惧紡瑕嗙洊 `targetFinenessModulusBase` 浠嶇敓鏁堬紙鍦烘櫙 H 楠岃瘉锛?
 
 ### commit
-- `511bd1d` fix(aggregate): fmAdjustment 基准用 targetFinenessModulusBase（不叠加 strengthDosage 梯度）
+- `511bd1d` fix(aggregate): fmAdjustment 鍩哄噯鐢?targetFinenessModulusBase锛堜笉鍙犲姞 strengthDosage 姊害锛?
 
-### 打包结果（2026-07-08）
-- 打包时间：vite 10.86s + electron-builder ~3min，全过程 exit 0
-- 输出目录：`dist-10.7.9/`
-- 产物：
-  - `dist-10.7.9/砼智 Setup 10.7.9.exe` — NSIS 安装版（**145.9 MB**）
-  - `dist-10.7.9/砼智-10.7.9-portable-x64.exe` — Portable 免安装版（**145.5 MB**）
-  - `dist-10.7.9/win-unpacked/` — 免安装解压目录
+### 鎵撳寘缁撴灉锛?026-07-08锛?
+- 鎵撳寘鏃堕棿锛歷ite 10.86s + electron-builder ~3min锛屽叏杩囩▼ exit 0
+- 杈撳嚭鐩綍锛歚dist-10.7.9/`
+- 浜х墿锛?
+  - `dist-10.7.9/鐮兼櫤 Setup 10.7.9.exe` 鈥?NSIS 瀹夎鐗堬紙**145.9 MB**锛?
+  - `dist-10.7.9/鐮兼櫤-10.7.9-portable-x64.exe` 鈥?Portable 鍏嶅畨瑁呯増锛?*145.5 MB**锛?
+  - `dist-10.7.9/win-unpacked/` 鈥?鍏嶅畨瑁呰В鍘嬬洰褰?
 
 ---
 
-## v10.7.8 修复版本 (2026-07-08) - JGJ55 skill 清空单点掺量走派生（v10.7.7 半截同步兜底）
+## v10.7.8 淇鐗堟湰 (2026-07-08) - JGJ55 skill 娓呯┖鍗曠偣鎺洪噺璧版淳鐢燂紙v10.7.7 鍗婃埅鍚屾鍏滃簳锛?
 
-### 背景
-v10.7.7 改 schema/DEFAULTS 让单点掺量"不填走派生"，**但写入路径没改**——老板 DB 里有历史单点覆盖值（`superplasticizerDosage_C40 = 2.9`，锂渣专用外加剂时代遗留），AI 想清空走派生时三个错误路径全死（详见下方"故障链"）。
+### 鑳屾櫙
+v10.7.7 鏀?schema/DEFAULTS 璁╁崟鐐规幒閲?涓嶅～璧版淳鐢?锛?*浣嗗啓鍏ヨ矾寰勬病鏀?*鈥斺€旇€佹澘 DB 閲屾湁鍘嗗彶鍗曠偣瑕嗙洊鍊硷紙`superplasticizerDosage_C40 = 2.9`锛岄攤娓ｄ笓鐢ㄥ鍔犲墏鏃朵唬閬楃暀锛夛紝AI 鎯虫竻绌鸿蛋娲剧敓鏃朵笁涓敊璇矾寰勫叏姝伙紙璇﹁涓嬫柟"鏁呴殰閾?锛夈€?
 
-### 故障链（chat_history ID 1673~1681 反查）
-1. ❌ `update_jgj55_param(value=null)` → `PARAM_MISSING`（value 必填）
-2. ❌ `batch_update_jgj55_params(params=...)` → `PARAM_MISSING`（参数名错了，是 `updates` 不是 `params`）
-3. ❌ `batch_update_jgj55_params(updates=[{value:""}])` → `OUT_OF_RANGE`（空串 coerce 成 0，违反 min=1）
-- 3 次失败，AI 没退路，会话停了，bug 留在 DB 里至今
+### 鏁呴殰閾撅紙chat_history ID 1673~1681 鍙嶆煡锛?
+1. 鉂?`update_jgj55_param(value=null)` 鈫?`PARAM_MISSING`锛坴alue 蹇呭～锛?
+2. 鉂?`batch_update_jgj55_params(params=...)` 鈫?`PARAM_MISSING`锛堝弬鏁板悕閿欎簡锛屾槸 `updates` 涓嶆槸 `params`锛?
+3. 鉂?`batch_update_jgj55_params(updates=[{value:""}])` 鈫?`OUT_OF_RANGE`锛堢┖涓?coerce 鎴?0锛岃繚鍙?min=1锛?
+- 3 娆″け璐ワ紝AI 娌￠€€璺紝浼氳瘽鍋滀簡锛宐ug 鐣欏湪 DB 閲岃嚦浠?
 
-### 根因
-JGJ55 skill 的"读"语义改了（schema 描述"不填=派生"），**"写"路径没动**——`validateValue` 不接受 null/空串，`update_jgj55_param` 的 `value` 仍 `required: true`。
+### 鏍瑰洜
+JGJ55 skill 鐨?璇?璇箟鏀逛簡锛坰chema 鎻忚堪"涓嶅～=娲剧敓"锛夛紝**"鍐?璺緞娌″姩**鈥斺€擿validateValue` 涓嶆帴鍙?null/绌轰覆锛宍update_jgj55_param` 鐨?`value` 浠?`required: true`銆?
 
-### 改动（最小）
-1. **`validateValue`**（`src/main/skills/jgj55-params.js` 60-71 行）：加 null/空串/未定义分支 → 返回 `{ ok: true, value: null }`（语义：清空）
-2. **`update_jgj55_param`**：去掉 `required: ['name','value']`，改为 `required: ['name']`；value 允许 null；execute 中 value===null 走 `deleteParam` 而非 `setParam`（避免 `String(null)="null"` 写进 DB）
-3. **新增 `clear_jgj55_param(name)` skill**：专门清单个参数走默认/派生
-4. **`batch_update_jgj55_params`**：复用新 validateValue，value===null 走 deleteParam
-5. **配套测试**（`src/main/__tests__/skills/jgj55-params.test.js`）：8 个新 case 覆盖所有清空路径
+### 鏀瑰姩锛堟渶灏忥級
+1. **`validateValue`**锛坄src/main/skills/jgj55-params.js` 60-71 琛岋級锛氬姞 null/绌轰覆/鏈畾涔夊垎鏀?鈫?杩斿洖 `{ ok: true, value: null }`锛堣涔夛細娓呯┖锛?
+2. **`update_jgj55_param`**锛氬幓鎺?`required: ['name','value']`锛屾敼涓?`required: ['name']`锛泇alue 鍏佽 null锛沞xecute 涓?value===null 璧?`deleteParam` 鑰岄潪 `setParam`锛堥伩鍏?`String(null)="null"` 鍐欒繘 DB锛?
+3. **鏂板 `clear_jgj55_param(name)` skill**锛氫笓闂ㄦ竻鍗曚釜鍙傛暟璧伴粯璁?娲剧敓
+4. **`batch_update_jgj55_params`**锛氬鐢ㄦ柊 validateValue锛寁alue===null 璧?deleteParam
+5. **閰嶅娴嬭瘯**锛坄src/main/__tests__/skills/jgj55-params.test.js`锛夛細8 涓柊 case 瑕嗙洊鎵€鏈夋竻绌鸿矾寰?
 
-### 验证
-- ✅ `jgj55-params.test.js` 18/18 全绿（10 个原有 + 8 个新）
-- ✅ `verify-superplasticizer-rule-v2.js` 端到端 24/24 通过
-- ✅ git stash 验证：18 个 pre-existing 失败（workspace/LearningService/WikiEngine/snapshot）和本修复无关
+### 楠岃瘉
+- 鉁?`jgj55-params.test.js` 18/18 鍏ㄧ豢锛?0 涓師鏈?+ 8 涓柊锛?
+- 鉁?`verify-superplasticizer-rule-v2.js` 绔埌绔?24/24 閫氳繃
+- 鉁?git stash 楠岃瘉锛?8 涓?pre-existing 澶辫触锛坵orkspace/LearningService/WikiEngine/snapshot锛夊拰鏈慨澶嶆棤鍏?
 
-### 现场清理（老板手动）
-新装的 v10.7.8 后，老板可以选一种方式清掉历史脏数据 `superplasticizerDosage_C40 = 2.9`：
-1. **app 内**："系统设置 → JGJ55 参数 → 减水剂掺量 — C40" 清空它
-2. **调新 skill**：AI 助理调 `clear_jgj55_param({name: "superplasticizerDosage_C40"})`
-3. **DB 直清**：`DELETE FROM systemParams WHERE paramName='superplasticizerDosage_C40';`
+### 鐜板満娓呯悊锛堣€佹澘鎵嬪姩锛?
+鏂拌鐨?v10.7.8 鍚庯紝鑰佹澘鍙互閫変竴绉嶆柟寮忔竻鎺夊巻鍙茶剰鏁版嵁 `superplasticizerDosage_C40 = 2.9`锛?
+1. **app 鍐?*锛?绯荤粺璁剧疆 鈫?JGJ55 鍙傛暟 鈫?鍑忔按鍓傛幒閲?鈥?C40" 娓呯┖瀹?
+2. **璋冩柊 skill**锛欰I 鍔╃悊璋?`clear_jgj55_param({name: "superplasticizerDosage_C40"})`
+3. **DB 鐩存竻**锛歚DELETE FROM systemParams WHERE paramName='superplasticizerDosage_C40';`
 
-清掉后 C40 派生 = 2.0 + (40-30)/5×0.1 = **2.2%**（不再 2.79%）
+娓呮帀鍚?C40 娲剧敓 = 2.0 + (40-30)/5脳0.1 = **2.2%**锛堜笉鍐?2.79%锛?
 
-### 不破坏的部分
-- 原有 5 件套 skill 完全兼容（schema 描述更新、`value` 仍接受数字）
-- v10.7.7 的"单点 > 派生"优先级逻辑不变
-- 端到端 24 个 case 全部通过
+### 涓嶇牬鍧忕殑閮ㄥ垎
+- 鍘熸湁 5 浠跺 skill 瀹屽叏鍏煎锛坰chema 鎻忚堪鏇存柊銆乣value` 浠嶆帴鍙楁暟瀛楋級
+- v10.7.7 鐨?鍗曠偣 > 娲剧敓"浼樺厛绾ч€昏緫涓嶅彉
+- 绔埌绔?24 涓?case 鍏ㄩ儴閫氳繃
 
 ### commit
-- `b74b75f` fix(jgj55-skill): 支持清空单点掺量走默认/派生（v10.7.7 半截同步兜底）
+- `b74b75f` fix(jgj55-skill): 鏀寔娓呯┖鍗曠偣鎺洪噺璧伴粯璁?娲剧敓锛坴10.7.7 鍗婃埅鍚屾鍏滃簳锛?
 
-### 打包结果（2026-07-08）
-- 打包时间：vite 10.82s + electron-builder ~3min，全过程 exit 0
-- 输出目录：`dist-10.7.8/`
-- 产物：
-  - `dist-10.7.8/砼智 Setup 10.7.8.exe` — NSIS 安装版（**145.9 MB**）
-  - `dist-10.7.8/砼智-10.7.8-portable-x64.exe` — Portable 免安装版（**145.5 MB**）
-  - `dist-10.7.8/win-unpacked/` — 免安装解压目录
-- 平台：Windows x64（NSIS + portable）
-- Node/Electron：electron@28.3.3
-- electron-builder：24.13.3
+### 鎵撳寘缁撴灉锛?026-07-08锛?
+- 鎵撳寘鏃堕棿锛歷ite 10.82s + electron-builder ~3min锛屽叏杩囩▼ exit 0
+- 杈撳嚭鐩綍锛歚dist-10.7.8/`
+- 浜х墿锛?
+  - `dist-10.7.8/鐮兼櫤 Setup 10.7.8.exe` 鈥?NSIS 瀹夎鐗堬紙**145.9 MB**锛?
+  - `dist-10.7.8/鐮兼櫤-10.7.8-portable-x64.exe` 鈥?Portable 鍏嶅畨瑁呯増锛?*145.5 MB**锛?
+  - `dist-10.7.8/win-unpacked/` 鈥?鍏嶅畨瑁呰В鍘嬬洰褰?
+- 骞冲彴锛歐indows x64锛圢SIS + portable锛?
+- Node/Electron锛歟lectron@28.3.3
+- electron-builder锛?4.13.3
 
 ---
 
-## v10.7.7 (2026-07-08) - 减水剂掺量新规则（基准+派生） + 标题栏版本号同步
+## v10.7.7 (2026-07-08) - 鍑忔按鍓傛幒閲忔柊瑙勫垯锛堝熀鍑?娲剧敓锛?+ 鏍囬鏍忕増鏈彿鍚屾
 
-### 打包结果（2026-07-08）
-- 打包时间：v11.24s（vite build） + ~3min（electron-builder）
-- 输出目录：`dist-10.7.7/`
-- 产物：
-  - `dist-10.7.7/砼智 Setup 10.7.7.exe` — NSIS 安装版（**140 MB**）
-  - `dist-10.7.7/砼智-10.7.7-portable-x64.exe` — Portable 免安装版（**139 MB**）
-  - `dist-10.7.7/win-unpacked/` — 免安装解压目录
-- 平台：Windows x64（NSIS + portable）
-- Node/Electron：electron@28.3.3
-- electron-builder：24.13.3
+### 鎵撳寘缁撴灉锛?026-07-08锛?
+- 鎵撳寘鏃堕棿锛歷11.24s锛坴ite build锛?+ ~3min锛坋lectron-builder锛?
+- 杈撳嚭鐩綍锛歚dist-10.7.7/`
+- 浜х墿锛?
+  - `dist-10.7.7/鐮兼櫤 Setup 10.7.7.exe` 鈥?NSIS 瀹夎鐗堬紙**140 MB**锛?
+  - `dist-10.7.7/鐮兼櫤-10.7.7-portable-x64.exe` 鈥?Portable 鍏嶅畨瑁呯増锛?*139 MB**锛?
+  - `dist-10.7.7/win-unpacked/` 鈥?鍏嶅畨瑁呰В鍘嬬洰褰?
+- 骞冲彴锛歐indows x64锛圢SIS + portable锛?
+- Node/Electron锛歟lectron@28.3.3
+- electron-builder锛?4.13.3
 
-### 标题栏版本号同步（老板 2026-07-08 强调）
-- 修复点：[`src/renderer/pages/WorkspacePage.jsx:152`](src/renderer/pages/WorkspacePage.jsx#L152) `topbar-version` 写死 v9.0.0（落后多个版本）→ 改 v10.7.7
-- 同步加进 CLAUDE.md 第 7 条规则（"版本号同步"）
-- 扫描确认：HTML title 标签和 BrowserWindow title 都没有版本号硬编码（HTML title 是"砼智"纯文字，BrowserWindow 用 `titleBarStyle: 'hidden'` 走自定义 topbar），所以只改这一处
-- 其他 v\d+\.\d+\.\d+ 匹配项均为代码注释中的历史版本号，不影响用户
+### 鏍囬鏍忕増鏈彿鍚屾锛堣€佹澘 2026-07-08 寮鸿皟锛?
+- 淇鐐癸細[`src/renderer/pages/WorkspacePage.jsx:152`](src/renderer/pages/WorkspacePage.jsx#L152) `topbar-version` 鍐欐 v9.0.0锛堣惤鍚庡涓増鏈級鈫?鏀?v10.7.7
+- 鍚屾鍔犺繘 CLAUDE.md 绗?7 鏉¤鍒欙紙"鐗堟湰鍙峰悓姝?锛?
+- 鎵弿纭锛欻TML title 鏍囩鍜?BrowserWindow title 閮芥病鏈夌増鏈彿纭紪鐮侊紙HTML title 鏄?鐮兼櫤"绾枃瀛楋紝BrowserWindow 鐢?`titleBarStyle: 'hidden'` 璧拌嚜瀹氫箟 topbar锛夛紝鎵€浠ュ彧鏀硅繖涓€澶?
+- 鍏朵粬 v\d+\.\d+\.\d+ 鍖归厤椤瑰潎涓轰唬鐮佹敞閲婁腑鐨勫巻鍙茬増鏈彿锛屼笉褰卞搷鐢ㄦ埛
 
-### 老板 2026-07-08 决策
+### 鑰佹澘 2026-07-08 鍐崇瓥
 
-### 老板 2026-07-08 决策
-替换旧规则（每个强度等级独立硬编码默认值 1.6%-2.2%）。新规则核心：
+### 鑰佹澘 2026-07-08 鍐崇瓥
+鏇挎崲鏃ц鍒欙紙姣忎釜寮哄害绛夌骇鐙珛纭紪鐮侀粯璁ゅ€?1.6%-2.2%锛夈€傛柊瑙勫垯鏍稿績锛?
 
-- **C30 基准掺量** = 减水剂材料 `recommendedDosage`（兜底 1.8%）
-- **等级掺量**：用户单点指定 > 从 C30 基准派生（±0.1%/5强度）
-- **减水率公式**：`waterReducingRate + (strengthDosage - 材料推荐) / 0.1 × waterReducingRatePer01Dosage`
-- **砂石 MB/细度模数 微调产生的掺量变化不影响减水率**（老板规则）
-- **没选减水剂材料** → 掺量=0, 减水率=0, 用水量不修正
+- **C30 鍩哄噯鎺洪噺** = 鍑忔按鍓傛潗鏂?`recommendedDosage`锛堝厹搴?1.8%锛?
+- **绛夌骇鎺洪噺**锛氱敤鎴峰崟鐐规寚瀹?> 浠?C30 鍩哄噯娲剧敓锛埪?.1%/5寮哄害锛?
+- **鍑忔按鐜囧叕寮?*锛歚waterReducingRate + (strengthDosage - 鏉愭枡鎺ㄨ崘) / 0.1 脳 waterReducingRatePer01Dosage`
+- **鐮傜煶 MB/缁嗗害妯℃暟 寰皟浜х敓鐨勬幒閲忓彉鍖栦笉褰卞搷鍑忔按鐜?*锛堣€佹澘瑙勫垯锛?
+- **娌￠€夊噺姘村墏鏉愭枡** 鈫?鎺洪噺=0, 鍑忔按鐜?0, 鐢ㄦ按閲忎笉淇
 
-### 三个独立概念（不要混）
-| 概念 | 来源 | 作用 |
+### 涓変釜鐙珛姒傚康锛堜笉瑕佹贩锛?
+| 姒傚康 | 鏉ユ簮 | 浣滅敤 |
 |------|------|------|
-| 材料推荐掺量 | `Material.recommendedDosage` | 减水率公式的"基准"（厂家标定） |
-| C30 基准掺量 | 优先级: 用户覆盖 > 材料推荐 > 1.8% 兜底 | 决定 C20-C50 派生 |
-| 各等级使用掺量 | 用户单点 > C30 基准 / 派生公式 | 配合比实际用 |
+| 鏉愭枡鎺ㄨ崘鎺洪噺 | `Material.recommendedDosage` | 鍑忔按鐜囧叕寮忕殑"鍩哄噯"锛堝巶瀹舵爣瀹氾級 |
+| C30 鍩哄噯鎺洪噺 | 浼樺厛绾? 鐢ㄦ埛瑕嗙洊 > 鏉愭枡鎺ㄨ崘 > 1.8% 鍏滃簳 | 鍐冲畾 C20-C50 娲剧敓 |
+| 鍚勭瓑绾т娇鐢ㄦ幒閲?| 鐢ㄦ埛鍗曠偣 > C30 鍩哄噯 / 娲剧敓鍏紡 | 閰嶅悎姣斿疄闄呯敤 |
 
-### 涉及 8 个文件改动
-1. `src/main/services/MixDesignService/MixDesignService_WaterRatio.js` — 新增 `getC30Baseline`，重写 `getSuperplasticizerDosageByStrength` 透传材料
-2. `src/main/services/MixDesignService/MixDesignService_Aggregate.js` — 透传材料 + 没选材料短路 + 减水率公式改用 `strengthDosage`（不含砂石微调）
-3. `src/main/services/MixDesignService/MixDesignService_Database.js` — 主流程透传 + 没选材料时减水率=0
-4. `src/main/services/MixDesignService/index.js` — facade 透传
-5. `src/main/services/MixDesignOptimizer.js` — 阶段 2-4 透传 `defaultSp`
-6. `src/main/services/SystemService.js` — 默认种子表更新（删 6 个加 1 个基准）
-7. `src/main/skills/jgj55-params.js` — schema + DEFAULTS 同步
-8. `src/renderer/config/paramConfig.js` — UI 标签区分基准/单点/派生
-9. `src/renderer/main.jsx` — 浏览器复刻版同步
+### 娑夊強 8 涓枃浠舵敼鍔?
+1. `src/main/services/MixDesignService/MixDesignService_WaterRatio.js` 鈥?鏂板 `getC30Baseline`锛岄噸鍐?`getSuperplasticizerDosageByStrength` 閫忎紶鏉愭枡
+2. `src/main/services/MixDesignService/MixDesignService_Aggregate.js` 鈥?閫忎紶鏉愭枡 + 娌￠€夋潗鏂欑煭璺?+ 鍑忔按鐜囧叕寮忔敼鐢?`strengthDosage`锛堜笉鍚爞鐭冲井璋冿級
+3. `src/main/services/MixDesignService/MixDesignService_Database.js` 鈥?涓绘祦绋嬮€忎紶 + 娌￠€夋潗鏂欐椂鍑忔按鐜?0
+4. `src/main/services/MixDesignService/index.js` 鈥?facade 閫忎紶
+5. `src/main/services/MixDesignOptimizer.js` 鈥?闃舵 2-4 閫忎紶 `defaultSp`
+6. `src/main/services/SystemService.js` 鈥?榛樿绉嶅瓙琛ㄦ洿鏂帮紙鍒?6 涓姞 1 涓熀鍑嗭級
+7. `src/main/skills/jgj55-params.js` 鈥?schema + DEFAULTS 鍚屾
+8. `src/renderer/config/paramConfig.js` 鈥?UI 鏍囩鍖哄垎鍩哄噯/鍗曠偣/娲剧敓
+9. `src/renderer/main.jsx` 鈥?娴忚鍣ㄥ鍒荤増鍚屾
 
-### 新增 3 个文件
-- `src/main/services/MixDesignService/__tests__/superplasticizerDosage.test.js` — 24 个单元测试
-- `tests/manual/verify-superplasticizer-rule-v2.js` — 端到端验证脚本（6 个真实场景，24 个断言）
-- `docs/superpowers/specs/2026-07-08-superplasticizer-dosage-rule-v2.md` — 新规则说明
+### 鏂板 3 涓枃浠?
+- `src/main/services/MixDesignService/__tests__/superplasticizerDosage.test.js` 鈥?24 涓崟鍏冩祴璇?
+- `tests/manual/verify-superplasticizer-rule-v2.js` 鈥?绔埌绔獙璇佽剼鏈紙6 涓湡瀹炲満鏅紝24 涓柇瑷€锛?
+- `docs/superpowers/specs/2026-07-08-superplasticizer-dosage-rule-v2.md` 鈥?鏂拌鍒欒鏄?
 
-### 同步更新的 spec/plan
-- `docs/superpowers/specs/2026-07-04-jgj55-skill-and-settings-cleanup-spec.md` — 参数表 + DEFAULTS
-- `docs/superpowers/specs/2026-07-04-cost-optimizer-v2-design.md` — 函数签名
-- `docs/superpowers/plans/2026-05-08-code-structure-refactor-implementation.md` — API 表
+### 鍚屾鏇存柊鐨?spec/plan
+- `docs/superpowers/specs/2026-07-04-jgj55-skill-and-settings-cleanup-spec.md` 鈥?鍙傛暟琛?+ DEFAULTS
+- `docs/superpowers/specs/2026-07-04-cost-optimizer-v2-design.md` 鈥?鍑芥暟绛惧悕
+- `docs/superpowers/plans/2026-05-08-code-structure-refactor-implementation.md` 鈥?API 琛?
 
-### 验证
-- ✅ 单元测试 24/24 通过
-- ✅ 端到端验证 24/24 通过
-- ✅ 现有 MixDesignService 测试 63/63 通过（无破坏）
+### 楠岃瘉
+- 鉁?鍗曞厓娴嬭瘯 24/24 閫氳繃
+- 鉁?绔埌绔獙璇?24/24 閫氳繃
+- 鉁?鐜版湁 MixDesignService 娴嬭瘯 63/63 閫氳繃锛堟棤鐮村潖锛?
 
-### 行为变化（破坏性）
-- 调 C30 基准过去只影响 C30 → 现在影响**全部派生等级**（C20-C50）
-- 减水率公式用 `strengthDosage`（不含砂石微调），不再用 `finalDosage`
-- 没选减水剂材料 → 整步骤短路（掺量=0, 减水率=0）
-- 函数签名变更：`getSuperplasticizerDosageByStrength(strength, superplasticizerMaterial, tempSettings)`、`calculateSuperplasticizerDosage(strength, fineAggregateMaterial, superplasticizerMaterial, tempSettings)` 等
+### 琛屼负鍙樺寲锛堢牬鍧忔€э級
+- 璋?C30 鍩哄噯杩囧幓鍙奖鍝?C30 鈫?鐜板湪褰卞搷**鍏ㄩ儴娲剧敓绛夌骇**锛圕20-C50锛?
+- 鍑忔按鐜囧叕寮忕敤 `strengthDosage`锛堜笉鍚爞鐭冲井璋冿級锛屼笉鍐嶇敤 `finalDosage`
+- 娌￠€夊噺姘村墏鏉愭枡 鈫?鏁存楠ょ煭璺紙鎺洪噺=0, 鍑忔按鐜?0锛?
+- 鍑芥暟绛惧悕鍙樻洿锛歚getSuperplasticizerDosageByStrength(strength, superplasticizerMaterial, tempSettings)`銆乣calculateSuperplasticizerDosage(strength, fineAggregateMaterial, superplasticizerMaterial, tempSettings)` 绛?
 
-### 不破坏的部分
-- 已存在 DB 里的存量用户掺量值仍然生效（向后兼容）
-- `Material.waterReducingRatePer01Dosage` 字段已存在（默认 2.0），新规则直接用
+### 涓嶇牬鍧忕殑閮ㄥ垎
+- 宸插瓨鍦?DB 閲岀殑瀛橀噺鐢ㄦ埛鎺洪噺鍊间粛鐒剁敓鏁堬紙鍚戝悗鍏煎锛?
+- `Material.waterReducingRatePer01Dosage` 瀛楁宸插瓨鍦紙榛樿 2.0锛夛紝鏂拌鍒欑洿鎺ョ敤
 
 ### commit
-- `73f5221` feat(配合比): 减水剂掺量新规则（基准+派生）
+- `73f5221` feat(閰嶅悎姣?: 鍑忔按鍓傛幒閲忔柊瑙勫垯锛堝熀鍑?娲剧敓锛?
 
 ---
 
 
 
-### 老板二次反馈打脸（v10.7.6 第一版修复失效）
-老板反映："我装了 v10.7.6，仍然给我加入锂渣 20%。" 立刻 grep 验证主流程：
+### 鑰佹澘浜屾鍙嶉鎵撹劯锛坴10.7.6 绗竴鐗堜慨澶嶅け鏁堬級
+鑰佹澘鍙嶆槧锛?鎴戣浜?v10.7.6锛屼粛鐒剁粰鎴戝姞鍏ラ攤娓?20%銆? 绔嬪埢 grep 楠岃瘉涓绘祦绋嬶細
 
-- `_firstLayerFilter` 在 [MixDesignOptimizer.js:750](src/main/services/MixDesignOptimizer.js#L750) **没人调用**——孤儿函数
-- 真正的 task 生成在 [_stage2Filter @ 677-698](src/main/services/MixDesignOptimizer.js#L677-L698) — **同样的 bug 没修！**
-- 主流程：`optimizeMixDesign` → `_stage2Filter` → `_stage3Refine` → ...
+- `_firstLayerFilter` 鍦?[MixDesignOptimizer.js:750](src/main/services/MixDesignOptimizer.js#L750) **娌′汉璋冪敤**鈥斺€斿鍎垮嚱鏁?
+- 鐪熸鐨?task 鐢熸垚鍦?[_stage2Filter @ 677-698](src/main/services/MixDesignOptimizer.js#L677-L698) 鈥?**鍚屾牱鐨?bug 娌′慨锛?*
+- 涓绘祦绋嬶細`optimizeMixDesign` 鈫?`_stage2Filter` 鈫?`_stage3Refine` 鈫?...
 
-### v10.7.6 第二版修复
-- [_stage2Filter @ 685 后](src/main/services/MixDesignOptimizer.js#L685-L691) 加同样的过滤：
+### v10.7.6 绗簩鐗堜慨澶?
+- [_stage2Filter @ 685 鍚嶿(src/main/services/MixDesignOptimizer.js#L685-L691) 鍔犲悓鏍风殑杩囨护锛?
   ```js
   if ((flyAsh > 0 && !flyAshMat) ||
       (slag > 0 && !slagMat) ||
       (lithiumSlag > 0 && !lithiumSlagMat) ||
       (compositePowder > 0 && !compositePowderMat)) continue
   ```
-- 同步给 [_firstLayerFilter](src/main/services/MixDesignOptimizer.js#L813-L820) 加同样过滤（孤儿函数也修，避免未来调用者踩同样的雷）
-- 测试 [MixDesignOptimizer_EmptyAdmixture.test.js](src/main/__tests__/services/MixDesignOptimizer_EmptyAdmixture.test.js) 新增 _stage2Filter 用例（覆盖主流程入口），原有 2 个用例仍有效
-- **services + skills 全套 270/270 全绿**
-- 老板之前看到的 workspace/LearningService 失败是**预存的，与本修复无关**（已通过 git stash 在 master 上复现确认）
+- 鍚屾缁?[_firstLayerFilter](src/main/services/MixDesignOptimizer.js#L813-L820) 鍔犲悓鏍疯繃婊わ紙瀛ゅ効鍑芥暟涔熶慨锛岄伩鍏嶆湭鏉ヨ皟鐢ㄨ€呰俯鍚屾牱鐨勯浄锛?
+- 娴嬭瘯 [MixDesignOptimizer_EmptyAdmixture.test.js](src/main/__tests__/services/MixDesignOptimizer_EmptyAdmixture.test.js) 鏂板 _stage2Filter 鐢ㄤ緥锛堣鐩栦富娴佺▼鍏ュ彛锛夛紝鍘熸湁 2 涓敤渚嬩粛鏈夋晥
+- **services + skills 鍏ㄥ 270/270 鍏ㄧ豢**
+- 鑰佹澘涔嬪墠鐪嬪埌鐨?workspace/LearningService 澶辫触鏄?*棰勫瓨鐨勶紝涓庢湰淇鏃犲叧**锛堝凡閫氳繃 git stash 鍦?master 涓婂鐜扮‘璁わ級
 
-### 这次的反思
-- **测试要在主流程入口写，而不是在孤儿函数上**：_firstLayerFilter 没被调用，写 100 个测试也救不了 v10.7.6 第一版老板看到的现场
-- **patch 之前先 grep 验证函数是否被调用**——一句话就能避免这种"patch 在错地方"的事故
+### 杩欐鐨勫弽鎬?
+- **娴嬭瘯瑕佸湪涓绘祦绋嬪叆鍙ｅ啓锛岃€屼笉鏄湪瀛ゅ効鍑芥暟涓?*锛歘firstLayerFilter 娌¤璋冪敤锛屽啓 100 涓祴璇曚篃鏁戜笉浜?v10.7.6 绗竴鐗堣€佹澘鐪嬪埌鐨勭幇鍦?
+- **patch 涔嬪墠鍏?grep 楠岃瘉鍑芥暟鏄惁琚皟鐢?*鈥斺€斾竴鍙ヨ瘽灏辫兘閬垮厤杩欑"patch 鍦ㄩ敊鍦版柟"鐨勪簨鏁?
 
-### 打包
-- `dist-10.7.6/砼智 Setup 10.7.6.exe` — NSIS 安装版
-- `dist-10.7.6/砼智-10.7.6-portable-x64.exe` — 便携版
-- 打包耗时：vite 13.40s + electron-builder ~5min，全程 exit 0
-
----
-
-## v10.7.6 修复版本 (2026-07-07) - 空掺合料"幽灵用量" bug（老板实测反馈）+ JGJ55 减水剂上限扩大
-
-### 打包
-- `dist-10.7.6/砼智 Setup 10.7.6.exe` — NSIS 安装版（145.9 MB）
-- `dist-10.7.6/砼智-10.7.6-portable-x64.exe` — 便携版（145.5 MB）
-- 打包耗时：vite 11.81s + electron-builder ~5min，全过程 exit 0
-- commit 信息：`chore: 升版 v10.7.6（JGJ55 减水剂上限扩大 + 空掺合料幽灵用量 bug 修复）`
+### 鎵撳寘
+- `dist-10.7.6/鐮兼櫤 Setup 10.7.6.exe` 鈥?NSIS 瀹夎鐗?
+- `dist-10.7.6/鐮兼櫤-10.7.6-portable-x64.exe` 鈥?渚挎惡鐗?
+- 鎵撳寘鑰楁椂锛歷ite 13.40s + electron-builder ~5min锛屽叏绋?exit 0
 
 ---
 
-## v10.7.6 修复版本 (2026-07-07) - 空掺合料"幽灵用量" bug（老板实测反馈）
+## v10.7.6 淇鐗堟湰 (2026-07-07) - 绌烘幒鍚堟枡"骞界伒鐢ㄩ噺" bug锛堣€佹澘瀹炴祴鍙嶉锛? JGJ55 鍑忔按鍓備笂闄愭墿澶?
 
-### 背景
-老板调 `optimize_mix_cost`，**没传 `lithiumSlagIds`**（甚至显式传 `[]`），但 `bestSolution.materials.lithiumSlag` 仍产出 50.14 kg 锂渣。AI 在对话里**诚实**地说"我没传"，**老板最初怀疑 AI 撒谎**。
+### 鎵撳寘
+- `dist-10.7.6/鐮兼櫤 Setup 10.7.6.exe` 鈥?NSIS 瀹夎鐗堬紙145.9 MB锛?
+- `dist-10.7.6/鐮兼櫤-10.7.6-portable-x64.exe` 鈥?渚挎惡鐗堬紙145.5 MB锛?
+- 鎵撳寘鑰楁椂锛歷ite 11.81s + electron-builder ~5min锛屽叏杩囩▼ exit 0
+- commit 淇℃伅锛歚chore: 鍗囩増 v10.7.6锛圝GJ55 鍑忔按鍓備笂闄愭墿澶?+ 绌烘幒鍚堟枡骞界伒鐢ㄩ噺 bug 淇锛塦
 
-### 真假验证（用老板真实 DB 反查 tool_calls）
-去 `C:/Users/sunys/AppData/Roaming/concrete-mixdesign/concrete-mixdesign.db` 的 `chat_history.toolCalls` JSON 列反查 `session-1783427576610-n01o`：
+---
 
-| AI 实际传的 `lithiumSlagIds` | 结果 lithiumSlag (kg) |
+## v10.7.6 淇鐗堟湰 (2026-07-07) - 绌烘幒鍚堟枡"骞界伒鐢ㄩ噺" bug锛堣€佹澘瀹炴祴鍙嶉锛?
+
+### 鑳屾櫙
+鑰佹澘璋?`optimize_mix_cost`锛?*娌′紶 `lithiumSlagIds`**锛堢敋鑷虫樉寮忎紶 `[]`锛夛紝浣?`bestSolution.materials.lithiumSlag` 浠嶄骇鍑?50.14 kg 閿傛福銆侫I 鍦ㄥ璇濋噷**璇氬疄**鍦拌"鎴戞病浼?锛?*鑰佹澘鏈€鍒濇€€鐤?AI 鎾掕皫**銆?
+
+### 鐪熷亣楠岃瘉锛堢敤鑰佹澘鐪熷疄 DB 鍙嶆煡 tool_calls锛?
+鍘?`C:/Users/sunys/AppData/Roaming/concrete-mixdesign/concrete-mixdesign.db` 鐨?`chat_history.toolCalls` JSON 鍒楀弽鏌?`session-1783427576610-n01o`锛?
+
+| AI 瀹為檯浼犵殑 `lithiumSlagIds` | 缁撴灉 lithiumSlag (kg) |
 |------------------------------|----------------------|
-| `[84]` | 50.14（理应） |
-| **无字段** | **50.14** ⚠️ |
-| **`[]`**（显式空数组） | **50.14** ⚠️⚠️ |
+| `[84]` | 50.14锛堢悊搴旓級 |
+| **鏃犲瓧娈?* | **50.14** 鈿狅笍 |
+| **`[]`**锛堟樉寮忕┖鏁扮粍锛?| **50.14** 鈿狅笍鈿狅笍 |
 
-**AI 没撒谎**，是 skill/optimizer 的代码 bug。
+**AI 娌℃拻璋?*锛屾槸 skill/optimizer 鐨勪唬鐮?bug銆?
 
-### 根因（双层漏洞叠加）
-1. **[src/main/services/MixDesignOptimizer.js:807-815](src/main/services/MixDesignOptimizer.js#L807-L815)** 任务生成循环 `_firstLayerFilter`：
-   - `_getMaterialList([])` 返回 `[null]`（设计上 material 空时标 null）
-   - 但内层掺量循环 `for (const lithiumSlag of _lr)` 仍然枚举 [0, 5, 10, 15, 20]
-   - **`(mat===null && dosage>0)` 的组合照样被 push 进 tasks**
+### 鏍瑰洜锛堝弻灞傛紡娲炲彔鍔狅級
+1. **[src/main/services/MixDesignOptimizer.js:807-815](src/main/services/MixDesignOptimizer.js#L807-L815)** 浠诲姟鐢熸垚寰幆 `_firstLayerFilter`锛?
+   - `_getMaterialList([])` 杩斿洖 `[null]`锛堣璁′笂 material 绌烘椂鏍?null锛?
+   - 浣嗗唴灞傛幒閲忓惊鐜?`for (const lithiumSlag of _lr)` 浠嶇劧鏋氫妇 [0, 5, 10, 15, 20]
+   - **`(mat===null && dosage>0)` 鐨勭粍鍚堢収鏍疯 push 杩?tasks**
 
-2. **[src/main/services/MixDesignService/MixDesignService_Database.js:391](src/main/services/MixDesignService/MixDesignService_Database.js#L391)** 用量计算：
+2. **[src/main/services/MixDesignService/MixDesignService_Database.js:391](src/main/services/MixDesignService/MixDesignService_Database.js#L391)** 鐢ㄩ噺璁＄畻锛?
    ```js
    lithiumSlag: cementitiousAmount * lithiumSlagPercentage,
    ```
-   只用掺量百分比，**完全不校验 `materials.lithiumSlag` 是否为有效对象**——所以 null 材料 + 5% 掺量，照样算出非 0 kg。
+   鍙敤鎺洪噺鐧惧垎姣旓紝**瀹屽叏涓嶆牎楠?`materials.lithiumSlag` 鏄惁涓烘湁鏁堝璞?*鈥斺€旀墍浠?null 鏉愭枡 + 5% 鎺洪噺锛岀収鏍风畻鍑洪潪 0 kg銆?
 
-### 修复（最小改动）
-在 [src/main/services/MixDesignOptimizer.js:813-820](src/main/services/MixDesignOptimizer.js#L813-L820) 加一行过滤：
+### 淇锛堟渶灏忔敼鍔級
+鍦?[src/main/services/MixDesignOptimizer.js:813-820](src/main/services/MixDesignOptimizer.js#L813-L820) 鍔犱竴琛岃繃婊わ細
 
 ```js
-// 修复（v10.7.6）：掺合料材料为 null 但掺量 > 0 时跳过该任务
+// 淇锛坴10.7.6锛夛細鎺哄悎鏂欐潗鏂欎负 null 浣嗘幒閲?> 0 鏃惰烦杩囪浠诲姟
 if ((flyAsh > 0 && !flyAshMat) ||
     (slag > 0 && !slagMat) ||
     (lithiumSlag > 0 && !lithiumSlagMat) ||
     (compositePowder > 0 && !compositePowderMat)) continue
 ```
 
-**为什么修在 task 生成层而非 calculator 层**：
-- 一处修复覆盖 4 类掺合料
-- 跳过的是 task 而不是污染结果——不浪费下游计算
-- 数据库侧不需动（其业务逻辑"只按掺量算用量"是合理的，null 检查应该发生在 optimizer 边界）
+**涓轰粈涔堜慨鍦?task 鐢熸垚灞傝€岄潪 calculator 灞?*锛?
+- 涓€澶勪慨澶嶈鐩?4 绫绘幒鍚堟枡
+- 璺宠繃鐨勬槸 task 鑰屼笉鏄薄鏌撶粨鏋溾€斺€斾笉娴垂涓嬫父璁＄畻
+- 鏁版嵁搴撲晶涓嶉渶鍔紙鍏朵笟鍔￠€昏緫"鍙寜鎺洪噺绠楃敤閲?鏄悎鐞嗙殑锛宯ull 妫€鏌ュ簲璇ュ彂鐢熷湪 optimizer 杈圭晫锛?
 
-### 验证
-- **新增 [src/main/__tests__/services/MixDesignOptimizer_EmptyAdmixture.test.js](src/main/__tests__/services/MixDesignOptimizer_EmptyAdmixture.test.js)**：
-  - 测试 1：未传 lithiumSlag 时，bestSolution 不应含 lithiumSlag > 0 — 修复前**红灯**（40.37kg 污染），修复后**绿灯**
-  - 测试 2：未传 flyAsh/slag 时同理 — 覆盖同一修复路径
-- **回归**：services + skills 全套 **269/269 全绿**，43 个 test suite，2 snapshots
+### 楠岃瘉
+- **鏂板 [src/main/__tests__/services/MixDesignOptimizer_EmptyAdmixture.test.js](src/main/__tests__/services/MixDesignOptimizer_EmptyAdmixture.test.js)**锛?
+  - 娴嬭瘯 1锛氭湭浼?lithiumSlag 鏃讹紝bestSolution 涓嶅簲鍚?lithiumSlag > 0 鈥?淇鍓?*绾㈢伅**锛?0.37kg 姹℃煋锛夛紝淇鍚?*缁跨伅**
+  - 娴嬭瘯 2锛氭湭浼?flyAsh/slag 鏃跺悓鐞?鈥?瑕嗙洊鍚屼竴淇璺緞
+- **鍥炲綊**锛歴ervices + skills 鍏ㄥ **269/269 鍏ㄧ豢**锛?3 涓?test suite锛? snapshots
 
-### 老板的反思教训（已加入我的不再犯计划）
-1. 后续再遇到"AI 说 vs 代码做"冲突时，**先去 DB 反查 `chat_history.toolCalls`** —— AI 的"我没做"自陈**永远不能当事实依据**
-2. task generation 层是**最容易漏校验的"边界"**——所有从用户输入/DB 查询映射到内部数据结构的地方，都要问"什么是空？"而不是假设有值
+### 鑰佹澘鐨勫弽鎬濇暀璁紙宸插姞鍏ユ垜鐨勪笉鍐嶇姱璁″垝锛?
+1. 鍚庣画鍐嶉亣鍒?AI 璇?vs 浠ｇ爜鍋?鍐茬獊鏃讹紝**鍏堝幓 DB 鍙嶆煡 `chat_history.toolCalls`** 鈥斺€?AI 鐨?鎴戞病鍋?鑷檲**姘歌繙涓嶈兘褰撲簨瀹炰緷鎹?*
+2. task generation 灞傛槸**鏈€瀹规槗婕忔牎楠岀殑"杈圭晫"**鈥斺€旀墍鏈変粠鐢ㄦ埛杈撳叆/DB 鏌ヨ鏄犲皠鍒板唴閮ㄦ暟鎹粨鏋勭殑鍦版柟锛岄兘瑕侀棶"浠€涔堟槸绌猴紵"鑰屼笉鏄亣璁炬湁鍊?
 
 ---
 
-## v10.7.5 调整版本 (2026-07-07) - JGJ55 减水剂掺量上限扩大 2.5% → 5.0%
+## v10.7.5 璋冩暣鐗堟湰 (2026-07-07) - JGJ55 鍑忔按鍓傛幒閲忎笂闄愭墿澶?2.5% 鈫?5.0%
 
-### 背景
-老板反馈：系统设置中 JGJ55 标准限制了各等级混凝土减水剂推荐掺量的上下限（1.0-2.5%），范围过小，无法满足高减水率场景。
+### 鑳屾櫙
+鑰佹澘鍙嶉锛氱郴缁熻缃腑 JGJ55 鏍囧噯闄愬埗浜嗗悇绛夌骇娣峰嚌鍦熷噺姘村墏鎺ㄨ崘鎺洪噺鐨勪笂涓嬮檺锛?.0-2.5%锛夛紝鑼冨洿杩囧皬锛屾棤娉曟弧瓒抽珮鍑忔按鐜囧満鏅€?
 
-### 变更内容
-**仅扩大上限，不动下限和默认值**（不破坏存量数据）：
+### 鍙樻洿鍐呭
+**浠呮墿澶т笂闄愶紝涓嶅姩涓嬮檺鍜岄粯璁ゅ€?*锛堜笉鐮村潖瀛橀噺鏁版嵁锛夛細
 
-| 文件 | 项 | 变更 |
+| 鏂囦欢 | 椤?| 鍙樻洿 |
 |------|-----|------|
-| `src/renderer/config/paramConfig.js` | `superplasticizerDosage_C20` ~ `C50`（7 项） | `max: 2.5` → `max: 5.0` |
-| `src/main/skills/jgj55-params.js` | `JGJ55_SCHEMA.superplasticizerDosage_C20` ~ `C50`（7 项） | `max: 2.5` → `max: 5.0` |
+| `src/renderer/config/paramConfig.js` | `superplasticizerDosage_C20` ~ `C50`锛? 椤癸級 | `max: 2.5` 鈫?`max: 5.0` |
+| `src/main/skills/jgj55-params.js` | `JGJ55_SCHEMA.superplasticizerDosage_C20` ~ `C50`锛? 椤癸級 | `max: 2.5` 鈫?`max: 5.0` |
 
-### 为什么改两个文件
-- `paramConfig.js` 是 ESM，前端渲染设置页面用
-- `jgj55-params.js` 是 CommonJS 内联副本，agent skill 校验参数范围用
-- 两份独立维护，必须同步改：否则前端能拖到 5%，AI 校验那边会被 OUT_OF_RANGE 打回
+### 涓轰粈涔堟敼涓や釜鏂囦欢
+- `paramConfig.js` 鏄?ESM锛屽墠绔覆鏌撹缃〉闈㈢敤
+- `jgj55-params.js` 鏄?CommonJS 鍐呰仈鍓湰锛宎gent skill 鏍￠獙鍙傛暟鑼冨洿鐢?
+- 涓や唤鐙珛缁存姢锛屽繀椤诲悓姝ユ敼锛氬惁鍒欏墠绔兘鎷栧埌 5%锛孉I 鏍￠獙閭ｈ竟浼氳 OUT_OF_RANGE 鎵撳洖
 
-### 不动的部分
-- 默认值 1.6-2.2% 保持不变
-- `waterReducingRatePer01Dosage` 范围 0.5-2.5% 不动（独立参数，与掺量上限无直接联动）
-- 已存储在 DB 里的存量用户值不被覆盖（`setParam` 只在用户主动拖动时写）
+### 涓嶅姩鐨勯儴鍒?
+- 榛樿鍊?1.6-2.2% 淇濇寔涓嶅彉
+- `waterReducingRatePer01Dosage` 鑼冨洿 0.5-2.5% 涓嶅姩锛堢嫭绔嬪弬鏁帮紝涓庢幒閲忎笂闄愭棤鐩存帴鑱斿姩锛?
+- 宸插瓨鍌ㄥ湪 DB 閲岀殑瀛橀噺鐢ㄦ埛鍊间笉琚鐩栵紙`setParam` 鍙湪鐢ㄦ埛涓诲姩鎷栧姩鏃跺啓锛?
 
-### 验证
-- 两个文件中所有 7 项（C20-C50）均 `min: 1.0, max: 5.0, step: 0.1` ✓
-- `waterReducingRatePer01Dosage` 仍是 `max: 2.5`（未被误改）✓
-- `jgj55-params.test.js` 仅按参数名查 schema，不依赖具体范围值，无需更新
+### 楠岃瘉
+- 涓や釜鏂囦欢涓墍鏈?7 椤癸紙C20-C50锛夊潎 `min: 1.0, max: 5.0, step: 0.1` 鉁?
+- `waterReducingRatePer01Dosage` 浠嶆槸 `max: 2.5`锛堟湭琚鏀癸級鉁?
+- `jgj55-params.test.js` 浠呮寜鍙傛暟鍚嶆煡 schema锛屼笉渚濊禆鍏蜂綋鑼冨洿鍊硷紝鏃犻渶鏇存柊
 
-### 历史归档
-本文件因超过 1000 行（已达 7445 行），按 CLAUDE.md 第 5 条规则归档旧日志为 `version_log_20260707.md`。
+### 鍘嗗彶褰掓。
+鏈枃浠跺洜瓒呰繃 1000 琛岋紙宸茶揪 7445 琛岋級锛屾寜 CLAUDE.md 绗?5 鏉¤鍒欏綊妗ｆ棫鏃ュ織涓?`version_log_20260707.md`銆?
 
 ---
+
