@@ -115,8 +115,16 @@ const baseFinenessModulus = parseFloat(tempSettings?.targetFinenessModulusBase) 
 - 减水率公式仍用 `strengthDosage`（不受 fmAdjustment 影响，v10.7.7 已设计）
 - 用户显式覆盖 `targetFinenessModulusBase` 仍生效（场景 H 验证）
 
-### commit（待打）
-- `fix(aggregate): fmAdjustment 基准用 tempSettings.targetFinenessModulusBase（不叠加 strengthDosage 梯度）`
+### commit
+- `511bd1d` fix(aggregate): fmAdjustment 基准用 targetFinenessModulusBase（不叠加 strengthDosage 梯度）
+
+### 打包结果（2026-07-08）
+- 打包时间：vite 10.86s + electron-builder ~3min，全过程 exit 0
+- 输出目录：`dist-10.7.9/`
+- 产物：
+  - `dist-10.7.9/砼智 Setup 10.7.9.exe` — NSIS 安装版（**145.9 MB**）
+  - `dist-10.7.9/砼智-10.7.9-portable-x64.exe` — Portable 免安装版（**145.5 MB**）
+  - `dist-10.7.9/win-unpacked/` — 免安装解压目录
 
 ---
 
