@@ -131,6 +131,7 @@ module.exports = {
           fileName: file.name,
           name: nameMatch ? nameMatch[1] : file.name.replace('.js', ''),
           description: descMatch ? descMatch[1] : '无描述',
+          triggerMode: 'function',
           filePath
         })
       } catch (error) {
@@ -171,12 +172,36 @@ module.exports = {
           description: meta.description || '无描述',
           filePath: path.join(userDir, dir.name),
           category: 'blueprint',
+          triggerMode: 'function',
           stepCount,
           tableCount,
           llmGenerated
         })
       } catch (error) {
         logger.warn(`解析蓝图技能失败: ${dir.name}`, error)
+      }
+    }
+
+    // ---- .md 技能（需要 gray-matter 解析 frontmatter） ----
+    const mdFiles = entries.filter(e => e.isFile() && e.name.endsWith('.md'))
+    for (const file of mdFiles) {
+      try {
+        const filePath = path.join(userDir, file.name)
+        const content = fs.readFileSync(filePath, 'utf8')
+        const { data } = require('gray-matter')(content)
+        const nameMatch = content.match(/name:\s*['"]([^'"]+)['"]/)
+        const descMatch = content.match(/description:\s*['"]([^'"]+)['"]/)
+        const tm = data.trigger_mode || 'function'
+
+        skills.push({
+          fileName: file.name,
+          name: nameMatch ? nameMatch[1] : file.name.replace('.md', ''),
+          description: descMatch ? descMatch[1] : '无描述',
+          triggerMode: tm,
+          filePath
+        })
+      } catch (error) {
+        logger.warn(`解析 MD skill 失败: ${file.name}`, error)
       }
     }
 
@@ -320,6 +345,7 @@ module.exports = {
           data: {
             skillName,
             category: 'blueprint',
+            triggerMode: 'function',
             directory: blueprintDir,
             meta,
             stepCount,
@@ -327,6 +353,28 @@ module.exports = {
             referencedTables: [...new Set(referencedTables)],
             tableFiles,
             llmGenerated: meta.generated_by === 'llm'
+          }
+        }
+      } catch (error) {
+        return { success: false, error: { code: 'READ_FAILED', message: error.message } }
+      }
+    }
+
+    // ---- .md 技能 ----
+    const mdPath = path.join(userDir, `${skillName}.md`)
+    if (fs.existsSync(mdPath)) {
+      try {
+        const content = fs.readFileSync(mdPath, 'utf-8')
+        const { data } = require('gray-matter')(content)
+        return {
+          success: true,
+          data: {
+            skillName,
+            category: 'markdown',
+            filePath: mdPath,
+            triggerMode: data.trigger_mode || 'function',
+            content,
+            files: { [`${skillName}.md`]: content }
           }
         }
       } catch (error) {
@@ -346,6 +394,7 @@ module.exports = {
         data: {
           skillName,
           filePath: jsFilePath,
+          triggerMode: 'function',
           content
         }
       }
