@@ -7,6 +7,7 @@ import ToolCallBubble from './ToolCallBubble'
 import ToolMessageBubble from './ToolMessageBubble'
 import SystemErrorBubble from './SystemErrorBubble'
 import StreamingAgentCard from './StreamingAgentCard'
+import TodoPanel from './TodoPanel'
 import FileMessageCard from './FileMessageCard'
 import MixDesignResultCard from './MixDesignResultCard'
 import OptimizationResultCard from './OptimizationResultCard'
@@ -1689,6 +1690,11 @@ const SmartDesignChat = () => {
                           agentReplyText={item._streaming ? state.agent.replyText : ''}
                           isPaused={item._streaming ? state.agent.status === 'paused' : false}
                         />
+                      )}
+                      {/* LLM 计划实时面板（2026-07-08）：仅对当前 streaming 消息挂载，
+                          历史消息的 todo 在会话结束已被清理，无需回放 */}
+                      {item._streaming && state.session.currentId && (
+                        <TodoPanel sessionId={state.session.currentId} />
                       )}
                       <MessageContent
                         item={item}

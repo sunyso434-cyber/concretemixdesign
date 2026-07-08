@@ -1,55 +1,87 @@
-## v10.7.8 修复版本 (2026-07-08) - JGJ55 skill 清空单点掺量走派生（v10.7.7 半截同步兜底）
+## v10.8.0 功能版本 (2026-07-08) - Todo 计划实时面板：用户能"看见" LLM 在想什么
 
 ### 背景
-v10.7.7 改 schema/DEFAULTS 让单点掺量"不填走派生"，**但写入路径没改**——老板 DB 里有历史单点覆盖值（`superplasticizerDosage_C40 = 2.9`，锂渣专用外加剂时代遗留），AI 想清空走派生时三个错误路径全死（详见下方"故障链"）。
+老板反馈："项目中的 todo 技能用户完全看不到 LLM 计划了什么，只看到 todo 在跑，用户看不见计划的进度，也看不到具体什么计划。"
 
-### 故障链（chat_history ID 1673~1681 反查）
-1. ❌ `update_jgj55_param(value=null)` → `PARAM_MISSING`（value 必填）
-2. ❌ `batch_update_jgj55_params(params=...)` → `PARAM_MISSING`（参数名错了，是 `updates` 不是 `params`）
-3. ❌ `batch_update_jgj55_params(updates=[{value:""}])` → `OUT_OF_RANGE`（空串 coerce 成 0，违反 min=1）
-- 3 次失败，AI 没退路，会话停了，bug 留在 DB 里至今
+后端 `todo_manage` Skill（v9.1.0）实现完整（6 种 action + 内存存储 + 会话隔离），但**前端零组件**。LLM 调 `todo_manage` 时，结果只回到 LLM 自己，前端用户只能从 LLM 流式文本里猜，体验差。
 
-### 根因
-JGJ55 skill 的"读"语义改了（schema 描述"不填=派生"），**"写"路径没动**——`validateValue` 不接受 null/空串，`update_jgj55_param` 的 `value` 仍 `required: true`。
+### 方案
+最小改动 6 个文件（0 兼容代码）：
+- **后端推送**：`todo-manage.js` 在 5 个写操作（create/add/update/complete/clear）完成后，通过 `context.webContents.send('todo:updated', { sessionId, todos, total, completed })` 推事件。`list` 只读不推。
+- **IPC 兜底**：[`src/main/ipcHandlers/agentHandler.js`](src/main/ipcHandlers/agentHandler.js) 新增 `ipcMain.handle('todo:list', ...)`，复用 skill 的 list action。
+- **preload 暴露**：[`src/main/preload.js`](src/main/preload.js) 新增 `electronAPI.todo.{list, onUpdate, removeUpdateListener}`。
+- **TodoPanel 组件**：[`src/renderer/components/TodoPanel.jsx`](src/renderer/components/TodoPanel.jsx) 新建：进度条 + 列表（完成打勾、进行中蓝高亮、待办灰着）+ 优先级 Tag（高/中/低）。
+- **集成聊天页**：[`src/renderer/components/SmartDesignChat.jsx`](src/renderer/components/SmartDesignChat.jsx) 在 `StreamingAgentCard` 上方挂 `<TodoPanel sessionId={state.session.currentId} />`，仅对正在 streaming 的消息挂载。
 
-### 改动（最小）
-1. **`validateValue`**（`src/main/skills/jgj55-params.js` 60-71 行）：加 null/空串/未定义分支 → 返回 `{ ok: true, value: null }`（语义：清空）
-2. **`update_jgj55_param`**：去掉 `required: ['name','value']`，改为 `required: ['name']`；value 允许 null；execute 中 value===null 走 `deleteParam` 而非 `setParam`（避免 `String(null)="null"` 写进 DB）
-3. **新增 `clear_jgj55_param(name)` skill**：专门清单个参数走默认/派生
-4. **`batch_update_jgj55_params`**：复用新 validateValue，value===null 走 deleteParam
-5. **配套测试**（`src/main/__tests__/skills/jgj55-params.test.js`）：8 个新 case 覆盖所有清空路径
+### 端到端数据流
+```
+LLM 调 todo_manage
+  → todo-manage.execute() 修改 _sessionTodos
+  → _notifyTodoUpdate(context, sessionId, todos) 推 todo:updated
+  → preload 的 todo.onUpdate 回调
+  → TodoPanel setTodos → 重渲染
+  → 用户看到面板（进度条 + 列表 + 状态可视化）
+```
 
-### 验证
-- ✅ `jgj55-params.test.js` 18/18 全绿（10 个原有 + 8 个新）
-- ✅ `verify-superplasticizer-rule-v2.js` 端到端 24/24 通过
-- ✅ git stash 验证：18 个 pre-existing 失败（workspace/LearningService/WikiEngine/snapshot）和本修复无关
+兜底（页面刷新 / 重新挂载）：
+```
+TodoPanel mount → todo.list(sessionId) → IPC todo:list → 复用 skill list action 返回清单
+```
 
-### 现场清理（老板手动）
-新装的 v10.7.8 后，老板可以选一种方式清掉历史脏数据 `superplasticizerDosage_C40 = 2.9`：
-1. **app 内**："系统设置 → JGJ55 参数 → 减水剂掺量 — C40" 清空它
-2. **调新 skill**：AI 助理调 `clear_jgj55_param({name: "superplasticizerDosage_C40"})`
-3. **DB 直清**：`DELETE FROM systemParams WHERE paramName='superplasticizerDosage_C40';`
+### 关键设计
+- **空态不渲染**：`todos.length === 0` 时返回 `null`（不显示空面板）
+- **sessionId 过滤**：前端收到事件后按 `payload.sessionId === props.sessionId` 过滤，忽略其他 session 的事件
+- **静默容错**：后端 `webContents` 不存在/已销毁/`send` 抛错 — 全部 catch 吞掉，不影响 skill 主流程
+- **折叠态**：标题栏始终可见，列表可点折叠，折叠后只剩 `📋 LLM 计划 (2/5) + 进度条`
+- **priority 中文标签**：high/medium/low 渲染为 高/中/低，颜色 red/orange/default
 
-清掉后 C40 派生 = 2.0 + (40-30)/5×0.1 = **2.2%**（不再 2.79%）
+### 改动文件
+| 文件 | 改动 |
+|---|---|
+| [`src/main/skills/todo-manage.js`](src/main/skills/todo-manage.js) | 加 `_notifyTodoUpdate` 工具函数 + 5 处写操作插入推送调用 |
+| [`src/main/ipcHandlers/agentHandler.js`](src/main/ipcHandlers/agentHandler.js) | 新增 IPC `todo:list`（兜底查询） |
+| [`src/main/preload.js`](src/main/preload.js) | 暴露 `todo.list` / `todo.onUpdate` / `todo.removeUpdateListener` |
+| [`src/renderer/components/TodoPanel.jsx`](src/renderer/components/TodoPanel.jsx) | 新建（约 160 行） |
+| [`src/renderer/components/SmartDesignChat.jsx`](src/renderer/components/SmartDesignChat.jsx) | import + 1 行 JSX 挂载 |
+| [`src/main/__tests__/skills/todo-manage.test.js`](src/main/__tests__/skills/todo-manage.test.js) | 新增 9 个推送事件测试 |
+| [`tests/todoPanelSubscription.test.js`](tests/todoPanelSubscription.test.js) | 新建 8 个数据流合约测试（无 jsdom 也能跑） |
 
-### 不破坏的部分
-- 原有 5 件套 skill 完全兼容（schema 描述更新、`value` 仍接受数字）
-- v10.7.7 的"单点 > 派生"优先级逻辑不变
-- 端到端 24 个 case 全部通过
+### 测试
+- ✅ `todo-manage.test.js` 42/42 全绿（33 旧 + 9 新推送测试）
+- ✅ `todoPanelSubscription.test.js` 8/8 全绿（mount 拉取 / sessionId 过滤 / unmount 注销 / payload 形状 / 多次更新 / 失败容错）
+- ✅ 相关模块回归（agentHandler / errorCodes / errorClassifier）72/73 全绿（1 个 `abortBehavior` 测试是 pre-existing 失败，与本次改动无关，git stash 验证过）
 
-### commit
-- `b74b75f` fix(jgj55-skill): 支持清空单点掺量走默认/派生（v10.7.7 半截同步兜底）
+### 边缘情况覆盖
+- LLM 没调 todo_manage → 面板不渲染
+- LLM 调 create 后立刻 complete 全部 → 进度条 100%，列表全打勾
+- LLM 调 clear → 面板消失
+- 用户切会话 → 新 sessionId 重新拉清单
+- 用户刷新页面 → mount 时 `todo.list` 拉兜底数据
+- webContents 已销毁（关闭中）→ 推送静默跳过
+- IPC 通道断 → catch 吞掉，不影响 skill 返回
+- 事件 payload.sessionId 不匹配 → 前端忽略
+- 同一 session 多次 update → 事件按顺序覆盖（最新事件赢）
 
-### 打包结果（2026-07-08）
-- 打包时间：vite 10.82s + electron-builder ~3min，全过程 exit 0
-- 输出目录：`dist-10.7.8/`
-- 产物：
-  - `dist-10.7.8/砼智 Setup 10.7.8.exe` — NSIS 安装版（**145.9 MB**）
-  - `dist-10.7.8/砼智-10.7.8-portable-x64.exe` — Portable 免安装版（**145.5 MB**）
-  - `dist-10.7.8/win-unpacked/` — 免安装解压目录
-- 平台：Windows x64（NSIS + portable）
-- Node/Electron：electron@28.3.3
-- electron-builder：24.13.3
+### 设计文档
+- spec：[`docs/superpowers/specs/2026-07-08-todo-panel-design.md`](docs/superpowers/specs/2026-07-08-todo-panel-design.md)
+- plan：[`docs/superpowers/plans/2026-07-08-todo-panel-plan.md`](docs/superpowers/plans/2026-07-08-todo-panel-plan.md)
+
+### 版本号同步（按 CLAUDE.md 规则 7）
+- ✅ `package.json` version: 10.7.9 → 10.8.0
+- ✅ `package.json` build.output: `dist-10.7.9` → `dist-10.8.0`
+- ✅ [`src/renderer/pages/WorkspacePage.jsx:152`](src/renderer/pages/WorkspacePage.jsx#L152) `topbar-version`: v10.7.9 → v10.8.0
+- ⚠️ main.js BrowserWindow 没显式 setTitle（依赖 package.json `productName` = "砼智"），无需改
+- ⚠️ `index.html` `<title>` 写死"砼智"（无版本号），无需改
+- ✅ grep 复查 10.7.9 在源码区已无匹配（仅剩测试文件里引用历史场景的注释，不应改）
+
+### 打包
+本次已 `npm run electron:build` 打包完成：
+- 输出目录：`dist-10.8.0/`
+- `dist-10.8.0/砼智 Setup 10.8.0.exe` — NSIS 安装版（**140M**，约 145.9MB → 140M，比 v10.7.9 略小）
+- `dist-10.8.0/砼智-10.8.0-portable-x64.exe` — Portable 免安装版（**139M**）
+- `dist-10.8.0/win-unpacked/` — 免安装解压目录
+
+vite 打包提示：WorkspacePage 拆出独立 chunk 后（`WorkspacePage-CNNmkUzL.js 2,322.17 kB`）仍超过 500kB 警告阈值，是 echart/sequelize/sqlite3/xlsx 等重依赖的固有体积，不影响功能。后续如需优化可走 dynamic import 拆 SettingsPage 内的子页面（待老板指示）。
 
 ---
 
@@ -125,6 +157,61 @@ const baseFinenessModulus = parseFloat(tempSettings?.targetFinenessModulusBase) 
   - `dist-10.7.9/砼智 Setup 10.7.9.exe` — NSIS 安装版（**145.9 MB**）
   - `dist-10.7.9/砼智-10.7.9-portable-x64.exe` — Portable 免安装版（**145.5 MB**）
   - `dist-10.7.9/win-unpacked/` — 免安装解压目录
+
+---
+
+## v10.7.8 修复版本 (2026-07-08) - JGJ55 skill 清空单点掺量走派生（v10.7.7 半截同步兜底）
+
+### 背景
+v10.7.7 改 schema/DEFAULTS 让单点掺量"不填走派生"，**但写入路径没改**——老板 DB 里有历史单点覆盖值（`superplasticizerDosage_C40 = 2.9`，锂渣专用外加剂时代遗留），AI 想清空走派生时三个错误路径全死（详见下方"故障链"）。
+
+### 故障链（chat_history ID 1673~1681 反查）
+1. ❌ `update_jgj55_param(value=null)` → `PARAM_MISSING`（value 必填）
+2. ❌ `batch_update_jgj55_params(params=...)` → `PARAM_MISSING`（参数名错了，是 `updates` 不是 `params`）
+3. ❌ `batch_update_jgj55_params(updates=[{value:""}])` → `OUT_OF_RANGE`（空串 coerce 成 0，违反 min=1）
+- 3 次失败，AI 没退路，会话停了，bug 留在 DB 里至今
+
+### 根因
+JGJ55 skill 的"读"语义改了（schema 描述"不填=派生"），**"写"路径没动**——`validateValue` 不接受 null/空串，`update_jgj55_param` 的 `value` 仍 `required: true`。
+
+### 改动（最小）
+1. **`validateValue`**（`src/main/skills/jgj55-params.js` 60-71 行）：加 null/空串/未定义分支 → 返回 `{ ok: true, value: null }`（语义：清空）
+2. **`update_jgj55_param`**：去掉 `required: ['name','value']`，改为 `required: ['name']`；value 允许 null；execute 中 value===null 走 `deleteParam` 而非 `setParam`（避免 `String(null)="null"` 写进 DB）
+3. **新增 `clear_jgj55_param(name)` skill**：专门清单个参数走默认/派生
+4. **`batch_update_jgj55_params`**：复用新 validateValue，value===null 走 deleteParam
+5. **配套测试**（`src/main/__tests__/skills/jgj55-params.test.js`）：8 个新 case 覆盖所有清空路径
+
+### 验证
+- ✅ `jgj55-params.test.js` 18/18 全绿（10 个原有 + 8 个新）
+- ✅ `verify-superplasticizer-rule-v2.js` 端到端 24/24 通过
+- ✅ git stash 验证：18 个 pre-existing 失败（workspace/LearningService/WikiEngine/snapshot）和本修复无关
+
+### 现场清理（老板手动）
+新装的 v10.7.8 后，老板可以选一种方式清掉历史脏数据 `superplasticizerDosage_C40 = 2.9`：
+1. **app 内**："系统设置 → JGJ55 参数 → 减水剂掺量 — C40" 清空它
+2. **调新 skill**：AI 助理调 `clear_jgj55_param({name: "superplasticizerDosage_C40"})`
+3. **DB 直清**：`DELETE FROM systemParams WHERE paramName='superplasticizerDosage_C40';`
+
+清掉后 C40 派生 = 2.0 + (40-30)/5×0.1 = **2.2%**（不再 2.79%）
+
+### 不破坏的部分
+- 原有 5 件套 skill 完全兼容（schema 描述更新、`value` 仍接受数字）
+- v10.7.7 的"单点 > 派生"优先级逻辑不变
+- 端到端 24 个 case 全部通过
+
+### commit
+- `b74b75f` fix(jgj55-skill): 支持清空单点掺量走默认/派生（v10.7.7 半截同步兜底）
+
+### 打包结果（2026-07-08）
+- 打包时间：vite 10.82s + electron-builder ~3min，全过程 exit 0
+- 输出目录：`dist-10.7.8/`
+- 产物：
+  - `dist-10.7.8/砼智 Setup 10.7.8.exe` — NSIS 安装版（**145.9 MB**）
+  - `dist-10.7.8/砼智-10.7.8-portable-x64.exe` — Portable 免安装版（**145.5 MB**）
+  - `dist-10.7.8/win-unpacked/` — 免安装解压目录
+- 平台：Windows x64（NSIS + portable）
+- Node/Electron：electron@28.3.3
+- electron-builder：24.13.3
 
 ---
 

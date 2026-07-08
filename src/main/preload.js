@@ -137,6 +137,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
     upload: (file) => ipcRenderer.invoke('vision:upload', { sourcePath: file.path, name: file.name }),
     list: () => ipcRenderer.invoke('vision:list')
   },
+  // === Todo 计划面板（2026-07-08）：实时订阅 LLM 任务清单 ===
+  // - list(sessionId)：mount 时拉取当前会话最新清单（兜底场景）
+  // - onUpdate(func)：订阅 todo:updated 事件，回调收到 { sessionId, todos, total, completed }
+  // - removeUpdateListener(id)：卸载时注销订阅
+  todo: {
+    list: (sessionId) => ipcRenderer.invoke('todo:list', { sessionId }),
+    onUpdate: (func) => {
+      const id = generateListenerId()
+      const wrapper = (event, ...args) => func(...args)
+      listenerCache.set(id, { channel: 'todo:updated', wrapper })
+      ipcRenderer.on('todo:updated', wrapper)
+      return id
+    },
+    removeUpdateListener: (id) => {
+      const entry = listenerCache.get(id)
+      if (entry) {
+        ipcRenderer.removeListener(entry.channel, entry.wrapper)
+        listenerCache.delete(id)
+      }
+    }
+  },
   // LLM 配置管理
   llm: {
     list: () => ipcRenderer.invoke('llm:list'),
@@ -198,5 +219,23 @@ contextBridge.exposeInMainWorld('electron', {
     getUserSkills: () => ipcRenderer.invoke('skill:getUserSkills'),
     openUserDir: () => ipcRenderer.invoke('skill:openUserDir'),
     reload: () => ipcRenderer.invoke('skill:reload')
+  },
+  // Todo 计划面板（兼容旧的 electron 对象访问点）
+  todo: {
+    list: (sessionId) => ipcRenderer.invoke('todo:list', { sessionId }),
+    onUpdate: (func) => {
+      const id = generateListenerId()
+      const wrapper = (event, ...args) => func(...args)
+      listenerCache.set(id, { channel: 'todo:updated', wrapper })
+      ipcRenderer.on('todo:updated', wrapper)
+      return id
+    },
+    removeUpdateListener: (id) => {
+      const entry = listenerCache.get(id)
+      if (entry) {
+        ipcRenderer.removeListener(entry.channel, entry.wrapper)
+        listenerCache.delete(id)
+      }
+    }
   }
 })

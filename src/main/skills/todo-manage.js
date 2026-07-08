@@ -55,6 +55,26 @@ function _findTodo(todos, id) {
   return todos.find(t => t.id === id)
 }
 
+/**
+ * 把当前 todo 状态推给渲染进程（todo:updated 事件）
+ * - 没有 webContents（如单元测试场景）静默跳过
+ * - webContents 已销毁（用户切页/关闭窗口）也跳过
+ * - 推送失败 catch 吞掉，不影响 skill 主流程
+ */
+function _notifyTodoUpdate(context, sessionId, todos) {
+  try {
+    const wc = context?.webContents
+    if (!wc) return
+    if (typeof wc.isDestroyed === 'function' && wc.isDestroyed()) return
+    wc.send('todo:updated', {
+      sessionId,
+      todos,
+      total: todos.length,
+      completed: todos.filter(t => t.status === 'completed').length
+    })
+  } catch (_) { /* 推送失败不影响主流程 */ }
+}
+
 const skill = {
   name: 'todo_manage',
   description: '管理任务清单。支持创建/追加/更新/完成/列出/清空任务。让 Agent 在多步骤任务中维护可见计划，状态可流转 pending → in_progress → completed。',
@@ -157,6 +177,7 @@ const skill = {
           return _newTodo(t.content, t.priority)
         })
         _sessionTodos.set(sessionId, created)
+        _notifyTodoUpdate(context, sessionId, created)
         return {
           success: true,
           action: 'create',
@@ -172,6 +193,7 @@ const skill = {
         const current = _getTodos(sessionId)
         const added = _newTodo(args.todo.content, args.todo.priority)
         current.push(added)
+        _notifyTodoUpdate(context, sessionId, current)
         return {
           success: true,
           action: 'add',
@@ -197,6 +219,7 @@ const skill = {
           target.status = args.todo.status
         }
         target.updatedAt = new Date().toISOString()
+        _notifyTodoUpdate(context, sessionId, current)
         return {
           success: true,
           action: 'update',
@@ -217,6 +240,7 @@ const skill = {
         // 幂等：已完成的任务再 complete 不报错
         target.status = 'completed'
         target.updatedAt = new Date().toISOString()
+        _notifyTodoUpdate(context, sessionId, current)
         return {
           success: true,
           action: 'complete',
@@ -237,6 +261,7 @@ const skill = {
 
       case 'clear': {
         _sessionTodos.delete(sessionId)
+        _notifyTodoUpdate(context, sessionId, [])
         return {
           success: true,
           action: 'clear',

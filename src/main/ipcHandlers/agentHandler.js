@@ -407,6 +407,24 @@ function registerAgentHandlers() {
     return { success: true }
   })
 
+  // === Todo 计划面板（2026-07-08）：前端 mount 时拉取当前会话最新清单 ===
+  // 复用 skill 的 list action，不另写查询代码
+  ipcMain.handle('todo:list', async (_event, { sessionId } = {}) => {
+    if (!sessionId) {
+      return { success: false, error: '缺少 sessionId', todos: [], total: 0, completed: 0 }
+    }
+    try {
+      const todoManage = require('../skills/todo-manage')
+      return await todoManage.execute(
+        { action: 'list' },
+        { sessionId, logger: _log }
+      )
+    } catch (e) {
+      _log(`[AgentHandler] todo:list 失败: ${e.message}`)
+      return { success: false, error: e.message, todos: [], total: 0, completed: 0 }
+    }
+  })
+
   ipcMain.handle('agent:saveMessage', async (_event, { sessionId, role, content, metadata, stopReason }) => {
     if (!sessionId) {
       return { success: false, error: 'sessionId is required' }

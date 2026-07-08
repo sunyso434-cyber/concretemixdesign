@@ -485,3 +485,151 @@ describe('todo_manage Skill - 状态流转', () => {
     expect(after.completed).toBe(2)
   })
 })
+
+// === Todo 计划面板（2026-07-08）：推送事件测试 ===
+// 验证写操作完成后会通过 context.webContents.send('todo:updated', ...) 推事件
+describe('todo_manage Skill - todo:updated 事件推送', () => {
+  // 构造带 spy 的 context.webContents
+  const _ctxWithWC = (sessionId = 'push-1') => {
+    const sendSpy = jest.fn()
+    const ctx = _ctx(sessionId)
+    ctx.webContents = { send: sendSpy, isDestroyed: () => false }
+    return { ctx, sendSpy }
+  }
+
+  test('create 触发一次推送', async () => {
+    const { ctx, sendSpy } = _ctxWithWC('push-create')
+    await todoManage.execute({
+      action: 'create',
+      todos: [{ content: '任务1', priority: 'high' }]
+    }, ctx)
+
+    expect(sendSpy).toHaveBeenCalledTimes(1)
+    expect(sendSpy).toHaveBeenCalledWith('todo:updated', expect.objectContaining({
+      sessionId: 'push-create',
+      total: 1,
+      completed: 0,
+      todos: expect.arrayContaining([expect.objectContaining({ content: '任务1' })])
+    }))
+  })
+
+  test('add 触发推送', async () => {
+    const { ctx, sendSpy } = _ctxWithWC('push-add')
+    await todoManage.execute({
+      action: 'create',
+      todos: [{ content: 'A' }]
+    }, ctx)
+    sendSpy.mockClear()
+    await todoManage.execute({
+      action: 'add',
+      todo: { content: 'B' }
+    }, ctx)
+
+    expect(sendSpy).toHaveBeenCalledTimes(1)
+    expect(sendSpy.mock.calls[0][0]).toBe('todo:updated')
+    expect(sendSpy.mock.calls[0][1].total).toBe(2)
+  })
+
+  test('update 触发推送', async () => {
+    const { ctx, sendSpy } = _ctxWithWC('push-update')
+    const created = await todoManage.execute({
+      action: 'create',
+      todos: [{ content: '原内容' }]
+    }, ctx)
+    sendSpy.mockClear()
+    await todoManage.execute({
+      action: 'update',
+      todo: { id: created.todos[0].id, content: '新内容' }
+    }, ctx)
+
+    expect(sendSpy).toHaveBeenCalledTimes(1)
+    expect(sendSpy.mock.calls[0][1].todos[0].content).toBe('新内容')
+  })
+
+  test('complete 触发推送且 completed 计数正确', async () => {
+    const { ctx, sendSpy } = _ctxWithWC('push-complete')
+    const created = await todoManage.execute({
+      action: 'create',
+      todos: [{ content: 'A' }, { content: 'B' }]
+    }, ctx)
+    sendSpy.mockClear()
+    await todoManage.execute({
+      action: 'complete',
+      id: created.todos[0].id
+    }, ctx)
+
+    expect(sendSpy).toHaveBeenCalledTimes(1)
+    expect(sendSpy.mock.calls[0][1]).toEqual(expect.objectContaining({
+      sessionId: 'push-complete',
+      total: 2,
+      completed: 1
+    }))
+  })
+
+  test('clear 触发推送且 todos 为空', async () => {
+    const { ctx, sendSpy } = _ctxWithWC('push-clear')
+    await todoManage.execute({
+      action: 'create',
+      todos: [{ content: 'A' }]
+    }, ctx)
+    sendSpy.mockClear()
+    await todoManage.execute({ action: 'clear' }, ctx)
+
+    expect(sendSpy).toHaveBeenCalledTimes(1)
+    expect(sendSpy.mock.calls[0][1]).toEqual(expect.objectContaining({
+      sessionId: 'push-clear',
+      todos: [],
+      total: 0,
+      completed: 0
+    }))
+  })
+
+  test('list 不触发推送（只读操作）', async () => {
+    const { ctx, sendSpy } = _ctxWithWC('push-list')
+    await todoManage.execute({
+      action: 'create',
+      todos: [{ content: 'A' }]
+    }, ctx)
+    sendSpy.mockClear()
+    await todoManage.execute({ action: 'list' }, ctx)
+
+    expect(sendSpy).not.toHaveBeenCalled()
+  })
+
+  test('没有 webContents 时静默跳过推送', async () => {
+    const ctx = _ctx('push-no-wc')  // 无 webContents
+    await expect(todoManage.execute({
+      action: 'create',
+      todos: [{ content: 'A' }]
+    }, ctx)).resolves.toBeTruthy()
+  })
+
+  test('webContents 已销毁时不推送', async () => {
+    const sendSpy = jest.fn()
+    const ctx = _ctx('push-destroyed')
+    ctx.webContents = { send: sendSpy, isDestroyed: () => true }
+
+    await todoManage.execute({
+      action: 'create',
+      todos: [{ content: 'A' }]
+    }, ctx)
+
+    expect(sendSpy).not.toHaveBeenCalled()
+  })
+
+  test('webContents.send 抛错时不影响主流程', async () => {
+    const ctx = _ctx('push-throw')
+    ctx.webContents = {
+      send: jest.fn(() => { throw new Error('IPC channel closed') }),
+      isDestroyed: () => false
+    }
+
+    const result = await todoManage.execute({
+      action: 'create',
+      todos: [{ content: 'A' }]
+    }, ctx)
+
+    expect(result.success).toBe(true)
+    expect(result.todos).toHaveLength(1)
+  })
+})
