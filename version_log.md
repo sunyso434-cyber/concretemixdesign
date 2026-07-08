@@ -37,8 +37,19 @@ JGJ55 skill 的"读"语义改了（schema 描述"不填=派生"），**"写"路�
 - v10.7.7 的"单点 > 派生"优先级逻辑不变
 - 端到端 24 个 case 全部通过
 
-### commit（待老板实测后打）
-- 预计：`fix(jgj55-skill): 支持 null/空串清空单点掺量走默认/派生（v10.7.7 半截同步兜底）`
+### commit
+- `b74b75f` fix(jgj55-skill): 支持清空单点掺量走默认/派生（v10.7.7 半截同步兜底）
+
+### 打包结果（2026-07-08）
+- 打包时间：vite 10.82s + electron-builder ~3min，全过程 exit 0
+- 输出目录：`dist-10.7.8/`
+- 产物：
+  - `dist-10.7.8/砼智 Setup 10.7.8.exe` — NSIS 安装版（**145.9 MB**）
+  - `dist-10.7.8/砼智-10.7.8-portable-x64.exe` — Portable 免安装版（**145.5 MB**）
+  - `dist-10.7.8/win-unpacked/` — 免安装解压目录
+- 平台：Windows x64（NSIS + portable）
+- Node/Electron：electron@28.3.3
+- electron-builder：24.13.3
 
 ---
 
