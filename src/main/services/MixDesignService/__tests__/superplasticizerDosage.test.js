@@ -185,4 +185,51 @@ describe('calculateSuperplasticizerDosage 综合（含砂石微调）', () => {
     expect(r.fmAdjustment).toBe(0)
     expect(r.finalDosage).toBe(0)
   })
+
+  // ========== v10.7.9 老板场景：fmAdjustment 不能叠加 strengthDosage 梯度 ==========
+  // 老板 2026-07-08 反馈：finalDosage 跨强度梯度变 0.4%/10（应是 0.2%/10）
+  // 根因：v10.7.7 把 baseFinenessModulus 写成 targetFinenessModulus，
+  //      导致 fmAdjustment 跟强度等级的目标细度模数叠加
+  // 修复（老板语义）：目标细度模数只用来计算砂的比例，外加剂掺量微调基准用 tempSettings.targetFinenessModulusBase（默认 2.7）
+
+  test('场景 F：CSP-8 + 西站拉法基砂（FM=2.81），各级 strengthDosage 差 0.2%/5强度', async () => {
+    const sand = { mbValue: 0.5, finenessModulus: 2.81 }
+    const strengths = ['C30', 'C40', 'C50', 'C60']
+    const dosages = []
+    for (const s of strengths) {
+      const r = await MixDesignService_Aggregate.calculateSuperplasticizerDosage(s, sand, spStd, null)
+      dosages.push(r.strengthDosage)
+    }
+    // strengthDosage 梯度 = 0.2/10强度（CSP-8 推荐 1.5% → C30 1.5, C40 1.7, C50 1.9, C60 2.1）
+    expect(dosages[0]).toBe(1.5)  // C30
+    expect(dosages[1]).toBe(1.7)  // C40 (+0.2)
+    expect(dosages[2]).toBe(1.9)  // C50 (+0.2)
+    expect(dosages[3]).toBe(2.1)  // C60 (+0.2)
+  })
+
+  test('场景 G（核心 bug 验证）：fmAdjustment 不应随强度等级变化而叠加（baseFinenessModulus 不用 targetFM）', async () => {
+    const sand = { mbValue: 0.5, finenessModulus: 2.81 }
+    const c30 = await MixDesignService_Aggregate.calculateSuperplasticizerDosage('C30', sand, spStd, null)
+    const c40 = await MixDesignService_Aggregate.calculateSuperplasticizerDosage('C40', sand, spStd, null)
+    // 修复前：C30 fmAdj=-0.11, C40 fmAdj=+0.09，差 0.20（叠加 strengthDosage 的 0.20）
+    //   → finalDosage 差 0.40%/10强度（老板看到的异常）
+    // 修复后：fmAdjustment 只跟"实际砂 FM vs 基准 FM（默认 2.7）"有关，不随强度变化
+    //   → fmAdj C30 和 C40 相同（同一种砂）
+    //   → finalDosage 差 = strengthDosage 差 = 0.20%/10强度 ✓
+    expect(c40.fmAdjustment - c30.fmAdjustment).toBeCloseTo(0, 4) // 关键断言
+    expect(c40.finalDosage - c30.finalDosage).toBeCloseTo(0.20, 4) // 0.2%/10 强度
+  })
+
+  test('场景 H：用户显式覆盖 targetFinenessModulusBase=2.8，fmAdjustment 基准相应改变', async () => {
+    const sand = { mbValue: 0.5, finenessModulus: 2.81 }
+    // 默认基准 2.7：fmAdj = (2.7 - 2.81) / 0.1 × 0.1 = -0.11
+    const rDefault = await MixDesignService_Aggregate.calculateSuperplasticizerDosage('C30', sand, spStd, null)
+    expect(rDefault.fmAdjustment).toBeCloseTo(-0.11, 4)
+
+    // 用户覆盖 base=2.8：fmAdj = (2.8 - 2.81) / 0.1 × 0.1 = -0.01
+    const rCustom = await MixDesignService_Aggregate.calculateSuperplasticizerDosage(
+      'C30', sand, spStd, { targetFinenessModulusBase: 2.8 }
+    )
+    expect(rCustom.fmAdjustment).toBeCloseTo(-0.01, 4)
+  })
 })

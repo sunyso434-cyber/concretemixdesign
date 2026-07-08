@@ -357,7 +357,11 @@ class MixDesignService_Aggregate {
         const combinedParams = this.calculateCombinedFineAggregateParams(fineAggregateMaterial, targetFinenessModulus)
 
         const baseMbValue = 0.5
-        const baseFinenessModulus = targetFinenessModulus
+        // ponytail: 老板 2026-07-08 反馈 — 目标细度模数只用来计算砂的比例（computeOptimalFineAggregateRatio）；
+        // 外加剂掺量微调应该跟"实际组合砂 vs 用户配置基准"比，不应跟强度等级的目标比
+        // 否则 fmAdjustment 跨强度档位会叠加在 strengthDosage 梯度上 → finalDosage 梯度变 0.4%/10（应是 0.2%）
+        // 跟 MixDesignService_Database.js:160 的 baseFm 保持一致语义
+        const baseFinenessModulus = parseFloat(tempSettings?.targetFinenessModulusBase) || 2.7
 
         const mbValue = combinedParams.mbValue
         const finenessModulus = combinedParams.finenessModulus

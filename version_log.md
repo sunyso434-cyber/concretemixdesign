@@ -53,6 +53,73 @@ JGJ55 skill 的"读"语义改了（schema 描述"不填=派生"），**"写"路�
 
 ---
 
+## v10.7.9 修复版本 (2026-07-08) - 减水剂掺量 fmAdjustment 不应叠加 strengthDosage 梯度
+
+### 背景
+老板反馈：v10.7.8 实测 C30/C40/C50/C60 配合比，finalDosage 梯度是 0.4%/10 强度（不是 0.2%）。
+
+老板追问："目标细度模数只用来计算砂的比例；计算砂的外加剂影响用的实际细度模数哦"
+
+### 根因
+[`src/main/services/MixDesignService/MixDesignService_Aggregate.js:360`](src/main/services/MixDesignService/MixDesignService_Aggregate.js#L360) v10.7.7 把 `baseFinenessModulus` 写成了 `targetFinenessModulus`：
+
+```js
+const baseFinenessModulus = targetFinenessModulus  // ← BUG
+```
+
+`targetFinenessModulus` 是**强度等级的目标**（C30=2.8, C40=3.0, C50=3.0, C60=3.2）。
+`fmAdjustment = (targetFM - 砂 FM) × 系数`，所以跨档（C30→C40）时 fmAdjustment 跟着台阶式变化：
+
+| 等级 | targetFM | 砂FM=2.81 | fmAdjustment |
+|:---:|:---:|:---:|:---:|
+| C30 | 2.8 | 2.81 | -0.01 |
+| C40 | 3.0 | 2.81 | +0.19 |
+| C50 | 3.0 | 2.81 | +0.19 |
+| C60 | 3.2 | 2.81 | +0.39 |
+
+跟 strengthDosage 的 0.2%/10 强度**叠加**，导致 finalDosage 梯度 = 0.4%/10 强度。
+
+### 老板语义（正确）
+- `targetFinenessModulus` → 用来计算砂的**比例**（`calculateOptimalFineAggregateRatio`）
+- 外加剂掺量的微调基准 → 应该是用户配置的 `targetFinenessModulusBase`（默认 2.7），跟 [`MixDesignService_Database.js:160-162`](src/main/services/MixDesignService/MixDesignService_Database.js#L160) 里的 `baseFm` 一致
+
+### 改动（最小 1 行 + 注释）
+[`MixDesignService_Aggregate.js:355-374`](src/main/services/MixDesignService/MixDesignService_Aggregate.js#L355)：
+
+```js
+// 修复（v10.7.9）：用 tempSettings.targetFinenessModulusBase（默认 2.7）当基准
+const baseFinenessModulus = parseFloat(tempSettings?.targetFinenessModulusBase) || 2.7
+```
+
+### 修复后行为
+
+| 等级 | strengthDosage | fmAdjustment（基准 2.7） | finalDosage | 差 |
+|:---:|:---:|:---:|:---:|:---:|
+| C30 | 2.0% | (2.7-2.81)/0.1 × 0.1 = -0.11 | 1.89 | — |
+| C40 | 2.2% | -0.11（不变） | 2.09 | +0.20 ✓ |
+| C50 | 2.4% | -0.11 | 2.29 | +0.20 ✓ |
+| C60 | 2.6% | -0.11 | 2.49 | +0.20 ✓ |
+
+**finalDosage 梯度 = 0.2%/10 强度**，跟 strengthDosage 梯度一致，符合 v10.7.7 设计意图。
+
+### 验证
+- ✅ `superplasticizerDosage.test.js` 27/27 全绿（24 旧 + 3 新）
+  - 场景 F：各级 strengthDosage 差 0.2%/5强度
+  - 场景 G：fmAdjustment 不跨强度变化（核心 bug 验证）
+  - 场景 H：用户显式覆盖 base=2.8 → fmAdjustment 相应改变
+- ✅ `MixDesignOptimizer/MixDesignService_Database_Override/MixDesignService_Aggregate_Cement` 全套 62/62 全绿
+- ✅ `verify-superplasticizer-rule-v2.js` 端到端 24/24 通过
+
+### 不破坏的部分
+- `targetFinenessModulus` 仍用于砂配比计算（`calculateOptimalFineAggregateRatio`）
+- 减水率公式仍用 `strengthDosage`（不受 fmAdjustment 影响，v10.7.7 已设计）
+- 用户显式覆盖 `targetFinenessModulusBase` 仍生效（场景 H 验证）
+
+### commit（待打）
+- `fix(aggregate): fmAdjustment 基准用 tempSettings.targetFinenessModulusBase（不叠加 strengthDosage 梯度）`
+
+---
+
 ## v10.7.7 (2026-07-08) - 减水剂掺量新规则（基准+派生） + 标题栏版本号同步
 
 ### 打包结果（2026-07-08）
