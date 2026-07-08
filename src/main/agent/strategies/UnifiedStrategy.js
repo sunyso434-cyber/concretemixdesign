@@ -26,6 +26,7 @@ const { classifyError } = require('../errorClassifier')
 const { rotateIfNeeded } = require('../../utils/logRotator')
 const MemoryTierService = require('../../services/MemoryTierService')
 const { ChatHistory } = require('../../db/database')
+const SoftSkillInjector = require('../SoftSkillInjector')
 
 // 诊断日志：写到 agent-debug.log（与 agentHandler._log 同一文件）
 const _diagLogFile = path.join(os.homedir(), '.concrete-mixdesign', 'agent-debug.log')
@@ -41,7 +42,7 @@ function _diagLog(msg) {
 const DEFAULT_TOKEN_BUDGET = 150000
 
 class UnifiedStrategy {
-  constructor({ deepseekService, skillRegistry, skillExecutor, agentMemoryService, systemService, orchestrator }) {
+  constructor({ deepseekService, skillRegistry, skillExecutor, agentMemoryService, systemService, orchestrator, softSkillInjector }) {
     this.deepseekService = deepseekService
     this.skillRegistry = skillRegistry
     this.skillExecutor = skillExecutor
@@ -50,6 +51,8 @@ class UnifiedStrategy {
     this.agentMdService = getAgentMdService()
     // v9.1.0: 保存 Orchestrator 引用，让 ask_user 等跨进程协同 skill 能通过 context 拿到 orchestrator
     this.orchestrator = orchestrator || null
+    // Task 7: soft skill injector（外部已构造，可复用）
+    this.softSkillInjector = softSkillInjector || null
     // webContents 在 execute() 时才知道，先置空
     this.webContents = null
   }
@@ -91,6 +94,11 @@ class UnifiedStrategy {
     const { sessionId, message, webContents, signal, getState, mode, attachments } = input
     this.sessionId = sessionId
     this.webContents = webContents || null
+
+    // Task 7: Soft skill 触发判断（在任何 LLM 调用前）
+    if (this.softSkillInjector) {
+      this.softSkillInjector.tryActivate(sessionId, message || '')
+    }
 
     // v9.1.0：多模态图片处理分流
     // - visionCapable=true：直接把图片作为 content 数组发给主 LLM，跳过 analyze_concrete_image
@@ -232,13 +240,19 @@ class UnifiedStrategy {
       }
     } catch (_) {}
 
+    // Task 7: 拼 soft skill 激活段
+    const softSkillSection = this.softSkillInjector
+      ? await this.softSkillInjector.buildInjectionSection(sessionId)
+      : ''
+
     const systemPrompt = buildSystemPrompt({
       memoryContext: '',
       userRulesMarkdown,
       skillNames,
       skillInfos,
       l3Summary,
-      crossSessionBlock
+      crossSessionBlock,
+      softSkillSection  // Task 7: soft skill 注入段
     })
 
     const messages = [
