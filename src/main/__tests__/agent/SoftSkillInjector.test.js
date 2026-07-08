@@ -61,6 +61,25 @@ describe('SoftSkillInjector', () => {
       expect(r.reason).toBe('deactivated')
       expect(r.skillName).toBe('brainstorm')
     })
+
+    test('forceActivate 显式激活', async () => {
+      mockRegistry.listSoftSkills.mockReturnValue([
+        { name: 'brainstorm', description: '4 阶段脑暴' }
+      ])
+      injector.forceActivate('sess1', 'brainstorm')
+      const section = await injector.buildInjectionSection('sess1')
+      expect(section).not.toBe('')
+      expect(section).toContain('brainstorm')
+    })
+
+    test('空消息不触发激活', () => {
+      mockRegistry.listSoftSkills.mockReturnValue([
+        { name: 'brainstorm', description: '创新脑暴' }
+      ])
+      const result = injector.tryActivate('sess1', '')
+      expect(result.activated).toBe(false)
+      expect(result.reason).toBe('no_match')
+    })
   })
 
   describe('buildInjectionSection', () => {
@@ -84,6 +103,24 @@ describe('SoftSkillInjector', () => {
     test('未激活返回空段', async () => {
       const section = await injector.buildInjectionSection('sess_none')
       expect(section).toBe('')
+    })
+
+    test('Layer 3 子文件加载并拼入 section', async () => {
+      mockRegistry.listSoftSkills.mockReturnValue([
+        { name: 'brainstorm', description: '脑暴 description' }
+      ])
+      mockRegistry.getSkill.mockReturnValue({
+        _mdBody: 'body [reference.md](reference.md)'
+      })
+      mockResolver.parseSubFileRefs.mockReturnValue(['reference.md'])
+      mockSubFileResolver.loadSubFile.mockResolvedValue({
+        success: true,
+        content: '# REF CONTENT HERE'
+      })
+
+      injector.tryActivate('sess1', '创新需求')
+      const section = await injector.buildInjectionSection('sess1')
+      expect(section).toContain('REF CONTENT HERE')
     })
   })
 
