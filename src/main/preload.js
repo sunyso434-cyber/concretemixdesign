@@ -185,10 +185,6 @@ contextBridge.exposeInMainWorld('electron', {
       }
     }
   },
-  inverseCalculation: {
-    importExcel: (filePath) => ipcRenderer.invoke('inverseCalculation.importExcel', { filePath }),
-    calculate: (params) => ipcRenderer.invoke('inverseCalculation.calculate', params)
-  },
   // 配合比→报价数据流（确保数据一致）
   mixDesignToQuote: {
     generate: (mixDesignResult, pricing) => ipcRenderer.invoke('mixDesignToQuote:generate', { mixDesignResult, pricing }),

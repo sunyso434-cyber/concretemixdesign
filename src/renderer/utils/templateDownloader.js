@@ -7,12 +7,6 @@ export const TEMPLATES = {
     description: '用于上传配合比数据进行分析，包含配合比数据和试验结果两个Sheet',
     sheets: ['配合比数据', '试验结果']
   },
-  inverse: {
-    key: 'inverse',
-    name: '反算参数模板',
-    description: '用于反算材料参数',
-    sheets: ['参数数据']
-  },
   import: {
     key: 'import',
     name: '数据导入模板',
@@ -25,9 +19,6 @@ export const downloadTemplate = (key) => {
   switch (key) {
     case 'analysis':
       downloadAnalysisTemplate()
-      break
-    case 'inverse':
-      downloadInverseTemplate()
       break
     case 'import':
       downloadImportTemplate()
@@ -90,16 +81,6 @@ export const downloadAnalysisTemplate = () => {
   const ws2 = XLSX.utils.json_to_sheet(testResultData)
   XLSX.utils.book_append_sheet(wb, ws2, '试验结果')
   XLSX.writeFile(wb, '配合比分析模板.xlsx')
-}
-
-export const downloadInverseTemplate = () => {
-  const templateData = [
-    { '编号': '', '强度等级': '', '水胶比': '', '水泥用量': '', '粉煤灰用量': '', '矿渣粉用量': '', 'R28强度': '' }
-  ]
-  const wb = XLSX.utils.book_new()
-  const ws = XLSX.utils.json_to_sheet(templateData)
-  XLSX.utils.book_append_sheet(wb, ws, '参数数据')
-  XLSX.writeFile(wb, '反算参数模板.xlsx')
 }
 
 export const downloadImportTemplate = () => {

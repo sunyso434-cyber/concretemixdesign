@@ -1485,14 +1485,6 @@ body {
   animation: fadeIn var(--transition-normal);
 }
 
-/* ========== InverseCalculationPage ========== */
-.result-stat-card {
-  padding: 16px;
-  background: var(--color-bg);
-  border-radius: 8px;
-  text-align: center;
-}
-
 /* ========== OptimizationPage ========== */
 .optim-result-card {
   margin-top: 16px;
