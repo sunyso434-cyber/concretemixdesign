@@ -487,3 +487,8 @@ if ((flyAsh > 0 && !flyAshMat) ||
 
 ---
 
+
+### 打包记录 (v10.9.0)
+- dist-10.9.0/砼智 Setup 10.9.0.exe (140 MB, NSIS 安装包)
+- dist-10.9.0/砼智-10.9.0-portable-x64.exe (139 MB, 便携版)
+- 15 commits since v10.8.0
