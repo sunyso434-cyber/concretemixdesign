@@ -58,10 +58,16 @@ function createError(code, message, hint) {
 }
 
 // 校验 value 是否合法（name 是否在 JGJ55 列表内、value 是否数字、是否在范围内）
+// ponytail: value === null 或 value === '' 视为"清空"语义（让该参数走默认/派生），
+// 返回 { ok: true, value: null } — 调用方据此决定走 deleteParam 而非 setParam
 function validateValue(name, value) {
   const config = JGJ55_SCHEMA[name]
   if (!config) return { ok: false, error: createError('INVALID_NAME', `参数 ${name} 不在 JGJ55 列表内`) }
   if (config.type !== 'range') return { ok: false, error: createError('INVALID_NAME', `参数 ${name} 不是 range 类型`) }
+  // 清空语义（v10.7.7 老板场景：清掉历史单点覆盖值让它走派生）
+  if (value === null || value === undefined || value === '') {
+    return { ok: true, value: null }
+  }
   const num = Number(value)
   if (Number.isNaN(num)) return { ok: false, error: createError('INVALID_TYPE', `value "${value}" 不是合法数字`) }
   if (num < config.min || num > config.max) {
@@ -157,16 +163,17 @@ const getJgj55ParamSkill = {
 // ===== Tool 3: update_jgj55_param =====
 const updateJgj55ParamSkill = {
   name: 'update_jgj55_param',
-  description: '修改单个 JGJ55 参数。value 必须是 min/max 范围内的数字（字符串或数字都接受）。',
-  version: '1.0.0',
+  description: '修改单个 JGJ55 参数。value 必须是 min/max 范围内的数字（字符串或数字都接受）。传 null 或空串 = 清空该参数走默认/派生（v10.7.7 老板场景）。',
+  version: '1.1.0',
   category: 'settings',
   parameters: {
     type: 'object',
     properties: {
       name: { type: 'string', description: 'JGJ55 参数名', required: true },
-      value: { type: ['string', 'number'], description: '新值，必须在 [min, max] 范围内', required: true }
+      // ponytail: value 不再 required — 允许 null/空串表达"清空"语义
+      value: { type: ['string', 'number', 'null'], description: '新值，必须在 [min, max] 范围内；传 null 或空串=清空该参数走默认/派生' }
     },
-    required: ['name', 'value']
+    required: ['name']
   },
   errors: {
     INVALID_NAME: { code: 'INVALID_NAME', message: '参数名不在 JGJ55 列表内', recovery: 'none' },
@@ -179,8 +186,44 @@ const updateJgj55ParamSkill = {
     logger.info(`update_jgj55_param: name=${name}, value=${value}`)
     const validation = validateValue(name, value)
     if (!validation.ok) return { success: false, error: validation.error }
+    // ponytail: validation.value === null = 清空 → 走 deleteParam（让派生/默认生效）
+    if (validation.value === null) {
+      await systemService.deleteParam(name)
+      logger.info(`update_jgj55_param: 已清空 ${name}（走默认/派生）`)
+      return { success: true, param: { name, value: null, cleared: true } }
+    }
     await systemService.setParam(name, validation.value, 'jgj55')
     return { success: true, param: { name, value: String(validation.value) } }
+  },
+  services: ['systemService']
+}
+
+// ===== Tool 3b: clear_jgj55_param =====
+// ponytail: 专门用于"清单个参数走默认/派生"的清晰语义接口（v10.7.7 老板场景）
+const clearJgj55ParamSkill = {
+  name: 'clear_jgj55_param',
+  description: '清空单个 JGJ55 参数，让它走默认/派生。适用场景：v10.7.7 减水剂新规则下，老 DB 里的"等级单点覆盖值"（如 superplasticizerDosage_C40=2.9）需要清掉才能正确派生。',
+  version: '1.0.0',
+  category: 'settings',
+  parameters: {
+    type: 'object',
+    properties: {
+      name: { type: 'string', description: 'JGJ55 参数名', required: true }
+    },
+    required: ['name']
+  },
+  errors: {
+    INVALID_NAME: { code: 'INVALID_NAME', message: '参数名不在 JGJ55 列表内', recovery: 'none' }
+  },
+  async execute(args, context) {
+    const { systemService, logger } = context
+    const { name } = args
+    logger.info(`clear_jgj55_param: name=${name}`)
+    if (!(name in JGJ55_DEFAULTS)) {
+      return { success: false, error: createError('INVALID_NAME', `参数 ${name} 不在 JGJ55 列表内`) }
+    }
+    const deleted = await systemService.deleteParam(name)
+    return { success: true, param: { name, value: null, cleared: true, existed: deleted } }
   },
   services: ['systemService']
 }
@@ -226,8 +269,15 @@ const batchUpdateJgj55ParamsSkill = {
         continue
       }
       try {
-        await systemService.setParam(name, validation.value, 'jgj55')
-        succeeded.push({ name, value: String(validation.value) })
+        // ponytail: validation.value === null = 清空 → 走 deleteParam（让派生/默认生效）
+        // 不能走 setParam(null) — SystemService.setParam 会 String(null)="null" 写进 DB
+        if (validation.value === null) {
+          await systemService.deleteParam(name)
+          succeeded.push({ name, value: null, cleared: true })
+        } else {
+          await systemService.setParam(name, validation.value, 'jgj55')
+          succeeded.push({ name, value: String(validation.value) })
+        }
       } catch (err) {
         failed.push({ name, code: 'SYSTEM_ERROR', message: err.message })
       }
@@ -272,6 +322,7 @@ module.exports = [
   listJgj55ParamsSkill,
   getJgj55ParamSkill,
   updateJgj55ParamSkill,
+  clearJgj55ParamSkill,
   batchUpdateJgj55ParamsSkill,
   resetJgj55ParamsSkill
 ]

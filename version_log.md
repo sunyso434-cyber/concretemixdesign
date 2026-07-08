@@ -1,3 +1,47 @@
+## v10.7.8 修复版本 (2026-07-08) - JGJ55 skill 清空单点掺量走派生（v10.7.7 半截同步兜底）
+
+### 背景
+v10.7.7 改 schema/DEFAULTS 让单点掺量"不填走派生"，**但写入路径没改**——老板 DB 里有历史单点覆盖值（`superplasticizerDosage_C40 = 2.9`，锂渣专用外加剂时代遗留），AI 想清空走派生时三个错误路径全死（详见下方"故障链"）。
+
+### 故障链（chat_history ID 1673~1681 反查）
+1. ❌ `update_jgj55_param(value=null)` → `PARAM_MISSING`（value 必填）
+2. ❌ `batch_update_jgj55_params(params=...)` → `PARAM_MISSING`（参数名错了，是 `updates` 不是 `params`）
+3. ❌ `batch_update_jgj55_params(updates=[{value:""}])` → `OUT_OF_RANGE`（空串 coerce 成 0，违反 min=1）
+- 3 次失败，AI 没退路，会话停了，bug 留在 DB 里至今
+
+### 根因
+JGJ55 skill 的"读"语义改了（schema 描述"不填=派生"），**"写"路径没动**——`validateValue` 不接受 null/空串，`update_jgj55_param` 的 `value` 仍 `required: true`。
+
+### 改动（最小）
+1. **`validateValue`**（`src/main/skills/jgj55-params.js` 60-71 行）：加 null/空串/未定义分支 → 返回 `{ ok: true, value: null }`（语义：清空）
+2. **`update_jgj55_param`**：去掉 `required: ['name','value']`，改为 `required: ['name']`；value 允许 null；execute 中 value===null 走 `deleteParam` 而非 `setParam`（避免 `String(null)="null"` 写进 DB）
+3. **新增 `clear_jgj55_param(name)` skill**：专门清单个参数走默认/派生
+4. **`batch_update_jgj55_params`**：复用新 validateValue，value===null 走 deleteParam
+5. **配套测试**（`src/main/__tests__/skills/jgj55-params.test.js`）：8 个新 case 覆盖所有清空路径
+
+### 验证
+- ✅ `jgj55-params.test.js` 18/18 全绿（10 个原有 + 8 个新）
+- ✅ `verify-superplasticizer-rule-v2.js` 端到端 24/24 通过
+- ✅ git stash 验证：18 个 pre-existing 失败（workspace/LearningService/WikiEngine/snapshot）和本修复无关
+
+### 现场清理（老板手动）
+新装的 v10.7.8 后，老板可以选一种方式清掉历史脏数据 `superplasticizerDosage_C40 = 2.9`：
+1. **app 内**："系统设置 → JGJ55 参数 → 减水剂掺量 — C40" 清空它
+2. **调新 skill**：AI 助理调 `clear_jgj55_param({name: "superplasticizerDosage_C40"})`
+3. **DB 直清**：`DELETE FROM systemParams WHERE paramName='superplasticizerDosage_C40';`
+
+清掉后 C40 派生 = 2.0 + (40-30)/5×0.1 = **2.2%**（不再 2.79%）
+
+### 不破坏的部分
+- 原有 5 件套 skill 完全兼容（schema 描述更新、`value` 仍接受数字）
+- v10.7.7 的"单点 > 派生"优先级逻辑不变
+- 端到端 24 个 case 全部通过
+
+### commit（待老板实测后打）
+- 预计：`fix(jgj55-skill): 支持 null/空串清空单点掺量走默认/派生（v10.7.7 半截同步兜底）`
+
+---
+
 ## v10.7.7 (2026-07-08) - 减水剂掺量新规则（基准+派生） + 标题栏版本号同步
 
 ### 打包结果（2026-07-08）

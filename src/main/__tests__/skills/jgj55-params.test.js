@@ -40,6 +40,11 @@ function makeContext() {
       async setParam(name, value) {
         this._store[name] = String(value)
       },
+      async deleteParam(name) {
+        const existed = name in this._store
+        delete this._store[name]
+        return existed
+      },
       async getAllParams() {
         return Object.entries(this._store).map(([name, value]) => ({
           name, value, type: 'jgj55'
@@ -158,5 +163,95 @@ describe('jgj55-params skill', () => {
     expect(result.resetCount).toBe(13)
     expect(ctx.systemService._store.regressionAlphaA).toBe('0.53')
     expect(ctx.systemService._store.strengthStdDev_C50).toBe('6.0')
+  })
+
+  // ========== v10.7.7+：清空单点覆盖值让它走默认/派生 ==========
+
+  test('6. update_jgj55_param: 传 null = 清空（v10.7.7 老板场景）', async () => {
+    const skill = skillByName.update_jgj55_param
+    const ctx = makeContext()
+    // 模拟老板 DB 里有历史脏数据
+    ctx.systemService._store.superplasticizerDosage_C40 = '2.9'
+    const result = await skill.execute({ name: 'superplasticizerDosage_C40', value: null }, ctx)
+    expect(result.success).toBe(true)
+    expect(result.param.cleared).toBe(true)
+    expect(result.param.value).toBe(null)
+    // 验证 DB 里这一行被删了
+    expect(ctx.systemService._store.superplasticizerDosage_C40).toBeUndefined()
+  })
+
+  test('6b. update_jgj55_param: 传空串 = 清空', async () => {
+    const skill = skillByName.update_jgj55_param
+    const ctx = makeContext()
+    ctx.systemService._store.superplasticizerDosage_C40 = '2.9'
+    const result = await skill.execute({ name: 'superplasticizerDosage_C40', value: '' }, ctx)
+    expect(result.success).toBe(true)
+    expect(result.param.cleared).toBe(true)
+    expect(ctx.systemService._store.superplasticizerDosage_C40).toBeUndefined()
+  })
+
+  test('6c. update_jgj55_param: 不传 value 也 = 清空（v10.7.7 场景）', async () => {
+    const skill = skillByName.update_jgj55_param
+    const ctx = makeContext()
+    ctx.systemService._store.superplasticizerDosage_C40 = '2.9'
+    const result = await skill.execute({ name: 'superplasticizerDosage_C40' }, ctx)
+    expect(result.success).toBe(true)
+    expect(result.param.cleared).toBe(true)
+    expect(ctx.systemService._store.superplasticizerDosage_C40).toBeUndefined()
+  })
+
+  test('6d. update_jgj55_param: 清空后再调普通数字仍然 ok', async () => {
+    const skill = skillByName.update_jgj55_param
+    const ctx = makeContext()
+    // 先清空
+    ctx.systemService._store.superplasticizerDosage_C40 = '2.9'
+    await skill.execute({ name: 'superplasticizerDosage_C40', value: null }, ctx)
+    expect(ctx.systemService._store.superplasticizerDosage_C40).toBeUndefined()
+    // 再设回正常值
+    const result = await skill.execute({ name: 'superplasticizerDosage_C40', value: 2.2 }, ctx)
+    expect(result.success).toBe(true)
+    expect(ctx.systemService._store.superplasticizerDosage_C40).toBe('2.2')
+  })
+
+  test('7. clear_jgj55_param: 新增的清单个参数 skill', async () => {
+    const skill = skillByName.clear_jgj55_param
+    const ctx = makeContext()
+    ctx.systemService._store.superplasticizerDosage_C40 = '2.9'
+    const result = await skill.execute({ name: 'superplasticizerDosage_C40' }, ctx)
+    expect(result.success).toBe(true)
+    expect(result.param.cleared).toBe(true)
+    expect(result.param.existed).toBe(true)
+    expect(ctx.systemService._store.superplasticizerDosage_C40).toBeUndefined()
+  })
+
+  test('7b. clear_jgj55_param: 清不存在的参数也成功（幂等）', async () => {
+    const skill = skillByName.clear_jgj55_param
+    const ctx = makeContext()
+    // 先确保 mock 里没这个 key（makeContext 默认初始了 2.0）
+    delete ctx.systemService._store.superplasticizerDosage_C40
+    const result = await skill.execute({ name: 'superplasticizerDosage_C40' }, ctx)
+    expect(result.success).toBe(true)
+    expect(result.param.existed).toBe(false)
+  })
+
+  test('7c. clear_jgj55_param: 非法参数名（INVALID_NAME）', async () => {
+    const skill = skillByName.clear_jgj55_param
+    const ctx = makeContext()
+    const result = await skill.execute({ name: 'nonExistent' }, ctx)
+    expect(result.success).toBe(false)
+    expect(result.error.code).toBe('INVALID_NAME')
+  })
+
+  test('8. batch_update_jgj55_params: 传空串 = 清空该项（修复 v10.7.7 报错 3）', async () => {
+    const skill = skillByName.batch_update_jgj55_params
+    const ctx = makeContext()
+    ctx.systemService._store.superplasticizerDosage_C40 = '2.9'
+    const result = await skill.execute(
+      { updates: [{ name: 'superplasticizerDosage_C40', value: '' }] },
+      ctx
+    )
+    expect(result.success).toBe(true)
+    expect(result.updated).toHaveLength(1)
+    expect(ctx.systemService._store.superplasticizerDosage_C40).toBeUndefined()
   })
 })
