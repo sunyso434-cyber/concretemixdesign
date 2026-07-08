@@ -197,12 +197,13 @@ module.exports = {
   _loadMDSkill(filePath) {
     const parsed = this._mdParser.parse(filePath)
 
-    // 合法 trigger_mode 白名单，非法值降级为 function（不抛异常）
+    // trigger_mode：缺失走 silent default 'function'；非法值才 warn + 降级
     let triggerMode
-    if (['function', 'soft'].includes(parsed.triggerMode)) {
+    if (parsed.triggerMode === undefined) {
+      triggerMode = 'function'
+    } else if (['function', 'soft'].includes(parsed.triggerMode)) {
       triggerMode = parsed.triggerMode
     } else {
-      // 非法/缺失值：warn + 降级到 'function'，不抛异常
       console.warn(
         `[SkillRegistry] invalid trigger_mode "${parsed.triggerMode}" in ${filePath}, defaulting to "function"`
       )

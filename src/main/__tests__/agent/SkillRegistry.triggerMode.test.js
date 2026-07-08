@@ -33,6 +33,8 @@ trigger_mode: soft
   })
 
   test('老文件无 trigger_mode 字段默认 function', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
     fs.writeFileSync(path.join(tmpDir, 'old_skill.md'), `---
 name: old_skill
 description: 老的
@@ -44,6 +46,10 @@ description: 老的
     return registry._loadFromDir(tmpDir, { builtin: false }).then(() => {
       const skill = registry.getSkill('old_skill')
       expect(skill._triggerMode).toBe('function')
+      // absent 走 silent default，不应触发 warn
+      expect(warnSpy).not.toHaveBeenCalled()
+
+      warnSpy.mockRestore()
     })
   })
 
