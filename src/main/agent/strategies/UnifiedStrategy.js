@@ -26,7 +26,6 @@ const { classifyError } = require('../errorClassifier')
 const { rotateIfNeeded } = require('../../utils/logRotator')
 const MemoryTierService = require('../../services/MemoryTierService')
 const { ChatHistory } = require('../../db/database')
-const SoftSkillInjector = require('../SoftSkillInjector')
 
 // 诊断日志：写到 agent-debug.log（与 agentHandler._log 同一文件）
 const _diagLogFile = path.join(os.homedir(), '.concrete-mixdesign', 'agent-debug.log')

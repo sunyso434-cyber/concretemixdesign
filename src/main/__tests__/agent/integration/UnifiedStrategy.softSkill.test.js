@@ -34,10 +34,18 @@ describe('UnifiedStrategy - soft skill 集成', () => {
     expect(mockInjector.tryActivate).toHaveBeenCalledWith('s1', '来个创新')
   })
 
-  test('sessionId 终态时调 cleanup', async () => {
-    const executePromise = strategy.execute({ sessionId: 's2', message: '创新需求', webContents: null })
-    await executePromise
-    // 由于 mock chat 不可控，简化测试：检查 cleanup 存在于对象上
-    expect(typeof mockInjector.cleanup).toBe('function')
+  test('不传 softSkillInjector 时向后兼容', async () => {
+    const strategyNoInjector = new UnifiedStrategy({
+      deepseekService: { chat: jest.fn().mockResolvedValue({ content: 'ok' }) },
+      skillRegistry: { getToolSchemas: jest.fn(() => []), getSkillMeta: jest.fn(() => null), getSkill: jest.fn() },
+      skillExecutor: { execute: jest.fn() },
+      agentMemoryService: { saveMessage: jest.fn().mockResolvedValue(), buildHistoryMessages: jest.fn().mockResolvedValue([]) },
+      systemService: null,
+      orchestrator: null
+      // softSkillInjector OMITTED
+    })
+    // 应不报错
+    await expect(strategyNoInjector.execute({ sessionId: 's1', message: 'hi', webContents: null }))
+      .resolves.toBeDefined()
   })
 })
