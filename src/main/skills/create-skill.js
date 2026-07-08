@@ -23,6 +23,19 @@ module.exports = {
   category: 'system',
 
   parameters: {
+    type: {
+      type: 'string',
+      description: '资产类型：tool 或 skill。tool 走 function call；skill 走 description 触发 + body 注入',
+      required: true,
+      enum: ['tool', 'skill']
+    },
+    subType: {
+      type: 'string',
+      description: 'tool 类型：md（默认）或 blueprint',
+      required: false,
+      enum: ['md', 'blueprint'],
+      default: 'md'
+    },
     skillName: {
       type: 'string',
       description: '技能名称（英文，用下划线分隔），如 scc_mix_design',
@@ -48,20 +61,20 @@ module.exports = {
       description: '使用示例，如"用户说：设计一个C40自密实混凝土，坍落度650mm"',
       required: false
     },
-    format: {
-      type: 'string',
-      description: '技能文件格式。md=纯声明式（直接生成MD文件）；blueprint=蓝图技能包，需通过 rawBlueprint 参数传入完整蓝图内容。默认 md',
-      required: false,
-      enum: ['md', 'blueprint']
-    },
     rawBlueprint: {
       type: 'string',
-      description: 'format=blueprint 时必填。完整的蓝图技能包内容，使用分段格式：=== meta.yaml === / === blueprint.yaml === / === tables/<表名>.json ===。生成前请先调用 prepare_blueprint_authoring 获取创作规范。',
+      description: 'type=tool + subType=blueprint 时必填。完整的蓝图技能包内容，使用分段格式：=== meta.yaml === / === blueprint.yaml === / === tables/<表名>.json ===。生成前请先调用 prepare_blueprint_authoring 获取创作规范。',
       required: false
     }
   },
 
   errors: {
+    E_LEGACY_FORMAT: {
+      code: 'E_LEGACY_FORMAT',
+      message: '参数 format 已废弃，请改用 type/subType',
+      hint: '老调用 create_skill(format="md", ...) 改为 create_skill(type="tool", subType="md", ...)',
+      recovery: 'use_type_subtype'
+    },
     NAME_EXISTS: {
       code: 'SKILL_VALIDATION_FAILED',
       // v10.2.0 方案 5：引导 AI 用 manage_skills update 而不是换名字
@@ -96,12 +109,30 @@ module.exports = {
   },
 
   async execute(args, context) {
-    const { skillName, description, functionality, parameters, exampleUsage, format = 'md', rawBlueprint } = args
+    // 兼容老 format 参数
+    if (args.format && !args.type) {
+      return { success: false, error: this.errors.E_LEGACY_FORMAT }
+    }
+
+    const { type, subType = 'md', skillName, description, functionality, parameters, exampleUsage, rawBlueprint } = args
     const { logger } = context
+
+    const validTypes = ['tool', 'skill']
+    if (!validTypes.includes(type)) {
+      return {
+        success: false,
+        error: {
+          code: 'E_PARAM_INVALID',
+          message: `不支持的 type: ${type}。必须是 tool 或 skill`,
+          hint: 'tool 走 function call；skill 走 description 触发 + body 注入',
+          recovery: 'change_type'
+        }
+      }
+    }
 
     const effectiveFunctionality = functionality || description || '自定义技能'
 
-    logger.info(`创建技能: ${skillName}, 格式: ${format}`)
+    logger.info(`创建技能: ${skillName}, type: ${type}, subType: ${subType}`)
 
     const userDir = path.join(os.homedir(), '.concrete-mixdesign', 'skills')
 
@@ -109,23 +140,25 @@ module.exports = {
       fs.mkdirSync(userDir, { recursive: true })
     }
 
-    if (format === 'md') {
+    if (type === 'skill') {
+      return await this._createMDSoftSkill(args, context, userDir)
+    }
+    if (type === 'tool' && subType === 'md') {
       return await this._createMDSkill(args, context, userDir, effectiveFunctionality)
-    } else if (format === 'blueprint') {
+    }
+    if (type === 'tool' && subType === 'blueprint') {
       return await this._createBlueprintSkill(
         { skillName, description, rawBlueprint },
         context,
         userDir
       )
-    } else {
-      return {
-        success: false,
-        error: {
-          code: 'SKILL_VALIDATION_FAILED',
-          message: `不支持的技能格式: ${format}，仅支持 md 和 blueprint`,
-          hint: '请选择 md 或 blueprint 格式',
-          recovery: 'change_format'
-        }
+    }
+
+    return {
+      success: false,
+      error: {
+        code: 'E_PARAM_INVALID',
+        message: `不支持的组合: type=${type} subType=${subType}`
       }
     }
   },
@@ -190,14 +223,59 @@ module.exports = {
   },
 
   /**
+   * 创建软触发 Skill（method skill）
+   * type=skill 时强制 trigger_mode=soft
+   */
+  async _createMDSoftSkill(args, context, userDir) {
+    const { skillName, description, functionality, parameters, exampleUsage } = args
+    const { logger } = context
+
+    const filePath = path.join(userDir, `${skillName}.md`)
+    if (fs.existsSync(filePath)) {
+      return { success: false, error: this.errors.NAME_EXISTS, details: { skillName } }
+    }
+
+    const mdContent = this._generateMDContent({
+      skillName,
+      description,
+      functionality: functionality || description,
+      parameters,
+      exampleUsage,
+      triggerMode: 'soft'  // 强制 soft
+    })
+
+    try {
+      fs.writeFileSync(filePath, mdContent, 'utf8')
+      logger.info(`Soft skill 已创建: ${filePath}`)
+
+      const { getSkillRegistry } = require('../ipcHandlers/agentHandler')
+      const registry = getSkillRegistry()
+      if (registry) {
+        registry._skills.delete(skillName)
+        await registry.discover()
+      }
+
+      return {
+        success: true,
+        type: 'skill_created',
+        data: { skillName, filePath, description, type: 'skill', triggerMode: 'soft' },
+        message: `方法论 Skill "${skillName}" 已创建（trigger_mode=soft）。`
+      }
+    } catch (error) {
+      return { success: false, error: this.errors.CREATE_FAILED, details: { originalError: error.message } }
+    }
+  },
+
+  /**
    * 生成MD内容
    */
-  _generateMDContent({ skillName, description, functionality, parameters, exampleUsage }) {
+  _generateMDContent({ skillName, description, functionality, parameters, exampleUsage, triggerMode = 'function' }) {
     let md = `---
 name: ${skillName}
 description: ${description}
 category: custom
 version: 1.0.0
+trigger_mode: ${triggerMode}
 parameters:
 `
 

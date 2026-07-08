@@ -152,7 +152,7 @@ steps:
       {
         skillName: 'e2e_normal_concrete',
         description: '端到端测试普通混凝土',
-        format: 'blueprint',
+        type: 'tool', subType: 'blueprint',
         rawBlueprint: generatedRawBlueprint
       },
       _ctx()
@@ -173,7 +173,7 @@ steps:
       {
         skillName: 'skip_prep_skill',
         description: '跳过prepare',
-        format: 'blueprint'
+        type: 'tool', subType: 'blueprint'
         // rawBlueprint 缺失
       },
       _ctx()
@@ -203,7 +203,7 @@ steps:
       {
         skillName: 'bad_e2e_skill',
         description: 'bad',
-        format: 'blueprint',
+        type: 'tool', subType: 'blueprint',
         rawBlueprint: badRawBlueprint
       },
       _ctx()

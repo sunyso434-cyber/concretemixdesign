@@ -152,7 +152,7 @@ describe('create_skill (format=blueprint)', () => {
         skillName: 'test_normal_concrete',
         description: '测试普通混凝土',
         functionality: '计算配制强度',
-        format: 'blueprint',
+        type: 'tool', subType: 'blueprint',
         rawBlueprint: VALID_BLUEPRINT_NO_TABLES
       },
       _ctx()
@@ -174,7 +174,7 @@ describe('create_skill (format=blueprint)', () => {
       {
         skillName: 'no_raw_skill',
         description: '没传 rawBlueprint',
-        format: 'blueprint'
+        type: 'tool', subType: 'blueprint'
       },
       _ctx()
     )
@@ -190,7 +190,7 @@ describe('create_skill (format=blueprint)', () => {
       {
         skillName: 'empty_raw',
         description: 'empty',
-        format: 'blueprint',
+        type: 'tool', subType: 'blueprint',
         rawBlueprint: '   \n  '
       },
       _ctx()
@@ -204,7 +204,7 @@ describe('create_skill (format=blueprint)', () => {
       {
         skillName: 'missing_meta',
         description: '缺 meta 分段',
-        format: 'blueprint',
+        type: 'tool', subType: 'blueprint',
         rawBlueprint: RAW_MISSING_META
       },
       _ctx()
@@ -219,7 +219,7 @@ describe('create_skill (format=blueprint)', () => {
       {
         skillName: 'self_ref_skill',
         description: '自引用测试',
-        format: 'blueprint',
+        type: 'tool', subType: 'blueprint',
         rawBlueprint: INVALID_SELF_REF_BLUEPRINT
       },
       _ctx()
@@ -236,7 +236,7 @@ describe('create_skill (format=blueprint)', () => {
       {
         skillName: 'test_with_table',
         description: '带数据表',
-        format: 'blueprint',
+        type: 'tool', subType: 'blueprint',
         rawBlueprint: VALID_BLUEPRINT_WITH_TABLE
       },
       _ctx()
@@ -264,7 +264,7 @@ describe('create_skill (format=blueprint)', () => {
     const args = {
       skillName: 'dup_skill',
       description: '重复',
-      format: 'blueprint',
+      type: 'tool', subType: 'blueprint',
       rawBlueprint: VALID_BLUEPRINT_NO_TABLES
     }
     const r1 = await createSkill.execute(args, _ctx())
