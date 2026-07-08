@@ -263,18 +263,20 @@ module.exports = {
    * @returns {object[]} JSON Schema 数组
    */
   getToolSchemas() {
-    return Array.from(this._skills.values()).map(skill => ({
-      type: 'function',
-      function: {
-        name: skill.name,
-        description: skill.description,
-        parameters: {
-          type: 'object',
-          properties: this._validator.toJsonSchemaProperties(skill.parameters),
-          required: this._validator.getRequiredParams(skill.parameters)
+    return Array.from(this._skills.values())
+      .filter(skill => !skill._isMDSkill || skill._triggerMode !== 'soft')
+      .map(skill => ({
+        type: 'function',
+        function: {
+          name: skill.name,
+          description: skill.description,
+          parameters: {
+            type: 'object',
+            properties: this._validator.toJsonSchemaProperties(skill.parameters),
+            required: this._validator.getRequiredParams(skill.parameters)
+          }
         }
-      }
-    }))
+      }))
   }
 
   /**
