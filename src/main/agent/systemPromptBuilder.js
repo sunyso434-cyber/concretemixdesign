@@ -96,7 +96,8 @@ function buildSystemPrompt({
   skillNames = [],
   skillInfos = null,
   l3Summary = null,  // L3 核心记忆摘要（对标 MemGPT core memory）
-  crossSessionBlock = ''  // P1-1: 跨会话摘要块
+  crossSessionBlock = '',  // P1-1: 跨会话摘要块
+  softSkillSection = ''  // Task 4: 方法论 Skill 段（Layer 1，description 触发）
 } = {}) {
   // 优先用 skillInfos（带 description + category）按类别分组生成；降级用 skillNames（只名字）
   let skillSection
@@ -118,6 +119,11 @@ function buildSystemPrompt({
       ? skillNames.map(s => `- ${s}`).join('\n')
       : '（当前无可用技能）'
   }
+
+  // Task 4：方法论 Skill 段（Layer 1）— 只在 softSkillSection 非空时插入
+  const softSkillBlock = softSkillSection
+    ? `\n# 方法论 Skill (description 触发)\n${softSkillSection}\n`
+    : ''
 
   // v2：用单一 userRulesMarkdown 段 + HTML 注释包裹
   const userRulesBlock = userRulesMarkdown
@@ -151,7 +157,7 @@ ${WORKSPACE_TOOLS_PROMPT}
 
 # 当前可用技能
 ${skillSection}
-
+${softSkillBlock}
 # 反模式（禁止）
 不要硬编一个不在「当前可用技能」列表里的技能名。
 
