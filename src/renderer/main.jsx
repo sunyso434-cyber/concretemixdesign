@@ -340,57 +340,54 @@ if (!window.electron) {
   }
 
   // 计算减水剂掺量（多因素调整）
-  const calculateSuperplasticizerDosage = (strength, fineAggregateMaterial, tempSettings = null) => {
-    const baseMbValue = 0.5
-    const baseFinenessModulus = 2.7
-    
-    // 强度等级调整
-    const strengthNum = parseInt(strength.replace('C', ''))
-    const baseDosage = 1.8
-    const baseStrength = 30
-    const difference = (strengthNum - baseStrength) / 5
-    // 获取高级设置中的强度影响参数，默认为0.1%
-    const strengthInfluence = tempSettings?.strengthInfluence || 0.1
-    const strengthDosage = baseDosage + difference * strengthInfluence
+  // 新规则：基准 = 减水剂材料 recommendedDosage ?? 1.8；C30 基准可被用户覆盖；其他等级派生
+  // 没选减水剂材料 → 全 0
+  const calculateSuperplasticizerDosage = (strength, fineAggregateMaterial, superplasticizerMaterial = null, tempSettings = null) => {
+    if (!superplasticizerMaterial) {
+      return { finalDosage: 0, strengthDosage: 0, baseDosage: 0, mbAdjustment: 0, fmAdjustment: 0, hasSuperplasticizer: false }
+    }
+
+    // C30 基准：用户覆盖 > 材料推荐 > 1.8 兜底
+    const userBase = tempSettings?.superplasticizerDosageBase_C30
+    const c30Baseline = (userBase !== undefined && userBase !== null && userBase !== '')
+      ? parseFloat(userBase)
+      : (parseFloat(superplasticizerMaterial.recommendedDosage) || 1.8)
+
+    // 强度等级掺量：用户单点指定 > 派生
+    const userStrength = tempSettings?.[`superplasticizerDosage_${strength}`]
+    let strengthDosage
+    if (userStrength !== undefined && userStrength !== null && userStrength !== '') {
+      strengthDosage = parseFloat(userStrength)
+    } else {
+      const strengthNum = parseInt(String(strength).replace('C', ''), 10)
+      const strengthInfluence = tempSettings?.strengthInfluence || 0.1
+      strengthDosage = c30Baseline + ((strengthNum - 30) / 5) * strengthInfluence
+    }
     let finalDosage = strengthDosage
-    
-    // MB值和细度模数调整
+
+    // 砂石微调（不影响减水率）
     let mbAdjustment = 0
     let fmAdjustment = 0
-    
     if (fineAggregateMaterial) {
+      const targetFinenessModulus = computeTargetFinenessModulus(strength, tempSettings)
+      const baseMbValue = 0.5
+      const baseFinenessModulus = targetFinenessModulus
       const mbValue = fineAggregateMaterial.mbValue || baseMbValue
       const finenessModulus = fineAggregateMaterial.finenessModulus || baseFinenessModulus
-      
-      // 获取高级设置中的影响参数，默认为0.1%
       const mbInfluence = tempSettings?.mbInfluence || 0.1
       const finenessInfluence = tempSettings?.finenessInfluence || 0.1
-      
-      mbAdjustment = Math.max(0, mbValue - baseMbValue) / 0.1 * mbInfluence
-      fmAdjustment = Math.max(0, baseFinenessModulus - finenessModulus) / 0.1 * finenessInfluence
-      
+      mbAdjustment = ((mbValue - baseMbValue) / 0.1) * mbInfluence
+      fmAdjustment = ((baseFinenessModulus - finenessModulus) / 0.1) * finenessInfluence
       finalDosage += mbAdjustment + fmAdjustment
-      
-      console.log('减水剂掺量调整（模拟）:', {
-        strength,
-        strengthNum,
-        baseDosage,
-        strengthDosage,
-        difference,
-        mbValue,
-        mbAdjustment,
-        finenessModulus,
-        fmAdjustment,
-        finalDosage
-      })
     }
-    
+
     return {
       finalDosage,
       strengthDosage,
-      baseDosage,
+      baseDosage: parseFloat(superplasticizerMaterial.recommendedDosage) || 0,
       mbAdjustment,
-      fmAdjustment
+      fmAdjustment,
+      hasSuperplasticizer: true
     }
   }
 
@@ -657,16 +654,19 @@ if (!window.electron) {
       combinedFine = fine
     }
 
-    const spResult = calculateSuperplasticizerDosage(strength, combinedFine, tempSettings)
+    const superplasticizerMaterial = mockMaterials.find(m => m.id === materials?.superplasticizer) || mockMaterials.find(m => m.type === '外加剂')
+    const spResult = calculateSuperplasticizerDosage(strength, combinedFine, superplasticizerMaterial, tempSettings)
     const finalDosage = spResult.finalDosage || spResult
 
-    // 减水率
-    const superplasticizerMaterial = mockMaterials.find(m => m.id === materials?.superplasticizer) || mockMaterials.find(m => m.type === '外加剂')
-    const baseDosage = superplasticizerMaterial?.recommendedDosage || 1.8
-    const baseReducingRate = superplasticizerMaterial?.waterReducingRate || 25
-    const ratePer01 = globalSettings.waterReducingRatePer01Dosage
-    const dosageDiff = (spResult.strengthDosage || spResult) - baseDosage
-    const waterReducingRate = baseReducingRate + (dosageDiff / 0.1) * ratePer01
+    // 减水率（新规则：基准=材料推荐掺量，掺量=strengthDosage，砂石微调不影响减水率）
+    let waterReducingRate = 0
+    if (superplasticizerMaterial) {
+      const baseDosage = parseFloat(superplasticizerMaterial.recommendedDosage) || 0
+      const baseReducingRate = parseFloat(superplasticizerMaterial.waterReducingRate) || 25
+      const ratePer01 = superplasticizerMaterial.waterReducingRatePer01Dosage || globalSettings.waterReducingRatePer01Dosage || 2.0
+      const dosageDiff = (spResult.strengthDosage || 0) - baseDosage
+      waterReducingRate = baseReducingRate + (dosageDiff / 0.1) * ratePer01
+    }
 
     // 实际用水量（考虑粉煤灰、矿渣影响的简化处理）
     let waterAmount = baseWaterAmount * (1 - waterReducingRate / 100)

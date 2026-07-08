@@ -1,5 +1,10 @@
 const SystemService = require('../SystemService')
 
+// ponytail: 终极兜底常量 — 没选减水剂材料 / 材料无 recommendedDosage / 用户也没填 C30 基准时使用
+const DEFAULT_DOSAGE_FALLBACK = 1.8
+// ponytail: 每 5 个强度等级（10MPa）的掺量增量（%）
+const DOSAGE_STEP_PER_5_STRENGTH = 0.1
+
 class MixDesignService_WaterRatio {
   // 获取回归系数
   async getRegressionCoefficients(tempSettings = null) {
@@ -38,47 +43,82 @@ class MixDesignService_WaterRatio {
     return numerator / denominator
   }
 
-  // 获取强度等级对应的减水剂掺量
-  async getSuperplasticizerDosageByStrength(strength, tempSettings = null) {
+  // 获取 C30 减水剂掺量基准（决定其他等级派生）
+  // 优先级：用户填的 C30 基准 > 减水剂材料 recommendedDosage > 1.8 兜底
+  async getC30Baseline(superplasticizerMaterial, tempSettings = null) {
     try {
-      // 从全局设置获取
-      const paramName = `superplasticizerDosage_${strength}`
-      const dosageParam = await SystemService.getParamByName(paramName)
+      if (tempSettings?.superplasticizerDosageBase_C30 !== undefined
+          && tempSettings.superplasticizerDosageBase_C30 !== null
+          && tempSettings.superplasticizerDosageBase_C30 !== '') {
+        return parseFloat(tempSettings.superplasticizerDosageBase_C30)
+      }
 
-      if (dosageParam) {
+      const baseParam = await SystemService.getParamByName('superplasticizerDosageBase_C30')
+      if (baseParam && baseParam.value !== '' && baseParam.value !== null) {
+        return parseFloat(baseParam.value)
+      }
+
+      if (superplasticizerMaterial && superplasticizerMaterial.recommendedDosage) {
+        return parseFloat(superplasticizerMaterial.recommendedDosage)
+      }
+
+      return DEFAULT_DOSAGE_FALLBACK
+    } catch (error) {
+      console.error('获取 C30 减水剂掺量基准失败:', error)
+      return DEFAULT_DOSAGE_FALLBACK
+    }
+  }
+
+  // 获取强度等级对应的减水剂掺量（基础掺量，不含砂石微调）
+  // - 没选减水剂材料 → 0
+  // - 用户单点指定了该等级 → 用指定值
+  // - 否则 → C30 基准 + (强度差/5) × 0.1%
+  async getSuperplasticizerDosageByStrength(strength, superplasticizerMaterial, tempSettings = null) {
+    try {
+      // 没选减水剂材料 → 0
+      if (!superplasticizerMaterial) {
+        return 0
+      }
+
+      // 用户单点指定了该等级
+      const paramName = `superplasticizerDosage_${strength}`
+      if (tempSettings?.[paramName] !== undefined && tempSettings[paramName] !== '' && tempSettings[paramName] !== null) {
+        return parseFloat(tempSettings[paramName])
+      }
+      const dosageParam = await SystemService.getParamByName(paramName)
+      if (dosageParam && dosageParam.value !== '' && dosageParam.value !== null) {
         return parseFloat(dosageParam.value)
       }
 
-      // 默认值
-      const strengthNum = parseInt(strength.replace('C', ''))
-      const baseStrength = 30
-      const baseDosage = 1.8
-      const difference = (strengthNum - baseStrength) / 5
-      // 获取高级设置中的强度影响参数，默认为0.1%
-      const strengthInfluence = tempSettings?.strengthInfluence || 0.1
-      return baseDosage + difference * strengthInfluence
+      // 派生：基准 + (强度差 / 5) × 0.1
+      const c30Baseline = await this.getC30Baseline(superplasticizerMaterial, tempSettings)
+      const strengthNum = parseInt(String(strength).replace('C', ''), 10)
+      const strengthInfluence = tempSettings?.strengthInfluence || DOSAGE_STEP_PER_5_STRENGTH
+      return c30Baseline + ((strengthNum - 30) / 5) * strengthInfluence
     } catch (error) {
       console.error('获取减水剂掺量失败:', error)
       throw error
     }
   }
 
-  // 获取减水剂掺量与减水率关系值
-  async getWaterReducingRatePer01Dosage(tempSettings = null) {
+  // 获取减水剂掺量与减水率关系值（每 0.1% 掺量 → 减水率增量 %）
+  // 新规则：优先用减水剂材料字段，回落 JGJ55 全局值，再回落 2.0
+  async getWaterReducingRatePer01Dosage(superplasticizerMaterial = null, tempSettings = null) {
     try {
+      if (superplasticizerMaterial && superplasticizerMaterial.waterReducingRatePer01Dosage) {
+        return parseFloat(superplasticizerMaterial.waterReducingRatePer01Dosage)
+      }
       if (tempSettings && tempSettings.waterReducingRatePer01Dosage !== undefined) {
         return parseFloat(tempSettings.waterReducingRatePer01Dosage)
       }
-
       const param = await SystemService.getParamByName('waterReducingRatePer01Dosage')
-      if (param) {
+      if (param && param.value !== '' && param.value !== null) {
         return parseFloat(param.value)
       }
-
-      return 2.0 // 默认值
+      return 2.0
     } catch (error) {
       console.error('获取减水剂掺量与减水率关系值失败:', error)
-      throw error
+      return 2.0
     }
   }
 

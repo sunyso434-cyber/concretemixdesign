@@ -324,92 +324,84 @@ class MixDesignService_Aggregate {
   }
 
   // 计算减水剂掺量（多因素调整）
-  async calculateSuperplasticizerDosage(strength, fineAggregateMaterial, tempSettings = null) {
+  // 没选减水剂材料 → 全 0（掺量=0, 减水率=0, 不算减水剂步骤）
+  async calculateSuperplasticizerDosage(strength, fineAggregateMaterial, superplasticizerMaterial = null, tempSettings = null) {
     try {
-      // 步骤1：获取基准掺量（原材料推荐掺量）
-      // 假设原材料信息中推荐掺量为1.5%（实际应从原材料获取）
-      let baseDosage = 1.5
+      // ponytail: 没选减水剂材料 → 整体短路，不走派生/微调
+      if (!superplasticizerMaterial) {
+        return {
+          finalDosage: 0,
+          strengthDosage: 0,
+          baseDosage: 0,
+          mbAdjustment: 0,
+          fmAdjustment: 0,
+          hasSuperplasticizer: false
+        }
+      }
 
-      // 步骤2：强度等级调整（先调整强度等级）
-      const strengthDosage = await MixDesignService_WaterRatio.getSuperplasticizerDosageByStrength(strength, tempSettings)
+      // 步骤1：基准掺量（材料推荐掺量，给展示用）
+      const baseDosage = parseFloat(superplasticizerMaterial.recommendedDosage) || 0
+
+      // 步骤2：强度等级调整（用户指定 or 派生 from C30 基准）
+      const strengthDosage = await MixDesignService_WaterRatio.getSuperplasticizerDosageByStrength(
+        strength, superplasticizerMaterial, tempSettings
+      )
       let finalDosage = strengthDosage
 
-      // 步骤3：根据细骨料MB值和细度模数调整
+      // 步骤3：根据细骨料MB值和细度模数调整（砂石微调，不影响减水率）
       let mbAdjustment = 0
       let fmAdjustment = 0
 
       if (fineAggregateMaterial) {
-        // 根据强度等级计算目标细度模数并用于组合计算
         const targetFinenessModulus = MixDesignService_Strength.computeTargetFinenessModulus(strength, tempSettings)
-        // 计算组合后的细骨料参数（使用目标细度模数）
         const combinedParams = this.calculateCombinedFineAggregateParams(fineAggregateMaterial, targetFinenessModulus)
 
-        const baseMbValue = 0.5 // 基准MB值
-        const baseFinenessModulus = targetFinenessModulus // 基准细度模数使用目标值
+        const baseMbValue = 0.5
+        const baseFinenessModulus = targetFinenessModulus
 
         const mbValue = combinedParams.mbValue
         const finenessModulus = combinedParams.finenessModulus
 
-        // 获取高级设置中的影响参数，默认为0.1%
         const mbInfluence = tempSettings?.mbInfluence || 0.1
         const finenessInfluence = tempSettings?.finenessInfluence || 0.1
 
         // MB值调整：每增大0.1，掺量增加；每减少0.1，掺量减少
         mbAdjustment = ((mbValue - baseMbValue) / 0.1) * mbInfluence
-
         // 细度模数调整：每增加0.1，掺量减少；每减少0.1，掺量增加
         fmAdjustment = ((baseFinenessModulus - finenessModulus) / 0.1) * finenessInfluence
 
         finalDosage += mbAdjustment + fmAdjustment
-
-        console.log('减水剂掺量调整详情:', {
-          baseDosage,
-          strengthDosage,
-          mbValue,
-          mbAdjustment,
-          finenessModulus,
-          fmAdjustment,
-          finalDosage,
-          optimalRatio: combinedParams.optimalRatio
-        })
       }
 
       return {
         finalDosage,
-        strengthDosage, // 强度等级调整后的掺量
-        baseDosage, // 基准掺量
-        mbAdjustment, // MB值调整量
-        fmAdjustment // 细度模数调整量
+        strengthDosage, // 强度等级调整后的掺量（不含砂石微调，喂给减水率公式用）
+        baseDosage, // 材料推荐掺量
+        mbAdjustment,
+        fmAdjustment,
+        hasSuperplasticizer: true
       }
     } catch (error) {
       console.error('计算减水剂掺量失败:', error)
       return {
-        finalDosage: 1.5, // 默认值
-        strengthDosage: 1.5,
-        baseDosage: 1.5,
+        finalDosage: 0,
+        strengthDosage: 0,
+        baseDosage: 0,
         mbAdjustment: 0,
-        fmAdjustment: 0
+        fmAdjustment: 0,
+        hasSuperplasticizer: !!superplasticizerMaterial
       }
     }
   }
 
-  // 计算减水率（基于强度等级调整的掺量变化）
-  async calculateWaterReducingRate(baseReducingRate, baseDosage, strengthDosage, tempSettings = null) {
+  // 计算减水率（按老板新规则：基准=材料推荐掺量，掺量=等级基础掺量，砂石微调不影响减水率）
+  // 公式：减水率 = 材料 waterReducingRate + (strengthDosage - 材料推荐掺量) / 0.1 × 材料 waterReducingRatePer01Dosage
+  async calculateWaterReducingRate(baseReducingRate, baseDosage, strengthDosage, superplasticizerMaterial = null, tempSettings = null) {
     try {
-      const ratePer01 = await MixDesignService_WaterRatio.getWaterReducingRatePer01Dosage(tempSettings)
-      const dosageDiff = strengthDosage - baseDosage // 只考虑强度等级调整的掺量变化
+      const ratePer01 = await MixDesignService_WaterRatio.getWaterReducingRatePer01Dosage(superplasticizerMaterial, tempSettings)
+      const dosageDiff = strengthDosage - baseDosage
       const rateAdjustment = (dosageDiff / 0.1) * ratePer01
       const finalRate = baseReducingRate + rateAdjustment
-
-      console.log('减水率调整详情:', {
-        baseReducingRate,
-        baseDosage,
-        strengthDosage,
-        ratePer01,
-        rateAdjustment,
-        finalRate
-      })
-
       return finalRate
     } catch (error) {
       console.error('计算减水率失败:', error)

@@ -150,6 +150,7 @@ class MixDesignOptimizer {
     const defaultSpDosageResult = await this.mixDesignService.calculateSuperplasticizerDosage(
       constraints.strength,
       { finenessModulus: 2.7, mbValue: 0.5 },  // 默认细骨料（阶段 2-4 简化假设）
+      defaultSp,  // 透传参考减水剂材料（新规则：决定 C30 基准 → 决定派生）
       constraints.tempSettings
     )
     const defaultSpDosage = defaultSpDosageResult?.finalDosage ?? 1.5

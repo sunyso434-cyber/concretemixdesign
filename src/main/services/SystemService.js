@@ -182,55 +182,55 @@ class SystemService {
           paramType: 'jgj55',
           description: 'C50及以上强度标准差σ(MPa)'
         },
-        // JGJ 55标准 - 强度等级与减水剂掺量关系
+        // JGJ 55标准 - C30 减水剂掺量基准（决定其他等级派生；不填=跟所选减水剂材料的 recommendedDosage 走）
+        {
+          paramName: 'superplasticizerDosageBase_C30',
+          paramValue: '',
+          paramType: 'jgj55',
+          description: 'C30减水剂掺量基准(%)，决定各等级派生；不填=跟所选减水剂材料推荐掺量走，材料也无值时兜底1.8%'
+        },
+        // JGJ 55标准 - 各等级减水剂掺量（用户单点指定；不填=从C30基准派生）
         {
           paramName: 'superplasticizerDosage_C20',
-          paramValue: '1.6',
+          paramValue: '',
           paramType: 'jgj55',
-          description: 'C20减水剂掺量(%)'
+          description: 'C20减水剂掺量(%)，不填=从C30基准派生'
         },
         {
           paramName: 'superplasticizerDosage_C25',
-          paramValue: '1.7',
+          paramValue: '',
           paramType: 'jgj55',
-          description: 'C25减水剂掺量(%)'
+          description: 'C25减水剂掺量(%)，不填=从C30基准派生'
         },
         {
           paramName: 'superplasticizerDosage_C30',
-          paramValue: '1.8',
+          paramValue: '',
           paramType: 'jgj55',
-          description: 'C30减水剂掺量(%)'
+          description: 'C30减水剂使用掺量(%)，不填=等于C30基准'
         },
         {
           paramName: 'superplasticizerDosage_C35',
-          paramValue: '1.9',
+          paramValue: '',
           paramType: 'jgj55',
-          description: 'C35减水剂掺量(%)'
+          description: 'C35减水剂掺量(%)，不填=从C30基准派生'
         },
         {
           paramName: 'superplasticizerDosage_C40',
-          paramValue: '2.0',
+          paramValue: '',
           paramType: 'jgj55',
-          description: 'C40减水剂掺量(%)'
+          description: 'C40减水剂掺量(%)，不填=从C30基准派生'
         },
         {
           paramName: 'superplasticizerDosage_C45',
-          paramValue: '2.1',
+          paramValue: '',
           paramType: 'jgj55',
-          description: 'C45减水剂掺量(%)'
+          description: 'C45减水剂掺量(%)，不填=从C30基准派生'
         },
         {
           paramName: 'superplasticizerDosage_C50',
-          paramValue: '2.2',
+          paramValue: '',
           paramType: 'jgj55',
-          description: 'C50减水剂掺量(%)'
-        },
-        // JGJ 55标准 - 减水剂掺量与减水率关系
-        {
-          paramName: 'waterReducingRatePer01Dosage',
-          paramValue: '2.0',
-          paramType: 'jgj55',
-          description: '每增加0.1%减水剂掺量，减水率增加的百分比(%)'
+          description: 'C50减水剂掺量(%)，不填=从C30基准派生'
         },
         {
           paramName: 'autoBackup',

@@ -30,12 +30,16 @@ class MixDesignService {
     return MixDesignService_WaterRatio.calculateWaterRatio(targetStrength, cementStrength, alphaA, alphaB)
   }
 
-  async getSuperplasticizerDosageByStrength(strength, tempSettings) {
-    return MixDesignService_WaterRatio.getSuperplasticizerDosageByStrength(strength, tempSettings)
+  async getSuperplasticizerDosageByStrength(strength, superplasticizerMaterial, tempSettings) {
+    return MixDesignService_WaterRatio.getSuperplasticizerDosageByStrength(strength, superplasticizerMaterial, tempSettings)
   }
 
-  async getWaterReducingRatePer01Dosage(tempSettings) {
-    return MixDesignService_WaterRatio.getWaterReducingRatePer01Dosage(tempSettings)
+  async getWaterReducingRatePer01Dosage(superplasticizerMaterial, tempSettings) {
+    return MixDesignService_WaterRatio.getWaterReducingRatePer01Dosage(superplasticizerMaterial, tempSettings)
+  }
+
+  async getC30Baseline(superplasticizerMaterial, tempSettings) {
+    return MixDesignService_WaterRatio.getC30Baseline(superplasticizerMaterial, tempSettings)
   }
 
   calculateInfluenceFactor(admixtureDosage, admixtureMaterial) {
@@ -77,12 +81,12 @@ class MixDesignService {
     return MixDesignService_Aggregate.getBaseWaterAmount(maxSize, slump, aggregateType)
   }
 
-  async calculateSuperplasticizerDosage(strength, fineAggregateMaterial, tempSettings) {
-    return MixDesignService_Aggregate.calculateSuperplasticizerDosage(strength, fineAggregateMaterial, tempSettings)
+  async calculateSuperplasticizerDosage(strength, fineAggregateMaterial, superplasticizerMaterial, tempSettings) {
+    return MixDesignService_Aggregate.calculateSuperplasticizerDosage(strength, fineAggregateMaterial, superplasticizerMaterial, tempSettings)
   }
 
-  async calculateWaterReducingRate(baseReducingRate, baseDosage, strengthDosage, tempSettings) {
-    return MixDesignService_Aggregate.calculateWaterReducingRate(baseReducingRate, baseDosage, strengthDosage, tempSettings)
+  async calculateWaterReducingRate(baseReducingRate, baseDosage, strengthDosage, superplasticizerMaterial, tempSettings) {
+    return MixDesignService_Aggregate.calculateWaterReducingRate(baseReducingRate, baseDosage, strengthDosage, superplasticizerMaterial, tempSettings)
   }
 
   calculateByAbsoluteVolume(materialAmounts, materials, airContent) {

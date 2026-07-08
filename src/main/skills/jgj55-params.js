@@ -15,31 +15,33 @@ const JGJ55_SCHEMA = {
   strengthStdDev_C20: { label: '强度标准差 σ — C20及以下 (MPa)', type: 'range', min: 3.0, max: 5.0, step: 0.1, description: 'JGJ 55 强度标准差 σ — C20及以下' },
   strengthStdDev_C45: { label: '强度标准差 σ — C25~C45 (MPa)', type: 'range', min: 4.0, max: 6.0, step: 0.1, description: 'JGJ 55 强度标准差 σ — C25~C45' },
   strengthStdDev_C50: { label: '强度标准差 σ — C50及以上 (MPa)', type: 'range', min: 5.0, max: 7.0, step: 0.1, description: 'JGJ 55 强度标准差 σ — C50及以上' },
-  superplasticizerDosage_C20: { label: '减水剂掺量 — C20 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C20 减水剂掺量' },
-  superplasticizerDosage_C25: { label: '减水剂掺量 — C25 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C25 减水剂掺量' },
-  superplasticizerDosage_C30: { label: '减水剂掺量 — C30 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C30 减水剂掺量' },
-  superplasticizerDosage_C35: { label: '减水剂掺量 — C35 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C35 减水剂掺量' },
-  superplasticizerDosage_C40: { label: '减水剂掺量 — C40 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C40 减水剂掺量' },
-  superplasticizerDosage_C45: { label: '减水剂掺量 — C45 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C45 减水剂掺量' },
-  superplasticizerDosage_C50: { label: '减水剂掺量 — C50 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C50 减水剂掺量' },
-  waterReducingRatePer01Dosage: { label: '每+0.1%减水剂掺量减水率增加 (%)', type: 'range', min: 0.5, max: 2.5, step: 0.1, description: '每 +0.1% 减水剂掺量对应减水率提升百分比' }
+  superplasticizerDosageBase_C30: { label: 'C30 减水剂掺量基准 — 派生源头 (%)', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: '决定 C20/C25/C35/C40/C45/C50 派生掺量；不填=跟所选减水剂材料推荐掺量走' },
+  superplasticizerDosage_C20: { label: '减水剂掺量 — C20 (%)（不填=派生）', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C20 减水剂掺量；不填从 C30 基准派生' },
+  superplasticizerDosage_C25: { label: '减水剂掺量 — C25 (%)（不填=派生）', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C25 减水剂掺量；不填从 C30 基准派生' },
+  superplasticizerDosage_C30: { label: 'C30 减水剂使用掺量 — 单点 (%)（不填=等于基准）', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C30 减水剂使用掺量；不填=等于 C30 基准，不影响其他等级派生' },
+  superplasticizerDosage_C35: { label: '减水剂掺量 — C35 (%)（不填=派生）', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C35 减水剂掺量；不填从 C30 基准派生' },
+  superplasticizerDosage_C40: { label: '减水剂掺量 — C40 (%)（不填=派生）', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C40 减水剂掺量；不填从 C30 基准派生' },
+  superplasticizerDosage_C45: { label: '减水剂掺量 — C45 (%)（不填=派生）', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C45 减水剂掺量；不填从 C30 基准派生' },
+  superplasticizerDosage_C50: { label: '减水剂掺量 — C50 (%)（不填=派生）', type: 'range', min: 1.0, max: 5.0, step: 0.1, description: 'JGJ 55 C50 减水剂掺量；不填从 C30 基准派生' }
 }
 
 // JGJ55 默认值常量（与 SystemService.initDefaultParams 保持一致）
+// ponytail: C20~C50 默认值全部清空 — 走派生逻辑（基准=减水剂材料 recommendedDosage ?? 1.8%）
+// reset 时把 C30 基准也置空 = 恢复到"跟材料走"的出厂状态
 const JGJ55_DEFAULTS = {
   regressionAlphaA: '0.53',
   regressionAlphaB: '0.20',
   strengthStdDev_C20: '4.0',
   strengthStdDev_C45: '5.0',
   strengthStdDev_C50: '6.0',
-  superplasticizerDosage_C20: '1.6',
-  superplasticizerDosage_C25: '1.7',
-  superplasticizerDosage_C30: '1.8',
-  superplasticizerDosage_C35: '1.9',
-  superplasticizerDosage_C40: '2.0',
-  superplasticizerDosage_C45: '2.1',
-  superplasticizerDosage_C50: '2.2',
-  waterReducingRatePer01Dosage: '2.0'
+  superplasticizerDosageBase_C30: '',
+  superplasticizerDosage_C20: '',
+  superplasticizerDosage_C25: '',
+  superplasticizerDosage_C30: '',
+  superplasticizerDosage_C35: '',
+  superplasticizerDosage_C40: '',
+  superplasticizerDosage_C45: '',
+  superplasticizerDosage_C50: ''
 }
 
 // 结构化错误工厂

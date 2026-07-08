@@ -273,28 +273,44 @@ class MixDesignService_Database {
 
       // 7. 计算减水剂掺量
       const fineAggregateMaterial = materials?.sand
-      const superplasticizerResult = await MixDesignService_Aggregate.calculateSuperplasticizerDosage(strength, fineAggregateMaterial, tempSettings)
+      const superplasticizerMaterial = materials?.superplasticizer || null
+      const superplasticizerResult = await MixDesignService_Aggregate.calculateSuperplasticizerDosage(
+        strength, fineAggregateMaterial, superplasticizerMaterial, tempSettings
+      )
       const spDosageFromCalc = superplasticizerResult.finalDosage
       const superplasticizerDosage = _overrideSpDosage !== undefined ? _overrideSpDosage : spDosageFromCalc
 
       // 8. 计算减水率
-      const superplasticizerMaterial = materials?.superplasticizer
-      const baseDosage = superplasticizerMaterial?.recommendedDosage || 1.5
-      const baseReducingRate = superplasticizerMaterial?.waterReducingRate || 25
-      const waterReducingRate = await MixDesignService_Aggregate.calculateWaterReducingRate(baseReducingRate, baseDosage, superplasticizerResult.strengthDosage, tempSettings)
+      // ponytail: 没选减水剂材料 → 减水率=0%（用水量不修正减水）
+      // 减水率公式：材料 waterReducingRate + (strengthDosage - 材料推荐掺量) / 0.1 × 材料 waterReducingRatePer01Dosage
+      // 注：砂石 MB/细度模数 微调产生的掺量变化不参与减水率（用户规则）
+      let waterReducingRate = 0
+      if (superplasticizerMaterial) {
+        const baseDosage = parseFloat(superplasticizerMaterial.recommendedDosage) || 0
+        const baseReducingRate = parseFloat(superplasticizerMaterial.waterReducingRate) || 25
+        waterReducingRate = await MixDesignService_Aggregate.calculateWaterReducingRate(
+          baseReducingRate, baseDosage, superplasticizerResult.strengthDosage,
+          superplasticizerMaterial, tempSettings
+        )
+      }
 
       // ========== 步骤6：减水剂计算 ==========
-      const spDetails = [
-        { label: '减水剂推荐掺量', value: `${baseDosage}%` },
-        { label: '减水剂基准减水率', value: `${baseReducingRate}%` },
-        { label: '强度等级调整掺量', value: `${superplasticizerResult.strengthDosage.toFixed(2)}%` }
-      ]
-      if (superplasticizerResult.mbAdjustment > 0 || superplasticizerResult.fmAdjustment > 0) {
-        if (superplasticizerResult.mbAdjustment > 0) {
-          spDetails.push({ label: 'MB值调整', value: `+${superplasticizerResult.mbAdjustment.toFixed(4)}%` })
-        }
-        if (superplasticizerResult.fmAdjustment > 0) {
-          spDetails.push({ label: '细度模数调整', value: `+${superplasticizerResult.fmAdjustment.toFixed(4)}%` })
+      const spDetails = []
+      if (!superplasticizerMaterial) {
+        spDetails.push({ label: '减水剂', value: '未选减水剂材料（掺量=0%, 减水率=0%）' })
+      } else {
+        spDetails.push(
+          { label: '减水剂推荐掺量', value: `${superplasticizerMaterial.recommendedDosage || 0}%` },
+          { label: '减水剂基准减水率', value: `${superplasticizerMaterial.waterReducingRate || 0}%` },
+          { label: '强度等级调整掺量', value: `${superplasticizerResult.strengthDosage.toFixed(2)}%` }
+        )
+        if (superplasticizerResult.mbAdjustment > 0 || superplasticizerResult.fmAdjustment > 0) {
+          if (superplasticizerResult.mbAdjustment > 0) {
+            spDetails.push({ label: 'MB值调整', value: `+${superplasticizerResult.mbAdjustment.toFixed(4)}%` })
+          }
+          if (superplasticizerResult.fmAdjustment > 0) {
+            spDetails.push({ label: '细度模数调整', value: `+${superplasticizerResult.fmAdjustment.toFixed(4)}%` })
+          }
         }
       }
       spDetails.push({ label: '减水剂掺量', value: `${superplasticizerResult.finalDosage.toFixed(2)}%`, highlight: true })
