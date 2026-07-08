@@ -72,6 +72,40 @@ trigger_mode: invalid_mode
     expect(soft).toHaveLength(1)
     expect(soft[0].name).toBe('soft1')
   })
+
+  test('isSoftTrigger() 对 soft skill 返回 true，function skill 返回 false，未知 name 返回 false', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'soft_skill.md'), frontmatter({ trigger_mode: 'soft', name: 'soft_skill' }))
+    fs.writeFileSync(path.join(tmpDir, 'func_skill.md'), frontmatter({ trigger_mode: 'function', name: 'func_skill' }))
+
+    await registry._loadFromDir(tmpDir, { builtin: false })
+
+    expect(registry.isSoftTrigger('soft_skill')).toBe(true)
+    expect(registry.isSoftTrigger('func_skill')).toBe(false)
+    expect(registry.isSoftTrigger('does_not_exist')).toBe(false)
+  })
+
+  test('非法 trigger_mode 降级为 function 且触发 warn', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    fs.writeFileSync(path.join(tmpDir, 'weird.md'), `---
+name: weird
+description: 怪
+trigger_mode: invalid_mode
+---
+
+# body
+`)
+
+    await registry._loadFromDir(tmpDir, { builtin: false })
+
+    const skill = registry.getSkill('weird')
+    expect(skill._triggerMode).toBe('function')
+    expect(warnSpy).toHaveBeenCalled()
+    const warnMsg = warnSpy.mock.calls.map(c => String(c[0])).join('\n')
+    expect(warnMsg).toMatch(/trigger_mode|invalid/)
+
+    warnSpy.mockRestore()
+  })
 })
 
 function frontmatter({ name, trigger_mode }) {
