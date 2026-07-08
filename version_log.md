@@ -1,4 +1,23 @@
-## v10.7.7 (2026-07-08) - 减水剂掺量新规则（基准+派生）
+## v10.7.7 (2026-07-08) - 减水剂掺量新规则（基准+派生） + 标题栏版本号同步
+
+### 打包结果（2026-07-08）
+- 打包时间：v11.24s（vite build） + ~3min（electron-builder）
+- 输出目录：`dist-10.7.7/`
+- 产物：
+  - `dist-10.7.7/砼智 Setup 10.7.7.exe` — NSIS 安装版（**140 MB**）
+  - `dist-10.7.7/砼智-10.7.7-portable-x64.exe` — Portable 免安装版（**139 MB**）
+  - `dist-10.7.7/win-unpacked/` — 免安装解压目录
+- 平台：Windows x64（NSIS + portable）
+- Node/Electron：electron@28.3.3
+- electron-builder：24.13.3
+
+### 标题栏版本号同步（老板 2026-07-08 强调）
+- 修复点：[`src/renderer/pages/WorkspacePage.jsx:152`](src/renderer/pages/WorkspacePage.jsx#L152) `topbar-version` 写死 v9.0.0（落后多个版本）→ 改 v10.7.7
+- 同步加进 CLAUDE.md 第 7 条规则（"版本号同步"）
+- 扫描确认：HTML title 标签和 BrowserWindow title 都没有版本号硬编码（HTML title 是"砼智"纯文字，BrowserWindow 用 `titleBarStyle: 'hidden'` 走自定义 topbar），所以只改这一处
+- 其他 v\d+\.\d+\.\d+ 匹配项均为代码注释中的历史版本号，不影响用户
+
+### 老板 2026-07-08 决策
 
 ### 老板 2026-07-08 决策
 替换旧规则（每个强度等级独立硬编码默认值 1.6%-2.2%）。新规则核心：
