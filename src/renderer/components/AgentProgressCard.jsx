@@ -24,8 +24,11 @@ const TOOL_LABELS = {
   optimize_mix_cost: '成本优化',
   check_compliance: '规范审查',
   predict_performance: '性能预测',
-  prepare_sales_quote_draft: '生成报价草稿',
-  calculate_sales_quote: '计算报价',
+  prepare_sales_quote_draft: '生成报价草稿（已废弃）',
+  calculate_sales_quote: '计算报价（已废弃）',
+  reverse_sales_quote: '反向套价',
+  forward_sales_quote: '正向测算',
+  format_quote_report: '导出报价单',
   save_mix_design: '保存方案',
   save_to_basic_mix_library: '保存到基础库'
 }

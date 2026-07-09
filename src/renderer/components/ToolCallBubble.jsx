@@ -11,9 +11,12 @@ const TOOL_LABELS = {
   check_compliance: '规范审查',
   predict_performance: '性能预测',
   list_standards: '查询规范库',
-  prepare_sales_quote_draft: '准备报价草稿',
-  calculate_sales_quote: '计算销售报价',
-  create_sales_quote_rule: '创建报价规则',
+  prepare_sales_quote_draft: '准备报价草稿（已废弃）',
+  calculate_sales_quote: '计算销售报价（已废弃）',
+  create_sales_quote_rule: '创建报价规则（已废弃）',
+  reverse_sales_quote: '反向套价（普通混凝土）',
+  forward_sales_quote: '正向测算（特殊混凝土）',
+  format_quote_report: '导出报价单',
   save_mix_design: '保存配合比方案',
   save_to_basic_mix_library: '保存到基准库'
 }

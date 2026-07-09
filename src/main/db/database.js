@@ -61,7 +61,6 @@ const SystemParam = require('./models/SystemParam')
 const OptimizationHistory = require('./models/OptimizationHistory')
 const InsulationMaterial = require('./models/InsulationMaterial')
 const BasicMixDesign = require('./models/BasicMixDesign')
-const SalesQuoteRule = require('./models/SalesQuoteRule')
 const PumpingFeeItem = require('./models/PumpingFeeItem')
 const SalesQuoteHistory = require('./models/SalesQuoteHistory')
 const AppSetting = require('./models/AppSetting')
@@ -160,7 +159,7 @@ async function syncModels() {
   const backupFile = backupDatabase()
 
   // UserPreference 已在阶段 B 迁移中废弃，不在此处注册
-  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, SalesQuoteRule, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion]
+  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion]
   let migrationFailed = false
 
   for (const model of allModels) {
@@ -228,14 +227,8 @@ async function syncModels() {
     console.log('默认保温材料数据已初始化')
   }
 
-  // 检查并初始化默认销售报价规则
-  try {
-    const SalesQuoteRuleService = require('../services/SalesQuoteRuleService')
-    await SalesQuoteRuleService.initDefaultRules()
-    console.log('销售报价默认规则已初始化')
-  } catch (error) {
-    console.error('销售报价默认规则初始化失败:', error)
-  }
+  // v10.10: 销售报价规则表已删除,不再初始化默认规则
+  // 改用 reverse_sales_quote / forward_sales_quote Skill 内置默认值
 
   // 检查并初始化默认泵送费清单
   try {
@@ -259,7 +252,6 @@ module.exports.SystemParam = SystemParam
 module.exports.OptimizationHistory = OptimizationHistory
 module.exports.InsulationMaterial = InsulationMaterial
 module.exports.BasicMixDesign = BasicMixDesign
-module.exports.SalesQuoteRule = SalesQuoteRule
 module.exports.PumpingFeeItem = PumpingFeeItem
 module.exports.SalesQuoteHistory = SalesQuoteHistory
 module.exports.AppSetting = AppSetting

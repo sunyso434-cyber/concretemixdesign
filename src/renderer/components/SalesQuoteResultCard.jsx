@@ -30,35 +30,30 @@ const SalesQuoteResultCard = ({ data, ruleDefaults, pumpingFeeItems = [] }) => {
   const recalculate = async (pricingParams, overrides, pumpingIds) => {
     setLoading(true)
     try {
-      const selectedItems = pumpingFeeItems
-        .filter(p => pumpingIds.includes(p.id))
-        .map(p => ({ itemId: p.id, name: p.name, unitPrice: p.unitPrice }))
+      // v10.10：调新算法走 reverse 模式（老 UI 表单字段映射到 fixedFees）
+      // targetUnitPrice 用 result.suggestedDealPrice（已算出来的最终含税价）作目标市价反向套
       const calcResult = await window.electronAPI.invoke('salesQuote:calculate', {
-        basicMix: {
-          strengthGrade: result.strengthGrade,
-          concreteType: result.concreteType,
-          slump: result.slump,
-          materials: (result.materialDetails || []).map(m => ({
-            materialId: m.materialId,
-            materialType: m.materialType,
-            materialName: m.materialName,
-            usage: m.usage,
-            price: overrides[m.materialId] != null ? overrides[m.materialId] : m.unitPrice
-          }))
-        },
-        pricing: {
+        mode: 'reverse',
+        materials: (result.materialDetails || []).map(m => ({
+          materialId: m.materialId,
+          materialType: m.materialType,
+          materialName: m.materialName,
+          usage: m.usage,
+          price: overrides[m.materialId] != null ? overrides[m.materialId] : m.unitPrice
+        })),
+        targetUnitPrice: result.suggestedDealPrice || result.internalFloorPrice,
+        fixedFees: {
           manufacturingFee: pricingParams.manufacturingFee,
           technicalServiceFee: pricingParams.technicalServiceFee,
-          profitRate: pricingParams.profitRate,
+          laborFee: 10, // 旧 UI 没 laborFee 输入,沿用默认值
           transportDistance: pricingParams.transportDistance,
-          transportUnitPrice: pricingParams.transportUnitPrice,
-          marketAdjustmentRate: pricingParams.marketAdjustmentRate,
-          vatRate: pricingParams.vatRate,
-          materialPriceOverrides: overrides,
-          pumpingFeeItems: selectedItems
-        }
+          transportUnitPrice: pricingParams.transportUnitPrice
+        },
+        polishStrategy: 'material_price',
+        vatRate: pricingParams.vatRate,
+        priceOverrides: overrides
       })
-      if (calcResult.success) setResult(calcResult.data)
+      if (calcResult.success) setResult({ ...calcResult.data, pumpingFeeItems: (pumpingFeeItems || []).filter(p => pumpingIds.includes(p.id)) })
       else message.error(extractErrorMessage(calcResult.error))
     } catch (e) {
       message.error('报价重算失败')
@@ -108,22 +103,18 @@ const SalesQuoteResultCard = ({ data, ruleDefaults, pumpingFeeItems = [] }) => {
   }
 
   const handleExport = async () => {
-    const dialogResult = await window.electronAPI.invoke('show-save-dialog', {
+    // v10.10: 老 salesQuote:exportExcel 改走 format_quote_report 伪 Skill(写工作区 reports/)
+    // 但 Skill 走 agent 链路需要 LLM 调度,这里用 ask_user 模式提示用户走 chat
+    Modal.confirm({
       title: '导出报价单',
-      defaultPath: `销售报价-${result.strengthGrade}-${result.concreteType}.xlsx`,
-      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+      content: 'v10.10 起报价单统一通过 agent 调用 format_quote_report 写入工作区 reports/。是否切换到 Chat 模式让 agent 协助导出？',
+      okText: '是,跳到 Chat',
+      cancelText: '取消',
+      onOk: () => {
+        // 通过自定义事件通知 Chat 组件接收导出请求
+        window.dispatchEvent(new CustomEvent('sales-quote-export-request', { detail: { quote: result } }))
+      }
     })
-    if (dialogResult?.data?.canceled || !dialogResult?.data?.filePath) return
-    const selectedItems = pumpingFeeItems
-      .filter(p => selectedPumpingIds.includes(p.id))
-      .map(p => ({ itemId: p.id, name: p.name, unitPrice: p.unitPrice }))
-    const exportResult = await window.electronAPI.invoke('salesQuote:exportExcel', {
-      filePath: dialogResult.data.filePath,
-      quote: { ...result, pumpingFeeItems: selectedItems },
-      customerNote: '本报价为单方报价，含运输费、泵送费和13%增值税。'
-    })
-    if (exportResult.success) message.success('报价单已导出')
-    else message.error(extractErrorMessage(exportResult.error, '报价单导出失败'))
   }
 
   const handleReset = () => {

@@ -12,7 +12,6 @@ const MixDesignOptimizer = require('../services/MixDesignOptimizer')
 const AnalysisClassifier = require('../services/AnalysisClassifier')
 const AnalysisPreprocessor = require('../services/AnalysisPreprocessor')
 const BasicMixDesignService = require('../services/BasicMixDesignService')
-const SalesQuoteRuleService = require('../services/SalesQuoteRuleService')
 const SalesQuoteCalculationService = require('../services/SalesQuoteCalculationService')
 const SalesQuoteToolGuard = require('../services/SalesQuoteToolGuard')
 const { Material } = require('../db/database')
@@ -252,160 +251,19 @@ const executeToolCall = async (toolName, args) => {
     }
 
     case 'prepare_sales_quote_draft': {
-      let rule = await SalesQuoteRuleService.findRuleByType(args.concreteType)
-      if (!rule) {
-        // 精确匹配失败，尝试关键词模糊匹配
-        rule = await SalesQuoteRuleService.matchRuleByText(args.concreteType)
-      }
-      if (!rule) {
-        return { success: false, error: `没有找到"${args.concreteType}"的销售报价规则，当前可用类型：普通、抗渗、早强` }
-      }
-      // 用 rule 中的 concreteType 去查找基准配合比（避免 Agent 传入 '普通混凝土' 等非标准值导致匹配失败）
-      let basicMix = await BasicMixDesignService.findDefaultMix(args.strengthGrade, rule.concreteType)
-      if (!basicMix) {
-        // Fallback：从方案库中取最近一条已确认的方案
-        try {
-          const recentSchemes = await MixDesignService.getAllMixDesigns({ excludeDrafts: true })
-          if (recentSchemes && recentSchemes.length > 0) {
-            const d = recentSchemes[0].toJSON()
-            const mats = d.materials || {}
-            const selected = d.materialDetails || {}
-            const materialsArr = []
-            const findId = (key) => selected[key]?.id || null
-            const findName = (key, fb) => selected[key]?.name || selected[key] || fb || key
-            if (mats.cement != null) materialsArr.push({ materialId: findId('cement'), materialType: '水泥', materialName: findName('cement', '水泥'), usage: mats.cement })
-            if (mats.flyAsh > 0) materialsArr.push({ materialId: findId('flyAsh'), materialType: '粉煤灰', materialName: findName('flyAsh', '粉煤灰'), usage: mats.flyAsh })
-            if (mats.slag > 0) materialsArr.push({ materialId: findId('slag'), materialType: '矿渣粉', materialName: findName('slag', '矿渣粉'), usage: mats.slag })
-            if (mats.lithiumSlag > 0) materialsArr.push({ materialId: findId('lithiumSlag'), materialType: '锂渣', materialName: findName('lithiumSlag', '锂渣'), usage: mats.lithiumSlag })
-            if (mats.compositePowder > 0) materialsArr.push({ materialId: findId('compositePowder'), materialType: '复合粉', materialName: findName('compositePowder', '复合粉'), usage: mats.compositePowder })
-            if (mats.superplasticizer > 0) materialsArr.push({ materialId: findId('superplasticizer'), materialType: '减水剂', materialName: findName('superplasticizer', '减水剂'), usage: mats.superplasticizer })
-            if (mats.sand > 0) materialsArr.push({ materialId: findId('sand'), materialType: '细骨料', materialName: findName('sand', '细骨料'), usage: mats.sand })
-            if (mats.stone > 0) materialsArr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone })
-            if (mats.water > 0) materialsArr.push({ materialId: null, materialType: '水', materialName: '水', usage: mats.water })
-            basicMix = { strengthGrade: args.strengthGrade, concreteType: rule.concreteType, slump: d.slump || args.slump || 180, materials: materialsArr, toJSON() { return this } }
-          }
-        } catch (e) {
-          console.warn('[Fallback] 从方案库获取最近方案失败:', e.message)
-        }
-      }
-      if (!basicMix) {
-        return {
-          success: false,
-          type: 'sales_quote_action_required',
-          requiresUserConfirmation: true,
-          action: 'select_or_create_basic_mix',
-          error: `没有找到${args.strengthGrade}${rule.concreteType}基础配合比。`,
-          hint: '请先让用户选择已有基础配合比，或明确授权生成新配合比并确认材料后，再进入配合比设计流程。不能自动调用配合比设计工具。'
-        }
-      }
-
-      // 补充材料ID和价格（处理旧数据中缺少这些信息的情况）
-      const basicMixData = basicMix.toJSON()
-      if (basicMixData.materials && Array.isArray(basicMixData.materials)) {
-        const allMaterials = await MaterialService.getAllMaterials()
-        const materialMap = new Map(allMaterials.map(m => [m.id, m]))
-        const nameToMaterial = new Map()
-        allMaterials.forEach(m => {
-          nameToMaterial.set(m.name, m)
-          if (m.type) nameToMaterial.set(`${m.type}_${m.name}`, m)
-        })
-
-        basicMixData.materials = basicMixData.materials.map(mat => {
-          // 如果已经有materialId和price，直接返回
-          if (mat.materialId && mat.price != null) return mat
-
-          // 尝试通过materialId补充price
-          if (mat.materialId && materialMap.has(mat.materialId)) {
-            const fullMat = materialMap.get(mat.materialId)
-            return { ...mat, price: fullMat.price }
-          }
-
-          // 尝试通过名称匹配补充ID和price
-          const matched = nameToMaterial.get(mat.materialName) ||
-                          nameToMaterial.get(`${mat.materialType}_${mat.materialName}`)
-          if (matched) {
-            return { ...mat, materialId: matched.id, price: matched.price }
-          }
-
-          return mat
-        })
-      }
-
+      // v10.10 已废弃: 草稿模式被 reverse/forward 模式替代,规则表/基准库干掉
       return {
-        success: true,
-        type: 'sales_quote_draft',
-        data: {
-          strengthGrade: args.strengthGrade,
-          concreteType: args.concreteType,
-          slump: args.slump || rule.suggestedSlump,
-          basicMix: basicMixData,
-          rule: rule.toJSON(),
-          explanationPrompt: `请根据混凝土类型"${args.concreteType}"向客户解释报价构成，包括：1) 该类型混凝土的特点和适用场景；2) 成本主要提升点；3) 生产技术难点。需要通俗易懂，适合向客户说明。`,
-          suggestedPricing: {
-            marketAdjustmentRate: 0,
-            manufacturingFee: rule.suggestedManufacturingFee,
-            technicalServiceFee: rule.suggestedTechnicalServiceFee,
-            profitRate: rule.suggestedProfitRate,
-            transportDistance: rule.suggestedTransportDistance,
-            transportUnitPrice: rule.suggestedTransportUnitPrice,
-            vatRate: rule.vatRate || 0.13,
-            quoteRangeDelta: rule.quoteRangeDelta
-          }
-        }
+        success: false,
+        error: 'prepare_sales_quote_draft 已废弃(v10.10)。请直接调用 reverse_sales_quote (按市价反推) 或 forward_sales_quote (正向议价测算) 即可,这两个 Skill 自带默认值。'
       }
     }
 
     case 'calculate_sales_quote': {
-      const basicMixRow = await BasicMixDesignService.getBasicMixDesignById(args.basicMixId)
-      if (!basicMixRow) return { success: false, error: '基础配合比不存在' }
-      const allMaterials = await MaterialService.getAllMaterials()
-      const pricesById = new Map(allMaterials.map(material => [material.id, material.price]))
-      // 建立名称到材料的映射，用于补充缺失的materialId和price
-      const nameToMaterial = new Map()
-      allMaterials.forEach(m => {
-        nameToMaterial.set(m.name, m)
-        if (m.type) nameToMaterial.set(`${m.type}_${m.name}`, m)
-      })
-      // 水的 materialId 可能为 null，从材料库中查找默认水材料的价格
-      const waterMaterial = allMaterials.find(m => m.type === '其他' && m.name === '水')
-      const waterPrice = waterMaterial?.price ?? 0
-      const basicMix = basicMixRow.toJSON()
-      const quote = SalesQuoteCalculationService.calculate({
-        basicMix: {
-          strengthGrade: basicMix.strengthGrade,
-          concreteType: basicMix.concreteType,
-          slump: basicMix.slump,
-          materials: basicMix.materials.map(item => {
-            // 如果已经有price，直接返回
-            if (item.price != null) return item
-
-            // 通过materialId获取price
-            if (item.materialId != null) {
-              const lookedUpPrice = pricesById.get(item.materialId)
-              if (lookedUpPrice != null) {
-                return { ...item, price: lookedUpPrice }
-              }
-              // 查不到价，继续尝试名称匹配
-            }
-
-            // 水特殊处理
-            if (item.materialType === '水') {
-              return { ...item, price: waterPrice }
-            }
-
-            // 通过名称匹配补充materialId和price
-            const matched = nameToMaterial.get(item.materialName) ||
-                            nameToMaterial.get(`${item.materialType}_${item.materialName}`)
-            if (matched) {
-              return { ...item, materialId: matched.id, price: matched.price }
-            }
-
-            return item
-          })
-        },
-        pricing: args.pricing
-      })
-      return { success: true, type: 'sales_quote', data: quote }
+      // v10.10 已废弃: 基准配合比库 BasicMixDesign 干掉,基础算法被 calculateReverse/calculateForward 替代
+      return {
+        success: false,
+        error: 'calculate_sales_quote 已废弃(v10.10)。请使用 reverse_sales_quote (按市价反推) 或 forward_sales_quote (正向议价测算)。'
+      }
     }
 
     case 'save_mix_design': {
@@ -528,8 +386,11 @@ const executeToolCall = async (toolName, args) => {
     }
 
     case 'create_sales_quote_rule': {
-      const rule = await SalesQuoteRuleService.createRule(args)
-      return { success: true, data: rule }
+      // v10.10 已废弃: 规则表 SalesQuoteRule 整体干掉,改用 reverse/forward Skill 内置默认值
+      return {
+        success: false,
+        error: 'create_sales_quote_rule 已废弃(v10.10)。请使用 reverse_sales_quote / forward_sales_quote 自带的 fixedFees 参数,或在配置里直接维护默认值。'
+      }
     }
 
     default:

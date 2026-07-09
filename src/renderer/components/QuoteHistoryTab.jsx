@@ -71,10 +71,28 @@ const QuoteHistoryTab = () => {
         pagination={{ current: page, pageSize, total, onChange: (p, ps) => { setPage(p); setPageSize(ps); load(p, ps) } }}
         columns={[
           { title: '时间', dataIndex: 'createdAt', width: 160, render: v => v ? new Date(v).toLocaleString() : '' },
+          { title: '模式', dataIndex: 'quoteMode', width: 90, render: v => {
+            if (v === 'reverse') return '🔻 反向'
+            if (v === 'forward') return '🔺 正向'
+            return '旧版'
+          } },
           { title: '强度', dataIndex: 'strengthGrade', width: 70 },
           { title: '类型', dataIndex: 'concreteType', width: 80 },
-          { title: '成交价(元/m³)', width: 120, render: (_, row) => money(row.resultSnapshot?.suggestedDealPrice) },
-          { title: '底线价(元/m³)', width: 120, render: (_, row) => money(row.resultSnapshot?.internalFloorPrice) },
+          { title: '价格(元/m³)', width: 200, render: (_, row) => {
+            const mode = row.quoteMode
+            if (mode === 'forward') {
+              const min = money(row.resultSnapshot?.minPrice)
+              const sug = money(row.resultSnapshot?.suggestedPrice)
+              const max = money(row.resultSnapshot?.maxPrice)
+              return `${min} / ${sug} / ${max}`
+            }
+            return money(row.resultSnapshot?.suggestedDealPrice)
+          } },
+          { title: '包装/设备', width: 100, render: (_, row) => {
+            if (row.polishStrategy) return `📦 ${row.polishStrategy}`
+            if (row.equipmentUnitAmortization) return `🔧 ${money(row.equipmentUnitAmortization)}/m³`
+            return '-'
+          } },
           {
             title: '操作', width: 140,
             render: (_, row) => (

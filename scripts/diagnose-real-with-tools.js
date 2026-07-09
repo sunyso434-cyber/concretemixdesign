@@ -69,8 +69,8 @@ const all28Tools = [
   { type: 'function', function: { name: 'list_available_materials', description: '查询材料库可用原材料', parameters: { type: 'object', properties: { type: { type: 'string' } }, required: [] } } },
   { type: 'function', function: { name: 'calculate_mix_design', description: '计算混凝土配合比', parameters: { type: 'object', properties: { strength: { type: 'string' }, slump: { type: 'number' }, cementId: { type: 'integer' }, sandIds: { type: 'array' }, stoneIds: { type: 'array' } }, required: ['strength', 'slump', 'cementId', 'sandIds', 'stoneIds'] } } },
   { type: 'function', function: { name: 'predict_performance', description: '预测混凝土性能', parameters: { type: 'object', properties: { mixDesignId: { type: 'integer' } }, required: ['mixDesignId'] } } },
-  { type: 'function', function: { name: 'prepare_sales_quote_draft', description: '准备销售报价草稿', parameters: { type: 'object', properties: { mixDesignId: { type: 'integer' } }, required: ['mixDesignId'] } } },
-  { type: 'function', function: { name: 'calculate_sales_quote', description: '计算销售报价', parameters: { type: 'object', properties: { mixDesignId: { type: 'integer' }, profitRate: { type: 'number' } }, required: ['mixDesignId'] } } },
+  
+  
   { type: 'function', function: { name: 'save_mix_design', description: '保存配合比设计', parameters: { type: 'object', properties: { design: { type: 'object' } }, required: ['design'] } } },
   { type: 'function', function: { name: 'save_sales_quote', description: '保存销售报价', parameters: { type: 'object', properties: { quote: { type: 'object' } }, required: ['quote'] } } },
   { type: 'function', function: { name: 'save_to_basic_mix_library', description: '保存到基本配合比库', parameters: { type: 'object', properties: { mixDesignId: { type: 'integer' } }, required: ['mixDesignId'] } } },

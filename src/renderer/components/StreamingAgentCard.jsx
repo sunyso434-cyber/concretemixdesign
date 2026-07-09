@@ -17,9 +17,12 @@ const TOOL_LABELS = {
   check_compliance: '规范审查',
   predict_performance: '性能预测',
   list_standards: '查询规范库',
-  prepare_sales_quote_draft: '准备报价草稿',
-  calculate_sales_quote: '计算报价',
-  create_sales_quote_rule: '创建报价规则',
+  prepare_sales_quote_draft: '准备报价草稿（已废弃）',
+  calculate_sales_quote: '计算报价（已废弃）',
+  create_sales_quote_rule: '创建报价规则（已废弃）',
+  reverse_sales_quote: '反向套价',
+  forward_sales_quote: '正向测算',
+  format_quote_report: '导出报价单',
   save_mix_design: '保存方案',
   save_to_basic_mix_library: '保存到基准库'
 }
@@ -119,13 +122,21 @@ function renderResultSummary(toolName, result) {
     }
     case 'prepare_sales_quote_draft':
     case 'calculate_sales_quote': {
-      const d = result.data || result
-      const total = d.totalPrice ?? d.total ?? d.price
-      if (total != null) return `报价完成：总价 ${Number(total).toFixed(2)} 元${result.draftId ? '（草稿已保存）' : ''}`
-      return '报价已生成'
+      return '已废弃(v10.10)'
     }
     case 'create_sales_quote_rule':
-      return result.message ? `✓ ${result.message}` : '✓ 报价规则已创建'
+      return '已废弃(v10.10)'
+    case 'reverse_sales_quote':
+    case 'forward_sales_quote': {
+      const d = result.data || result
+      const total = d.suggestedDealPrice ?? d.suggestedPrice ?? d.total ?? d.price
+      if (total != null) return `报价完成：含税价 ${Number(total).toFixed(2)} 元/m³`
+      return '报价已生成'
+    }
+    case 'format_quote_report': {
+      const path = result.filePath || result.path
+      return path ? `✓ 报告已生成: ${path}` : '✓ 报告已生成'
+    }
     default:
       // 兜底：未知工具，提示成功而不暴露 JSON
       return result.success === false ? '执行失败' : '执行完成'
@@ -159,13 +170,22 @@ function renderArgsSummary(toolName, args = {}) {
     return '预测强度 / 坍落度 / 容重'
   }
   if (toolName === 'calculate_sales_quote') {
-    return [args.strength, args.volume ? `${args.volume} m³` : null].filter(Boolean).join(' | ')
+    return '已废弃'
   }
   if (toolName === 'prepare_sales_quote_draft') {
-    return args.schemeName || '准备报价草稿'
+    return '已废弃'
   }
   if (toolName === 'create_sales_quote_rule') {
-    return args.ruleName || '创建报价规则'
+    return '已废弃'
+  }
+  if (toolName === 'reverse_sales_quote') {
+    return args.targetUnitPrice ? `目标市价 ${args.targetUnitPrice} 元/m³` : '反向套价'
+  }
+  if (toolName === 'forward_sales_quote') {
+    return args.equipmentAmortization ? '含新设备分摊' : '正向议价测算'
+  }
+  if (toolName === 'format_quote_report') {
+    return args.filename || '导出报价单'
   }
   if (toolName === 'list_standards') {
     return args.category || args.keyword || '查询规范库'

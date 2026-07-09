@@ -8,12 +8,19 @@ async function saveQuote(data) {
     slump: data.slump,
     basicMixId: data.basicMixId || null,
     basicMixName: data.basicMixName || '',
+    mixDesignId: data.mixDesignId || null,
     pricingParams: data.pricingParams || {},
     materialPriceOverrides: data.materialPriceOverrides || {},
     materialDetails: data.materialDetails || [],
     selectedPumpingItems: data.selectedPumpingItems || [],
     resultSnapshot: data.resultSnapshot || {},
-    remarks: data.remarks || ''
+    remarks: data.remarks || '',
+    quoteMode: data.quoteMode || null,
+    polishStrategy: data.polishStrategy || null,
+    polishedUnitPrices: data.polishedUnitPrices || null,
+    equipmentPurchaseCost: data.equipmentPurchaseCost ?? null,
+    equipmentAmortizeVolume: data.equipmentAmortizeVolume ?? null,
+    equipmentUnitAmortization: data.equipmentUnitAmortization ?? null
   })).toJSON()
 }
 

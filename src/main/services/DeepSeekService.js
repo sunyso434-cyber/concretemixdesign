@@ -161,54 +161,61 @@ const TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'prepare_sales_quote_draft',
-      description: '当销售询问混凝土报价或客户解释时调用。根据强度等级和混凝土类型，匹配销售报价规则和基础配合比，返回建议值草稿。系统必须先给建议值，再让销售确认。',
+      name: 'reverse_sales_quote',
+      description: '【普通混凝土·反向套价】按市场价反推。必传 targetUnitPrice（含税元/m³）+ 配合比(mixDesignId 或 materials)。利润区间默认 [0.5%, 3%]，可由用户动态调整。利润偏离区间时自动按"材料单价包装"/"制造费包装"/"人工费包装"等策略藏利润。**与 forward_sales_quote 区别**：本工具反向套市价；forward 是正向测算。当用户说"按市场价 X 算报价"调用本工具。',
       parameters: {
         type: 'object',
         properties: {
-          strengthGrade: { type: 'string', description: '强度等级，如 C30、C35、C40' },
-          concreteType: { type: 'string', description: '普通、泵送、抗渗、早强、缓凝、大体积、高强' },
-          slump: { type: 'number', description: '坍落度 mm，可为空，空时使用规则建议值' }
+          mixDesignId: { type: 'integer', description: '正式方案 ID（与 materials 二选一）' },
+          materials: { type: 'array', description: '配合比材料明细' },
+          targetUnitPrice: { type: 'number', description: '目标市价（含税元/m³），必填' },
+          strengthGrade: { type: 'string', description: '强度等级' },
+          concreteType: { type: 'string', description: '混凝土类型' },
+          slump: { type: 'number', description: '坍落度 mm' },
+          fixedFees: { type: 'object', description: '固定费用明细' },
+          polishStrategy: { type: 'string', description: '包装策略：none / material_price（默认）/ manufacturing / labor' },
+          profitSafeRange: { type: 'array', items: { type: 'number' }, description: '安全利润率区间 [min, max]，默认 [0.005, 0.03]，可由用户动态调整' },
+          vatRate: { type: 'number', description: '增值税率，默认 0.13' }
         },
-        required: ['strengthGrade', 'concreteType']
+        required: ['targetUnitPrice']
       }
     }
   },
   {
     type: 'function',
     function: {
-      name: 'calculate_sales_quote',
-      description: '销售确认报价草稿或修改报价参数后调用。生成单方报价建议，包含材料成本明细、制造费、技术服务费、运输费、泵送费和13%增值税。',
+      name: 'forward_sales_quote',
+      description: '【特殊混凝土·正向议价测算】按成本+利润出三档议价区间。必传 mixDesignId 或 materials + fixedFees（费用明细）。可选 equipmentAmortization {purchaseCost, totalAmortizeVolume, currentOrderVolume} 用于新进设备摊销（采购价÷预计总方量）。利润区间默认 [10%, 40%]，输出最低/建议/最高三档含税价。**与 reverse_sales_quote 区别**：本工具正向测算；reverse 反向套市价。当用户说"算特殊混凝土报价（含新设备分摊）"调用本工具。',
       parameters: {
         type: 'object',
         properties: {
-          basicMixId: { type: 'integer' },
-          pricing: { type: 'object' }
-        },
-        required: ['basicMixId', 'pricing']
+          mixDesignId: { type: 'integer', description: '正式方案 ID（与 materials 二选一）' },
+          materials: { type: 'array', description: '配合比材料明细' },
+          strengthGrade: { type: 'string' },
+          concreteType: { type: 'string' },
+          slump: { type: 'number' },
+          fixedFees: { type: 'object', description: '固定费用明细 {manufacturingFee, laborFee, technicalServiceFee, transportDistance, transportUnitPrice}' },
+          equipmentAmortization: { type: 'object', description: '设备摊销 {purchaseCost, totalAmortizeVolume, currentOrderVolume}' },
+          profitRange: { type: 'array', items: { type: 'number' }, description: '利润区间 [min, max]，默认 [0.10, 0.40]' },
+          vatRate: { type: 'number', description: '增值税率，默认 0.13' }
+        }
       }
     }
   },
   {
     type: 'function',
     function: {
-      name: 'create_sales_quote_rule',
-      description: '创建新的销售报价规则。当用户请求报价但没有找到匹配的混凝土类型规则时使用。',
+      name: 'format_quote_report',
+      description: '【报价单导出】把 reverse_sales_quote / forward_sales_quote 算出的 quote 对象，转换成 workspace_writeFile 接受的 {title, sections} payload，写入工作区 reports/ 目录。文件类型支持 docx / xlsx / md。**与 workspace_writeFile 的区别**：本工具专门处理 quote 对象，自动应用 9 块结构（材料/制造/人工/技术/运输/设备/利润/增值税/总价）和报价说明（reverse 体现包装策略、forward 体现设备费/技术服务费说明）。',
       parameters: {
         type: 'object',
         properties: {
-          concreteType: { type: 'string', description: '混凝土类型名称，如抗冻、低收缩' },
-          keywords: { type: 'array', items: { type: 'string' }, description: '触发关键词' },
-          suggestedManufacturingFee: { type: 'number', description: '制造费(元/m³)，默认18' },
-          suggestedTechnicalServiceFee: { type: 'number', description: '技术服务费(元/m³)，默认0' },
-          technicalServiceFeeRange: { type: 'array', items: { type: 'number' }, description: '技术服务费区间[min, max]' },
-          suggestedProfitRate: { type: 'number', description: '利润率(小数)，默认0.12' },
-          suggestedTransportDistance: { type: 'number', description: '建议运距(km)，默认20' },
-          suggestedTransportUnitPrice: { type: 'number', description: '运输单价(元/km/m³)，默认2.5' },
-          vatRate: { type: 'number', description: '税率(小数)，默认0.13' },
-          quoteRangeDelta: { type: 'number', description: '报价区间浮动，默认5' }
+          quote: { type: 'object', description: 'reverse_sales_quote / forward_sales_quote 返回的 data 字段' },
+          mode: { type: 'string', description: 'reverse / forward，影响报告 sections 内容' },
+          type: { type: 'string', description: 'docx / xlsx / md，默认 docx' },
+          filename: { type: 'string', description: '输出文件名，默认 "C{强度}报价单-{日期}.docx"' }
         },
-        required: ['concreteType']
+        required: ['quote']
       }
     }
   },
@@ -842,10 +849,11 @@ class DeepSeekService {
 - 能力1（免费）: 获取材料列表后，基于属性做定性对比（如"P.O 42.5比P.O 42.5R便宜40元/吨"）
 - 能力2（精确）: 用户追问"具体差多少"时，循环调用 calculate_mix_design，每次替换材料 ID，汇总对比结果
 
-### 销售报价流程
+### 销售报价流程（v10.10 双模式）
 - 用户询问报价、对客户解释特种混凝土、为什么贵、怎么报价时，进入销售报价流程。
-- 先调用 prepare_sales_quote_draft，不能直接编造报价。
-- 系统必须给建议值，让销售确认。销售可回复"按建议值生成"。
+- **普通混凝土**（目标市价已定）→ 调 `reverse_sales_quote`，传 `targetUnitPrice` + 配合比
+- **特殊混凝土**（正向议价测算）→ 调 `forward_sales_quote`，传完整成本 + 可选设备摊销
+- 算出 quote 后若需导出报告 → 调 `format_quote_report` 写到工作区 reports/
 - **严格禁止**：在销售报价场景下，不能自动调用 list_available_materials、calculate_mix_design、optimize_mix_cost、predict_performance 等工具。
 - 如果没有基础配合比，必须停下来告诉用户：
   "没有找到 XX 强度 XX 类型 的基础配合比。请选择已有基础配合比，或明确授权后我会帮您生成新配合比。"

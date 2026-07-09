@@ -8,8 +8,11 @@ const { TextArea } = Input
 const TOOL_LABELS = {
   save_mix_design: '保存配合比方案',
   save_to_basic_mix_library: '保存到基础配合比库',
-  create_sales_quote_rule: '创建报价规则',
-  calculate_sales_quote: '生成报价',
+  create_sales_quote_rule: '创建报价规则（已废弃）',
+  calculate_sales_quote: '生成报价（已废弃）',
+  reverse_sales_quote: '反向套价（普通混凝土）',
+  forward_sales_quote: '正向测算（特殊混凝土）',
+  format_quote_report: '导出报价单',
   ask_user: 'AI 提问',
   delete_mix_design: '删除配合比方案',
   delete_basic_mix_design: '删除基准配合比方案',
