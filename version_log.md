@@ -1,3 +1,55 @@
+## v10.10.0 功能版本 (2026-07-09) - 销售报价双模式拆分（reverse/forward）
+
+### 背景
+原销售报价 3 个 Skill (`calculate_sales_quote` / `prepare_sales_quote_draft` / `save_sales_quote`) 是「一刀切」的正向报价，无法表达普通混凝土的市价倒推 + 包装策略，也无法表达特殊混凝土的设备摊销 + 三档议价。报价表格式也是 3 sheet 老 Excel，与 workspace 报告体系脱节。
+
+### 新增
+- **reverse_sales_quote Skill**（普通混凝土反向套价）：按目标市价反推，让报价表看上去利润落在 0.5%-3% 区间（**区间可由用户通过 agent 动态调整**）。利润偏离时按 `material_price`（按价值占比分摊调整单价，默认）/ `manufacturing` / `labor` 等策略藏利润。
+- **forward_sales_quote Skill**（特殊混凝土正向议价测算）：按成本+利润出 10% / 25% / 40% 三档议价区间；新进设备费按"采购价 ÷ 预计总方量"摊销。
+- **format_quote_report Skill**（报价单导出）：quote → 9 块结构（材料/制造/人工/技术/运输/设备/利润/增值税/总价）+ 报价说明（reverse 体现包装策略、forward 体现设备费/技术服务费）→ 通过 `workspace_writeFile` 写入 `<workspace>/reports/`。
+- **quoteReportPayload.js**：quote → workspace payload 转换函数。
+- **SalesQuoteCalculationService.calculateReverse / calculateForward**：新算法，包装边界 [0.7×, 1.3×] 单价钳制 + 1.5× 费率上限。
+
+### 修改
+- **SalesQuoteHistory 模型**：加 6 字段（quoteMode / polishStrategy / polishedUnitPrices / equipmentPurchaseCost / equipmentAmortizeVolume / equipmentUnitAmortization）。
+- **save_sales_quote Skill**：升级到 v3.0.0，加 mode/polish/equipment 透传。
+- **salesQuoteHandler IPC**：`salesQuote:calculate` 加 `mode` 参数；删除 `salesQuote:listRules/createRule/updateRule/exportExcel`。
+- **DeepSeekService tool schema**：3 个老 tool 替换为 `reverse_sales_quote` / `forward_sales_quote` / `format_quote_report`。
+- **QuoteHistoryTab.jsx**：列表加「模式」列（🔻反向/🔺正向/旧版）+ 「价格」列（forward 显示三档 min/中/高）+ 「包装/设备」列。
+- **SalesQuoteResultCard.jsx**：`recalculate` 改走 `salesQuote:calculate` reverse 模式（保留 UI 兼容）。
+- **5 处 UI label** 替换为新工具名（ToolCallBubble / StreamingAgentCard / DecisionGate / AgentProgressCard / SmartDesignChat）。
+
+### 删除
+- `calculate_sales_quote` / `prepare_sales_quote_draft` / `create_sales_quote_rule` 老 IPC 全部"已废弃"占位（防御性保留，避免 LLM 误调）。
+- `src/main/skills/sales-quote.js` / `prepare-quote-draft.js`（老 Skill 文件）。
+- `src/main/db/models/SalesQuoteRule.js` / `src/main/services/SalesQuoteRuleService.js`（规则表干掉）。
+- `src/main/services/SalesQuoteExportService.js`（老 3 sheet xlsx 导出，改为走 workspace_writeFile）。
+- `src/renderer/components/SalesQuoteSettings.jsx` 中"报价规则" Tab + 编辑 Modal + 相关 useState。
+- `tests/manual/test-sales-quote.js`（依赖 SalesQuoteRuleService）。
+- `tests/unit/SalesQuoteExportService.test.js`。
+
+### 测试
+- `tests/unit/SalesQuoteCalculationService.test.js` 新增 8 个用例：
+  1. reverse 利润在区间内 → 不包装
+  2. reverse 利润偏高 (5%) → material_price 包装到 3%（边界 ≤ 1.3×）
+  3. reverse 亏本 → 包装到 0.5% 地板（边界 ≥ 0.7×）
+  4. reverse polishStrategy=none → 不包装 + 警告
+  5. reverse polishStrategy=manufacturing → 制造费被调整（≤ 1.5× 上限）
+  6. forward 不传设备摊销 → 三档价数学正确
+  7. forward 传设备分摊 → 单方摊销 = 采购价 ÷ 总方量
+  8. forward 三档价比例正确（10% / 25% / 40%）
+
+### 边缘情况
+- reverse material_price 包装：超界单价按 [0.7×, 1.3×] 边界钳制，超界项输出 `clamped:true` 警告。
+- reverse 包装后的对外含税价 = `targetUnitPrice`（±0.01），保证报价格不变。
+- forward 设备摊销 `totalAmortizeVolume ≤ 0` 抛错。
+- forward 设备费不影响利润区间（独立计算，10%/25%/40% 三档基于「材料+其他费用+设备摊销」总成本）。
+
+### 打包记录 (v10.10.0)
+- 待打包
+
+---
+
 ## v10.9.1 功能版本 (2026-07-09) - ask_user 弹窗位置 + todo 实时同步修复
 
 ### 背景

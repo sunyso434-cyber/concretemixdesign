@@ -1,6 +1,6 @@
 {
   "name": "concrete-mixdesign",
-  "version": "10.9.1",
+  "version": "10.10.0",
   "description": "砼智 Concrete Agent",
   "main": "main.js",
   "scripts": {
