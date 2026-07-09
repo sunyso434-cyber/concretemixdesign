@@ -1,6 +1,7 @@
 /**
  * 报价单 → workspace_writeFile payload 转换
- * 9 块结构：材料成本 / 制造 / 人工 / 技术 / 运输 / 设备 / 利润 / 增值税 / 总价
+ * 按样例图片统一为 6 大块表格：材料 / 生产制造费 / 管理费 / 利税合计 / 运输泵送费 / 总计
+ * 表格列：序号、计价项目、用量、单位、单价、金额、备注
  * reverse 模式在报价说明里体现包装策略，forward 模式体现设备费/技术服务费
  */
 
@@ -11,63 +12,67 @@ const POLISH_STRATEGY_NAME = {
   none: '不包装（仅警告）'
 }
 
+const TABLE_HEADER = ['序号', '计价项目', '用量', '单位', '单价', '金额', '备注']
+
 function money(value) {
   return Number(value || 0).toFixed(2)
+}
+
+function roundMoney(value) {
+  return Math.round((Number(value) || 0) * 1000000) / 1000000
 }
 
 function modeLabel(mode) {
   return mode === 'reverse' ? '普通混凝土' : '特殊混凝土'
 }
 
-function buildMaterialTable(quote) {
-  const rows = [['材料类型', '材料名称', '单方用量(kg/m³)', '单价(元/吨)', '小计(元/m³)']]
-  for (const item of quote.materialDetails || []) {
+function buildMainTable(quote, mode) {
+  const rows = [TABLE_HEADER]
+
+  // 1. 材料
+  rows.push(['1', '材料', '', '', '', '（材料费总计）', ''])
+  ;(quote.materialDetails || []).forEach((item, idx) => {
     rows.push([
-      item.materialType || '',
-      item.materialName || '',
+      `1.${idx + 1}`,
+      item.materialName || item.materialType || '',
       String(item.usage ?? ''),
+      'kg',
       money(item.unitPrice),
-      money(item.cost)
+      money(item.cost),
+      '（规格/厂家）'
     ])
-  }
-  rows.push(['', '', '', '小计', money(quote.materialCostSubtotal)])
+  })
+
+  // 2. 生产制造费
+  rows.push(['2', '生产制造费', '', '', '', '（生产制造费总计）', ''])
+  rows.push(['2.1', '制造费', '1', 'm³', '', money(quote.manufacturingFee), ''])
+  rows.push(['2.2', '人工费', '1', 'm³', '', money(quote.laborFee), ''])
+  rows.push(['2.3', '设备费', '1', 'm³', '', money(quote.equipmentFee ?? quote.equipmentUnitAmortization ?? 0), ''])
+
+  // 3. 管理费
+  rows.push(['3', '管理费', '', '', '', '（管理费总计）', ''])
+  rows.push(['3.1', '销售费', '1', 'm³', '', money(quote.salesFee), ''])
+  rows.push(['3.2', '技术服务费', '1', 'm³', '', money(quote.technicalServiceFee), ''])
+  rows.push(['3.3', '财务费', '1', 'm³', '', money(quote.financeFee), ''])
+
+  // 4. 利税合计
+  rows.push(['4', '利税合计', '', '', '', '（利税合计）', ''])
+  const profitAmount = mode === 'reverse'
+    ? (quote.actualProfit ?? 0)
+    : roundMoney((quote.totalCost ?? 0) * (quote.profitRange?.mid ?? 0.25))
+  rows.push(['4.1', '利润', '1', 'm³', '', money(profitAmount), ''])
+  rows.push(['4.2', '增值税', '1', 'm³', '', money(quote.vatAmount), ''])
+
+  // 5. 运输泵送费
+  rows.push(['5', '运输泵送费', '', '', '', '（运输泵送费总计）', ''])
+  rows.push(['5.1', '运输费', quote.transportDistance || '', 'km', money(quote.transportUnitPrice), money(quote.transportFee), ''])
+  rows.push(['5.2', '泵送费', '1', 'm³', '', money(quote.pumpingFee), '（泵送方式）'])
+
+  // 6. 总计
+  const totalAmount = mode === 'reverse' ? quote.suggestedDealPrice : quote.suggestedPrice
+  rows.push(['6', '总计', '', '', '', money(totalAmount), ''])
+
   return rows
-}
-
-function buildFeeTable(quote) {
-  const transportLabel = `运输费${quote.transportDistance ? `（${quote.transportDistance}km × ${money(quote.transportUnitPrice)}元/km/m³）` : ''}`
-  return [
-    ['费用项', '金额(元/m³)'],
-    ['生产制造费', money(quote.manufacturingFee)],
-    ['人工费', money(quote.laborFee)],
-    ['技术服务费', money(quote.technicalServiceFee)],
-    [transportLabel, money(quote.transportFee)],
-    ['设备费', money(quote.equipmentFee ?? quote.equipmentUnitAmortization)]
-  ]
-}
-
-function buildProfitSection(quote, mode) {
-  if (mode === 'reverse') {
-    const rate = (quote.actualProfitRate || 0) * 100
-    return `利润：${money(quote.actualProfit)} 元/m³（按 ${rate.toFixed(2)}% 利润率，区间 [${((quote.profitSafeRange?.min || 0) * 100).toFixed(1)}%, ${((quote.profitSafeRange?.max || 0) * 100).toFixed(1)}%]）`
-  }
-  const pr = quote.profitRange || { min: 0.10, mid: 0.25, max: 0.40 }
-  return `利润：按 ${(pr.min * 100).toFixed(0)}% / ${(pr.mid * 100).toFixed(1)}% / ${(pr.max * 100).toFixed(0)}% 三档议价`
-}
-
-function buildVatSection(quote) {
-  const rate = (quote.vatRate || 0.13) * 100
-  return `增值税：${money(quote.vatAmount)} 元/m³（按 ${rate.toFixed(0)}% 税率）`
-}
-
-function buildTotalSection(quote, mode) {
-  if (mode === 'reverse') {
-    return `总价（含税）：${money(quote.suggestedDealPrice)} 元/m³\n市场价定位：${money(quote.targetUnitPrice)} 元/m³`
-  }
-  return [
-    `总价（含税，建议价）：${money(quote.suggestedPrice)} 元/m³`,
-    `议价区间：最低 ${money(quote.minPrice)} | 建议 ${money(quote.suggestedPrice)} | 最高 ${money(quote.maxPrice)}`
-  ].join('\n')
 }
 
 function buildReverseNotes(quote) {
@@ -107,16 +112,7 @@ function quoteToReportPayload(quote, mode) {
   const sections = [
     { type: 'h1', content: title },
     { type: 'p', content: `报价日期：${new Date().toLocaleDateString('zh-CN')}    金额单位：元/m³` },
-    { type: 'h2', content: '1. 材料成本（含明细）' },
-    { type: 'table', rows: buildMaterialTable(quote) },
-    { type: 'h2', content: '2-6. 各项费用' },
-    { type: 'table', rows: buildFeeTable(quote) },
-    { type: 'h2', content: '7. 利润' },
-    { type: 'p', content: buildProfitSection(quote, m) },
-    { type: 'h2', content: '8. 增值税' },
-    { type: 'p', content: buildVatSection(quote) },
-    { type: 'h2', content: '9. 总价' },
-    { type: 'p', content: buildTotalSection(quote, m) },
+    { type: 'table', rows: buildMainTable(quote, m) },
     { type: 'h2', content: '报价说明' },
     { type: 'list', items: m === 'reverse' ? buildReverseNotes(quote) : buildForwardNotes(quote) }
   ]

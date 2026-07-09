@@ -43,7 +43,8 @@ run('calculates material detail per cubic meter from usage and current price', (
       manufacturingFee: 18,
       technicalServiceFee: 20,
       profitRate: 0.12,
-      transportFee: 12,
+      transportDistance: 0.6,
+      transportUnitPrice: 20,
       pumpingFee: 15,
       vatRate: 0.13,
       quoteRangeDelta: 5
@@ -243,4 +244,37 @@ run('forward: 3-tier price ratio correct (10% : 25% : 40%)', () => {
   assert.ok(Math.abs(minRate - 0.10) < 0.001, `minRate ${minRate} != 0.10`)
   assert.ok(Math.abs(midRate - 0.25) < 0.001, `midRate ${midRate} != 0.25`)
   assert.ok(Math.abs(maxRate - 0.40) < 0.001, `maxRate ${maxRate} != 0.40`)
+})
+
+run('reverse: salesFee / financeFee / pumpingFee are included in totalCost', () => {
+  const r = SalesQuoteCalculationService.calculateReverse({
+    materials: reverseMaterials,
+    targetUnitPrice: 450.55,
+    fixedFees: { salesFee: 5, financeFee: 3, pumpingFee: 12 },
+    strengthGrade: 'C35',
+    concreteType: '普通'
+  })
+  assert.strictEqual(r.salesFee, 5)
+  assert.strictEqual(r.financeFee, 3)
+  assert.strictEqual(r.pumpingFee, 12)
+  const expectedTotalCost = r.materialCostSubtotal + r.manufacturingFee + r.laborFee +
+    r.technicalServiceFee + r.salesFee + r.financeFee + r.transportFee + r.pumpingFee + r.equipmentFee
+  assert.strictEqual(r.totalCost, expectedTotalCost)
+})
+
+run('forward: salesFee / financeFee / pumpingFee affect totalCost', () => {
+  const base = SalesQuoteCalculationService.calculateForward({
+    materials: reverseMaterials,
+    strengthGrade: 'C35',
+    concreteType: '特殊'
+  })
+  const withFees = SalesQuoteCalculationService.calculateForward({
+    materials: reverseMaterials,
+    fixedFees: { salesFee: 5, financeFee: 3, pumpingFee: 12 },
+    strengthGrade: 'C35',
+    concreteType: '特殊'
+  })
+  const expectedDelta = 5 + 3 + 12
+  assert.strictEqual(withFees.totalCost - base.totalCost, expectedDelta)
+  assert.ok(Math.abs(withFees.suggestedPrice - base.suggestedPrice - expectedDelta * 1.25 * 1.13) < 0.01)
 })

@@ -84,7 +84,8 @@ function calculate({ basicMix, pricing }) {
   const transportDistance = Number(pricing.transportDistance) || 20
   const transportUnitPrice = Number(pricing.transportUnitPrice) || 2.5
   const transportFee = roundMoney(transportDistance * transportUnitPrice)
-  const preTaxPrice = roundMoney(costBase + baseProfit + transportFee)
+  const pumpingFee = roundMoney(pricing.pumpingFee)
+  const preTaxPrice = roundMoney(costBase + baseProfit + transportFee + pumpingFee)
   const vatAmount = roundMoney(preTaxPrice * vatRate)
   const suggestedDealPrice = roundMoney(preTaxPrice + vatAmount)
   const quoteRangeDelta = roundMoney(pricing.quoteRangeDelta)
@@ -105,6 +106,7 @@ function calculate({ basicMix, pricing }) {
     transportFee,
     transportDistance,
     transportUnitPrice,
+    pumpingFee,
     vatRate,
     preTaxPrice,
     vatAmount,
@@ -132,8 +134,11 @@ const REVERSE_DEFAULT_FEES = Object.freeze({
   manufacturingFee: 18,
   laborFee: 10,
   technicalServiceFee: 0,
+  salesFee: 0,
+  financeFee: 0,
   transportDistance: 20,
   transportUnitPrice: 2.5,
+  pumpingFee: 0,
   equipmentFee: 0
 })
 const PRICE_POLISH_BOUND = Object.freeze({ min: 0.7, max: 1.3 })
@@ -144,8 +149,11 @@ function resolveReverseFees(fixedFees = {}) {
     manufacturingFee: Number(fixedFees.manufacturingFee ?? REVERSE_DEFAULT_FEES.manufacturingFee) || 0,
     laborFee: Number(fixedFees.laborFee ?? REVERSE_DEFAULT_FEES.laborFee) || 0,
     technicalServiceFee: Number(fixedFees.technicalServiceFee ?? REVERSE_DEFAULT_FEES.technicalServiceFee) || 0,
+    salesFee: Number(fixedFees.salesFee ?? REVERSE_DEFAULT_FEES.salesFee) || 0,
+    financeFee: Number(fixedFees.financeFee ?? REVERSE_DEFAULT_FEES.financeFee) || 0,
     transportDistance: Number(fixedFees.transportDistance ?? REVERSE_DEFAULT_FEES.transportDistance) || 0,
     transportUnitPrice: Number(fixedFees.transportUnitPrice ?? REVERSE_DEFAULT_FEES.transportUnitPrice) || 0,
+    pumpingFee: Number(fixedFees.pumpingFee ?? REVERSE_DEFAULT_FEES.pumpingFee) || 0,
     equipmentFee: Number(fixedFees.equipmentFee ?? REVERSE_DEFAULT_FEES.equipmentFee) || 0
   }
 }
@@ -171,7 +179,10 @@ function calculateReverse({
 
   const fees = resolveReverseFees(fixedFees)
   const transportFee = roundMoney(fees.transportDistance * fees.transportUnitPrice)
-  const fixedFeeTotal = roundMoney(fees.manufacturingFee + fees.laborFee + fees.technicalServiceFee + transportFee + fees.equipmentFee)
+  const fixedFeeTotal = roundMoney(
+    fees.manufacturingFee + fees.laborFee + fees.technicalServiceFee +
+    fees.salesFee + fees.financeFee + transportFee + fees.pumpingFee + fees.equipmentFee
+  )
   const v = normalizeRate(vatRate)
 
   // 步骤 1-2: 算材料明细、总成本(不含税)、目标不含税价
@@ -308,9 +319,12 @@ function calculateReverse({
     manufacturingFee: effectiveManufacturingFee,
     laborFee: effectiveLaborFee,
     technicalServiceFee: fees.technicalServiceFee,
+    salesFee: fees.salesFee,
+    financeFee: fees.financeFee,
     transportDistance: fees.transportDistance,
     transportUnitPrice: fees.transportUnitPrice,
     transportFee,
+    pumpingFee: fees.pumpingFee,
     equipmentFee: fees.equipmentFee,
     totalCost,
     targetUnitPrice: Number(targetUnitPrice),
@@ -376,7 +390,8 @@ function calculateForward({
   const materialCostSubtotal = sumMaterialCost(materialDetails)
   const totalCost = roundMoney(
     materialCostSubtotal + fees.manufacturingFee + fees.laborFee +
-    fees.technicalServiceFee + transportFee + equipmentUnitAmortization
+    fees.technicalServiceFee + fees.salesFee + fees.financeFee +
+    transportFee + fees.pumpingFee + equipmentUnitAmortization
   )
 
   // 三档价:min/mid/max,中位用算术平均
@@ -398,9 +413,12 @@ function calculateForward({
     manufacturingFee: fees.manufacturingFee,
     laborFee: fees.laborFee,
     technicalServiceFee: fees.technicalServiceFee,
+    salesFee: fees.salesFee,
+    financeFee: fees.financeFee,
     transportDistance: fees.transportDistance,
     transportUnitPrice: fees.transportUnitPrice,
     transportFee,
+    pumpingFee: fees.pumpingFee,
     equipmentAmortization: equipmentAmortization || null,
     equipmentUnitAmortization,
     equipmentTotalAmortization,

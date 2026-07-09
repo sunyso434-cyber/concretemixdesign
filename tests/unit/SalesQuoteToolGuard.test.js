@@ -32,7 +32,7 @@ run('blocks mix design tools in sales quote flow until user explicitly authorize
   const context = { isSalesQuoteIntent: true, userApprovedMixDesignForQuote: false }
   assert.strictEqual(SalesQuoteToolGuard.shouldBlockTool('calculate_mix_design', context), true)
   assert.strictEqual(SalesQuoteToolGuard.shouldBlockTool('optimize_mix_cost', context), true)
-  assert.strictEqual(SalesQuoteToolGuard.shouldBlockTool('compare_materials', context), true)
+  assert.strictEqual(SalesQuoteToolGuard.shouldBlockTool('predict_performance', context), true)
   // v10.10 报价工具已替换为 reverse_sales_quote / forward_sales_quote,确保不在黑名单
   assert.strictEqual(SalesQuoteToolGuard.shouldBlockTool('reverse_sales_quote', context), false)
   assert.strictEqual(SalesQuoteToolGuard.shouldBlockTool('forward_sales_quote', context), false)

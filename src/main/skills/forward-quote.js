@@ -18,7 +18,7 @@ module.exports = {
     strengthGrade: { type: 'string', required: false, description: '强度等级（覆盖 mixDesign 中 strength 字段）' },
     concreteType: { type: 'string', required: false, description: '混凝土类型' },
     slump: { type: 'number', required: false, description: '坍落度 mm' },
-    fixedFees: { type: 'object', required: false, description: '固定费用明细 {manufacturingFee, laborFee, technicalServiceFee, transportDistance, transportUnitPrice}' },
+    fixedFees: { type: 'object', required: false, description: '固定费用明细 {manufacturingFee, laborFee, technicalServiceFee, salesFee, financeFee, transportDistance, transportUnitPrice, pumpingFee}' },
     equipmentAmortization: { type: 'object', required: false, description: '设备摊销 {purchaseCost, totalAmortizeVolume, currentOrderVolume}' },
     profitRange: { type: 'array', required: false, description: '利润区间 [min, max]，默认 [0.10, 0.40]，中位自动算术平均' },
     vatRate: { type: 'number', required: false, description: '增值税率，默认 0.13' },

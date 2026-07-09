@@ -1,3 +1,64 @@
+## v10.10.3 功能版本 (2026-07-09) - 报价单按样例图片重构为 6 大块表格 + 默认 md 输出
+
+### 背景
+老板提供"报价单样例.png"，要求按该格式重构报价单输出。旧报价单是 9 块分散结构（材料/制造/人工/技术/运输/设备/利润/增值税/总价），与样例图片的 6 大块统一表格不一致。同时老板要求默认输出 md 格式，只有用户明确要求时才输出 xlsx/docx。
+
+### 改动
+
+#### 1. 报价单表格结构重构（quoteReportPayload.js）
+- **旧结构**：9 块分散（材料表 + 费用表 + 利润段落 + 增值税段落 + 总价段落）
+- **新结构**：按样例图片统一为 6 大块单表格
+  - 表头：序号、计价项目、用量、单位、单价、金额、备注
+  - 1. 材料（含明细子项 1.1/1.2...）
+  - 2. 生产制造费（2.1 制造费 / 2.2 人工费 / 2.3 设备费）
+  - 3. 管理费（3.1 销售费 / 3.2 技术服务费 / 3.3 财务费）
+  - 4. 利税合计（4.1 利润 / 4.2 增值税）
+  - 5. 运输泵送费（5.1 运输费 / 5.2 泵送费）
+  - 6. 总计
+- **报价说明部分保持不动**：reverse 体现包装策略，forward 体现设备费/技术服务费
+
+#### 2. 新增费用字段（SalesQuoteCalculationService.js）
+- `fixedFees` 新增 3 个字段（默认 0，向后兼容）：
+  - `salesFee`（销售费）→ 归入管理费块
+  - `financeFee`（财务费）→ 归入管理费块
+  - `pumpingFee`（泵送费）→ 归入运输泵送费块
+- reverse 和 forward 两个计算路径都把这 3 个费用计入 `totalCost`
+- 旧版 `calculate()` 也同步支持 `pumpingFee`
+
+#### 3. 默认输出格式改为 md（format-quote-report.js）
+- 默认 `type` 从 `docx` 改为 `md`
+- 默认文件名扩展名从 `.docx` 改为 `.md`
+- 工具描述明确说明"只有用户明确要求 xlsx 或 docx 时才输出对应格式"
+- 版本号升为 1.1.0
+
+#### 4. Skill 参数说明更新
+- `forward-quote.js`：fixedFees 描述补上 salesFee/financeFee/pumpingFee
+- `reverse-quote.js`：fixedFees 描述补上 salesFee/financeFee/pumpingFee
+
+### 版本号同步（CLAUDE.md 第 7 条）
+- ✅ [package.json:3](package.json#L3) `version: 10.10.2` → `10.10.3`
+- ✅ [package.json:74](package.json#L74) `output: dist-10.10.2` → `dist-10.10.3`
+- ✅ [WorkspacePage.jsx:152](src/renderer/pages/WorkspacePage.jsx#L152) 顶栏 `v10.10.2` → `v10.10.3`
+
+### 测试
+- `SalesQuoteCalculationService.test.js`：新增 2 个用例（reverse/forward 新费用计入总成本），修复 1 个旧用例
+- `quoteReportPayload.test.js`（新增）：3 个用例验证 6 大块表格结构、列头、新字段显示
+- `SalesQuoteToolGuard.test.js`：更新黑名单断言与当前代码一致
+- 全部 3 个测试文件 PASS
+
+### 边缘情况
+- 不传 salesFee/financeFee/pumpingFee 时默认 0，不影响老数据和老调用
+- forward 模式利润金额用 `totalCost × profitRange.mid` 计算（25% 中位档）
+- reverse 模式利润金额用 `actualProfit`
+- 泵送费备注栏留"（泵送方式）"占位
+
+### 打包记录 (v10.10.3)
+- dist-10.10.3/砼智 Setup 10.10.3.exe
+- dist-10.10.3/砼智-10.10.3-portable-x64.exe
+- dist-10.10.3/win-unpacked/
+
+---
+
 ## v10.10.2 清理版本 (2026-07-09) - 删除基准配合比库（BasicMixDesign）全部残留
 
 ### 背景
