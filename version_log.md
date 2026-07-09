@@ -1,3 +1,32 @@
+## v10.10.4 修复版本 (2026-07-09) - recall_session services 声明 + TodoPanel 快照机制
+
+### 修复内容
+1. **recall_session 缺 services 字段**：`recallSession.js` 未声明 `services` 字段，运行时 `DynamicContextProvider.getServices()` 抛 `services_undeclared` 错误。已加 `services: []`。
+2. **已完成的 todo 面板一直显示**：`TodoPanel.jsx` 全部完成时不隐藏，旧 todo 跟到新消息。改为全部完成时自动隐藏实时面板，同时 agent 完成时拍快照存入消息 `todoSnapshot`，在消息内渲染只读 TodoPanel。
+
+### 改动文件
+- `src/main/agent/skills/recallSession.js` — 加 `services: []`
+- `src/renderer/components/TodoPanel.jsx` — 新增 `readOnly` + `snapshot` prop；全部完成时隐藏实时面板
+- `src/renderer/components/SmartDesignChat.jsx` — `latestTodoRef` 跟踪 todo；`applyFinalChatResult` 拍快照；消息内渲染只读 TodoPanel
+
+### 版本号同步
+- ✅ `package.json:3` `version: 10.10.3` → `10.10.4`
+- ✅ `package.json:74` `output: dist-10.10.3` → `dist-10.10.4`
+- ✅ `WorkspacePage.jsx:152` 顶栏 `v10.10.3` → `v10.10.4`
+
+### 测试结果
+- recallSession.js 加载正常
+- SalesQuoteCalculationService.test.js: 13/13 PASS
+- quoteReportPayload.test.js: 3/3 PASS
+- SalesQuoteToolGuard.test.js: 3/3 PASS
+
+### 打包记录 (v10.10.4)
+- dist-10.10.4/砼智 Setup 10.10.4.exe
+- dist-10.10.4/砼智-10.10.4-portable-x64.exe
+- dist-10.10.4/win-unpacked/
+
+---
+
 ## v10.10.3 功能版本 (2026-07-09) - 报价单按样例图片重构为 6 大块表格 + 默认 md 输出
 
 ### 背景

@@ -46,6 +46,7 @@ module.exports = {
   category: '记忆',
   description: '按关键词检索历史对话摘要与原文（跨会话召回老板之前讨论过的内容）',
   execute: recallSession,
+  services: [],
   parameters: {
     query: {
       type: 'string',

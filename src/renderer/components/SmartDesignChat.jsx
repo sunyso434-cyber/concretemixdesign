@@ -256,8 +256,26 @@ const SmartDesignChat = () => {
   const inputAreaRef = useRef(null)  // Ctrl+V 粘贴作用域控制
   const slashMenuApiRef = useRef({ moveSelection: () => {}, getSelectedIndex: () => 0 })
 
+  // 跟踪当前 todo 状态，用于 agent 完成时拍快照存入消息
+  const latestTodoRef = useRef({ todos: [], summary: { total: 0, completed: 0 } })
+
   // 派生：Agent 是否在工作中（流式/思考/工具调用）
   const isAgentBusy = ['streaming', 'thinking', 'tool_calling'].includes(state.agent.status)
+
+  // 订阅 todo 更新，保持 ref 最新（用于 agent 完成时拍快照）
+  useEffect(() => {
+    if (!window.electronAPI?.todo) return
+    const listenerId = window.electronAPI.todo.onUpdate((payload) => {
+      if (!payload) return
+      latestTodoRef.current = {
+        todos: payload.todos || [],
+        summary: { total: payload.total || 0, completed: payload.completed || 0 }
+      }
+    })
+    return () => {
+      try { window.electronAPI.todo.removeUpdateListener(listenerId) } catch (_) {}
+    }
+  }, [])
 
   // 仅在消息条数变化时刷新会话列表（避免流式输出时频繁刷新）
   const prevMsgCountRef = useRef(0)
@@ -868,6 +886,13 @@ const SmartDesignChat = () => {
 
   const applyFinalChatResult = (streamId, result) => {
     const finalMsg = buildAssistantMessageFromResult(result)
+    // 拍 todo 快照：当前 todo 非空时存入消息，供只读回看
+    const todoSnapshot = (latestTodoRef.current.todos.length > 0)
+      ? {
+          todos: latestTodoRef.current.todos.map(t => ({ ...t })),
+          summary: { ...latestTodoRef.current.summary }
+        }
+      : null
     updateStreamMessage(streamId, item => ({
       ...item,
       ...finalMsg,
@@ -877,7 +902,8 @@ const SmartDesignChat = () => {
       streaming: false,
       toolEvents: (item.toolEvents || []).map(tool => (
         tool.status === 'loading' ? { ...tool, status: 'done' } : tool
-      ))
+      )),
+      todoSnapshot
     }))
   }
 
@@ -1687,6 +1713,10 @@ const SmartDesignChat = () => {
                         agentStatus={state.agent.status}
                         agentReplyText={state.agent.replyText}
                       />
+                      {/* 历史 todo 快照（只读）：留在上一轮 agent 输出中 */}
+                      {item.todoSnapshot && (
+                        <TodoPanel readOnly snapshot={item.todoSnapshot} />
+                      )}
                       {/* 附件文件卡片：bot 报告里携带的 docx/xlsx/md/pdf 文件 */}
                       {item.role === 'assistant' && Array.isArray(item.attachments) && item.attachments.length > 0 && (
                         <div className="file-message-card-list" style={{ marginTop: 8 }}>

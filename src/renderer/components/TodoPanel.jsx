@@ -39,18 +39,28 @@ const StatusIcon = ({ status }) => {
  * - 订阅 `todo:updated` 事件，收到后按 sessionId 过滤 + 更新本地状态
  *
  * Props:
- * - sessionId: 当前会话 ID（必填）
+ * - sessionId: 当前会话 ID（必填，实时模式）
+ * - readOnly: 只读模式（用于消息内历史快照展示，不订阅事件）
+ * - snapshot: 只读模式的快照数据 { todos, summary: { total, completed } }
  *
  * 视觉：进度条 + 列表 + 状态可视化，让用户"看着 LLM 一项项推进"
  */
-const TodoPanel = ({ sessionId }) => {
+const TodoPanel = ({ sessionId, readOnly = false, snapshot = null }) => {
   const [todos, setTodos] = useState([])
   const [summary, setSummary] = useState({ total: 0, completed: 0 })
   const [collapsed, setCollapsed] = useState(false)
 
-  // 初始拉取 + 每次 sessionId 变化重新拉
+  // 只读模式：直接用 snapshot 数据
   useEffect(() => {
-    if (!sessionId || !window.electronAPI?.todo) return
+    if (readOnly && snapshot) {
+      setTodos(snapshot.todos || [])
+      setSummary(snapshot.summary || { total: 0, completed: 0 })
+    }
+  }, [readOnly, snapshot])
+
+  // 初始拉取 + 每次 sessionId 变化重新拉（仅实时模式）
+  useEffect(() => {
+    if (readOnly || !sessionId || !window.electronAPI?.todo) return
     let cancelled = false
     window.electronAPI.todo.list(sessionId).then(res => {
       if (cancelled) return
@@ -60,11 +70,11 @@ const TodoPanel = ({ sessionId }) => {
       }
     }).catch(() => { /* 拉取失败静默忽略，订阅通道仍可用 */ })
     return () => { cancelled = true }
-  }, [sessionId])
+  }, [sessionId, readOnly])
 
-  // 订阅实时更新
+  // 订阅实时更新（仅实时模式）
   useEffect(() => {
-    if (!sessionId || !window.electronAPI?.todo) return
+    if (readOnly || !sessionId || !window.electronAPI?.todo) return
     const listenerId = window.electronAPI.todo.onUpdate((payload) => {
       if (!payload || payload.sessionId !== sessionId) return
       setTodos(payload.todos || [])
@@ -73,10 +83,13 @@ const TodoPanel = ({ sessionId }) => {
     return () => {
       try { window.electronAPI.todo.removeUpdateListener(listenerId) } catch (_) {}
     }
-  }, [sessionId])
+  }, [sessionId, readOnly])
 
   // 空态：LLM 还没调 todo_manage 时不渲染面板
   if (!todos || todos.length === 0) return null
+
+  // 实时模式：全部完成时隐藏面板（快照已留在消息内）
+  if (!readOnly && summary.total > 0 && summary.completed === summary.total) return null
 
   const percent = summary.total > 0 ? Math.round((summary.completed / summary.total) * 100) : 0
 
