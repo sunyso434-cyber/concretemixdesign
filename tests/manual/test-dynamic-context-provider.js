@@ -22,14 +22,12 @@ function assert(condition, message) {
 const mockServices = {
   materialService: { getMaterials: () => Promise.resolve([]) },
   mixDesignService: { calculate: () => Promise.resolve({}) },
-  basicMixDesignService: { getBasic: () => Promise.resolve({}) },
   mixDesignOptimizer: { optimize: () => Promise.resolve({}) },
   complianceService: { check: () => Promise.resolve({}) },
   knowledgeService: { search: () => Promise.resolve([]) },
   salesQuoteCalculation: { calculate: () => Promise.resolve({}) },
   salesQuoteHistory: { getHistory: () => Promise.resolve([]) },
-  xgboostPrediction: { predict: () => Promise.resolve({}) },
-  mixDesignToQuote: { convert: () => Promise.resolve({}) }
+  xgboostPrediction: { predict: () => Promise.resolve({}) }
 }
 
 console.log('\n=== 测试getForSkill方法 ===')
@@ -171,7 +169,6 @@ console.log('\n=== 测试calculate类别 ===')
 
   assert(context.materialService !== undefined, 'calculate类别应该包含materialService')
   assert(context.mixDesignService !== undefined, 'calculate类别应该包含mixDesignService')
-  assert(context.basicMixDesignService !== undefined, 'calculate类别应该包含basicMixDesignService')
   assert(context.mixDesignOptimizer === undefined, 'calculate类别不应该包含mixDesignOptimizer')
 }
 

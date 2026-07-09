@@ -10,7 +10,7 @@ class DynamicContextProvider {
     // 服务类别定义
     this.serviceCategories = {
       query: ['materialService', 'knowledgeService'],
-      calculate: ['materialService', 'mixDesignService', 'basicMixDesignService'],
+      calculate: ['materialService', 'mixDesignService'],
       optimize: ['materialService', 'mixDesignService', 'mixDesignOptimizer'],
       check: ['materialService', 'complianceService', 'knowledgeService'],
       sales: ['materialService', 'salesQuoteCalculation', 'salesQuoteHistory'],

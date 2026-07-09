@@ -170,12 +170,10 @@ async function initSkillSystem() {
   const allServices = {
     materialService: require('../services/MaterialService'),
     mixDesignService: require('../services/MixDesignService'),
-    basicMixDesignService: require('../services/BasicMixDesignService'),
     mixDesignOptimizer: require('../services/MixDesignOptimizer'),
     salesQuoteCalculation: require('../services/SalesQuoteCalculationService'),
     salesQuoteHistory: require('../services/SalesQuoteHistoryService'),
     xgboostPrediction: require('../services/XGBoostPredictionService'),
-    mixDesignToQuote: require('../services/MixDesignToQuoteService'),
     auditLogService: require('../services/AuditLogService'),
 
     // === Task 4：vision 能力注入 ===

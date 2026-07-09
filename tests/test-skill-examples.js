@@ -31,9 +31,7 @@ const mockContext = {
   knowledgeService: { searchClauses: async () => [] },
   salesQuoteCalculation: {},
   salesQuoteHistory: {},
-  xgboostPrediction: {},
-  mixDesignToQuote: {},
-  basicMixDesignService: {}
+  xgboostPrediction: {}
 }
 
 let totalPassed = 0

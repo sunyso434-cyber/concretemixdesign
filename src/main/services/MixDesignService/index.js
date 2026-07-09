@@ -119,10 +119,6 @@ class MixDesignService {
     return MixDesignService_Database.getAllMixDesigns(options)
   }
 
-  async findByBasicMixId(basicMixId) {
-    return MixDesignService_Database.findByBasicMixId(basicMixId)
-  }
-
   async getMixDesignById(id) {
     return MixDesignService_Database.getMixDesignById(id)
   }

@@ -149,7 +149,7 @@ function WorkspaceContent() {
 
         <div className="topbar-right">
           {hasTasks && <span className="topbar-task-dot has-tasks" />}
-          <span className="topbar-version">v10.8.0</span>
+          <span className="topbar-version">v10.10.2</span>
 
           {/* 自定义窗口控制按钮（无原生标题栏时使用） */}
           <div className="topbar-window-controls">
@@ -246,7 +246,7 @@ function WorkspaceContent() {
             <div className="v9-manage-nav">
               <div className="v9-mat-nav-label">方案分类</div>
               <div className="v9-mat-nav">
-                {['全部方案', '正式方案', '草稿方案', '已对比', '基准方案'].map(t => (
+                {['全部方案', '正式方案', '草稿方案', '已对比'].map(t => (
                   <div key={t} className={`v9-mat-nav-item ${schNavType === t ? 'active' : ''}`} onClick={() => { setSchNavType(t); schemesRef.current?.filterScheme(t) }}>{t}</div>
                 ))}
               </div>

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandl
 import { Card, Button, Table, Space, message, Modal, Form, Input, Select, Tag } from 'antd'
 import { AppstoreOutlined, DollarOutlined, ThunderboltOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import extractErrorMessage from '../utils/extractErrorMessage'
-import BasicMixTab from '../components/BasicMixTab'
 
 
 const { Option } = Select
@@ -13,7 +12,6 @@ const SchemesPage = forwardRef((props, ref) => {
   const [selectedSchemes, setSelectedSchemes] = useState([])
   const [showDrafts, setShowDrafts] = useState(false)
   const [statusFilter, setStatusFilter] = useState(null) // 外部导航过滤：null=全部
-  const [viewMode, setViewMode] = useState('schemes') // 'schemes' | 'basicMix'
   const [viewModalVisible, setViewModalVisible] = useState(false)
   const [currentScheme, setCurrentScheme] = useState(null)
   const [editModalVisible, setEditModalVisible] = useState(false)
@@ -22,13 +20,7 @@ const SchemesPage = forwardRef((props, ref) => {
   // 暴露给父组件的方法
   useImperativeHandle(ref, () => ({
     filterScheme: (type) => {
-      // 基准方案：切换到 basicMix 视图
-      if (type === '基准方案') {
-        setViewMode('basicMix')
-        return
-      }
       // 其余分类：切回 schemes 视图并设置过滤
-      setViewMode('schemes')
       if (type === '全部方案') {
         setShowDrafts(true)
         setStatusFilter(null)
@@ -380,16 +372,10 @@ const SchemesPage = forwardRef((props, ref) => {
         </div>
       </div>
 
-      {viewMode === 'basicMix' ? (
-        /* 基准方案视图 */
+      {/* 普通方案视图（v10.10.2 起 basicMix 视图下线，只剩 schemes） */}
+      <>
         <div className="custom-card">
-          <BasicMixTab />
-        </div>
-      ) : (
-        /* 普通方案视图 */
-        <>
-          <div className="custom-card">
-            <Table
+          <Table
               className="custom-table"
               dataSource={filteredSchemes.map(s => ({ ...s, key: s.id }))}
               columns={columns}
@@ -420,7 +406,6 @@ const SchemesPage = forwardRef((props, ref) => {
             </div>
           </div>
         </>
-      )}
 
       {/* 查看方案模态框 */}
       <Modal

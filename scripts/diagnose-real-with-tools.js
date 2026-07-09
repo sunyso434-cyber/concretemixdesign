@@ -73,7 +73,6 @@ const all28Tools = [
   
   { type: 'function', function: { name: 'save_mix_design', description: '保存配合比设计', parameters: { type: 'object', properties: { design: { type: 'object' } }, required: ['design'] } } },
   { type: 'function', function: { name: 'save_sales_quote', description: '保存销售报价', parameters: { type: 'object', properties: { quote: { type: 'object' } }, required: ['quote'] } } },
-  { type: 'function', function: { name: 'save_to_basic_mix_library', description: '保存到基本配合比库', parameters: { type: 'object', properties: { mixDesignId: { type: 'integer' } }, required: ['mixDesignId'] } } },
   { type: 'function', function: { name: 'manage_skills', description: '管理技能', parameters: { type: 'object', properties: { action: { type: 'string' } }, required: ['action'] } } },
   { type: 'function', function: { name: 'list_standards', description: '列出规范', parameters: { type: 'object', properties: {} } } },
   { type: 'function', function: { name: 'query_standards', description: '查询规范', parameters: { type: 'object', properties: { keyword: { type: 'string' } }, required: ['keyword'] } } },

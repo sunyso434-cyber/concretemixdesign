@@ -60,7 +60,6 @@ const MixDesign = require('./models/MixDesign')
 const SystemParam = require('./models/SystemParam')
 const OptimizationHistory = require('./models/OptimizationHistory')
 const InsulationMaterial = require('./models/InsulationMaterial')
-const BasicMixDesign = require('./models/BasicMixDesign')
 const PumpingFeeItem = require('./models/PumpingFeeItem')
 const SalesQuoteHistory = require('./models/SalesQuoteHistory')
 const AppSetting = require('./models/AppSetting')
@@ -159,7 +158,7 @@ async function syncModels() {
   const backupFile = backupDatabase()
 
   // UserPreference 已在阶段 B 迁移中废弃，不在此处注册
-  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, BasicMixDesign, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion]
+  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion]
   let migrationFailed = false
 
   for (const model of allModels) {
@@ -251,7 +250,6 @@ module.exports.MixDesign = MixDesign
 module.exports.SystemParam = SystemParam
 module.exports.OptimizationHistory = OptimizationHistory
 module.exports.InsulationMaterial = InsulationMaterial
-module.exports.BasicMixDesign = BasicMixDesign
 module.exports.PumpingFeeItem = PumpingFeeItem
 module.exports.SalesQuoteHistory = SalesQuoteHistory
 module.exports.AppSetting = AppSetting

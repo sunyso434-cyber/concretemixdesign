@@ -234,26 +234,7 @@ const TOOLS = [
       }
     }
   },
-  {
-    type: 'function',
-    function: {
-      name: 'save_to_basic_mix_library',
-      description: '将当前配合比方案保存到基础配合比库（用于销售报价）。当用户说"保存到基准配合比库"、"存入基础库"、"加到报价库"时调用。必须先完成配合比计算。',
-      parameters: {
-        type: 'object',
-        properties: {
-          name: { type: 'string', description: '方案名称（可选），不填则自动生成' },
-          strengthGrade: { type: 'string', description: '强度等级（可选），默认使用当前配合比的强度等级' },
-          concreteType: { type: 'string', description: '混凝土类型（可选）：普通/泵送/抗渗/早强/缓凝/大体积/高强，默认"普通"' },
-          slump: { type: 'number', description: '坍落度mm（可选），默认使用当前配合比的坍落度' },
-          isDefault: { type: 'boolean', description: '是否设为默认基准配合比（可选），默认false' },
-          remarks: { type: 'string', description: '备注（可选）' }
-        },
-        required: []
-      }
-    }
-  }
-]
+  ]
 
 class DeepSeekService {
   constructor(apiKeyOrConfig, systemService = null) {
@@ -851,12 +832,11 @@ class DeepSeekService {
 
 ### 销售报价流程（v10.10 双模式）
 - 用户询问报价、对客户解释特种混凝土、为什么贵、怎么报价时，进入销售报价流程。
-- **普通混凝土**（目标市价已定）→ 调 `reverse_sales_quote`，传 `targetUnitPrice` + 配合比
-- **特殊混凝土**（正向议价测算）→ 调 `forward_sales_quote`，传完整成本 + 可选设备摊销
-- 算出 quote 后若需导出报告 → 调 `format_quote_report` 写到工作区 reports/
+- **普通混凝土**（目标市价已定）→ 调 \`reverse_sales_quote\`，传 \`targetUnitPrice\` + 配合比
+- **特殊混凝土**（正向议价测算）→ 调 \`forward_sales_quote\`，传完整成本 + 可选设备摊销
+- 算出 quote 后若需导出报告 → 调 \`format_quote_report\` 写到工作区 reports/
 - **严格禁止**：在销售报价场景下，不能自动调用 list_available_materials、calculate_mix_design、optimize_mix_cost、predict_performance 等工具。
-- 如果没有基础配合比，必须停下来告诉用户：
-  "没有找到 XX 强度 XX 类型 的基础配合比。请选择已有基础配合比，或明确授权后我会帮您生成新配合比。"
+- 如果还没有配合比方案，必须先停下来告诉用户："没有找到 XX 强度 XX 类型 的配合比。请选择已有方案，或明确授权后我会帮您生成新配合比。"
   **禁止自动生成配合比、禁止替用户选择材料。**
 - 报价统一为单方价格，不能询问数量，不能输出总金额。
 - 运输费、泵送费、税费默认计入；税费默认按13%增值税。
@@ -864,9 +844,9 @@ class DeepSeekService {
 
 ### 保存方案
 - 用户说"保存方案"、"把这个存起来"、"保存这个配合比"等，调用 save_mix_design 保存到方案库。
-- 用户说"保存到基准配合比库"、"存入基础库"、"加到报价库"等，调用 save_to_basic_mix_library 保存到基础配合比库。
 - **必须先完成配合比计算或成本优化才能保存**。如果还没有计算结果，告诉用户先进行计算。
 - 保存成功后告诉用户已保存，让用户放心。
+- **已废弃**：v10.10 起基准配合比库已下线，不要再调用 save_to_basic_mix_library / save_basic_mix_design / list_basic_mix_designs / delete_basic_mix_design 等旧 skill。
 
 ### 创建自定义技能
 - 用户说"我想加一个XX功能"、"帮我创建一个XX工具"、"能不能支持XX"时，先检查是否已有功能重复的已有技能（通过 manage_skills(list) 查看）。如果有，直接使用已有技能，不要重复创建

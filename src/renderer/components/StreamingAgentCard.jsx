@@ -23,8 +23,7 @@ const TOOL_LABELS = {
   reverse_sales_quote: '反向套价',
   forward_sales_quote: '正向测算',
   format_quote_report: '导出报价单',
-  save_mix_design: '保存方案',
-  save_to_basic_mix_library: '保存到基准库'
+  save_mix_design: '保存方案'
 }
 
 // 呼吸灯 + AI思考中 动画样式（全局只注入一次）
@@ -114,8 +113,6 @@ function renderResultSummary(toolName, result) {
     }
     case 'save_mix_design':
       return result.message ? `✓ ${result.message}` : '✓ 方案已保存'
-    case 'save_to_basic_mix_library':
-      return result.message ? `✓ ${result.message}` : '✓ 已保存到基准库'
     case 'list_standards': {
       const count = result.count ?? result.standards?.length ?? 0
       return count ? `找到 ${count} 条规范` : '查询完成'
@@ -162,9 +159,6 @@ function renderArgsSummary(toolName, args = {}) {
   }
   if (toolName === 'save_mix_design') {
     return args.schemeName || args.name || '保存方案'
-  }
-  if (toolName === 'save_to_basic_mix_library') {
-    return args.name || '保存到基准库'
   }
   if (toolName === 'predict_performance') {
     return '预测强度 / 坍落度 / 容重'

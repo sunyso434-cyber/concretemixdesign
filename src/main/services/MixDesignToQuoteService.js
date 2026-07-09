@@ -1,9 +1,11 @@
 /**
  * 配合比设计 → 销售报价 数据流服务
  * 确保配合比设计和报价使用完全相同的数据，避免数据不一致问题
+ *
+ * v10.10.2 起：BasicMixDesign 库下线，删除 saveMixDesignAsBasicMix / generateQuoteFromMixDesign
+ * （这两个方法依赖 BasicMixDesignService）。保留数据转换/校验方法供其他模块使用。
  */
 
-const BasicMixDesignService = require('./BasicMixDesignService')
 const SalesQuoteCalculationService = require('./SalesQuoteCalculationService')
 
 class MixDesignToQuoteService {
@@ -56,17 +58,6 @@ class MixDesignToQuoteService {
       source: '配合比设计',
       enabled: true
     }
-  }
-
-  /**
-   * 保存配合比设计为基础配合比
-   * @param {Object} mixDesignResult - 配合比设计结果
-   * @returns {Object} 保存的基础配合比记录
-   */
-  static async saveMixDesignAsBasicMix(mixDesignResult) {
-    const basicMixData = this.formatMixDesignToBasicMix(mixDesignResult)
-    const saved = await BasicMixDesignService.createBasicMixDesign(basicMixData)
-    return saved
   }
 
   /**
@@ -208,30 +199,22 @@ class MixDesignToQuoteService {
    * @param {Object} mixDesignResult - 配合比设计结果
    * @param {Object} pricing - 定价参数
    * @returns {Object} 包含配合比和报价的完整结果
+   * @deprecated v10.10.2 起 BasicMixDesign 库下线，调用方应直接用 reverse/forward_sales_quote
    */
   static async generateQuoteFromMixDesign(mixDesignResult, pricing) {
-    // 第一步：格式化配合比数据
+    // v10.10.2：BasicMixDesignService 已下线，去掉"保存为基础配合比"步骤
     const basicMixData = this.formatMixDesignToBasicMix(mixDesignResult)
-
-    // 第二步：保存为基础配合比
-    const savedBasicMix = await BasicMixDesignService.createBasicMixDesign(basicMixData)
-
-    // 第三步：使用完全相同的数据计算报价
     const quoteResult = SalesQuoteCalculationService.calculate({
       basicMix: basicMixData,
       pricing
     })
-
-    // 第四步：验证数据一致性
     const validation = this.validateQuoteConsistency(basicMixData, quoteResult)
-
     if (!validation.valid) {
       console.error('[MixDesignToQuoteService] 数据一致性验证失败:', validation.errors)
       throw new Error(`报价数据不一致：${validation.errors.join('; ')}`)
     }
-
     return {
-      basicMix: savedBasicMix.toJSON(),
+      basicMix: basicMixData,
       quote: quoteResult,
       validation
     }

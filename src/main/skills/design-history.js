@@ -46,17 +46,15 @@ module.exports = {
 
     try {
       const { Op } = require('sequelize')
-      const { MixDesign, BasicMixDesign } = require('../db/database')
+      const { MixDesign } = require('../db/database')
 
       const actualLimit = Math.min(Math.max(parseInt(limit) || 5, 1), 50)
 
       // Build query conditions
       const mixDesignWhere = {}
-      const basicMixWhere = {}
 
       if (strength) {
         mixDesignWhere.strength = { [Op.like]: `%${strength}%` }
-        basicMixWhere.strengthGrade = { [Op.like]: `%${strength}%` }
       }
       if (keyword) {
         mixDesignWhere[Op.or] = [
@@ -64,58 +62,31 @@ module.exports = {
           { projectName: { [Op.like]: `%${keyword}%` } },
           { description: { [Op.like]: `%${keyword}%` } }
         ]
-        basicMixWhere[Op.or] = [
-          { name: { [Op.like]: `%${keyword}%` } },
-          { remarks: { [Op.like]: `%${keyword}%` } }
-        ]
       }
 
-      // Query both tables in parallel
-      const [mixDesigns, basicMixDesigns] = await Promise.all([
-        MixDesign.findAll({
-          where: mixDesignWhere,
-          order: [['createdAt', 'DESC']],
-          limit: actualLimit,
-          attributes: ['id', 'name', 'projectName', 'strength', 'slump', 'waterRatio', 'sandRatio', 'density', 'materials', 'totalCost', 'createdAt']
-        }).catch(() => []),
-        BasicMixDesign.findAll({
-          where: basicMixWhere,
-          order: [['createdAt', 'DESC']],
-          limit: actualLimit,
-          attributes: ['id', 'name', 'strengthGrade', 'concreteType', 'slump', 'materials', 'isDefault', 'source', 'remarks', 'createdAt']
-        }).catch(() => [])
-      ])
+      // v10.10.2 起 BasicMixDesign 库下线，只查方案库
+      const mixDesigns = await MixDesign.findAll({
+        where: mixDesignWhere,
+        order: [['createdAt', 'DESC']],
+        limit: actualLimit,
+        attributes: ['id', 'name', 'projectName', 'strength', 'slump', 'waterRatio', 'sandRatio', 'density', 'materials', 'totalCost', 'createdAt']
+      }).catch(() => [])
 
       // Normalize results
-      const records = [
-        ...mixDesigns.map(r => ({
-          source: '方案库',
-          id: r.id,
-          name: r.name,
-          projectName: r.projectName,
-          strength: r.strength,
-          slump: r.slump,
-          waterRatio: r.waterRatio,
-          sandRatio: r.sandRatio,
-          density: r.density,
-          materials: r.materials,
-          totalCost: r.totalCost,
-          createdAt: r.createdAt
-        })),
-        ...basicMixDesigns.map(r => ({
-          source: '基准配合比库',
-          id: r.id,
-          name: r.name,
-          strength: r.strengthGrade,
-          concreteType: r.concreteType,
-          slump: r.slump,
-          materials: r.materials,
-          isDefault: r.isDefault,
-          source2: r.source,
-          remarks: r.remarks,
-          createdAt: r.createdAt
-        }))
-      ]
+      const records = mixDesigns.map(r => ({
+        source: '方案库',
+        id: r.id,
+        name: r.name,
+        projectName: r.projectName,
+        strength: r.strength,
+        slump: r.slump,
+        waterRatio: r.waterRatio,
+        sandRatio: r.sandRatio,
+        density: r.density,
+        materials: r.materials,
+        totalCost: r.totalCost,
+        createdAt: r.createdAt
+      }))
 
       // Sort and limit
       records.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))

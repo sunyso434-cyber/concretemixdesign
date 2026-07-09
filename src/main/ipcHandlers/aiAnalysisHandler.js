@@ -11,7 +11,6 @@ const MixDesignService = require('../services/MixDesignService/index')
 const MixDesignOptimizer = require('../services/MixDesignOptimizer')
 const AnalysisClassifier = require('../services/AnalysisClassifier')
 const AnalysisPreprocessor = require('../services/AnalysisPreprocessor')
-const BasicMixDesignService = require('../services/BasicMixDesignService')
 const SalesQuoteCalculationService = require('../services/SalesQuoteCalculationService')
 const SalesQuoteToolGuard = require('../services/SalesQuoteToolGuard')
 const { Material } = require('../db/database')
@@ -301,87 +300,10 @@ const executeToolCall = async (toolName, args) => {
     }
 
     case 'save_to_basic_mix_library': {
-      // 从方案ID读取方案数据（从数据库读取，不再依赖缓存）
-      let scheme = null
-      if (args.schemeId) {
-        scheme = await MixDesignService.getMixDesignById(args.schemeId)
-      } else {
-        // 兼容：取最近一条已确认的方案
-        const recent = await MixDesignService.getAllMixDesigns({ excludeDrafts: true })
-        if (recent && recent.length > 0) scheme = recent[0]
-      }
-      if (!scheme) {
-        return { success: false, error: '没有可推广的配合比方案。请先执行配合比计算并确认。' }
-      }
-      const d = scheme.toJSON ? scheme.toJSON() : scheme
-      const materials = d.materials || {}
-      const selected = d.materialDetails || {}
-      const fineBreakdown = d.fineAggregateBreakdown || []
-      const coarseBreakdown = d.coarseAggregateBreakdown || []
-      // 细/粗骨料价格辅助查询（materialDetails中sand/stone可能是数组）
-      const findAggPrice = (key, aggId) => {
-        const val = selected[key]
-        if (!val || aggId == null) return undefined
-        const arr = Array.isArray(val) ? val : [val]
-        const found = arr.find(a => String(a.id) === String(aggId))
-        return found ?.price
-      }
-      const findMatPrice = (key) => {
-        if (selected && selected[key] && typeof selected[key] === 'object') return selected[key].price
-        return undefined
-      }
-      // 将 materials 对象转换为 BasicMixDesign 所需的数组格式
-      const buildMaterialsArray = async (mats, sel, fineBd, coarseBd) => {
-        const arr = []
-        const findName = (key, fallback) => {
-          if (sel && sel[key] && typeof sel[key] === 'object') return sel[key].name || sel[key]
-          if (sel && sel[key] && typeof sel[key] === 'string') return sel[key]
-          return fallback || key
-        }
-        const findId = (key) => {
-          if (sel && sel[key] && typeof sel[key] === 'object') return sel[key].id
-          return null
-        }
-        if (mats.cement != null) arr.push({ materialId: findId('cement'), materialType: '水泥', materialName: findName('cement', '水泥'), usage: mats.cement, price: findMatPrice('cement') })
-        if (mats.flyAsh != null && mats.flyAsh > 0) arr.push({ materialId: findId('flyAsh'), materialType: '粉煤灰', materialName: findName('flyAsh', '粉煤灰'), usage: mats.flyAsh, price: findMatPrice('flyAsh') })
-        if (mats.slag != null && mats.slag > 0) arr.push({ materialId: findId('slag'), materialType: '矿渣粉', materialName: findName('slag', '矿渣粉'), usage: mats.slag, price: findMatPrice('slag') })
-        if (mats.lithiumSlag != null && mats.lithiumSlag > 0) arr.push({ materialId: findId('lithiumSlag'), materialType: '锂渣', materialName: findName('lithiumSlag', '锂渣'), usage: mats.lithiumSlag, price: findMatPrice('lithiumSlag') })
-        if (mats.compositePowder != null && mats.compositePowder > 0) arr.push({ materialId: findId('compositePowder'), materialType: '复合粉', materialName: findName('compositePowder', '复合粉'), usage: mats.compositePowder, price: findMatPrice('compositePowder') })
-        if (mats.superplasticizer != null && mats.superplasticizer > 0) arr.push({ materialId: findId('superplasticizer'), materialType: '减水剂', materialName: findName('superplasticizer', '减水剂'), usage: mats.superplasticizer, price: findMatPrice('superplasticizer') })
-        // 细骨料
-        if (fineBd && fineBd.length > 0) {
-          fineBd.forEach((f, i) => arr.push({ materialId: f.id || null, materialType: '细骨料', materialName: f.name || `细骨料${i + 1}`, usage: f.amount, price: findAggPrice('sand', f.id) }))
-        } else if (mats.sand != null && mats.sand > 0) {
-          arr.push({ materialId: findId('sand'), materialType: '细骨料', materialName: findName('sand', '细骨料'), usage: mats.sand, price: findAggPrice('sand', findId('sand')) })
-        }
-        // 粗骨料
-        if (coarseBd && coarseBd.length > 0) {
-          coarseBd.forEach((c, i) => arr.push({ materialId: c.id || null, materialType: '粗骨料', materialName: c.name || `粗骨料${i + 1}`, usage: c.amount, price: findAggPrice('stone', c.id) }))
-        } else if (mats.stone != null && mats.stone > 0) {
-          arr.push({ materialId: findId('stone'), materialType: '粗骨料', materialName: findName('stone', '粗骨料'), usage: mats.stone, price: findAggPrice('stone', findId('stone')) })
-        }
-        if (mats.water != null && mats.water > 0) {
-          const waterMat = await Material.findOne({ where: { type: '其他', name: '水' } })
-          arr.push({ materialId: waterMat?.id || null, materialType: '水', materialName: '水', usage: mats.water, price: waterMat?.price })
-        }
-        return arr
-      }
-      const strength = d.strength || 'C30'
-      const slump = d.slump || 180
-      try {
-        const created = await BasicMixDesignService.createBasicMixDesign({
-          name: args.name || `${strength}智能设计基准 - ${new Date().toLocaleString('zh-CN', { hour12: false })}`,
-          strengthGrade: args.strengthGrade || strength,
-          concreteType: args.concreteType || '普通',
-          slump: args.slump != null ? args.slump : slump,
-          materials: await buildMaterialsArray(materials, selected, fineBreakdown, coarseBreakdown),
-          isDefault: args.isDefault || false,
-          remarks: args.remarks || '',
-          source: '智能设计保存'
-        })
-        return { success: true, type: 'save_result', message: `方案「${args.name || strength}」已保存到基础配合比库`, id: created.id }
-      } catch (err) {
-        return { success: false, error: `保存到基础配合比库失败: ${err.message}` }
+      // v10.10.2 已废弃: 基准配合比库 BasicMixDesign 整体下线（被 reverse/forward_sales_quote 替代）
+      return {
+        success: false,
+        error: 'save_to_basic_mix_library 已废弃(v10.10.2)。基准配合比库已下线，请用 save_mix_design 保存到方案库即可。'
       }
     }
 

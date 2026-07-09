@@ -1,24 +1,22 @@
 /**
- * 方案管理技能测试（SPEC 7.3：46 个边缘情况）
+ * 方案管理技能测试（v10.10.2 起 BasicMixDesign 库下线，仅覆盖 MixDesign 库）
  *
  * 覆盖：
- * - list_mix_designs / list_basic_mix_designs：limit/offset/sortBy/sortOrder/keyword/status
+ * - list_mix_designs：limit/offset/sortBy/sortOrder/keyword/status
  * - get_mix_design：not found
  * - update_mix_design：白名单 5 字段、白名单外忽略
  * - save_mix_design：状态机（草稿→CONFIRM、已确认→UPDATE、其他→INVALID_STATUS）
  * - delete_mix_design：草稿直接删、非草稿弹窗（确认/取消/其他→userIntent）
- * - save_basic_mix_design：传 id=更新、不传=新增、materials 空报错、isDefault=true
- * - delete_basic_mix_design：被引用→IN_USE、userIntent 协议
- * - 审计日志：5 个有副作用技能都写
+ * - 审计日志：4 个有副作用技能都写
+ *
+ * 删除的 list_basic_mix_designs / save_basic_mix_design / delete_basic_mix_design
+ * 因 skill 文件下线，连同 describe 块一起移除。
  */
 
 const listMixDesigns = require('../../skills/list-mix-designs')
 const getMixDesign = require('../../skills/get-mix-design')
 const updateMixDesign = require('../../skills/update-mix-design')
 const deleteMixDesign = require('../../skills/delete-mix-design')
-const listBasicMixDesigns = require('../../skills/list-basic-mix-designs')
-const saveBasicMixDesign = require('../../skills/save-basic-mix-design')
-const deleteBasicMixDesign = require('../../skills/delete-basic-mix-design')
 
 // mock ask_user
 jest.mock('../../skills/ask-user', () => ({
@@ -37,15 +35,7 @@ const makeContext = (overrides = {}) => {
       getMixDesignById: jest.fn(),
       createMixDesign: jest.fn(),
       updateMixDesign: jest.fn().mockResolvedValue({}),
-      deleteMixDesign: jest.fn().mockResolvedValue({}),
-      findByBasicMixId: jest.fn().mockResolvedValue([])
-    },
-    basicMixDesignService: {
-      listBasicMixDesigns: jest.fn().mockResolvedValue([]),
-      findById: jest.fn(),
-      createBasicMixDesign: jest.fn(),
-      updateBasicMixDesign: jest.fn().mockResolvedValue({}),
-      deleteBasicMixDesign: jest.fn().mockResolvedValue({})
+      deleteMixDesign: jest.fn().mockResolvedValue({})
     },
     auditLogService: makeAuditLog(),
     logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -59,13 +49,6 @@ const fakeMixDesign = (overrides = {}) => ({
   id: 1, name: 'C30-测试', strength: 'C30', status: '草稿',
   projectName: '测试项目', description: '测试描述',
   slump: 180, totalCost: 500, createdAt: new Date(),
-  toJSON() { return this },
-  ...overrides
-})
-
-const fakeBasicMix = (overrides = {}) => ({
-  id: 1, name: 'C30-基准', strengthGrade: 'C30', concreteType: '普通',
-  slump: 180, isDefault: false, source: '智能设计',
   toJSON() { return this },
   ...overrides
 })
@@ -275,161 +258,9 @@ describe('delete_mix_design', () => {
 })
 
 // ============================================================
-// list_basic_mix_designs（测试 #18 同 list 通用规则，#1-#4 已覆盖）
+// v10.10.2：list_basic_mix_designs / save_basic_mix_design / delete_basic_mix_design
+// 因 skill 文件下线，3 个 describe 块已移除
 // ============================================================
-describe('list_basic_mix_designs', () => {
-  test('#18 limit=999 → 截断到 50', async () => {
-    const ctx = makeContext({
-      basicMixDesignService: {
-        listBasicMixDesigns: jest.fn().mockResolvedValue(
-          Array.from({ length: 100 }, (_, i) => fakeBasicMix({ id: i + 1, name: `b${i}` }))
-        )
-      }
-    })
-    const r = await listBasicMixDesigns.execute({ limit: 999 }, ctx)
-    expect(r.data.items).toHaveLength(50)
-  })
-})
-
-// ============================================================
-// save_basic_mix_design（测试 #27, #28, #29, #30, #31, #44, #45）
-// ============================================================
-describe('save_basic_mix_design', () => {
-  beforeEach(() => {
-    askUser.execute.mockReset()
-  })
-
-  test('#27 materials 空 → INVALID_MATERIALS', async () => {
-    const ctx = makeContext()
-    const r = await saveBasicMixDesign.execute({
-      name: 'X', strengthGrade: 'C30', concreteType: '普通', materials: []
-    }, ctx)
-    expect(r.success).toBe(false)
-    expect(r.error.code).toBe('INVALID_MATERIALS')
-  })
-
-  test('#28 isDefault=true → 通过 form 模式让用户确认', async () => {
-    const ctx = makeContext()
-    askUser.execute.mockResolvedValue({ success: true, values: { name: 'X', strengthGrade: 'C30', concreteType: '普通', slump: 180, isDefault: true } })
-    ctx.basicMixDesignService.createBasicMixDesign.mockResolvedValue({ id: 100, toJSON: () => ({ id: 100 }) })
-    const r = await saveBasicMixDesign.execute({
-      name: 'X', strengthGrade: 'C30', concreteType: '普通', materials: [{ materialType: '水泥' }], isDefault: true
-    }, ctx)
-    expect(r.success).toBe(true)
-    expect(r.id).toBe(100)
-  })
-
-  test('#29 不传 id → 新增', async () => {
-    const ctx = makeContext()
-    askUser.execute.mockResolvedValue({ success: true, values: { name: 'X', strengthGrade: 'C30', concreteType: '普通', slump: 180, isDefault: false } })
-    ctx.basicMixDesignService.createBasicMixDesign.mockResolvedValue({ id: 101, toJSON: () => ({ id: 101 }) })
-    const r = await saveBasicMixDesign.execute({
-      name: 'X', strengthGrade: 'C30', concreteType: '普通', materials: [{ materialType: '水泥' }]
-    }, ctx)
-    expect(r.success).toBe(true)
-    expect(ctx.basicMixDesignService.createBasicMixDesign).toHaveBeenCalled()
-    expect(ctx.basicMixDesignService.updateBasicMixDesign).not.toHaveBeenCalled()
-  })
-
-  test('#30 传 id 存在 → 更新', async () => {
-    const ctx = makeContext()
-    ctx.basicMixDesignService.findById.mockResolvedValue(fakeBasicMix({ id: 5 }))
-    askUser.execute.mockResolvedValue({ success: true, values: { name: 'X', strengthGrade: 'C30', concreteType: '普通', slump: 180, isDefault: false } })
-    const r = await saveBasicMixDesign.execute({
-      id: 5, name: 'X', strengthGrade: 'C30', concreteType: '普通', materials: [{ materialType: '水泥' }]
-    }, ctx)
-    expect(r.success).toBe(true)
-    expect(ctx.basicMixDesignService.updateBasicMixDesign).toHaveBeenCalledWith(5, expect.any(Object))
-  })
-
-  test('#31 传 id 不存在 → NOT_FOUND', async () => {
-    const ctx = makeContext()
-    ctx.basicMixDesignService.findById.mockResolvedValue(null)
-    const r = await saveBasicMixDesign.execute({
-      id: 999, name: 'X', strengthGrade: 'C30', concreteType: '普通', materials: [{ materialType: '水泥' }]
-    }, ctx)
-    expect(r.success).toBe(false)
-    expect(r.error.code).toBe('NOT_FOUND')
-  })
-
-  test('#44 save_basic_mix 新增 → 写 audit_logs(CREATE, before=null)', async () => {
-    const ctx = makeContext()
-    askUser.execute.mockResolvedValue({ success: true, values: { name: 'X', strengthGrade: 'C30', concreteType: '普通', slump: 180, isDefault: false } })
-    ctx.basicMixDesignService.createBasicMixDesign.mockResolvedValue({ id: 102, toJSON: () => ({ id: 102 }) })
-    await saveBasicMixDesign.execute({
-      name: 'X', strengthGrade: 'C30', concreteType: '普通', materials: [{ materialType: '水泥' }]
-    }, ctx)
-    expect(ctx.auditLogService.write).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'CREATE', targetType: 'basic_mix', before: null
-    }))
-  })
-
-  test('#45 save_basic_mix 更新 → 写 audit_logs(UPDATE)', async () => {
-    const ctx = makeContext()
-    ctx.basicMixDesignService.findById.mockResolvedValue(fakeBasicMix({ id: 5, name: 'old' }))
-    askUser.execute.mockResolvedValue({ success: true, values: { name: 'new', strengthGrade: 'C30', concreteType: '普通', slump: 180, isDefault: false } })
-    await saveBasicMixDesign.execute({
-      id: 5, name: 'new', strengthGrade: 'C30', concreteType: '普通', materials: [{ materialType: '水泥' }]
-    }, ctx)
-    expect(ctx.auditLogService.write).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'UPDATE', targetType: 'basic_mix', targetId: 5
-    }))
-  })
-})
-
-// ============================================================
-// delete_basic_mix_design（测试 #32, #33, #34, #46）
-// ============================================================
-describe('delete_basic_mix_design', () => {
-  beforeEach(() => {
-    askUser.execute.mockReset()
-  })
-
-  test('#32 用户确认 → 删除', async () => {
-    const ctx = makeContext()
-    ctx.basicMixDesignService.findById.mockResolvedValue(fakeBasicMix({ id: 1 }))
-    askUser.execute.mockResolvedValue({ success: true, answer: '确认删除' })
-    const r = await deleteBasicMixDesign.execute({ id: 1 }, ctx)
-    expect(r.success).toBe(true)
-    expect(ctx.basicMixDesignService.deleteBasicMixDesign).toHaveBeenCalledWith(1)
-  })
-
-  test('#33 用户取消 → 不删', async () => {
-    const ctx = makeContext()
-    ctx.basicMixDesignService.findById.mockResolvedValue(fakeBasicMix({ id: 1 }))
-    askUser.execute.mockResolvedValue({ success: true, answer: '取消' })
-    const r = await deleteBasicMixDesign.execute({ id: 1 }, ctx)
-    expect(r.success).toBe(false)
-    expect(r.error).toMatch(/取消/)
-    expect(ctx.basicMixDesignService.deleteBasicMixDesign).not.toHaveBeenCalled()
-  })
-
-  test('#34 被引用 → IN_USE + 引用方案名清单', async () => {
-    const ctx = makeContext()
-    ctx.basicMixDesignService.findById.mockResolvedValue(fakeBasicMix({ id: 1 }))
-    ctx.mixDesignService.findByBasicMixId.mockResolvedValue([
-      { id: 10, name: 'C30-项目1' },
-      { id: 11, name: 'C30-项目2' }
-    ])
-    const r = await deleteBasicMixDesign.execute({ id: 1 }, ctx)
-    expect(r.success).toBe(false)
-    expect(r.error.code).toBe('IN_USE')
-    expect(r.details.referencedCount).toBe(2)
-    expect(r.details.referencedNames).toEqual(['C30-项目1', 'C30-项目2'])
-    expect(ctx.basicMixDesignService.deleteBasicMixDesign).not.toHaveBeenCalled()
-    expect(askUser.execute).not.toHaveBeenCalled()  // 引用检查先于弹窗
-  })
-
-  test('#46 delete_basic_mix 成功 → 写 audit_logs(DELETE)', async () => {
-    const ctx = makeContext()
-    ctx.basicMixDesignService.findById.mockResolvedValue(fakeBasicMix({ id: 1 }))
-    askUser.execute.mockResolvedValue({ success: true, answer: '确认删除' })
-    await deleteBasicMixDesign.execute({ id: 1 }, ctx)
-    expect(ctx.auditLogService.write).toHaveBeenCalledWith(expect.objectContaining({
-      action: 'DELETE', targetType: 'basic_mix', targetId: 1
-    }))
-  })
-})
 
 // ============================================================
 // save_mix_design 状态机（测试 #39, #40, #41）

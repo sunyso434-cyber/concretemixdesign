@@ -13,7 +13,6 @@ import MixDesignResultCard from './MixDesignResultCard'
 import OptimizationResultCard from './OptimizationResultCard'
 import MaterialPicker from './MaterialPicker'
 import SalesQuoteResultCard from './SalesQuoteResultCard'
-import SaveBasicMixModal from './SaveBasicMixModal'
 import LintReportModal from './LintReportModal'
 import DecisionGate from './DecisionGate'
 import MemorySidebar from './MemorySidebar'
@@ -1588,7 +1587,7 @@ const SmartDesignChat = () => {
                       {item.toolCall && item.toolCall.status === 'done' && (
                         <>
                           {item.toolCall.type === 'mix_design' && (
-                            <MixDesignResultCard data={item.toolCall.data} onSave={handleSaveFromCard} onSaveBasicMix={chatState.setBasicMixModalData} />
+                            <MixDesignResultCard data={item.toolCall.data} onSave={handleSaveFromCard} />
                           )}
                           {item.toolCall.type === 'optimization' && (
                             <OptimizationResultCard data={item.toolCall.data} onSave={handleSaveFromCard} />
@@ -1933,12 +1932,6 @@ const SmartDesignChat = () => {
           )}
         </div>
       </div>
-      <SaveBasicMixModal
-        open={!!chatState.basicMixModalData}
-        data={chatState.basicMixModalData}
-        onCancel={() => chatState.setBasicMixModalData(null)}
-        onSaved={() => chatState.setBasicMixModalData(null)}
-      />
       <LintReportModal
         visible={lintModalOpen}
         onClose={() => setLintModalOpen(false)}

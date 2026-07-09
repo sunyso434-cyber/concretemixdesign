@@ -1,3 +1,116 @@
+## v10.10.2 清理版本 (2026-07-09) - 删除基准配合比库（BasicMixDesign）全部残留
+
+### 背景
+v10.10.0 只是把 `SalesQuoteRule`（规则表）删了，但同属"报价历史遗留体系"的 `BasicMixDesign`（基准配合比库）**完全没碰**。搜索结果：**22 个残留点**横跨 5 层。用户反馈"技能中关于基准配合比库的技能未清理"，实质上是 `save_to_basic_mix_library` 等 Skill 仍被 SkillRegistry 加载 + AI prompt 仍在教 AI 调这些已死 skill + IPC handler 仍然能成功写库。
+
+### 清理范围（两轮：前端 + 后端全部清干净）
+
+#### 第一轮：AI + 前端 + skill 层（老板的核心痛点）
+- **4 个 skill 文件删除**：`save-basic-mix-design.js` / `save-to-basic-mix.js` / `list-basic-mix-designs.js` / `delete-basic-mix-design.js`
+- **AI 层（DeepSeekService.js）**：TOOLS 数组删除 `save_to_basic_mix_library` 注册；systemPrompt 删除"没有基础配合比"提示 + 删除"保存到基准配合比库"指令 + 加"已废弃"说明
+- **IPC handler（aiAnalysisHandler.js）**：`case 'save_to_basic_mix_library'` 改为"已废弃"占位（防御性保留，LLM 误调时返回友好提示）
+- **context 注入（agentHandler.js）**：移除 `basicMixDesignService` require
+- **DynamicContextProvider.js**：`calculate` 类别移除 `basicMixDesignService`
+- **4 处 UI label 清理**：DecisionGate / StreamingAgentCard / AgentProgressCard / ToolCallBubble
+- **2 个死组件删除**：`BasicMixTab.jsx` + `SaveBasicMixModal.jsx`
+- **SchemesPage.jsx**：移除 `BasicMixTab` import + `viewMode='basicMix'` 分支
+- **WorkspacePage.jsx**：导航项删"基准方案"
+- **SmartDesignChat.jsx**：移除 `SaveBasicMixModal` import + 关联 JSX
+- **useChatState.js**：移除 `basicMixModalData` / `setBasicMixModalData`
+
+#### 第二轮：后端层彻底清理
+- **BasicMixDesignService.js** 整文件删除
+- **BasicMixDesign.js 模型** 整文件删除
+- **database.js**：移除 `require` / `allModels` 注册 / `module.exports`
+- **MixDesignToQuoteService.js**：移除 `require BasicMixDesignService` + `saveMixDesignAsBasicMix` + `generateQuoteFromMixDesign` 中的 write-to-basic-mix 步骤（保留数据转换/校验方法，供其他模块使用）
+- **mixDesignToQuoteHandler.js IPC handler** 整文件删除（前端无任何调用，纯死代码）
+- **preload.js**：移除 `mixDesignToQuote` API 暴露
+- **agentHandler.js**：移除 `mixDesignToQuote` require
+- **AgentMemoryService.js**：移除 `{ MixDesign, BasicMixDesign }` 中的 BasicMixDesign + 改 sum 为单 count
+- **MixDesignService_Database.js**：移除 `findByBasicMixId` 方法（MixDesign 模型已无 basicMixId 字段）
+- **MixDesignService/index.js**：移除 `findByBasicMixId` 透传
+- **design-history.js**：移除 `BasicMixDesign` import + 基准库查询 + 结果合并（只查方案库）
+- **测试清理**：scheme-mgmt-skills.test / AgentMemoryService 测试 / test-dynamic-context-provider / test-skill-examples / diagnose-real-with-tools / repro-session-zj39
+
+### 保留不变
+- `SalesQuoteHistory.basicMixId / basicMixName` 字段：历史快照字段（不是 FK），保留不动
+- `save-sales-quote.js` 的 `basicMixId` 参数：legacy 透传，保留兼容
+
+### 验证
+1. ✅ `node --check` 全主进程所有 .js 文件通过
+2. ✅ `scheme-mgmt-skills.test.js` **19/19 测试通过**（删除 3 个 describe + 12 个测试；原有 MixDesign 测试全绿）
+3. ✅ `DeepSeekService.test.js` **21/21 测试通过**
+4. ✅ 全部 16 个失败的 test suite 均 **不引用 BasicMixDesign**（是预先存在的失败，与本次清理无关）
+5. ✅ dist-10.10.1/ 已有 v10.10.1 产物（反引号修复），v10.10.2 重新打包
+
+### 版本号同步（CLAUDE.md 第 7 条）
+- ✅ [package.json:3](package.json#L3) `version: 10.10.1` → `10.10.2`
+- ✅ [package.json:74](package.json#L74) `output: dist-10.10.1` → `dist-10.10.2`
+- ✅ [WorkspacePage.jsx:152](src/renderer/pages/WorkspacePage.jsx#L152) 顶栏 `v10.10.1` → `v10.10.2`
+
+### 打包记录 (v10.10.2)
+- dist-10.10.2/砼智 Setup 10.10.2.exe
+- dist-10.10.2/砼智-10.10.2-portable-x64.exe
+- dist-10.10.2/win-unpacked/
+
+---
+
+## v10.10.1 修复版本 (2026-07-09) - 修复 v10.10.0 主进程启动崩溃
+
+### 背景
+v10.10.0 发布后，应用启动即崩，弹窗：
+```
+A JavaScript error occurred in the main process
+Uncaught Exception:
+.../app.asar:854
+SyntaxError: Unexpected identifier 'reverse_sales_quote'
+```
+
+### 根本原因（系统性 debug）
+`src/main/services/DeepSeekService.js` 第 854-856 行的 `systemPrompt` 模板字符串（786-899 行）内部嵌入了 **6 个未转义的反引号**（每行 2 个，包裹 `` `reverse_sales_quote` `` / `` `forward_sales_quote` `` / `` `format_quote_report` ``）。JS 解析器把第 854 行的第一个反引号当成模板字符串结束符，导致 `reverse_sales_quote` 成了裸标识符 → SyntaxError → 主进程拒绝加载 → 窗口崩溃。
+
+`node --check src/main/services/DeepSeekService.js` 完美复现了和打包后一样的报错，确认是源码 bug 而非 asar 打包问题。
+
+### 修复（最小改动）
+[src/main/services/DeepSeekService.js:854-856](src/main/services/DeepSeekService.js#L854-L856) 把 3 对反引号（共 6 个）全部转义为 `` \` ``：
+```diff
+- 调 `reverse_sales_quote`，传 `targetUnitPrice` + 配合比
+- 调 `forward_sales_quote`，传完整成本 + 可选设备摊销
+- 调 `format_quote_report` 写到工作区 reports/
++ 调 \`reverse_sales_quote\`，传 \`targetUnitPrice\` + 配合比
++ 调 \`forward_sales_quote\`，传完整成本 + 可选设备摊销
++ 调 \`format_quote_report\` 写到工作区 reports/
+```
+渲染时 JS 把 `` \` `` 还原为 `` ` ``，AI prompt 效果完全保留。
+
+### 版本号同步（CLAUDE.md 第 7 条）
+- ✅ [package.json:3](package.json#L3) `version: 10.10.0` → `10.10.1`
+- ✅ [package.json:74](package.json#L74) `output: dist-10.10.0` → `dist-10.10.1`
+- ✅ [WorkspacePage.jsx:152](src/renderer/pages/WorkspacePage.jsx#L152) 顶栏 `v10.8.0` → `v10.10.1`
+- ✅ main.js `BrowserWindow` 无硬编码 title（仅 `titleBarStyle: 'hidden'`）——无需改
+- ✅ index.html `<title>砼智</title>` —— 无版本号，无需改
+
+### 验证
+1. ✅ `node --check src/main/services/DeepSeekService.js` 语法通过
+2. ✅ `node --check` 全主进程所有 .js 文件（`src/main/**`, `scripts/**`, `main.js`, `preload.js`）无 SyntaxError
+3. ✅ DeepSeekService.test.js **21/21 单元测试通过**
+4. ✅ 验证脚本 `node .tmp/verify-fix.js`：
+   - 源码 854-856 行未转义反引号数 = 0
+   - 模板字符串渲染后 AI 看到的 prompt 仍是 `reverse_sales_quote` 包裹
+5. ✅ 解包 `dist-10.10.1/win-unpacked/resources/app.asar` 后再次 `node --check`，包内 DeepSeekService.js 同样通过
+
+### 反思（避免再犯）
+- v10.10.0 阶段 7+8 跑的 jest 测试没覆盖到 systemPrompt 构造的语法路径——因为 systemPrompt 是写在 _callAPI 里的字符串，运行时不执行，jest 默认不会触发
+- **下次预防**：写大段 prompt 内容用模板字符串时，加 ESLint 规则 `no-template-curly-in-string` 之类的扩展，或者在 prompt 改造 PR 跑一遍 `node --check` 整个主进程树
+- **教训**：AI prompt 嵌入代码时，所有文档格式标记（反引号、Markdown 标题）都要走 `` \` `` 转义，不要图省事直接粘
+
+### 打包记录 (v10.10.1)
+- dist-10.10.1/砼智 Setup 10.10.1.exe (140 MB, NSIS 安装包)
+- dist-10.10.1/砼智-10.10.1-portable-x64.exe (139 MB, 便携版)
+- dist-10.10.1/win-unpacked/ (免安装解压目录)
+
+---
+
 ## v10.10.0 功能版本 (2026-07-09) - 销售报价双模式拆分（reverse/forward）
 
 ### 背景

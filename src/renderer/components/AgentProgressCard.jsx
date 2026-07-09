@@ -29,8 +29,7 @@ const TOOL_LABELS = {
   reverse_sales_quote: '反向套价',
   forward_sales_quote: '正向测算',
   format_quote_report: '导出报价单',
-  save_mix_design: '保存方案',
-  save_to_basic_mix_library: '保存到基础库'
+  save_mix_design: '保存方案'
 }
 
 const StepIcon = ({ status }) => {

@@ -206,12 +206,6 @@ contextBridge.exposeInMainWorld('electron', {
       }
     }
   },
-  // 配合比→报价数据流（确保数据一致）
-  mixDesignToQuote: {
-    generate: (mixDesignResult, pricing) => ipcRenderer.invoke('mixDesignToQuote:generate', { mixDesignResult, pricing }),
-    validate: (basicMix, quoteResult) => ipcRenderer.invoke('mixDesignToQuote:validate', { basicMix, quoteResult }),
-    saveBasicMix: (mixDesignResult) => ipcRenderer.invoke('mixDesignToQuote:saveBasicMix', { mixDesignResult })
-  },
   // Skill 管理
   skill: {
     listAll: () => ipcRenderer.invoke('skill:listAll'),

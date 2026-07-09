@@ -24,7 +24,6 @@ jest.mock('../../db/database', () => {
   return {
     ...actual,
     MixDesign: { count: async () => 0, findAll: async () => [] },
-    BasicMixDesign: { count: async () => 0 },
     OptimizationHistory: { count: async () => 0 }
   }
 })

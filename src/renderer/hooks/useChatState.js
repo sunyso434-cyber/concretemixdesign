@@ -36,7 +36,6 @@ const useChatState = () => {
   const [contrastPickerSelected, setContrastPickerSelected] = useState([])
 
   // ===== 其他共享状态 =====
-  const [basicMixModalData, setBasicMixModalData] = useState(null)
   const [pumpingFeeItems, setPumpingFeeItems] = useState([])
 
   // ===== Refs =====
@@ -122,7 +121,6 @@ const useChatState = () => {
     contrastPickerSelected, setContrastPickerSelected,
 
     // 其他
-    basicMixModalData, setBasicMixModalData,
     pumpingFeeItems, setPumpingFeeItems,
 
     // Refs
