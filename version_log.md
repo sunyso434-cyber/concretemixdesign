@@ -1,33 +1,18 @@
-## v10.9.0 功能版本 (2026-07-08) - Soft Trigger Skill：渐进披露 + 方法论 skill 机制
+## v10.9.1 功能版本 (2026-07-09) - ask_user 弹窗位置 + todo 实时同步修复
 
 ### 背景
-借鉴 Claude Code 的渐进披露（Progressive Disclosure）架构，让方法论类 .md 技能通过 description 触发 + body 注入到 system prompt 的方式生效，取代原来只能作为 function call tool 的局限。
+ask_user 弹窗位置错乱、todo 面板丢失更新。
 
-### 新增
-- **Soft Trigger 机制（3 层渐进披露）**
-  - Layer 1：所有 soft skill 的完整 description 进 system prompt（不截 30 字）
-  - Layer 2：命中后 body 持续注入激活区，LLM 受约束执行
-  - Layer 3：子文件按需加载（reference.md / examples.md）
-- **SkillRegistry** 加 _triggerMode 字段，listSoftSkills() / isSoftTrigger() 方法
-- **MDParser** 解析 frontmatter trigger_mode 字段
-- **getToolSchemas()** 过滤 soft skill（避免双轨暴露）
-- **systemPromptBuilder** 加 softSkillSection 参数
-- **SoftSkillInjector** 触发/退激活/Layer 1+2+3 拼装
-- **SubFileResolver** Layer 3 子文件加载（路径穿越防护）
-- **UnifiedStrategy** 集成注入
-- **create_skill** 重构：顶层分 type='tool'|'skill'，废弃旧 format 参数
-- **skill-manager** list/info 返回 triggerMode 字段
-- **SkillManager.jsx** 前添加"类型"列 + 创建弹窗 type/subType 选择
+### 修复
+- **SmartDesignChat.jsx**：把 `DecisionGate`（ask_user 弹窗）和 `TodoPanel` 从 `<List renderItem>` 内部移到消息列表底部
+  - 弹窗现在跟随最新 LLM 输出位置，不再出现在最顶端
+  - TodoPanel 独立于消息列表始终挂载，每次 `todo_manage` 调用都实时同步渲染
 
-### 重写
-- **concrete_innovation_brainstorm.md** — 修复文件名 BUG（连字符→下划线），改为 trigger_mode: soft，新增 Layer 3 子文件（reference.md / examples.md）
+### 打包记录 (v10.9.1)
+- dist-10.9.1/砼智 Setup 10.9.1.exe (139 MB, NSIS 安装包)
+- dist-10.9.1/砼智-10.9.1-portable-x64.exe (139 MB, 便携版)
 
-### 破坏性变更
-- create_skill 参数 format 废弃，老调用返回 E_LEGACY_FORMAT，需改为 type/subType
-
-### 测试
-- 新增 7 个测试文件，约 400 行测试代码
-- agent + skills 测试：32 suites / 320 tests 全绿
+---
 
 ## v10.9.0 功能版本 (2026-07-08) - Soft Trigger Skill：渐进披露 + 方法论 skill 机制
 

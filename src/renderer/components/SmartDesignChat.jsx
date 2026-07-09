@@ -1633,14 +1633,6 @@ const SmartDesignChat = () => {
                           </Button>
                         </div>
                       )}
-                      {/* Agent 流式时间线（思考过程 + 工具调用，嵌入 AI 输出内部）— spec 7: pause/resume 由 Esc/Enter 替代 */}
-                      {state.confirmation && (
-                        <DecisionGate
-                          confirmation={state.confirmation}
-                          onConfirm={(args) => { window.electronAPI.invoke('agent:confirm', { sessionId: state.session.currentId, confirmed: true, args }); dispatch({ type: 'SET_CONFIRMATION', payload: null }) }}
-                          onReject={() => { window.electronAPI.invoke('agent:confirm', { sessionId: state.session.currentId, confirmed: false }); dispatch({ type: 'SET_CONFIRMATION', payload: null }) }}
-                        />
-                      )}
                       {item.toolEvents?.length > 0 && (
                         <div style={{ marginBottom: 8 }}>
                           {item.toolEvents.map(tool => (
@@ -1690,11 +1682,6 @@ const SmartDesignChat = () => {
                           agentReplyText={item._streaming ? state.agent.replyText : ''}
                           isPaused={item._streaming ? state.agent.status === 'paused' : false}
                         />
-                      )}
-                      {/* LLM 计划实时面板（2026-07-08）：仅对当前 streaming 消息挂载，
-                          历史消息的 todo 在会话结束已被清理，无需回放 */}
-                      {item._streaming && state.session.currentId && (
-                        <TodoPanel sessionId={state.session.currentId} />
                       )}
                       <MessageContent
                         item={item}
@@ -1750,6 +1737,18 @@ const SmartDesignChat = () => {
               </List.Item>
             )
           }}
+          />
+        )}
+        {/* LLM 计划实时面板：独立于消息列表始终挂载，通过 todo:updated 事件保持同步 */}
+        {!welcomeVisible && state.session.currentId && (
+          <TodoPanel sessionId={state.session.currentId} />
+        )}
+        {/* AI 提问弹窗：在消息列表末尾跟随 LLM 输出位置 */}
+        {state.confirmation && (
+          <DecisionGate
+            confirmation={state.confirmation}
+            onConfirm={(args) => { window.electronAPI.invoke('agent:confirm', { sessionId: state.session.currentId, confirmed: true, args }); dispatch({ type: 'SET_CONFIRMATION', payload: null }) }}
+            onReject={() => { window.electronAPI.invoke('agent:confirm', { sessionId: state.session.currentId, confirmed: false }); dispatch({ type: 'SET_CONFIRMATION', payload: null }) }}
           />
         )}
         {chatState.pendingMaterialPicker && (() => {
