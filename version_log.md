@@ -1,3 +1,55 @@
+## v10.10.11 修复版本 (2026-07-10) - 技能管理"类型"列全部显示"未知" bug
+
+### 背景
+
+老板 2026-07-10 反馈：技能管理面板（SkillManager）所有技能"类型"列都显示"未知"，而不是按 skill 类型显示"工具/方法论/蓝图"。
+
+### 根因
+
+`SkillExecutor.listSkills()`（[src/main/agent/SkillExecutor.js:144](src/main/agent/SkillExecutor.js#L144)）组装返回数据时**漏掉了 `triggerMode` 字段**：
+
+```js
+return Array.from(this.registry._skills.values()).map(skill => ({
+  name, description, version, category, builtin
+  // ← 没有 triggerMode
+}))
+```
+
+但前端 `SkillManager.jsx` 的"类型"列 `dataIndex='triggerMode'` 读的就是这个字段，渲染分支 `soft→方法论 / function→工具 / blueprint→蓝图 / 其他→未知`，因为字段缺失，**全部走到"未知"分支**。
+
+链路：
+1. `SkillRegistry._loadMDSkill` 把 MD 技能 triggerMode 存到 `_triggerMode`（[SkillRegistry.js:224](src/main/agent/SkillRegistry.js#L224)）
+2. `SkillExecutor.listSkills()` 重新组装数据时漏掉这个字段
+3. 前端拿到 undefined → 显示"未知"
+
+### 修复
+
+修改 [src/main/agent/SkillExecutor.js:144-160](src/main/agent/SkillExecutor.js#L144-L160) 的 `listSkills()`，补回 triggerMode 字段：
+
+| 技能类型 | category | _triggerMode | 修复后返回 | 前端显示 |
+|---------|----------|--------------|-----------|----------|
+| JS 内置技能 | 其他 | undefined | `'function'` | 工具（蓝） |
+| JS 自定义技能 | 自定义 | undefined | `'function'` | 工具（蓝） |
+| MD 技能（function 模式） | 其他 | `'function'` | `'function'` | 工具（蓝） |
+| MD 技能（soft 方法论） | 其他 | `'soft'` | `'soft'` | 方法论（紫） |
+| 蓝图技能 | `'blueprint'` | undefined | `'blueprint'` | 蓝图（橙） |
+
+### 版本号同步（CLAUDE.md 第 7 条）
+
+- ✅ [package.json:3](package.json#L3) `version: 10.10.10` → `10.10.11`
+- ✅ [package.json:74](package.json#L74) `output: dist-10.10.10` → `dist-10.10.11`
+- ✅ [src/renderer/pages/WorkspacePage.jsx:152](src/renderer/pages/WorkspacePage.jsx#L152) 顶栏 `v10.10.10` → `v10.10.11`
+- ✅ `main.js` BrowserWindow title 无版本号（无需改）
+- ✅ `index.html` title "砼智" 无版本号（无需改）
+
+### 打包记录 (v10.10.11) (2026-07-10)
+
+- 改 1 个文件（src/main/agent/SkillExecutor.js）
+- 改 2 个版本号文件（package.json + WorkspacePage.jsx）
+- 平台：win32 x64
+
+---
+
 ## v10.10.10 修复版本 (2026-07-10) - 减水剂掺量预测坍落度不生效 bug（数据泄漏修复）
 
 ### 背景

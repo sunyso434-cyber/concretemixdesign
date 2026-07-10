@@ -147,7 +147,14 @@ class SkillExecutor {
       description: skill.description,
       version: skill.version || '1.0.0',
       category: skill.category || 'general',
-      builtin: skill._builtin
+      builtin: skill._builtin,
+      // 修复：补回 triggerMode 字段，前端 SkillManager 表格的"类型"列依赖这个渲染。
+      // - 蓝图技能：category='blueprint' → 固定 'blueprint'
+      // - MD 技能：读 _triggerMode（'function' 或 'soft'）
+      // - JS 技能：_triggerMode 默认为 undefined → 回落 'function'（JS 只能显式调用）
+      triggerMode: skill.category === 'blueprint'
+        ? 'blueprint'
+        : (skill._triggerMode || 'function')
     }))
   }
 }
