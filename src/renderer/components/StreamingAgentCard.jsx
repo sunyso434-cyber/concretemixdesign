@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useDeferredValue } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Space, Typography, Button } from 'antd'
 import {
@@ -428,6 +428,10 @@ const ToolBlock = ({ item }) => {
  * - `live`         — true 时优先用 `liveTimeline`，让呼吸灯/三点动画真正转起来
  */
 const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyText, isPaused, showControls, onPause, onResume, onAbort }) => {
+  // v10.10.12 修复：agent 大段输出时 ReactMarkdown 每条 IPC 都重新解析整个字符串，
+  // 文本越长越卡，到几万字渲染进程崩 → 白屏。useDeferredValue 让 React 自动降速，
+  // 高频更新只在空闲时处理，UI 不再卡死。
+  const deferredReplyText = useDeferredValue(agentReplyText)
   const effectiveTimeline = live && liveTimeline?.length ? liveTimeline : timeline
   if (!effectiveTimeline || effectiveTimeline.length === 0) {
     // 如果没有 timeline，但 agent 在运行，显示 "AI思考中..."
@@ -514,7 +518,7 @@ const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyTe
       {/* 流式回复文本预览（仅 streaming 状态时显示） */}
       {status === 'streaming' && agentReplyText && (
         <div className="reply-preview" style={{ marginTop: 8, fontSize: 13, color: 'var(--color-text-secondary)' }}>
-          <ReactMarkdown>{agentReplyText}</ReactMarkdown>
+          <ReactMarkdown>{deferredReplyText}</ReactMarkdown>
           <span className="streaming-cursor">|</span>
         </div>
       )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useDeferredValue } from 'react'
 import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip, Dropdown, Image } from 'antd'
 import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, ProfileOutlined, HeartOutlined, DownOutlined, CheckOutlined, PauseCircleOutlined, PictureOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
@@ -174,6 +174,9 @@ function buildPerMixMaterialQueue(mixDesigns, materialMapping) {
  * 由 SmartDesignChat 主体保留处理（不在 Task 9 重构范围）。
  */
 function MessageContent({ item, agentStatus, agentReplyText }) {
+  // v10.10.12 修复：agent 流式输出时 ReactMarkdown 每条 IPC 都重新解析整个 markdown，
+  // 大段输出（几万字）会卡死渲染进程 → 白屏。useDeferredValue 让 React 自动降速。
+  const deferredReplyText = useDeferredValue(agentReplyText)
   if (item.role !== 'assistant') {
     return <ReactMarkdown>{item.content}</ReactMarkdown>
   }
@@ -183,7 +186,7 @@ function MessageContent({ item, agentStatus, agentReplyText }) {
   if ((agentStatus === 'streaming' || agentStatus === 'tool_calling') && item._streaming) {
     return (
       <div className="chat-markdown-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{agentReplyText || item.content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{deferredReplyText || item.content}</ReactMarkdown>
         <span className="streaming-cursor">|</span>
       </div>
     )
