@@ -1,3 +1,72 @@
+## v10.10.10 修复版本 (2026-07-10) - 减水剂掺量预测坍落度不生效 bug（数据泄漏修复）
+
+### 背景
+
+老板 2026-07-10 实操反馈：**减水剂掺量预测时，坍落度 160-210 的预测值全部恒定为 3.3%**（明显不符合业务逻辑）。
+
+### 根因
+
+`superplasticizer_dosage` 训练数据中 `target_superplasticizer_dosage = superplasticizer_dosage`（恒等映射），XGBoost 模型**几乎只用一个特征**（index 7 = superplasticizer_dosage）做决策，导致：
+
+1. 模型学不到坍落度（feature_slump）的影响——树中根本没用过 index 34
+2. 前端预测时把 `features[7] = -1` 防泄漏，强制所有树走 missing 分支
+3. 结果：坍落度变化 → 走相同 missing 分支 → 恒定预测值
+
+### 修复（老板拍板：方案 A — 3 个目标用不同特征子集，不移除 superplasticizer_dosage 列）
+
+| 文件 | 改动 |
+|------|------|
+| `scripts/train_xgboost_model/feature_config.py` | 新增 `TARGET_FEATURES` / `TARGET_FORCE_MISSING` 映射 |
+| `scripts/train_xgboost_model/train.py` | 训练时按目标切分特征子集 + 重训入口 |
+| `src/main/services/XGBoostPredictionService.js` | 预测循环按 target 决定 `features[7]/[34]` 置 -1 |
+| `resources/models/*.json` | 3 个模型全部重训 |
+
+### 3 个目标特征策略
+
+| 模型 | 特征数 | 包含 | 强制 -1 |
+|------|---:|------|------|
+| strength_28d | 34 | 34 维 | feature_slump (index 34) |
+| density | 34 | 34 维 | feature_slump (index 34) |
+| superplasticizer_dosage | 35 | 35 维全留 | superplasticizer_dosage (index 7, 防泄漏) |
+
+### 模型训练指标（5-fold CV）
+
+| 模型 | 特征数 | R² | RMSE |
+|------|---:|---:|---:|
+| strength_28d | 34 | 0.61 | 7.21 MPa |
+| superplasticizer_dosage | 35 | 0.58 | 0.31 % |
+| density | 34 | 0.70 | 10.73 kg/m³ |
+
+### 修复验证（完整业务特征）
+
+| 坍落度 (mm) | 减水剂预测 (%) | 强度 (MPa) | 容重 (kg/m³) |
+|---:|---:|---:|---:|
+| 180 | 2.25 | 63.6 | 2400 |
+| 200 | 2.25 | 63.6 | 2400 |
+| 210 | 2.25 | 63.6 | 2400 |
+| **220** | **2.31** | 63.6 | 2400 |
+| **230** | **2.48** | 63.6 | 2400 |
+| **240** | **2.50** | 63.6 | 2400 |
+| 255 | 2.50 | 63.6 | 2400 |
+
+✅ 坍落度越大 → 减水剂掺量越高（业务规律）
+✅ 强度/容重预测完全不受坍落度影响（按设计隔离）
+
+### 版本号同步（CLAUDE.md 第 7 条）
+
+- ✅ [package.json:3](package.json#L3) `version: 10.10.9` → `10.10.10`
+- ✅ [package.json:74](package.json#L74) `output: dist-10.10.9` → `dist-10.10.10`
+- ✅ [src/renderer/pages/WorkspacePage.jsx:152](src/renderer/pages/WorkspacePage.jsx#L152) 顶栏 `v10.10.9` → `v10.10.10`
+- ✅ `main.js` BrowserWindow title 无版本号（无需改）
+- ✅ `index.html` title "砼智" 无版本号（无需改）
+
+### 打包记录 (v10.10.10) (2026-07-10)
+
+- 改 4 个文件 + 重训 3 个模型
+- 平台：win32 x64
+
+---
+
 ## v10.10.9 修复版本 (2026-07-10) - 水泥"标准稠度"前端补齐 + 复合粉"需水比"→"流动度比"修正并重训
 
 ### 背景

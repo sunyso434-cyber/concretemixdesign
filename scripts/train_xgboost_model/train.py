@@ -10,7 +10,13 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from xgboost import XGBRegressor
 
-from feature_config import FEATURE_CONFIG, FEATURE_NAMES, TARGET_COLUMNS
+from feature_config import (
+    FEATURE_CONFIG,
+    FEATURE_NAMES,
+    TARGET_COLUMNS,
+    TARGET_FEATURES,
+    TARGET_FORCE_MISSING,
+)
 from export_model import export_model_to_json
 
 
@@ -18,6 +24,19 @@ def load_data(filepath):
     if filepath.endswith((".xlsx", ".xls")):
         return pd.read_excel(filepath)
     return pd.read_csv(filepath)
+
+
+def get_features_for_target(df, target_name):
+    """老板 2026-07-10: 按目标返回对应的特征子集 DataFrame
+    - strength_28d / density: 去掉 feature_slump (34 维)
+    - superplasticizer_dosage: 35 维全留，index 7 (superplasticizer_dosage) 强制置 -1
+    """
+    feature_names = TARGET_FEATURES.get(target_name, FEATURE_NAMES)
+    X = df[feature_names].copy()
+
+    for feat in TARGET_FORCE_MISSING.get(target_name, []):
+        X[feat] = -1
+    return X, feature_names
 
 
 def validate_columns(df):
@@ -131,10 +150,6 @@ def main():
 
     available_targets = validate_columns(df)
 
-    X = df[FEATURE_NAMES]
-    feature_stats = compute_feature_stats(X)
-    feature_stats["_total_samples"] = len(df)
-
     os.makedirs(args.output, exist_ok=True)
 
     all_results = {}
@@ -143,15 +158,23 @@ def main():
         target_name = target_col.replace("target_", "")
         # Remove underscores from target names to match JS file naming convention
         file_name = target_name.replace("_", "")
+
+        # 老板 2026-07-10: 按目标取不同特征子集
+        X_target_full, target_feature_names = get_features_for_target(df, target_name)
+        feature_stats = compute_feature_stats(X_target_full)
+        feature_stats["_total_samples"] = len(df)
+
         mask = df[target_col].notna()
-        X_target = X[mask]
+        X_target = X_target_full[mask]
         y_target = df.loc[mask, target_col]
 
         model, cv_results = train_target(X_target, y_target, args, target_name)
 
         y_mean = float(y_target.mean())
-        model_json = export_model_to_json(model, target_name, FEATURE_NAMES, feature_stats, args,
-                                          y_mean=y_mean)
+        model_json = export_model_to_json(
+            model, target_name, target_feature_names, feature_stats, args,
+            y_mean=y_mean,
+        )
         model_json["training_info"]["rmse"] = cv_results["rmse"]["mean"]
         model_json["training_info"]["r_squared"] = cv_results["r2"]["mean"]
         model_json["training_info"]["mae"] = cv_results["mae"]["mean"]
@@ -160,11 +183,11 @@ def main():
         output_path = os.path.join(args.output, f"{file_name}.json")
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(model_json, f, ensure_ascii=False, indent=2)
-        print(f"  模型已保存: {output_path}")
+        print(f"  模型已保存: {output_path} (特征数: {len(target_feature_names)})")
 
     feature_config_output = {
         "version": "1.0",
-        "description": "XGBoost预测模型特征配置 - 34维特征向量",
+        "description": "XGBoost预测模型特征配置 - 35维特征向量",
         "features": FEATURE_CONFIG,
     }
     fc_path = os.path.join(args.output, "feature_config.json")

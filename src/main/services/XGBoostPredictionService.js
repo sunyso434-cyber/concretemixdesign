@@ -128,10 +128,15 @@ class XGBoostPredictionService {
       const allWarnings = [...featureWarnings]
 
       for (const [target, model] of Object.entries(models)) {
-        // 老板 2026-07-10: 预测减水剂掺量时，自己不能作特征（数据泄漏），置为缺失 -1
-        const targetFeatures = target === 'superplasticizer_dosage'
-          ? Object.assign([], features, { 7: -1 })
-          : features
+        // 老板 2026-07-10: 不同目标用不同特征子集
+        //   - superplasticizer_dosage: 自己不能作特征（数据泄漏），置为缺失 -1
+        //   - strength_28d / density: 不用坍落度作特征 (index 34)，置为缺失 -1
+        const targetFeatures = Object.assign([], features)
+        if (target === 'superplasticizer_dosage') {
+          targetFeatures[7] = -1
+        } else {
+          targetFeatures[34] = -1
+        }
         const { value, warnings: predictWarnings } = this._predictOne(model, targetFeatures)
         const { confidence, warnings: rangeWarnings } = this._checkFeatureRange(model, targetFeatures)
         const targetWarnings = [...predictWarnings, ...rangeWarnings]
@@ -473,7 +478,9 @@ class XGBoostPredictionService {
     features[31] = temperature ?? 20
     features[32] = humidity ?? 95
     features[33] = curingAge ?? 28
-    // 老板 2026-07-10: 坍落度特征 (index=34)，未提供时使用训练集均值 200mm
+    // 老板 2026-07-10: 坍落度特征 (index=34)，仅减水剂掺量预测使用；
+    // 强度/容重预测会在 predict() 循环里强制置 -1。
+    // 未提供时使用训练集均值 200mm
     features[34] = (params.slump !== undefined && params.slump !== null) ? Number(params.slump) : 200
 
     return { features, warnings }

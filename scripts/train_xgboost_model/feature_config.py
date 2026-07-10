@@ -45,3 +45,19 @@ MIX_FEATURES = [f["name"] for f in FEATURE_CONFIG if f["group"] == "mix"]
 FLAG_FEATURES = [f["name"] for f in FEATURE_CONFIG if f["group"] == "flag"]
 MATERIAL_FEATURES = [f["name"] for f in FEATURE_CONFIG if f["group"] == "material"]
 ENV_FEATURES = [f["name"] for f in FEATURE_CONFIG if f["group"] == "env"]
+
+# 老板 2026-07-10: 修复减水剂掺量模型数据泄漏 + 强度/容重不应使用坍落度
+# 三个目标用不同特征子集：
+#   - strength_28d / density: 不含坍落度 (坍落度对新拌流动性有影响，对 28d 强度/容重几乎无影响)
+#   - superplasticizer_dosage: 35 维全留，但训练时把 index 7 (superplasticizer_dosage 列) 置 -1 防泄漏
+# 注意：保留 superplasticizer_dosage 在 feature_names 中作为占位，老板要求"不移除"以最小化改动
+TARGET_FEATURES = {
+    "strength_28d": [f["name"] for f in FEATURE_CONFIG if f["name"] != "feature_slump"],
+    "density": [f["name"] for f in FEATURE_CONFIG if f["name"] != "feature_slump"],
+    "superplasticizer_dosage": list(FEATURE_NAMES),  # 35 维全留，index 7 训练/预测时置 -1
+}
+
+# 训练/预测时需要强制置 -1 的特征（防数据泄漏）。key=目标名, value=特征名列表
+TARGET_FORCE_MISSING = {
+    "superplasticizer_dosage": ["superplasticizer_dosage"],  # 不能用自己预测自己
+}

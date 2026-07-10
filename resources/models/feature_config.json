@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "description": "XGBoost预测模型特征配置 - 34维特征向量",
+  "description": "XGBoost预测模型特征配置 - 35维特征向量",
   "features": [
     {
       "index": 0,
