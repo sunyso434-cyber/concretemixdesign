@@ -110,7 +110,7 @@ function createToolSummary(toolName, args = {}) {
     return [args.strength, args.slump ? `坍落度 ${args.slump}mm` : null, args.gridStep ? `步长 ${args.gridStep}` : null].filter(Boolean).join('|')
   }
   if (toolName === 'predict_performance') {
-    return '预测强度、坍落度和容重'
+    return '预测强度、减水剂掺量和容重'
   }
   return ''
 }

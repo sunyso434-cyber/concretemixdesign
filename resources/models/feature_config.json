@@ -158,10 +158,10 @@
     },
     {
       "index": 22,
-      "name": "composite_powder_water_demand_ratio",
+      "name": "composite_powder_fluidity_ratio",
       "group": "material",
       "default": -1,
-      "label": "复合粉需水比(%)"
+      "label": "复合粉流动度比(%)"
     },
     {
       "index": 23,
@@ -239,6 +239,13 @@
       "group": "env",
       "default": 28,
       "label": "龄期(天)"
+    },
+    {
+      "index": 34,
+      "name": "feature_slump",
+      "group": "mix",
+      "default": 200,
+      "label": "坍落度(mm)"
     }
   ]
 }

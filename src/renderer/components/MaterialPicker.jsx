@@ -4,7 +4,7 @@ import { Card, Button, Checkbox, Tag, Typography } from 'antd'
 const { Text } = Typography
 
 const TYPE_FIELDS = {
-  '水泥': ['compressiveStrength28d', 'specificSurfaceArea'],
+  '水泥': ['compressiveStrength28d', 'standardConsistency', 'specificSurfaceArea'],
   '粉煤灰': ['activityIndex28d', 'waterDemandRatio', 'fineness'],
   '矿渣粉': ['activityIndex28d', 'fluidityRatio', 'specificSurfaceArea'],
   '锂渣': ['activityIndex28d', 'waterDemandRatio'],
@@ -17,6 +17,7 @@ const TYPE_FIELDS = {
 
 const FIELD_LABELS = {
   compressiveStrength28d: '28d强度',
+  standardConsistency: '标准稠度',
   specificSurfaceArea: '比表面积',
   activityIndex28d: '28d活性',
   waterDemandRatio: '需水量比',
@@ -33,7 +34,7 @@ const formatValue = (field, value) => {
   if (value === undefined || value === null) return '-'
   if (field === 'compressiveStrength28d' || field === 'activityIndex28d') return `${value}MPa`
   if (field === 'specificSurfaceArea') return `${value}m²/kg`
-  if (field === 'waterDemandRatio' || field === 'fluidityRatio' || field === 'waterReducingRate' || field === 'recommendedDosage') return `${value}%`
+  if (field === 'waterDemandRatio' || field === 'fluidityRatio' || field === 'waterReducingRate' || field === 'recommendedDosage' || field === 'standardConsistency') return `${value}%`
   return value
 }
 

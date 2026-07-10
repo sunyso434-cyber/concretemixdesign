@@ -17,15 +17,17 @@ function getModelsDir() {
 
 const MODELS_DIR = getModelsDir()
 
+// 老板 2026-07-10: 去除坍落度作为目标，减水剂掺量作为新目标
+// 文件名去掉下划线以匹配 train.py 第145行的 replace("_", "")
 const MODEL_FILES = {
   strength28d: 'strength28d.json',
-  slump: 'slump.json',
+  superplasticizer_dosage: 'superplasticizerdosage.json',
   density: 'density.json'
 }
 
 const RESULT_UNITS = {
   strength28d: 'MPa',
-  slump: 'mm',
+  superplasticizer_dosage: '%',
   density: 'kg/m³'
 }
 
@@ -126,8 +128,12 @@ class XGBoostPredictionService {
       const allWarnings = [...featureWarnings]
 
       for (const [target, model] of Object.entries(models)) {
-        const { value, warnings: predictWarnings } = this._predictOne(model, features)
-        const { confidence, warnings: rangeWarnings } = this._checkFeatureRange(model, features)
+        // 老板 2026-07-10: 预测减水剂掺量时，自己不能作特征（数据泄漏），置为缺失 -1
+        const targetFeatures = target === 'superplasticizer_dosage'
+          ? Object.assign([], features, { 7: -1 })
+          : features
+        const { value, warnings: predictWarnings } = this._predictOne(model, targetFeatures)
+        const { confidence, warnings: rangeWarnings } = this._checkFeatureRange(model, targetFeatures)
         const targetWarnings = [...predictWarnings, ...rangeWarnings]
 
         predictions[target] = {
@@ -326,16 +332,19 @@ class XGBoostPredictionService {
   }
 
   async _buildFeatureVector(inputParams) {
-    const features = new Array(34).fill(-1)
+    // 老板 2026-07-10: 增加坍落度特征（35 维），用于减水剂掺量预测
+    const features = new Array(35).fill(-1)
     const warnings = []
 
     let params = { ...inputParams }
 
     if (MixFormatConverter.hasMassInputs(params)) {
       const converted = MixFormatConverter.massToPercent(params)
+      // 老板 2026-07-10: 用户传了 waterBinderRatio 应当作权威值；converter 在 dosage-only（缺 amount）
+      // 场景下算的水胶比会偏低或偏高，这里保留 user 值避免"超出训练数据范围"误判
       params = {
-        ...params,
-        ...converted
+        ...converted,
+        ...params  // user 原始字段优先（waterBinderRatio / slump 等）
       }
     }
 
@@ -434,15 +443,28 @@ class XGBoostPredictionService {
       features[19] = findField(lithiumSlagId, '锂渣', 'activityIndex28d', '锂渣28d活性指数')
       features[20] = findField(lithiumSlagId, '锂渣', 'waterDemandRatio', '锂渣需水比')
       features[21] = findField(compositePowderId, '复合粉', 'activityIndex28d', '复合粉28d活性指数')
-      features[22] = findField(compositePowderId, '复合粉', 'waterDemandRatio', '复合粉需水比')
+      features[22] = findField(compositePowderId, '复合粉', 'fluidityRatio', '复合粉流动度比')
       features[23] = findField(sandId, '细骨料', 'finenessModulus', '细骨料细度模数')
       features[24] = findField(sandId, '细骨料', 'mbValue', '细骨料MB值')
-      features[25] = findField(sandId, '细骨料', 'mudContent', '细骨料含泥量')
-      features[26] = findField(stoneId, '粗骨料', 'crushingValue', '粗骨料压碎值')
-      features[27] = findField(stoneId, '粗骨料', 'needleFlakeContent', '粗骨料针片状含量')
-      features[28] = findField(superplasticizerId, '外加剂', 'waterReducingRate', '外加剂减水率')
-      features[29] = findField(superplasticizerId, '外加剂', 'solidContent', '外加剂含固量')
-      features[30] = findField(superplasticizerId, '外加剂', 'recommendedDosage', '外加剂推荐掺量')
+      // 老板 2026-07-10: 材料库类型字段是'减水剂'（不是'外加剂'），兼容两者
+      // 不重复打 warning（fallback 是预期的，不算"按缺失处理"）
+      const findFieldCompat = (id, typeA, typeB, field, label) => {
+        const mat = id ? matById.get(Number(id)) : null
+        if (!mat) return -1
+        if (mat.type !== typeA && mat.type !== typeB) {
+          warnings.push(`${label}材料ID=${id}类型为${mat.type || '未知'}，不是${typeA}/${typeB}，按缺失值处理`)
+          return -1
+        }
+        const val = mat[field]
+        if (val === undefined || val === null) {
+          warnings.push(`${mat.name || `ID=${id}`}缺少${label}，按缺失值处理`)
+          return -1
+        }
+        return val
+      }
+      features[28] = findFieldCompat(superplasticizerId, '减水剂', '外加剂', 'waterReducingRate', '减水剂减水率')
+      features[29] = findFieldCompat(superplasticizerId, '减水剂', '外加剂', 'solidContent', '减水剂含固量')
+      features[30] = findFieldCompat(superplasticizerId, '减水剂', '外加剂', 'recommendedDosage', '减水剂推荐掺量')
     } catch (err) {
       console.error('获取材料属性失败，使用-1填充:', err.message)
       warnings.push(`材料属性读取失败，相关材料特征按缺失值处理: ${err.message}`)
@@ -451,6 +473,8 @@ class XGBoostPredictionService {
     features[31] = temperature ?? 20
     features[32] = humidity ?? 95
     features[33] = curingAge ?? 28
+    // 老板 2026-07-10: 坍落度特征 (index=34)，未提供时使用训练集均值 200mm
+    features[34] = (params.slump !== undefined && params.slump !== null) ? Number(params.slump) : 200
 
     return { features, warnings }
   }

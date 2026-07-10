@@ -21,6 +21,7 @@ export const MATERIAL_FIELDS_CONFIG = {
       { name: 'specification', label: '规格', type: 'text' },
       { name: 'manufacturer', label: '生产厂家', type: 'text' },
       { name: 'specificSurfaceArea', label: '比表面积', unit: 'm²/g', type: 'number', min: 0 },
+      { name: 'standardConsistency', label: '标准稠度', unit: '%', type: 'number', min: 0, max: 100 },
       { name: 'stability', label: '安定性', type: 'select', options: ['合格', '不合格'] },
       { name: 'initialSettingTime', label: '初凝时间', unit: 'min', type: 'number', min: 0 },
       { name: 'finalSettingTime', label: '终凝时间', unit: 'min', type: 'number', min: 0 },

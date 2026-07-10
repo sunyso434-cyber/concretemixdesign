@@ -122,7 +122,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'predict_performance',
-      description: '基于XGBoost模型预测混凝土性能指标（28d抗压强度、坍落度、容重）。输入配合比参数和材料ID，自动从数据库查询材料属性，输出预测值及置信度。支持质量(kg/m³)和百分比(%)两种输入格式，优先使用质量格式。',
+      description: '基于XGBoost模型预测混凝土性能指标（28d抗压强度、减水剂掺量、容重）。输入配合比参数和材料ID，自动从数据库查询材料属性，输出预测值及置信度。支持质量(kg/m³)和百分比(%)两种输入格式，优先使用质量格式。预测减水剂掺量时强烈建议传 slump 参数（目标坍落度 mm），未传时按训练集均值 200 兜底。',
       parameters: {
         type: 'object',
         properties: {
@@ -775,7 +775,7 @@ class DeepSeekService {
 1. **list_available_materials**: 查询材料库。在帮助用户做材料选择之前，先调用此工具了解可用材料。
 2. **calculate_mix_design**: 计算配合比。用户提供了完整参数后调用。
 3. **optimize_mix_cost**: 成本优化。用户要找最低成本方案时调用。
-4. **predict_performance**: 性能预测。根据配合比参数和材料属性，预测28d强度、坍落度、容重。
+4. **predict_performance**: 性能预测。根据配合比参数和材料属性，预测28d强度、减水剂掺量、容重。用户提到目标坍落度时，必须从对话中提取数值传入 slump 参数（单位 mm），否则模型精度会大幅下降。
    - 用户询问"强度能达到多少"、"这个配比性能怎么样"、"预测一下"时调用
    - 优化配合比后，补充预测验证时调用
    - 注意：先通过 list_available_materials 确认材料ID存在，再调用预测

@@ -21,7 +21,7 @@ FEATURE_CONFIG = [
     {"index": 19, "name": "lithium_slag_activity_index", "group": "material", "default": -1, "label": "锂渣活性指数(%)"},
     {"index": 20, "name": "lithium_slag_water_demand_ratio", "group": "material", "default": -1, "label": "锂渣需水比(%)"},
     {"index": 21, "name": "composite_powder_activity_index", "group": "material", "default": -1, "label": "复合粉活性指数(%)"},
-    {"index": 22, "name": "composite_powder_water_demand_ratio", "group": "material", "default": -1, "label": "复合粉需水比(%)"},
+    {"index": 22, "name": "composite_powder_fluidity_ratio", "group": "material", "default": -1, "label": "复合粉流动度比(%)"},
     {"index": 23, "name": "sand_fineness_modulus", "group": "material", "default": -1, "label": "细度模数"},
     {"index": 24, "name": "sand_mb_value", "group": "material", "default": -1, "label": "MB值"},
     {"index": 25, "name": "sand_mud_content", "group": "material", "default": -1, "label": "含泥量(%)"},
@@ -33,11 +33,13 @@ FEATURE_CONFIG = [
     {"index": 31, "name": "temperature", "group": "env", "default": 20, "label": "养护温度(℃)"},
     {"index": 32, "name": "humidity", "group": "env", "default": 95, "label": "相对湿度(%)"},
     {"index": 33, "name": "curing_age", "group": "env", "default": 28, "label": "龄期(天)"},
+    {"index": 34, "name": "feature_slump", "group": "mix", "default": 200, "label": "坍落度(mm)"},
 ]
 
 FEATURE_NAMES = [f["name"] for f in FEATURE_CONFIG]
 
-TARGET_COLUMNS = ["target_strength_28d", "target_slump", "target_density"]
+# 老板 2026-07-10: 去除坍落度作为目标；减水剂掺量作为新目标
+TARGET_COLUMNS = ["target_strength_28d", "target_superplasticizer_dosage", "target_density"]
 
 MIX_FEATURES = [f["name"] for f in FEATURE_CONFIG if f["group"] == "mix"]
 FLAG_FEATURES = [f["name"] for f in FEATURE_CONFIG if f["group"] == "flag"]

@@ -161,7 +161,7 @@ function renderArgsSummary(toolName, args = {}) {
     return args.schemeName || args.name || '保存方案'
   }
   if (toolName === 'predict_performance') {
-    return '预测强度 / 坍落度 / 容重'
+    return '预测强度 / 减水剂掺量 / 容重'
   }
   if (toolName === 'calculate_sales_quote') {
     return '已废弃'

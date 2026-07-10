@@ -5,7 +5,7 @@
 
 module.exports = {
   name: 'predict_performance',
-  description: '基于 XGBoost 模型预测混凝土 28 天强度/坍落度/容重。**必填 5 项：cementAmount(水泥用量 kg/m³) / waterBinderRatio(水胶比) / cementId / sandId / stoneId**；其他材料用量和养护条件（温度/湿度/龄期）可选。当用户说"这个配合比实际强度能到多少"用本工具——**与 calculate_mix_design 的区别**：mix_design 用水胶比公式算用量；本工具用 ML 模型算预期性能。',
+  description: '基于 XGBoost 模型预测混凝土 28 天强度/减水剂掺量/容重。**必填 5 项：cementAmount(水泥用量 kg/m³) / waterBinderRatio(水胶比) / cementId / sandId / stoneId**；预测减水剂掺量时强烈建议传 `slump`(目标坍落度 mm)，未传时按训练集均值 200 兜底。其他材料用量和养护条件（温度/湿度/龄期）可选。当用户说"这个配合比实际强度能到多少"用本工具——**与 calculate_mix_design 的区别**：mix_design 用水胶比公式算用量；本工具用 ML 模型算预期性能。',
   version: '1.0.0',
   category: 'analysis',
 
@@ -34,7 +34,8 @@ module.exports = {
     superplasticizerAmount: { type: 'number', description: '减水剂用量(kg/m³)' },
     temperature: { type: 'number', description: '养护温度(℃)' },
     humidity: { type: 'number', description: '养护湿度(%)' },
-    curingAge: { type: 'number', description: '养护龄期(天)' }
+    curingAge: { type: 'number', description: '养护龄期(天)' },
+    slump: { type: 'number', description: '坍落度(mm)；预测减水剂掺量时强烈建议提供，未提供时按200mm兜底' }
   },
 
   errors: {

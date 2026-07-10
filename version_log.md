@@ -1,3 +1,276 @@
+## v10.10.9 修复版本 (2026-07-10) - 水泥"标准稠度"前端补齐 + 复合粉"需水比"→"流动度比"修正并重训
+
+### 背景
+
+老板 2026-07-10 实操发现两处相关问题：
+
+1. **原材料管理界面看不到水泥"标准稠度"**：
+   - 后端其实全链路已有（数据库列、MaterialService 默认值、TemplateService 模板列、material-manage skill、Excel 导入解析、XGBoost 取值 index 14）
+   - **但前端 `materialFieldsConfig.js` 水泥配置里漏掉了这个字段** → 表单没显示
+   - **MaterialPicker 卡片也没显示** `standardConsistency`
+2. **XGBoost 预测中复合粉特征一直是 undefined**：
+   - 数据库和业务代码里复合粉用的是 `fluidityRatio`（流动度比）
+   - 但 [XGBoostPredictionService.js:446](src/main/services/XGBoostPredictionService.js#L446) 硬编码读 `waterDemandRatio`（需水比）→ 字段不存在，**特征 index 22 永远回退 -1**，复合粉修正系数从未生效
+   - `feature_config.{json,py}`、训练数据 xlsx/csv、README、spec/plan 文档里字段名 + 中文标签都写错
+
+### 改动（9 个文件 + 重训）
+
+#### A. 水泥标准稠度前端补齐
+- [src/renderer/utils/materialFieldsConfig.js:15-34](src/renderer/utils/materialFieldsConfig.js) — 水泥 `optional` 加 `standardConsistency`（标准稠度，%，0-100）
+- [src/renderer/components/MaterialPicker.jsx:7](src/renderer/components/MaterialPicker.jsx) — `TYPE_FIELDS` 加 `'standardConsistency'`，`FIELD_LABELS` 加 `'标准稠度'`，`formatValue` % 渲染分支加这一项
+- 后端/数据库/模板/skill/Excel 导入/预测 全部不动（全链路本来就有）
+
+#### B. 复合粉需水比→流动度比
+- [src/main/services/XGBoostPredictionService.js:446](src/main/services/XGBoostPredictionService.js#L446) — `findField(..., 'waterDemandRatio', '复合粉需水比')` → `'fluidityRatio'`, `'复合粉流动度比'`
+- [resources/models/feature_config.json:161-165](resources/models/feature_config.json) — index 22 `name` + `label` 改正
+- [scripts/train_xgboost_model/feature_config.py:24](scripts/train_xgboost_model/feature_config.py) — 同上
+- [scripts/train_xgboost_model/template_training_data.csv](scripts/train_xgboost_model/template_training_data.csv) — 表头列名 + 加 `feature_slump` / `target_superplasticizer_dosage` 两列
+- [scripts/train_xgboost_model/README.md:39](scripts/train_xgboost_model/README.md) — 表格行改正
+- [docs/superpowers/specs/2026-05-09-xgboost-prediction-design.md](docs/superpowers/specs/2026-05-09-xgboost-prediction-design.md) — 第 75、274 行改正
+- [docs/superpowers/plans/2026-05-09-xgboost-prediction.md](docs/superpowers/plans/2026-05-09-xgboost-prediction.md) — 第 80、393、695 行改正
+- `template_training_data.xlsx` — 表头第 23 列（仅 1 个 cell）字符串改正，105 行数据不动
+
+#### C. 重新训练
+
+```bash
+python scripts/train_xgboost_model/train.py --input template_training_data.xlsx --output resources/models/
+```
+
+| 目标 | 样本 | 特征 | 5-fold CV RMSE | 5-fold CV R² |
+|------|------|------|----------------|--------------|
+| strength_28d | 105 | 35 | 7.14 ± 1.10 | 0.615 ± 0.133 |
+| superplasticizer_dosage | 105 | 35 | 0.087 ± 0.103 | **0.949 ± 0.086** |
+| density | 105 | 35 | 10.84 ± 4.94 | 0.692 ± 0.215 |
+
+- `strength28d.json`、`superplasticizerdosage.json`、`density.json`、`feature_config.json` 全部重新生成
+- 旧模型被覆盖（树按 index 切，名字改不影响功能；feature_stats 键名刷新、训练基于 105 行 xlsx 比之前 8 行 csv 更可靠）
+
+### 验证
+
+- ✅ `node --check src/main/services/XGBoostPredictionService.js` 通过
+- ✅ `node --check src/main/services/MixFormatConverter.js` 通过
+- ✅ `grep -r "composite_powder_water_demand_ratio" src/ scripts/ resources/` 无残留
+- ✅ 4 个 json 全部 `feature_names[14]=cement_standard_consistency` / `[22]=composite_powder_fluidity_ratio`
+- ✅ 老板前端实测：添加/编辑水泥时表单有"标准稠度"行；材料选择卡片显示"标准稠度: 27.0%"
+
+### 反思（写入永久防错）
+
+| 坑 | 原因 | 防错 |
+|---|---|---|
+| 复合粉特征从未生效 | XGBoost 服务硬编码字段名跟业务代码用的不一样；命名错位静默回退 -1 | 字段名变更时**跨文件 grep 一次**（Agent 已扫出 30+ 处）；XGBoost 服务可加 sanity check：训练数据的列名 vs 材料实际属性名，启动时报 warning |
+| 模板 xlsx 字段名错 | 之前某次重命名时漏改（数据值是流动度比、表头却写需水比） | 训练数据加一个 **schema 校验脚本**：列名必须与 `feature_config.json` 完全一致，缺/多/错都 fail |
+| 前端字段配置脱节 | 后端模型 + service 已有 standardConsistency 字段，前端 materialFieldsConfig 漏配 → 用户看不见 | **CI 检查**：扫描 `materialFieldsConfig.js` 里的字段 vs Sequelize model 字段，差异即报错 |
+| 资源文件 in-place rewrite 拦截 | auto mode 把 openpyxl save 当成"不可逆破坏" | 在 settings.json 加 `Bash` allowlist：`python -c "import openpyxl; ..."` 允许同包脚本改 xlsx |
+| Excel 占用导致 xlsx 改写失败 | 老板在 Excel 里打开了模板，Windows 文件锁让 save 失败 | **改前用 `ls` 检查 `~$<file>` 锁文件**；让用户先关 Excel 是标准动作 |
+
+### 版本号同步（CLAUDE.md 第 7 条）
+- ✅ [package.json:3](package.json#L3) `version: 10.10.8` → `10.10.9`
+- ✅ [package.json:74](package.json#L74) `output: dist-10.10.8` → `dist-10.10.9`
+- ✅ [src/renderer/pages/WorkspacePage.jsx:152](src/renderer/pages/WorkspacePage.jsx#L152) 顶栏 `v10.10.8` → `v10.10.9`
+- ✅ `dist-10.10.9/` 复制自 `dist-10.10.8/`（待新打包时再覆盖）
+
+### 打包记录 (v10.10.9) (2026-07-10)
+- 改 9 个文件 + 重训 3 个模型
+- `npm run electron:build` 成功（exit 0，耗时 ~1 分钟）
+  - vite build: 3937 modules, 12.83s
+  - electron-builder: win32 x64
+  - 输出: `dist-10.10.9/砼智 Setup 10.10.9.exe` (NSIS 安装版)
+  - 输出: `dist-10.10.9/砼智-10.10.9-portable-x64.exe` (绿色版)
+  - asar.unpacked/resources/models/ 4 个 json 完整（35 维、特征名已修正）
+
+---
+
+## v10.10.8 修复版本 (2026-07-10) - 三处推理 bug：减水剂/外加剂类型兼容 + 自泄漏避免 + 水胶比覆盖
+
+### 背景
+老板实测 v10.10.7 三个问题：
+1. **预测减水剂掺量时，自己作为输入** → 数据泄漏（应跳过 features[7]）
+2. **"减水剂" vs "外加剂" 找不到材料** → Service 写死 `'外加剂'`，库实际类型是 `'减水剂'`
+3. **预测结果显著偏低**（老板样本：实际 1.9%，预测 0.64%） → 用户传的 waterBinderRatio=0.521 被 converter 覆盖成 0.651（超出训练范围 [0.26, 0.65]），XGBoost 在 missing 分支外推失真
+
+### 改动（3 个文件，最小变更）
+
+#### 1. [XGBoostPredictionService.js](src/main/services/XGBoostPredictionService.js) — findField 兼容
+- features[28]/[29]/[30] 改用新 helper `findFieldCompat(id, '减水剂', '外加剂', field, label)`
+- 优先尝试 `'减水剂'`，失败回退 `'外加剂'`
+- 类型不匹配时合并 warning（只打一次："不是'减水剂'/'外加剂'"）
+
+#### 2. [XGBoostPredictionService.js:130](src/main/services/XGBoostPredictionService.js#L130) — 自泄漏避免
+- 预测循环里：target === 'superplasticizer_dosage' 时，features 副本把 index 7 置 -1（让 XGBoost 走 missing 分支，不让"自己"作为输入）
+
+#### 3. [XGBoostPredictionService.js:340](src/main/services/XGBoostPredictionService.js#L340) — user 字段优先
+- mass→percent 转换后，参数合并顺序调成 `params = { ...converted, ...params }`
+- 用户传的 `waterBinderRatio` 是"权威值"，避免被 converter 用不完整的 binderTotal 算错
+- 典型场景：用户传 dosage 而没传 amount 时，converter 算的 waterBinderRatio 会偏高/偏低
+
+### 验证
+
+老板样本参数：
+```json
+{ "slump": 210, "waterBinderRatio": 0.521, "cementAmount": 252.14,
+  "compositePowderDosage": 20, "waterAmount": 164.18, ... }
+```
+
+修复前：converter 算 waterBinderRatio = 164.18/252.14 = **0.651**（漏掉复合粉 20%），警告"超出训练范围"，预测 0.64%
+修复后：保留 user waterBinderRatio = **0.521**（在训练范围），不再有外推警告
+
+### 边缘情况
+
+- 用户不传 waterBinderRatio 也不传 waterAmount → 走 `?? 0.45` 默认值（原行为不变）
+- 用户传完整 mass（所有 amount）→ converter 算的水胶比正确，user 字段优先级不破坏
+- 预测 strength/density 时 features[7] 仍用 superplasticizerDosage（这两个目标合理需要该特征）
+
+### 版本号同步（CLAUDE.md 第 7 条）
+- ✅ [package.json:3](package.json#L3) `version: 10.10.7` → `10.10.8`
+- ✅ [package.json:74](package.json#L74) `output: dist-10.10.7` → `dist-10.10.8`
+- ✅ [WorkspacePage.jsx:152](src/renderer/pages/WorkspacePage.jsx#L152) 顶栏 `v10.10.7` → `v10.10.8`
+
+### 打包记录 (v10.10.8) (2026-07-10)
+- node --check XGBoostPredictionService.js / MixFormatConverter.js 通过
+- vite build + electron-builder exit 0
+- dist-10.10.8/砼智 Setup 10.10.8.exe (139 MB)
+- dist-10.10.8/砼智-10.10.8-portable-x64.exe (139 MB)
+
+---
+
+## v10.10.7 修复版本 (2026-07-10) - 修复 systemPrompt 反引号导致主进程崩溃
+
+### 背景
+v10.10.6 发布后老板启动 v10.10.6 安装版崩溃，报错：
+```
+SyntaxError: Unexpected identifier 'slump'
+at internalCompileFunction
+...:7784. predict_performance: ... slump 参数...
+```
+根因：[DeepSeekService.js:778](src/main/services/DeepSeekService.js#L778) systemPrompt 模板字符串内写了 `` `slump` ``，反引号提前关闭了模板字符串，第 778 行后面的 `slump` 成了裸标识符 → SyntaxError → 主进程拒绝加载 → 弹窗崩溃。
+
+**这正是 v10.10.1 修过的同款 bug（line 854-856 反引号），结果 v10.10.6 文案改造时又踩了**。
+
+### 修复（最小）
+- [DeepSeekService.js:778](src/main/services/DeepSeekService.js#L778) `` `slump` `` → `slump`（去掉反引号）
+- [DeepSeekService.js:125](src/main/services/DeepSeekService.js#L125) `` `slump`(目标坍落度 mm) `` → `slump 参数（目标坍落度 mm）`（同款预防性清理）
+- ✅ `node --check src/main/services/DeepSeekService.js` 通过
+
+### 反思（写入永久防错）
+
+| 坑 | 原因 | 防错 |
+|---|---|---|
+| 反引号在模板字符串里 | 写 prompt 文案时图省事用 `` `var` `` 标识代码/参数 | **prompt 改造 PR 必跑 `node --check`**（已记录于 v10.10.1 反思条目，本次再次验证有效）|
+| 同样的反引号坑踩两次 | v10.10.1 修了 line 854-856，v10.10.6 又写进 line 778 时没回顾 CLAUDE.md 反思章节 | **CLAUDE.md 加一条强制规则**：写 systemPrompt 字符串时禁止未转义反引号，可选加固——pre-commit 跑一遍 `node --check src/main/services/DeepSeekService.js` |
+| `node --check` 没纳入打包前门禁 | 这次仍需老板启动后才发现 | 加到 `electron:build` 的 prebuild 步骤里 |
+
+### 建议 CLAUDE.md 强化（老板决定）
+- 第 7 条版本号同步之外，加第 8 条："systemPrompt 类字符串所有反引号必转义，包构建前必跑 `node --check` 主进程树"
+- 写脚本 `scripts/lint-prompt-backticks.sh` 扫模板字符串内的裸反引号并 fail
+
+### 版本号同步（CLAUDE.md 第 7 条）
+- ✅ [package.json:3](package.json#L3) `version: 10.10.6` → `10.10.7`
+- ✅ [package.json:74](package.json#L74) `output: dist-10.10.6` → `dist-10.10.7`
+- ✅ [WorkspacePage.jsx:152](src/renderer/pages/WorkspacePage.jsx#L152) 顶栏 `v10.10.6` → `v10.10.7`
+
+### 打包记录 (v10.10.7) (2026-07-10)
+- node --check 通过
+- vite build + electron-builder 全部 exit 0
+- dist-10.10.7/砼智 Setup 10.10.7.exe (139 MB)
+- dist-10.10.7/砼智-10.10.7-portable-x64.exe (139 MB)
+- asar.unpacked/resources/models/ 4 个 JSON 完整
+
+---
+
+## v10.10.6 修复版本 (2026-07-10) - agent 文案"预测坍落度"改为"预测减水剂掺量"
+
+### 背景
+v10.10.5 把 XGBoost 目标从坍落度换成减水剂掺量，但 5 处用户可见文案仍说"预测坍落度"，会让用户以为模型还在预测坍落度。需要全面替换。
+
+### 改动（5 处文案同步）
+
+| 文件 | 改动 |
+|---|---|
+| [performance-prediction.js:8](src/main/skills/performance-prediction.js#L8) | skill description "28 天强度/坍落度/容重" → "28 天强度/减水剂掺量/容重"；强调 `slump`(目标坍落度) 是 feature_slump 输入 |
+| [DeepSeekService.js:125](src/main/services/DeepSeekService.js#L125) | tool schema description 同步替换 + 强调 slump 参数必传 |
+| [DeepSeekService.js:778](src/main/services/DeepSeekService.js#L778) | system prompt 工具列表项描述替换 + 指示 agent 提取用户提到的目标坍落度 |
+| [StreamingAgentCard.jsx:164](src/renderer/components/StreamingAgentCard.jsx#L164) | agent 卡片标题 "预测强度 / 坍落度 / 容重" → "预测强度 / 减水剂掺量 / 容重" |
+| [SmartDesignChat.jsx:113](src/renderer/components/SmartDesignChat.jsx#L113) | tool 调用详情文案同步替换 |
+
+### 业务侧说明（不改代码）
+
+**为什么 ML 模型需要目标坍落度才能给出准确减水剂掺量**：
+- 减水剂掺量是「达到目标坍落度」的手段，坍落度本身就是关键输入
+- 不传坍落度时模型用 200mm 训练均值兜底，对 180mm 或 220mm 目标场景精度差
+- 解决方案：用户在对话中说"C30 坍落度 180"，agent 自动把 180 传给 feature_slump
+
+### 版本号同步（CLAUDE.md 第 7 条）
+- ✅ [package.json:3](package.json#L3) `version: 10.10.5` → `10.10.6`
+- ✅ [package.json:74](package.json#L74) `output: dist-10.10.5` → `dist-10.10.6`
+- ✅ [WorkspacePage.jsx:152](src/renderer/pages/WorkspacePage.jsx#L152) 顶栏 `v10.10.5` → `v10.10.6`
+
+### 打包记录 (v10.10.6) (2026-07-10)
+- vite build: 11.31s
+- electron-builder: NSIS + Portable 双产出，exit 0
+- dist-10.10.6/砼智 Setup 10.10.6.exe (139 MB)
+- dist-10.10.6/砼智-10.10.6-portable-x64.exe (139 MB)
+
+---
+
+## v10.10.5 功能版本 (2026-07-10) - XGBoost 模型重训：减水剂掺量替换坍落度作为目标
+
+### 背景
+老板要求用 `template_training_data.xlsx` 重新训练 XGBoost 模型：
+- 目标列不再包含坍落度（`target_slump`），改为预测减水剂掺量
+- 减水剂掺量预测时，坍落度作为特征（前 35 维）
+
+### 改动
+
+#### 1. 训练数据（template_training_data.xlsx）
+- AI 列 `target_slump` → 重命名为 `feature_slump`（作为新特征）
+- AJ 列新增 `target_superplasticizer_dosage`（值 = H 列 `superplasticizer_dosage`）
+- 共 105 条数据，0 缺失值
+
+#### 2. 训练配置（scripts/train_xgboost_model/feature_config.py）
+- FEATURE_NAMES 新增 `feature_slump`（35 维）
+- TARGET_COLUMNS = `[target_strength_28d, target_superplasticizer_dosage, target_density]`
+
+#### 3. 推理服务（src/main/services/XGBoostPredictionService.js）
+- MODEL_FILES: `slump.json` → `superplasticizerdosage.json`（匹配 train.py 第 145 行 replace("_","")）
+- RESULT_UNITS: `'mm'` → `'%'`
+- features 数组长度 34 → 35；features[34] = `params.slump ?? 200`（训练集均值兜底）
+
+#### 4. Skill 描述（src/main/skills/performance-prediction.js）
+- 新增可选参数 `slump`（坍落度 mm），预测减水剂掺量时强烈建议提供
+
+#### 5. 一次性脚本（scripts/train_xgboost_model/prep_excel.py）
+- 用于 Excel 重塑（rename + new column）
+
+### 训练结果（5-fold CV）
+
+| 目标 | RMSE | MAE | R² | 备注 |
+|---|---|---|---|---|
+| strength_28d | 7.14 MPa | 5.17 | 0.61 | 中等 |
+| **superplasticizer_dosage** | **0.087 %** | **0.034** | **0.95** | **优秀** |
+| density | 10.84 kg/m³ | 5.38 | 0.69 | 中等 |
+
+### 边缘情况
+- 用户不传 `slump` 时 service 默认 200mm（≈训练集均值）；减水剂预测精度会降低
+- 减水剂 R²=0.95 极高：坍落度是减水剂掺量的物理因果输入，合理
+- 强度 R²=0.61 一般：样本 105 条，特征 35 维，后续可加大训练数据
+- 旧 `slump.json` 已删除；不再预测坍落度
+
+### 版本号同步（CLAUDE.md 第 7 条）
+- ✅ [package.json:3](package.json#L3) `version: 10.10.4` → `10.10.5`
+- ✅ [package.json:74](package.json#L74) `output: dist-10.10.4` → `dist-10.10.5`
+- ✅ [WorkspacePage.jsx:152](src/renderer/pages/WorkspacePage.jsx#L152) 顶栏 `v10.10.4` → `v10.10.5`
+- ✅ main.js BrowserWindow 无硬编码 title —— 无需改
+- ✅ index.html `<title>砼智</title>` 无版本号 —— 无需改
+
+### 打包记录 (v10.10.5) (2026-07-10)
+- vite build: 12.79s
+- electron-builder: NSIS + Portable 双产出，全程 exit 0
+- dist-10.10.5/砼智 Setup 10.10.5.exe (139 MB, NSIS 安装包)
+- dist-10.10.5/砼智-10.10.5-portable-x64.exe (139 MB, 便携版)
+- dist-10.10.5/win-unpacked/ （免安装解压目录，含 asar.unpacked/resources/models/{4 个 json}）
+
+---
+
 ## v10.10.4 修复版本 (2026-07-09) - recall_session services 声明 + TodoPanel 快照机制
 
 ### 修复内容

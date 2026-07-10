@@ -36,7 +36,7 @@ pip install -r requirements.txt
 | 19 | lithium_slag_activity_index | 材料属性 | 锂渣活性指数(%) |
 | 20 | lithium_slag_water_demand_ratio | 材料属性 | 锂渣需水比(%) |
 | 21 | composite_powder_activity_index | 材料属性 | 复合粉活性指数(%) |
-| 22 | composite_powder_water_demand_ratio | 材料属性 | 复合粉需水比(%) |
+| 22 | composite_powder_fluidity_ratio | 材料属性 | 复合粉流动度比(%) |
 | 23 | sand_fineness_modulus | 材料属性 | 细度模数 |
 | 24 | sand_mb_value | 材料属性 | MB值 |
 | 25 | sand_mud_content | 材料属性 | 含泥量(%) |
