@@ -65,7 +65,7 @@ describe('WikiEngine.search', () => {
   })
 
   test('NOT_OPEN 状态抛 WorkspaceError', async () => {
-    mgr.close()
+    await mgr.close()
     await expect(wiki.search('test', 5)).rejects.toMatchObject({ code: 'NOT_OPEN' })
   })
 })

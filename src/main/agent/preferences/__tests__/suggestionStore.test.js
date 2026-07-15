@@ -1,4 +1,5 @@
 const { SuggestionStore } = require('../suggestionStore')
+const { PreferenceSuggestion, sequelize } = require('../../../db/database')
 
 const sampleSuggestion = (overrides = {}) => ({
   id: 'sugg-1',
@@ -14,51 +15,63 @@ const sampleSuggestion = (overrides = {}) => ({
 
 describe('SuggestionStore', () => {
   let store
-  let mockWebContents
-  beforeEach(() => {
+
+  beforeAll(async () => {
+    await sequelize.sync()
+  })
+
+  beforeEach(async () => {
     store = new SuggestionStore()
-    mockWebContents = { send: jest.fn(), isDestroyed: () => false }
-    store.registerWebContents(mockWebContents)
+    await PreferenceSuggestion.destroy({ truncate: true })
   })
 
-  test('add 应追加建议并推送事件', () => {
-    const sugg = sampleSuggestion()
-    store.add(sugg)
-    expect(store.list()).toEqual([sugg])
-    expect(mockWebContents.send).toHaveBeenCalledWith('agent:suggestions:new', {
-      suggestions: [sugg]
+  afterAll(async () => {
+    await sequelize.close()
+  })
+
+  test('add 持久化建议及完整 payload', async () => {
+    const row = await store.add(sampleSuggestion())
+    const list = await store.list()
+
+    expect(list).toHaveLength(1)
+    expect(row.payload.proposedYaml.value).toBe('拉法基')
+    expect(row.confidence).toBe(1.0)
+  })
+
+  test('同类型 pending 建议会去重', async () => {
+    const first = await store.add(sampleSuggestion())
+    const second = await store.add(sampleSuggestion({ id: 'sugg-2' }))
+
+    expect(second.id).toBe(first.id)
+    expect(await store.list()).toHaveLength(1)
+  })
+
+  test('get 按数据库主键读取建议', async () => {
+    const row = await store.add(sampleSuggestion())
+    const fetched = await store.get(row.id)
+
+    expect(fetched.id).toBe(row.id)
+    expect(fetched.type).toBe('material_vendor')
+  })
+
+  test('remove 删除指定建议', async () => {
+    const row = await store.add(sampleSuggestion())
+
+    expect(await store.remove(row.id)).toBe(1)
+    expect(await store.get(row.id)).toBeNull()
+  })
+
+  test('clear 只删除 pending 建议', async () => {
+    await store.add(sampleSuggestion())
+    await PreferenceSuggestion.create({
+      type: 'method_preference',
+      payload: sampleSuggestion({ type: 'method_preference' }),
+      confidence: 0.9,
+      status: 'accepted'
     })
-  })
 
-  test('add 重复 id 应忽略', () => {
-    const sugg = sampleSuggestion()
-    store.add(sugg)
-    store.add(sugg)
-    expect(store.list()).toHaveLength(1)
-  })
-
-  test('acceptById 应返回被采纳的建议并从列表移除', () => {
-    const sugg = sampleSuggestion()
-    store.add(sugg)
-    const result = store.acceptById('sugg-1')
-    expect(result).toEqual(sugg)
-    expect(store.list()).toEqual([])
-  })
-
-  test('acceptById 不存在的 id 应返回 null', () => {
-    const result = store.acceptById('not-found')
-    expect(result).toBeNull()
-  })
-
-  test('dismissById 应从列表移除并返回 true', () => {
-    const sugg = sampleSuggestion()
-    store.add(sugg)
-    expect(store.dismissById('sugg-1')).toBe(true)
-    expect(store.list()).toEqual([])
-  })
-
-  test('registerWebContents 后 webContents 销毁不应 throw', () => {
-    mockWebContents.isDestroyed = () => true
-    expect(() => store.add(sampleSuggestion())).not.toThrow()
+    expect(await store.clear()).toBe(1)
+    expect(await store.list()).toEqual([])
+    expect(await PreferenceSuggestion.count({ where: { status: 'accepted' } })).toBe(1)
   })
 })

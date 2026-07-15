@@ -1,11 +1,19 @@
 const { cleanupOldSessions } = require('../SessionCleanupService')
-const { ChatSession, ChatHistory } = require('../../database')
+const { ChatSession, ChatHistory, sequelize } = require('../../database')
 
 describe('cleanupOldSessions', () => {
+  beforeAll(async () => {
+    await sequelize.sync()
+  })
+
   afterAll(async () => {
-    // 清理测试数据
-    await ChatHistory.destroy({ where: { sessionId: ['old-1', 'new-1'] } })
-    await ChatSession.destroy({ where: { sessionId: ['old-1', 'new-1'] } })
+    try {
+      // 清理测试数据
+      await ChatHistory.destroy({ where: { sessionId: ['old-1', 'new-1'] } })
+      await ChatSession.destroy({ where: { sessionId: ['old-1', 'new-1'] } })
+    } finally {
+      await sequelize.close()
+    }
   })
 
   test('清理 30 天前的会话保留活跃会话', async () => {

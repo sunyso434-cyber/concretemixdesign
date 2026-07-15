@@ -1,3 +1,36 @@
+## v10.10.12 项目稳定性与安全性优化 (2026-07-15)
+
+### 本轮优化
+- 测试基线：Jest 排除 `.worktrees/` 和 `.claude/worktrees/`，每个测试套件使用独立临时用户目录，补齐 React/JS DOM 测试环境。
+- Windows 稳定性：修正路径分隔符、监听器关闭和临时目录清理问题。
+- Electron 安全：为 preload 通用 IPC 增加精确频道白名单，未知频道在进入主进程前被拒绝；白名单内联到 preload，兼容 Electron 28 默认沙箱，不再加载本地模块。
+- 数据库升级：用可记录的一次性基线迁移取代每次启动的 `sync({ alter: true })`；旧库先完成 WAL checkpoint、备份和 SHA-256 校验，失败时回滚并阻止窗口启动。
+- 数据库旧库兼容：识别并改名保留旧版 `alter` 失败遗留的 `<table>_backup` 表，避免重复复制数据时触发主键冲突。
+- 启动兼容：修复旧库清理 `strengthStdDev_C25` 参数时调用未定义 `logger` 的错误；安装包补入运行时迁移脚本；补齐 `agent:progress` 与确认事件白名单，恢复 Agent 流式内容渲染。
+- agent.md 迁移：旧文件完整备份后再写入 v2 模板，不再猜测转换旧 YAML 内容。
+- 可维护性：从 `WikiEngine`、`DeepSeekService`、`MixDesignOptimizer` 和 `SmartDesignChat` 拆出纯逻辑模块，移除 `DeepSeekService` 中的重复方法，并为新模块补充单元测试。
+- 构建配置：移除重复的 NSIS 目标，README 同步当前版本和真实开发/测试/构建命令。
+
+### 验证
+- `npm test -- --runInBand`：177/177 个测试套件、1502/1502 个用例、2/2 个快照通过。
+- `npm run build`：Vite 生产构建通过，3938 个模块完成转换。
+- Electron 隔离数据目录冒烟检查：真实 preload 成功加载，运行时暴露完整 `workspace` API，Agent 进度与确认事件成功订阅，抽样历史会话成功读取 3 条消息。
+- 真实旧库副本回归：59 条正式材料完整保留，3 张冲突临时表被改名隔离，完整结构基线迁移通过。
+- 真实存档只读核验：2284 条历史消息、59 个会话仍在数据库中，`D:/C-c/new` 与 `D:/C-c/UHPC` 两个原工作区目录均存在。
+- `npm run electron:build`：Windows x64 安装包和便携版构建成功。
+
+### 打包产物
+- `dist-10.10.12/砼智 Setup 10.10.12.exe`：145,902,224 字节，SHA-256 `96701313989EA4DC410B9AEA5FB3C743229F53385F2CA389B29247AE8BFF788F`。
+- `dist-10.10.12/砼智-10.10.12-portable-x64.exe`：145,455,454 字节，SHA-256 `DF011872EB0426762816E2D420A875CF14E57EC8E36B0DDB46A1521B1DB59A7D`。
+
+### 已知后续项
+- Jest 结束时仍会报异步句柄提示；`--detectOpenHandles` 已定位到 `pdf-parse` 间接依赖的原生画布清理器，不是项目监听器或数据库连接。
+- `WorkspacePage` 生产块仍为 2.32 MB（gzip 743 KB）。项目对 Electron `file://` 动态块有专用路径修补，需结合安装包回归再调整分包策略。
+- SkillRegistry 会尝试将 4 个共享工具 JS 文件按技能加载，造成启动日志噪音；不影响现有 45 个技能注册。
+- electron-builder 提示 `@electron/rebuild` 与 `electron-rebuild` 存在工具职责重叠，建议下一轮统一原生依赖重建流程。
+
+---
+
 ## v1.0.0 新增"质量诊断"方法论技能 (2026-07-10)
 
 ### 背景

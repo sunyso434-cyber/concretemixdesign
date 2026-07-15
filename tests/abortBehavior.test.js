@@ -225,17 +225,17 @@ describe('ABORT 行为验证（Task 6）', () => {
       expect(result[2].content).toBe('new content')
     })
 
-    test('requestId 不匹配时走追加路径', () => {
+    test('requestId 不匹配时兜底合并唯一流式占位', () => {
       const msgs = [
         { role: 'user', content: 'q' },
         { role: 'assistant', content: '', _streaming: true, _agentRequestId: 'r-other' }
       ]
       const result = mergeReplyToMessages(msgs, 'content', 'r-current', [], 'aborted')
 
-      // requestId 不匹配，走追加路径
-      expect(result).toHaveLength(3)
-      expect(result[1]._streaming).toBe(true)        // 旧占位不变
-      expect(result[2].content).toBe('content')       // 新消息追加
+      expect(result).toHaveLength(2)
+      expect(result[1]._streaming).toBe(false)
+      expect(result[1]._agentRequestId).toBe('r-current')
+      expect(result[1].content).toBe('content')
     })
   })
 

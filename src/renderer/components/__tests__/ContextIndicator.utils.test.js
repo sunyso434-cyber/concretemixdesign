@@ -3,7 +3,7 @@
  *
  * 覆盖：
  * - v8.4.1 老板约束：圆环一直显示，不区分 50%（任何 percent 都返回 visible）
- * - < 0.8 蓝色（#1890ff）；>= 0.8 红色（#ff4d4f）
+ * - < 0.8 品牌蓝（#4B3FE3）；>= 0.8 红色（#ff4d4f）
  * - percent > 1 clamp 到 1，dashoffset = 0
  * - loading 时禁用点击（buttonProps.disabled = true）
  * - tooltip 显示正确百分比（已使用 N%）
@@ -56,10 +56,10 @@ describe('ContextIndicator.utils', () => {
   })
 
   describe('getIndicatorColor', () => {
-    test('percent 在 [0.5, 0.8) 之间是蓝色 #1890ff', () => {
-      expect(getIndicatorColor(0.5)).toBe('#1890ff')
-      expect(getIndicatorColor(0.6)).toBe('#1890ff')
-      expect(getIndicatorColor(0.79)).toBe('#1890ff')
+    test('percent 在 [0.5, 0.8) 之间是品牌蓝 #4B3FE3', () => {
+      expect(getIndicatorColor(0.5)).toBe('#4B3FE3')
+      expect(getIndicatorColor(0.6)).toBe('#4B3FE3')
+      expect(getIndicatorColor(0.79)).toBe('#4B3FE3')
     })
 
     test('percent >= 0.8 是红色 #ff4d4f', () => {

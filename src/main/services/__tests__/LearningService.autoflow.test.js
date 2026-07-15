@@ -1,5 +1,13 @@
+const fs = require('fs')
+const os = require('os')
+const path = require('path')
+
+const tmpWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'learning-autoflow-'))
+const previousWorkspaceManager = global.workspaceManager
+global.workspaceManager = { current: () => ({ path: tmpWorkspace }) }
+
 const learningService = require('../LearningService')
-const { PreferenceSuggestion } = require('../../db/database')
+const { PreferenceSuggestion, sequelize } = require('../../db/database')
 const { getInstance: getAgentMdService } = require('../../agent/agentMd')
 
 describe('LearningService.autoAcceptHighConfidence', () => {
@@ -9,6 +17,12 @@ describe('LearningService.autoAcceptHighConfidence', () => {
 
   beforeEach(async () => {
     await PreferenceSuggestion.destroy({ truncate: true })
+  })
+
+  afterAll(async () => {
+    await sequelize.close()
+    fs.rmSync(tmpWorkspace, { recursive: true, force: true })
+    global.workspaceManager = previousWorkspaceManager
   })
 
   test('置信度 >= 0.95 的建议自动 accepted', async () => {

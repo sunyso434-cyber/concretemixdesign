@@ -26,9 +26,7 @@ function isV1Format(content) {
  * @param {string} workspacePath
  * @returns {Promise<{migrated: boolean, backupPath: string|null}>}
  */
-async function migrateV1ToV2(workspacePath) {
-  const agentMdPath = path.join(workspacePath, '.agent', 'agent.md')
-
+async function migrateAgentMdFile(agentMdPath, { backupSuffix = '.v1.bak' } = {}) {
   if (!fs.existsSync(agentMdPath)) {
     return { migrated: false, backupPath: null }
   }
@@ -39,12 +37,14 @@ async function migrateV1ToV2(workspacePath) {
   }
 
   // 1. 备份
-  const backupPath = agentMdPath + '.v1.bak'
-  fs.copyFileSync(agentMdPath, backupPath)
+  const backupPath = agentMdPath + backupSuffix
+  if (!fs.existsSync(backupPath)) {
+    fs.copyFileSync(agentMdPath, backupPath)
+  }
 
   // 2. 写 v2 模板 + 顶部迁移提示
   const template = `<!--
-⚠️ 您的老 agent.md 已备份到 agent.md.v1.bak
+⚠️ 您的老 agent.md 已备份到 ${path.basename(backupPath)}
 请手动迁移您的规则到新结构（v2 模板）
 新结构：## sectionName + ### subSectionName + - 列表项
 详见 docs/superpowers/specs/2026-07-06-agent-md-design.md
@@ -78,4 +78,9 @@ version: 2
   return { migrated: true, backupPath }
 }
 
-module.exports = { isV1Format, migrateV1ToV2 }
+async function migrateV1ToV2(workspacePath) {
+  const agentMdPath = path.join(workspacePath, '.agent', 'agent.md')
+  return migrateAgentMdFile(agentMdPath)
+}
+
+module.exports = { isV1Format, migrateAgentMdFile, migrateV1ToV2 }

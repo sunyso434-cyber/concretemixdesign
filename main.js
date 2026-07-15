@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, protocol } = require('electron')
+const { app, BrowserWindow, ipcMain, protocol, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { cleanupOldSessions } = require('./src/main/db/services/SessionCleanupService')
@@ -159,6 +159,8 @@ async function initializeDatabase() {
     }
   } catch (err) {
     console.error('数据库初始化失败:', err)
+    isDatabaseReady = false
+    throw err
   }
 }
 
@@ -293,10 +295,11 @@ app.whenReady().then(async () => {
     })
   }
 
-  // 先创建窗口，不等待数据库初始化
-  console.log('开始创建窗口...')
-  await createWindow()
-  console.log('窗口创建完成')
+  // 先初始化规则和数据库，避免迁移期间渲染进程并发读写旧结构
+  await initAgentMd()
+  console.log('数据库初始化开始...')
+  await initializeDatabase()
+  console.log('数据库初始化完成')
 
   // === Task 1.9：workspace 初始化 + IPC 注册 ===
   // v1.5.3：用 mutable 引用对象 workspaceRefs，后续 task（P1.10 wiki、P5 kg）
@@ -439,14 +442,9 @@ app.whenReady().then(async () => {
 
   console.log('workspace IPC 已注册（9 个 handler，含 workspace:ingest/migrateSession/exportSession）')
 
-  // 初始化 agent.md 服务（加载 + 监听用户自定义规则文件）
-  initAgentMd()
-
-  // 数据库初始化放在后台进行，不阻塞UI
-  console.log('数据库初始化开始（后台）...')
-  initializeDatabase().then(() => {
-    console.log('数据库初始化完成（后台）')
-  })
+  console.log('开始创建窗口...')
+  await createWindow()
+  console.log('窗口创建完成')
 
   app.on('activate', async function () {
     if (BrowserWindow.getAllWindows().length === 0) await createWindow()
@@ -458,6 +456,13 @@ app.whenReady().then(async () => {
       await global.chatHistorySync.flush()
     }
   })
+}).catch(error => {
+  console.error('[main] 启动失败:', error)
+  dialog.showErrorBox(
+    '数据库升级失败',
+    `应用已停止启动，原数据不会继续被修改。\n\n${error.message}`
+  )
+  app.quit()
 })
 
 // 关闭所有窗口

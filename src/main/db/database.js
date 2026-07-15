@@ -1,6 +1,7 @@
 const { Sequelize, DataTypes } = require('sequelize')
 const fs = require('fs')
 const path = require('path')
+const { runSchemaBaseline } = require('./schemaMigrator')
 
 // 在 Electron 环境中使用 app.getPath('userData')，否则回退到项目目录下的 data 子目录
 let userDataPath
@@ -79,21 +80,6 @@ const ChatSession = ChatSessionModel(sequelize)
 ChatSession.hasMany(ChatHistory, { foreignKey: 'sessionId', sourceKey: 'sessionId', constraints: false })
 ChatHistory.belongsTo(ChatSession, { foreignKey: 'sessionId', targetKey: 'sessionId', constraints: false })
 
-// 数据库迁移前备份
-function backupDatabase() {
-  const backupPath = dbPath + '.backup-' + Date.now()
-  try {
-    if (fs.existsSync(dbPath)) {
-      fs.copyFileSync(dbPath, backupPath)
-      console.log('数据库备份完成:', backupPath)
-    }
-    return backupPath
-  } catch (error) {
-    console.error('数据库备份失败:', error.message)
-    return null
-  }
-}
-
 // 默认保温材料数据
 const defaultInsulationMaterials = [
   {
@@ -154,27 +140,9 @@ const defaultInsulationMaterials = [
 
 // 同步所有模型并初始化数据
 async function syncModels() {
-  // 迁移前备份
-  const backupFile = backupDatabase()
-
   // UserPreference 已在阶段 B 迁移中废弃，不在此处注册
   const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion]
-  let migrationFailed = false
-
-  for (const model of allModels) {
-    try {
-      await model.sync({ alter: true })
-    } catch (error) {
-      console.error(`模型 ${model.name} 同步失败:`, error.message)
-      if (['ChatHistory', 'CorrectionRule'].includes(model.name)) {
-        migrationFailed = true
-      }
-    }
-  }
-
-  if (migrationFailed && backupFile) {
-    console.error('Agent模型迁移失败，请检查备份文件:', backupFile)
-  }
+  await runSchemaBaseline({ sequelize, models: allModels, dbPath })
 
   // FTS5 virtual table（参考 Mneme）— 幂等，model 上的 afterSync hook 也会建
   if (SessionSummary) {

@@ -59,6 +59,19 @@ describe('SystemService 视觉配置 save→get', () => {
     expect(rows[0].paramValue).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1')
   })
 
+  test('initDefaultParams removes the legacy strengthStdDev_C25 parameter', async () => {
+    await SystemParam.create({
+      paramName: 'strengthStdDev_C25',
+      paramValue: '4.5',
+      paramType: 'jgj55'
+    })
+
+    await expect(SystemService.initDefaultParams()).resolves.toBeUndefined()
+    await expect(SystemParam.findOne({
+      where: { paramName: 'strengthStdDev_C25' }
+    })).resolves.toBeNull()
+  })
+
   test('saveVisionConfig 后 analyze_concrete_image 不报 E-VISION-NOT-CONFIGURED', async () => {
     const skills = require('../../skills/analyze-concrete-image')
     const skill = skills.find(s => s.name === 'analyze_concrete_image')

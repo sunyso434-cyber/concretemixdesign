@@ -33,6 +33,7 @@ Thumbs.db
 # Added by code-review-graph
 .code-review-graph/
 .gstack/
+.tmp-test-user-data/
 
 # 测试 fixture（自动生成，不入仓）
 src/main/__tests__/workspace/readers/fixtures/*.pdf

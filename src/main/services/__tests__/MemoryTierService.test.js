@@ -1,6 +1,5 @@
 const MemoryTierService = require('../MemoryTierService')
-const { SessionSummary } = require('../../db/database')
-const { ChatHistory } = require('../../db/database')
+const { SessionSummary, ChatHistory, sequelize } = require('../../db/database')
 
 // ponytail: 测试环境无 LLM 密钥，直接把 stub 注入到单例实例上
 const STUB_LLM = { chat: async () => ({ content: '{"summary":"测试摘要","keyDecisions":[],"toolCalls":[]}', tool_calls: null, role: 'assistant' }) }
@@ -13,6 +12,14 @@ afterAll(() => {
 })
 
 describe('MemoryTierService', () => {
+  beforeAll(async () => {
+    await sequelize.sync()
+  })
+
+  afterAll(async () => {
+    await sequelize.close()
+  })
+
   afterEach(async () => {
     await SessionSummary.destroy({ truncate: true })
     await ChatHistory.destroy({ where: { sessionId: 'test-sess' } })

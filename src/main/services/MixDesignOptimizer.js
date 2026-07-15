@@ -1,5 +1,6 @@
 const MixDesignService = require('./MixDesignService/index')
 const OptimizationHistory = require('../db/models/OptimizationHistory')
+const optimizerUtils = require('./MixDesignOptimizerUtils')
 
 class MixDesignOptimizer {
   constructor(progressCallback = null) {
@@ -227,113 +228,20 @@ class MixDesignOptimizer {
     }
   }
 
-  /**
-   * 构建迭代时的材料对象
-   * @param {Object} baseMaterials - 基础材料对象
-   * @param {Object} blendRatios - 各种材料的混合比例（仅支持细骨料混合）
-   * @returns {Object} 更新后的材料对象
-   */
   _buildIterationMaterials(baseMaterials, blendRatios = {}) {
-    const materials = { ...baseMaterials }
-
-    // 仅混合细骨料（粉煤灰、矿渣粉、减水剂保持原始数组，搜索时遍历选择）
-    if (blendRatios.sand && baseMaterials.sand && Array.isArray(baseMaterials.sand) && baseMaterials.sand.length > 1) {
-      materials.sand = this._blendFineAggregates(baseMaterials.sand, blendRatios.sand)
-    }
-
-    return materials
+    return optimizerUtils.buildIterationMaterials(baseMaterials, blendRatios)
   }
 
-  /**
-   * 生成细骨料掺配比例组合（老板决策 v2 修订）
-   * 物理条件限制：生产端只有 2 个砂配料仓，所以结果最多选 2 种砂组合
-   *  - 1 种砂：返回 [null]（单种无组合）
-   *  - 2 种砂：21 种比例（5% 步长）
-   *  - N 种砂（N≥3）：遍历所有 C(N,2) 个两两配对，每个配对 21 种比例 = C(N,2)*21 种
-   * @param {Array} fineAggregates - 细骨料列表（任意长度）
-   * @returns {Array<Array<number>|null>} 比例组合，每项固定 2 个元素
-   */
   _generateFineAggregateRatios(fineAggregates) {
-    const count = fineAggregates.length
-    if (count < 1) return [null]
-    if (count === 1) return [null]
-
-    const step = 5
-    const ratios = []
-
-    const pairs = []
-    if (count === 2) {
-      pairs.push([0, 1])
-    } else {
-      // ponytail: 老板决策 — N 种砂遍历所有两两配对（生产端 2 仓限制）
-      for (let i = 0; i < count; i++) {
-        for (let j = i + 1; j < count; j++) {
-          pairs.push([i, j])
-        }
-      }
-    }
-
-    for (const [idxA, idxB] of pairs) {
-      for (let i = 0; i <= 100; i += step) {
-        // 注意：ratio 永远是 2 元素，对应"被选中的两种砂"，
-        // _blendFineAggregatesForCost 会按 idxA/idxB 索引到原 sandCandidates 数组取
-        // 但 ratio 是按 [r1, r2] 顺序表达两种砂的比例，第 3+ 种不参与
-        ratios.push([i / 100, (100 - i) / 100, idxA, idxB])
-      }
-    }
-
-    return ratios
+    return optimizerUtils.generateFineAggregateRatios(fineAggregates)
   }
 
-  /**
-   * 混合细骨料，计算综合性能
-   * @param {Array} aggregates - 细骨料列表
-   * @param {Array<number>} ratios - 掺配比例
-   * @returns {Object} 混合后的细骨料对象
-   */
   _blendFineAggregates(aggregates, ratios) {
-    const totalWeight = ratios.reduce((sum, r) => sum + r, 0)
-    if (Math.abs(totalWeight - 1) > 0.01) {
-      // 归一化
-      const sum = totalWeight
-      ratios = ratios.map(r => r / sum)
-    }
-
-    let blended = {
-      id: 'blended_' + aggregates.map(a => a.id).join('_'),
-      name: '混合砂',
-      type: '细骨料',
-      price: 0,
-      finenessModulus: 0,
-      mudContent: 0,
-      mbValue: 0,
-      // 保存原始比例，用于前端展开混合砂
-      originalRatios: [...ratios],
-      originalAggregateIds: aggregates.map(a => a.id),
-      originalAggregateNames: aggregates.map(a => a.name)
-    }
-
-    aggregates.forEach((agg, i) => {
-      const ratio = ratios[i]
-      blended.price += (agg.price || 0) * ratio
-      blended.finenessModulus += (agg.finenessModulus || 2.7) * ratio
-      blended.mudContent += (agg.mudContent || 0) * ratio
-      blended.mbValue += (agg.mbValue || 0) * ratio
-    })
-
-    return blended
+    return optimizerUtils.blendFineAggregates(aggregates, ratios)
   }
 
-  /**
-   * 将材料对象转换为数组（如果不是数组）
-   * 空数组/null/undefined → [null]（作为"无该选项"的占位，让下游 for 循环仍迭代一次）
-   * @param {Object|Array} material - 材料对象或数组
-   * @returns {Array} 材料数组
-   */
   _getMaterialList(material) {
-    if (!material || (Array.isArray(material) && material.length === 0)) return [null]
-    if (Array.isArray(material)) return material
-    return [material]
+    return optimizerUtils.getMaterialList(material)
   }
 
   /**
@@ -415,67 +323,12 @@ class MixDesignOptimizer {
     return { top5: results.slice(0, 5), evaluatedCount }
   }
 
-  /**
-   * 验证混合砂的细度模数是否在目标范围内（老板决策：±0.5 容忍度）
-   * @param {number} actualFM - 混合后的细度模数
-   * @param {number} targetFM - 目标细度模数
-   * @param {number} tolerance - 容忍度（默认 0.5）
-   * @returns {boolean}
-   */
   _validateFinenessModulus(actualFM, targetFM, tolerance = 0.5) {
-    return Math.abs(actualFM - targetFM) <= tolerance
+    return optimizerUtils.validateFinenessModulus(actualFM, targetFM, tolerance)
   }
 
-  /**
-   * 按比例混合细骨料（用于阶段 3，v2 修订）
-   * 老板决策：物理条件限制（2 仓），结果最多 2 种砂组合
-   * ratio 格式：[r1, r2, idxA?, idxB?]
-   *   - 2 元素：直接按 r1/r2 与 sandCandidates[0/1] 加权
-   *   - 4 元素：r1/r2 加权（按 idxA/idxB 索引）— 支持 N 种砂的两两配对
-   * @param {Array} sandCandidates - 细骨料候选（任意长度）
-   * @param {Array<number>|null} ratio - 比例数组
-   * @returns {Object} 混合后的细骨料
-   */
   _blendFineAggregatesForCost(sandCandidates, ratio) {
-    if (!Array.isArray(sandCandidates) || sandCandidates.length < 1) {
-      return null
-    }
-    if (!ratio || ratio.length === 0) return sandCandidates[0]
-
-    // ponytail: 4 元素 ratio = [r1, r2, idxA, idxB] — 支持 N 种砂的两两配对
-    let idxA, idxB, r1, r2
-    if (ratio.length === 4) {
-      // [比例, 比例, 索引, 索引]
-      [r1, r2, idxA, idxB] = ratio
-    } else if (ratio.length === 2) {
-      [r1, r2] = ratio
-      idxA = 0
-      idxB = 1
-    } else {
-      // 单数等退化场景
-      return sandCandidates[0]
-    }
-
-    const sandA = sandCandidates[idxA]
-    const sandB = sandCandidates[idxB]
-    if (!sandA) return sandA || sandB
-
-    const blended = {
-      price: (sandA.price || 0) * r1 + (sandB.price || 0) * r2,
-      finenessModulus: (sandA.finenessModulus || 2.7) * r1 + (sandB.finenessModulus || 2.7) * r2,
-      mbValue: (sandA.mbValue || 0.5) * r1 + (sandB.mbValue || 0.5) * r2
-    }
-
-    return {
-      id: `blended_${sandA.id}_${sandB.id}_${Math.round(r1 * 100)}`,
-      name: `${sandA.name || '砂A'}+${sandB.name || '砂B'} 混合`,
-      type: '细骨料',
-      price: blended.price,
-      finenessModulus: blended.finenessModulus,
-      mbValue: blended.mbValue,
-      originalRatios: [r1, r2],
-      originalAggregateIds: [sandA.id, sandB.id]
-    }
+    return optimizerUtils.blendFineAggregatesForCost(sandCandidates, ratio)
   }
 
   /**
@@ -1058,46 +911,12 @@ _prepareMaterials(materials) {
   return { ...materials }
 }
 
-  /**
-   * 创建等差数列
-   * @param {Array} range - [min, max]
-   * @param {number} step - 步长
-   * @returns {Array<number>}
-   */
   _createRange(range, step) {
-    const [min, max] = range
-    const result = []
-    for (let i = min; i <= max; i += step) {
-      result.push(i)
-    }
-    if (result[result.length - 1] !== max) {
-      result.push(max)
-    }
-    return result
+    return optimizerUtils.createRange(range, step)
   }
 
-  /**
-   * 验证约束条件
-   * @param {Object} result - 配合比计算结果
-   * @param {Object} constraints - 性能目标约束
-   * @param {Object} userLimits - 用户自定义限值（可选，默认 {}）
-   * @returns {boolean}
-   */
   _validateConstraints(result, constraints, userLimits = {}) {
-    const strengthNum = parseInt(String(constraints.strength).replace('C', ''))
-    if (result.targetStrength && result.targetStrength < strengthNum) return false
-    // 用户自定义水胶比限值（如指定）
-    if (userLimits.waterRatioRange) {
-      const [minWbr, maxWbr] = userLimits.waterRatioRange
-      if (result.waterRatio < minWbr || result.waterRatio > maxWbr) return false
-    }
-    const totalCementitious = (result.materials?.cement || 0) + (result.materials?.flyAsh || 0)
-      + (result.materials?.slag || 0) + (result.materials?.lithiumSlag || 0)
-      + (result.materials?.compositePowder || 0)
-    if (totalCementitious <= 0 || totalCementitious < 200 || totalCementitious > 600) return false
-    const waterAmount = result.materials?.water
-    if (!waterAmount || waterAmount <= 0 || waterAmount > 250) return false
-    return true
+    return optimizerUtils.validateConstraints(result, constraints, userLimits)
   }
 
   /**

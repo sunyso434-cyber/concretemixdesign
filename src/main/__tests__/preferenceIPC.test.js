@@ -11,6 +11,7 @@ jest.mock('electron', () => ({
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
+const { PreferenceSuggestion, sequelize } = require('../db/database')
 
 // 准备临时 agent.md + agentMdService
 const tmpFile = path.join(os.tmpdir(), `agent-md-preftest-${Date.now()}.md`)
@@ -27,17 +28,7 @@ jest.doMock('../agent/agentMd', () => ({
 // 注入 SuggestionStore
 const { getSuggestionStore } = require('../agent/preferences')
 const store = getSuggestionStore()
-store._items = []
-store.add({
-  id: 'sugg-1',
-  type: 'material_vendor',
-  title: 'test',
-  proposedYaml: { category: '水泥', dimension: '厂家', value: '拉法基' },
-  reason: 'r',
-  confidence: 1.0,
-  createdAt: new Date(),
-  status: 'pending'
-})
+let firstSuggestionId
 
 // 注册 handler
 const { registerAgentHandlers } = require('../ipcHandlers/agentHandler')
@@ -108,6 +99,19 @@ function v2ToV1Proxy(parsed) {
 // 顶层 saveToFile 现为 async（Promise 串行队列），需在 beforeAll 中 await
 // 确保后续测试读到的 cached 是已写入的状态
 beforeAll(async () => {
+  await sequelize.sync()
+  await PreferenceSuggestion.destroy({ truncate: true })
+  const firstSuggestion = await store.add({
+    id: 'sugg-1',
+    type: 'material_vendor',
+    title: 'test',
+    proposedYaml: { category: '水泥', dimension: '厂家', value: '拉法基' },
+    reason: 'r',
+    confidence: 1.0,
+    createdAt: new Date(),
+    status: 'pending'
+  })
+  firstSuggestionId = firstSuggestion.id
   await svc.saveToFile('---\nversion: 2\n---\n\n# 我的智能助手规则\n\n## 专业偏好\n\n```yaml\nmaterials: []\nmethod: null\n```\n')
 })
 
@@ -122,7 +126,7 @@ describe('7 个偏好 IPC channel', () => {
 
   test('agent:suggestions:accept 应合并到 materials 并返回', async () => {
     const handler = mockHandlers.get('agent:suggestions:accept')
-    const result = await handler({}, { id: 'sugg-1' })
+    const result = await handler({}, { id: firstSuggestionId })
     expect(result.success).toBe(true)
     expect(result.newMaterials).toContainEqual({
       category: '水泥', dimension: '厂家', value: '拉法基'
@@ -130,24 +134,24 @@ describe('7 个偏好 IPC channel', () => {
   })
 
   test('agent:suggestions:dismiss 应从列表移除', async () => {
-    store.add({
+    const suggestion = await store.add({
       id: 'sugg-2', type: 'material_vendor', title: 't',
       proposedYaml: { category: '水泥', dimension: '厂家', value: '海螺' },
       reason: 'r', confidence: 1.0, createdAt: new Date(), status: 'pending'
     })
     const handler = mockHandlers.get('agent:suggestions:dismiss')
-    const result = await handler({}, { id: 'sugg-2' })
+    const result = await handler({}, { id: suggestion.id })
     expect(result.success).toBe(true)
   })
 
   test('agent:suggestions:blacklist 应写入 ignoredSuggestionTypes', async () => {
     const handler = mockHandlers.get('agent:suggestions:blacklist')
-    store.add({
+    const suggestion = await store.add({
       id: 'sugg-3', type: 'method_preference', title: 't',
       proposedYaml: { method: '质量法' },
       reason: 'r', confidence: 1.0, createdAt: new Date(), status: 'pending'
     })
-    const result = await handler({}, { id: 'sugg-3', type: 'method_preference' })
+    const result = await handler({}, { id: suggestion.id, type: 'method_preference' })
     expect(result.success).toBe(true)
     const cached = svc.getCached()
     expect(v2ToV1Proxy(cached.parsed).ignoredSuggestionTypes).toContain('method_preference')
@@ -249,7 +253,8 @@ describe('7 个偏好 IPC channel', () => {
     expect(onDisk).toContain('- 体积法')
   })
 
-  afterAll(() => {
+  afterAll(async () => {
+    await sequelize.close()
     if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)
   })
 })

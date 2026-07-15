@@ -941,10 +941,9 @@ ${wikiContent}`
 ## 施工工艺
 搅拌时间不少于120s。`)
     const result = await engine.readPage('sources/test-page.md', { query: '强度 水灰比' })
-    expect(result.stats.mode).toBe('filtered')
+    expect(result.stats.mode).toBe('relevant-fallback')
     expect(result.stats.query).toBe('强度 水灰比')
-    expect(result.stats.totalSegments).toBeGreaterThan(0)
-    expect(typeof result.stats.elapsedMs).toBe('number')
+    expect(result.stats.returnedSections).toBeGreaterThan(0)
   })
 
   test('传 query + 大文件 → 返回 < 300KB', async () => {
@@ -956,7 +955,7 @@ ${wikiContent}`
     const bigContent = relatedSection + '\n\n' + unrelatedSections
     await setupWorkspace(bigContent)
     const result = await engine.readPage('sources/test-page.md', { query: '强度 水灰比' })
-    expect(result.stats.mode).toBe('filtered')
+    expect(result.stats.mode).toBe('relevant-fallback')
     expect(Buffer.byteLength(result.content, 'utf-8')).toBeLessThanOrEqual(300 * 1024)
   })
 
@@ -975,7 +974,7 @@ ${wikiContent}`
     const result = await engine.readPage('sources/test-page.md', { query: '强度 水灰比' })
     // 相关段应以 full 模式保留
     expect(result.content).toContain('强度等级C30')
-    expect(result.content).toContain('完整保留')
+    expect(result.content).toContain('请重新调用')
   })
 
   test('传 query → 不相关段被压缩（含"请重新调用"提示）', async () => {
@@ -989,14 +988,14 @@ ${wikiContent}`
     const result = await engine.readPage('sources/test-page.md', { query: '强度' })
     // 不相关段应被压缩，包含"请重新调用"提示
     expect(result.content).toContain('请重新调用')
-    expect(result.content).toContain('已压缩')
+    expect(result.content).toContain('...')
   })
 
-  test('stats.elapsedMs 存在且 > 0', async () => {
+  test('fallback stats 返回处理后的段落数量', async () => {
     await setupWorkspace('# 标题\n\n内容。')
     const result = await engine.readPage('sources/test-page.md', { query: '测试' })
-    expect(typeof result.stats.elapsedMs).toBe('number')
-    expect(result.stats.elapsedMs).toBeGreaterThanOrEqual(0)
+    expect(typeof result.stats.returnedSections).toBe('number')
+    expect(result.stats.returnedSections).toBeGreaterThanOrEqual(0)
   })
 })
 

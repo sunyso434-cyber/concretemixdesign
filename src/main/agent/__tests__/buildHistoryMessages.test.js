@@ -49,7 +49,7 @@ describe('buildHistoryMessages (spec 8.1 回归测试)', () => {
     })
   })
 
-  test('末尾孤立 user 消息自动移除（避免 LLM 回答过时问题）', async () => {
+  test('末尾未回答的 user 消息会保留（切换会话后可继续回答）', async () => {
     // 时间正序: [user(第一条), assistant(已回答), user(第二条未回答)]
     // mock 给 DESC: 最新 user 在前
     ChatHistory.findAll.mockResolvedValue([
@@ -60,9 +60,10 @@ describe('buildHistoryMessages (spec 8.1 回归测试)', () => {
 
     const msgs = await AgentMemoryService.buildHistoryMessages('sess-1')
 
-    expect(msgs).toHaveLength(2)
+    expect(msgs).toHaveLength(3)
     expect(msgs[0].content).toBe('第一条')
     expect(msgs[1]).toMatchObject({ role: 'assistant', content: '已回答' })
+    expect(msgs[2]).toMatchObject({ role: 'user', content: '第二条未回答' })
   })
 
   test('toolCalls 字段为字符串时正确解析', async () => {

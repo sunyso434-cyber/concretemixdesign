@@ -12,7 +12,7 @@ describe('WikiEngine.lint (Task 2.8)', () => {
   let mgr, wiki, testPath
 
   afterEach(async () => {
-    mgr.close()
+    await mgr.close()
     if (testPath) await fs.rm(testPath, { recursive: true, force: true }).catch(() => {})
   })
 
@@ -137,8 +137,8 @@ describe('WikiEngine.lint (Task 2.8)', () => {
     expect(report.missingCrossRefs).toEqual([])
     expect(report.staleSummaries).toEqual([])
     expect(typeof report.scannedAt).toBe('string')
-    // ISO 8601 格式（带 Z）
-    expect(report.scannedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/)
+    // ISO 8601 格式（允许 Z 或明确时区偏移）
+    expect(report.scannedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/)
     // 能被 Date 解析
     expect(new Date(report.scannedAt).toString()).not.toBe('Invalid Date')
   })
@@ -149,7 +149,7 @@ describe('WikiEngine.lint (Task 2.8)', () => {
     mgr = new WorkspaceManager()
     await mgr.open(testPath)
     wiki = new WikiEngine({ workspace: mgr })
-    mgr.close()
+    await mgr.close()
 
     await expect(wiki.lint()).rejects.toMatchObject({ code: 'NOT_OPEN' })
   })

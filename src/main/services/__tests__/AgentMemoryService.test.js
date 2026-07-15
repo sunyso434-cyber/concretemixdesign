@@ -29,7 +29,15 @@ jest.mock('../../db/database', () => {
 })
 
 const AgentMemoryService = require('../AgentMemoryService')
-const { CorrectionRule } = require('../../db/database')
+const { CorrectionRule, sequelize } = require('../../db/database')
+
+beforeAll(async () => {
+  await sequelize.sync()
+})
+
+afterAll(async () => {
+  await sequelize.close()
+})
 
 describe('AgentMemoryService.getResourceSummary v2', () => {
   test('返回新结构（含 userRulesSummary，无 userPreferences）', async () => {

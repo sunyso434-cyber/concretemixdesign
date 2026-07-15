@@ -1,15 +1,24 @@
 // v4.9.1 hotfix 回归测试 - 验证 chokidar 在 Windows 路径下能正确计算相对路径
 const path = require('path')
 const fs = require('fs').promises
-const os = require('os')
 const { WorkspaceManager } = require('../../workspace/WorkspaceManager')
 const { WikiEngine } = require('../../workspace/WikiEngine')
+
+async function waitForFile(filePath, timeoutMs = 6000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const stat = await fs.stat(filePath).catch(() => null)
+    if (stat) return stat
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  return null
+}
 
 describe('WorkspaceManager.watch path fix (v4.9.1)', () => {
   let mgr, testPath
 
   beforeEach(async () => {
-    testPath = path.join(os.tmpdir(), `watch-pathfix-${Date.now()}-${Math.random().toString(36).slice(2,8)}`)
+    testPath = path.join(__dirname, 'fixtures', `watch-pathfix-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
     await fs.mkdir(testPath, { recursive: true })
     mgr = new WorkspaceManager()
     await mgr.open(testPath)
@@ -25,18 +34,17 @@ describe('WorkspaceManager.watch path fix (v4.9.1)', () => {
     mgr.watch(engine)
 
     // 等 chokidar ready
-    await new Promise(r => setTimeout(r, 1500))
+    await new Promise(resolve => mgr._watcher.once('ready', resolve))
 
     // 模拟老板拖入
     const mdPath = path.join(testPath, 'test.md')
     await fs.writeFile(mdPath, '# Hello\n\nTest content')
 
     // 等 chokidar 1s 去勣 + ingest
-    await new Promise(r => setTimeout(r, 2500))
 
     // 验证 wiki/sources/test.md 存在
     const wikiPath = path.join(testPath, 'wiki', 'sources', 'test.md')
-    const stat = await fs.stat(wikiPath).catch(() => null)
+    const stat = await waitForFile(wikiPath)
     expect(stat).toBeTruthy()
     expect(stat.size).toBeGreaterThan(0)
   }, 15000)
@@ -45,7 +53,7 @@ describe('WorkspaceManager.watch path fix (v4.9.1)', () => {
     const engine = new WikiEngine({ workspace: mgr })
     mgr.watch(engine)
 
-    await new Promise(r => setTimeout(r, 1500))
+    await new Promise(resolve => mgr._watcher.once('ready', resolve))
 
     // 创子目录 + 文件
     const subDir = path.join(testPath, 'docs')
@@ -53,10 +61,9 @@ describe('WorkspaceManager.watch path fix (v4.9.1)', () => {
     const txtPath = path.join(subDir, 'note.txt')
     await fs.writeFile(txtPath, 'Some text content')
 
-    await new Promise(r => setTimeout(r, 2500))
 
     const wikiPath = path.join(testPath, 'wiki', 'sources', 'note.md')
-    const stat = await fs.stat(wikiPath).catch(() => null)
+    const stat = await waitForFile(wikiPath)
     expect(stat).toBeTruthy()
   }, 15000)
 })

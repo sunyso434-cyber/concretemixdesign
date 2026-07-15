@@ -1,7 +1,15 @@
 const learningService = require('../LearningService')
-const { PreferenceSuggestion } = require('../../db/database')
+const { PreferenceSuggestion, sequelize } = require('../../db/database')
 
 describe('LearningService.getSuggestions v2 (SQLite)', () => {
+  beforeAll(async () => {
+    await sequelize.sync()
+  })
+
+  afterAll(async () => {
+    await sequelize.close()
+  })
+
   beforeEach(async () => {
     await PreferenceSuggestion.destroy({ truncate: true })
   })

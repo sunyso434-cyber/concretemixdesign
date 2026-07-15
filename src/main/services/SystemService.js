@@ -145,7 +145,7 @@ class SystemService {
       // 一次性迁移：清理历史遗留的 strengthStdDev_C25 orphan 记录（2026-07-04 规格统一为 C45）
       const orphan = await SystemParam.findOne({ where: { paramName: 'strengthStdDev_C25' } })
       if (orphan) {
-        logger.info('清理历史遗留的 strengthStdDev_C25 orphan 记录')
+        console.log('清理历史遗留的 strengthStdDev_C25 orphan 记录')
         await orphan.destroy()
       }
 

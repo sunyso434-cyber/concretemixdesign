@@ -19,6 +19,13 @@ const path = require('path')
 const matter = require('gray-matter')
 const { WorkspaceError } = require('./WorkspaceError')
 const reader = require('./readers')
+const wikiSegmentation = require('./WikiSegmentation')
+const {
+  SINGLE_SEGMENT_MAX_SIZE,
+  TABLE_MAX_ROWS,
+  RELEVANCE_THRESHOLD_HIGH,
+  DEFAULT_CONTEXT_LINES
+} = wikiSegmentation
 const { loadIndex, saveIndex } = require('./index-store')
 const { queryBM25, buildBM25 } = require('./bm25')
 const { tokenize } = require('./tokenizer')
@@ -91,10 +98,6 @@ function localISOString(date = new Date()) {
 // Task 2 (readPage relevance filtering): 300KB 输出保护
 const MAX_OUTPUT_SIZE = 300 * 1024
 
-// Task 3: 段落切分常量
-const SINGLE_SEGMENT_MAX_SIZE = 20 * 1024  // 20KB
-const TABLE_MAX_ROWS = 500
-
 // Clean-headings: 假标题黑名单（PDF 页眉/页脚、Excel Sheet 名、合并单元格标题行等）
 const FAKE_HEADING_PATTERNS = [
   /^Sheet:\s+/i,                                // XLSX：## Sheet: <name>
@@ -130,10 +133,6 @@ const REAL_HEADING_PATTERNS = [
 ]
 // 段内搜索真标题的最大行数（防止把正文误判为标题；PDF 页面级段落常 > 100 行）
 const MAX_HEADING_SEARCH_LINES = 100
-
-// Task 4: 相关性过滤常量
-const RELEVANCE_THRESHOLD_HIGH = 0.5
-const DEFAULT_CONTEXT_LINES = 5
 
 // Task 5: 摘要常量
 const SUMMARY_MAX_CHARS = 500
@@ -948,341 +947,42 @@ class WikiEngine {
     }
   }
 
-  // Task 3: 段落切分 — 将 markdown 内容切分为段落数组
-  // 规则：
-  //   1. 标题 (^#{1,6} ) 开始新段
-  //   2. 空行分隔段落
-  //   3. 表格行 (^| .* |$) 连续视为原子段，不被空行切开
-  //   4. 表格 > 500 行 → 强制切，每段带 header+separator 前缀
-  //   5. 非表格段 > 20KB → 按行强制切分
-  // 返回: [{ id, level, text, startLine, endLine, isTable?, tableHeader? }]
+  // 文档分段与相关性判定已拆到 WikiSegmentation，保留同名方法避免影响现有调用方。
   _splitIntoSegments(content) {
-    if (!content || !content.trim()) return []
-
-    // 1. 解析为行数组（带行号）
-    const lines = this._parseLineInfo(content)
-
-    // 2. 预识别表格块
-    const tableRegions = this._detectTableRegions(lines)
-
-    // 3. 按标题切分段落
-    const headingSections = this._splitByHeadings(lines, tableRegions)
-
-    // 4. 各段再按空行切分
-    const afterBlankSplit = []
-    for (const section of headingSections) {
-      afterBlankSplit.push(
-        ...this._splitSectionByBlankLines(section.lines, section.startLine, section.level)
-      )
-    }
-
-    // 5. 组装最终结果 + 强制切分
-    const HEADING_RE = /^#{1,6} /
-    const segments = []
-    let segId = 0
-    for (const seg of afterBlankSplit) {
-      const isTable = seg.lines.length > 0 && this._isTableLine(seg.lines[0].text)
-      const rawText = seg.lines.map(l => l.text).join('\n')
-
-      // 修正 level：只有真正以标题开头的段才有 level > 0
-      let effectiveLevel = seg.level
-      if (!isTable && seg.lines.length > 0) {
-        if (HEADING_RE.test(seg.lines[0].text)) {
-          effectiveLevel = seg.lines[0].text.match(/^(#{1,6})/)[1].length
-        } else {
-          effectiveLevel = 0
-        }
-      }
-
-      if (isTable) {
-        // 表格段：> 500 行 → 强制切
-        if (seg.lines.length > TABLE_MAX_ROWS) {
-          // 提取 header（第 1 行）+ separator（第 2 行）
-          const headerLine = seg.lines[0]
-          const separatorLine = seg.lines[1]
-          const tableHeader = headerLine.text + '\n' + separatorLine.text
-          const dataLines = seg.lines.slice(2)
-
-          // 按 TABLE_MAX_ROWS 切分（每块含 header+separator+数据行）
-          // 每块最大数据行 = TABLE_MAX_ROWS - 2（header+separator 占 2 行）
-          const chunkSize = TABLE_MAX_ROWS - 2
-          for (let i = 0; i < dataLines.length; i += chunkSize) {
-            const chunk = dataLines.slice(i, i + chunkSize)
-            const allLines = [headerLine, separatorLine, ...chunk]
-            segments.push({
-              id: segId++,
-              level: 0,
-              text: tableHeader + '\n' + chunk.map(l => l.text).join('\n'),
-              startLine: headerLine.lineNumber,
-              endLine: chunk[chunk.length - 1].lineNumber,
-              isTable: true,
-              tableHeader
-            })
-          }
-        } else {
-          // 正常表格段（≤ 500 行）
-          segments.push({
-            id: segId++,
-            level: 0,
-            text: rawText,
-            startLine: seg.lines[0].lineNumber,
-            endLine: seg.lines[seg.lines.length - 1].lineNumber,
-            isTable: true
-          })
-        }
-      } else {
-        // 非表格段：> 20KB → 按行强制切
-        if (Buffer.byteLength(rawText, 'utf-8') > SINGLE_SEGMENT_MAX_SIZE) {
-          const lineChunks = this._splitLargeSegmentByLines(seg.lines)
-          for (const chunk of lineChunks) {
-            segments.push({
-              id: segId++,
-              level: effectiveLevel,
-              text: chunk.lines.map(l => l.text).join('\n'),
-              startLine: chunk.lines[0].lineNumber,
-              endLine: chunk.lines[chunk.lines.length - 1].lineNumber
-            })
-          }
-        } else {
-          segments.push({
-            id: segId++,
-            level: effectiveLevel,
-            text: rawText,
-            startLine: seg.lines[0].lineNumber,
-            endLine: seg.lines[seg.lines.length - 1].lineNumber
-          })
-        }
-      }
-    }
-
-    return segments
+    return wikiSegmentation.splitIntoSegments(content)
   }
 
-  // 辅助方法：解析内容为带行号的行数组
   _parseLineInfo(content) {
-    const rawLines = content.split('\n')
-    const lines = []
-    for (let i = 0; i < rawLines.length; i++) {
-      lines.push({ lineNumber: i, text: rawLines[i] })
-    }
-    return lines
+    return wikiSegmentation.parseLineInfo(content)
   }
 
-  // 辅助方法：检测表格区域（连续 | 行的区间）
-  // 返回 Set<lineNumber>
   _detectTableRegions(lines) {
-    const tableLines = new Set()
-    let i = 0
-    while (i < lines.length) {
-      if (this._isTableLine(lines[i].text)) {
-        const start = i
-        while (i < lines.length && this._isTableLine(lines[i].text)) {
-          tableLines.add(lines[i].lineNumber)
-          i++
-        }
-      } else {
-        i++
-      }
-    }
-    return tableLines
+    return wikiSegmentation.detectTableRegions(lines)
   }
 
-  // 辅助方法：判断是否为表格行
   _isTableLine(text) {
-    return /^\|.*\|$/.test(text)
+    return wikiSegmentation.isTableLine(text)
   }
 
-  // 辅助方法：按标题切分
-  // headingSections: [{ lines, startLine, level }]
   _splitByHeadings(lines, tableLines) {
-    const HEADING_RE = /^#{1,6} /
-    const sections = []
-    let currentLines = []
-    let currentLevel = 0
-    let currentStartLine = lines.length > 0 ? lines[0].lineNumber : 0
-
-    for (const line of lines) {
-      // 行在表格内 → 不作为标题切分
-      if (tableLines.has(line.lineNumber)) {
-        currentLines.push(line)
-        continue
-      }
-
-      if (HEADING_RE.test(line.text)) {
-        // 保存之前的段落
-        if (currentLines.length > 0) {
-          sections.push({
-            lines: currentLines,
-            startLine: currentStartLine,
-            level: currentLevel
-          })
-        }
-        // 新标题段开始
-        currentLines = [line]
-        currentLevel = line.text.match(/^(#{1,6})/)[1].length
-        currentStartLine = line.lineNumber
-      } else {
-        currentLines.push(line)
-      }
-    }
-
-    // 最后一段
-    if (currentLines.length > 0) {
-      sections.push({
-        lines: currentLines,
-        startLine: currentStartLine,
-        level: currentLevel
-      })
-    }
-
-    return sections
+    return wikiSegmentation.splitByHeadings(lines, tableLines)
   }
 
-  // 辅助方法：按空行切分段落内的内容
-  // 空行不归入任何段（与 headingSection 的 level 一起传递）
   _splitSectionByBlankLines(lines, sectionStartLine, level) {
-    const BLANK_RE = /^\s*$/
-    const segments = []
-    let currentLines = []
-
-    for (const line of lines) {
-      // 表格行不被空行切开
-      if (this._isTableLine(line.text)) {
-        currentLines.push(line)
-        continue
-      }
-
-      if (BLANK_RE.test(line.text)) {
-        // 空行 → 切分点
-        if (currentLines.length > 0) {
-          segments.push({
-            lines: currentLines,
-            startLine: currentLines[0].lineNumber,
-            level
-          })
-          currentLines = []
-        }
-      } else {
-        currentLines.push(line)
-      }
-    }
-
-    // 最后一段
-    if (currentLines.length > 0) {
-      segments.push({
-        lines: currentLines,
-        startLine: currentLines[0].lineNumber,
-        level
-      })
-    }
-
-    return segments
+    return wikiSegmentation.splitSectionByBlankLines(lines, sectionStartLine, level)
   }
 
-  // 辅助方法：按行切分大段落（> 20KB）
-  // 每行作为独立子段
   _splitLargeSegmentByLines(lines) {
-    const chunks = []
-    let currentLines = []
-    let currentSize = 0
-
-    for (const line of lines) {
-      const lineSize = Buffer.byteLength(line.text + '\n', 'utf-8')
-      if (currentSize + lineSize > SINGLE_SEGMENT_MAX_SIZE && currentLines.length > 0) {
-        chunks.push({ lines: currentLines })
-        currentLines = []
-        currentSize = 0
-      }
-      currentLines.push(line)
-      currentSize += lineSize
-    }
-
-    if (currentLines.length > 0) {
-      chunks.push({ lines: currentLines })
-    }
-
-    return chunks
+    return wikiSegmentation.splitLargeSegmentByLines(lines)
   }
 
-  // Task 2: 截断 content 至 maxBytes 以内（UTF-8 边界安全）
-  // 修复 brief 中的无限循环 bug：while 循环的 suffix 含 \n，导致 lastNewline
-  // 反复命中 suffix 内的 \n 而非正文内容。改为：先裁剪内容，再追加 suffix。
   _truncateToSize(content, maxBytes) {
-    if (Buffer.byteLength(content, 'utf-8') <= maxBytes) return content
-    const slice = content.slice(0, Math.floor(maxBytes * 1.3))
-    const lastParagraph = slice.lastIndexOf('\n\n')
-    const truncationSuffix = '\n\n[... 已截断（原始内容 > 300KB）...]'
-    const suffixBytes = Buffer.byteLength(truncationSuffix, 'utf-8')
-    let result
-    if (lastParagraph > maxBytes * 0.5) {
-      result = slice.slice(0, lastParagraph)
-    } else {
-      result = slice
-    }
-    // UTF-8 二次校验：逐步缩短内容直到 + suffix 不超限
-    while (Buffer.byteLength(result, 'utf-8') + suffixBytes > maxBytes) {
-      const lastNewline = result.lastIndexOf('\n')
-      if (lastNewline <= 0) break
-      result = result.slice(0, lastNewline)
-    }
-    return result + truncationSuffix
+    return wikiSegmentation.truncateToSize(content, maxBytes)
   }
 
-  // Task 4: _decideMode — 根据分数和上下文行数决定每段是 full 还是 summary
-  // 步骤：
-  //   1. 标记命中段（score > 0.5 → full）
-  //   2. 扩展上下文（前后 ±contextLines 行，跨段合并到 full 区间）
-  //   3. 剩余段标 summary
-  // 输入: [{ id, level, text, startLine, endLine, isTable?, tableHeader?, tokens, score }]
-  // 输出: [{ ...segment, mode: 'full' | 'summary', score }]
   _decideMode(scored, contextLines = DEFAULT_CONTEXT_LINES) {
-    if (!scored || scored.length === 0) return []
-
-    // 1. 收集命中段的扩展区间 [startLine - contextLines, endLine + contextLines]
-    const hitRanges = []
-    for (const seg of scored) {
-      if (seg.score > RELEVANCE_THRESHOLD_HIGH) {
-        hitRanges.push({
-          start: seg.startLine - contextLines,
-          end: seg.endLine + contextLines
-        })
-      }
-    }
-
-    // 2. 合并重叠区间（先按 start 排序，再扫描合并）
-    hitRanges.sort((a, b) => a.start - b.start)
-    const mergedRanges = []
-    for (const range of hitRanges) {
-      if (mergedRanges.length > 0) {
-        const last = mergedRanges[mergedRanges.length - 1]
-        if (range.start <= last.end + 1) {
-          // 重叠或相邻 → 合并
-          last.end = Math.max(last.end, range.end)
-          continue
-        }
-      }
-      mergedRanges.push({ start: range.start, end: range.end })
-    }
-
-    // 3. 对每个段，判断是否与合并区间重叠
-    return scored.map(seg => {
-      let mode = 'summary'
-      // 命中段本身 → full
-      if (seg.score > RELEVANCE_THRESHOLD_HIGH) {
-        mode = 'full'
-      } else {
-        // 非命中段：检查是否与合并区间重叠
-        for (const range of mergedRanges) {
-          if (seg.endLine >= range.start && seg.startLine <= range.end) {
-            mode = 'full'
-            break
-          }
-        }
-      }
-      return { ...seg, mode, score: seg.score }
-    })
+    return wikiSegmentation.decideMode(scored, contextLines)
   }
-
   // Task 2.6 + Task 3.4: search - BM25 全文搜索 + snippet 生成（spec §4.5/§4.7 + §4.12）
   // - 返回 SearchHit[]：{ path, title, snippet, score, sourceType: 'wiki' | 'chatHistory' }
   // - Task 3.4 (P3)：合并 wiki + chat-history 两个 BM25 索引，统一排序截 topK

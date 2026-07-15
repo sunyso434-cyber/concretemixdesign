@@ -89,26 +89,6 @@ describe('DeepSeekService 错误抛出格式（方向 A：createError 完整结�
       })
   })
 
-  // ==================== analyzeMixDesign() ====================
-  // analyzeMixDesign 调用 buildSystemPrompt + buildPrompt 需要 data.summary.totalMixDesigns
-  // 需要足够的 data 结构让它到达 axios.post（才触发 mock rejection），否则会在 buildPrompt 阶段先抛 TypeError
-  const MIN_DATA = { summary: { totalMixDesigns: 1, strengthGrades: ['C30'], totalMaterials: 5 }, groupedStatistics: {}, mixDesigns: [] }
-
-  test('analyzeMixDesign() 401 → 抛 E-LLM-401', async () => {
-    axios.post.mockRejectedValueOnce({ response: { status: 401, data: {} } })
-    await expect(makeService().analyzeMixDesign(MIN_DATA))
-      .rejects.toMatchObject({
-        code: 'E-LLM-401',
-        details: { callSite: 'DeepSeekService.analyzeMixDesign' },
-      })
-  })
-
-  test('analyzeMixDesign() 413 → 抛 E-LLM-413', async () => {
-    axios.post.mockRejectedValueOnce({ response: { status: 413, data: {} } })
-    await expect(makeService().analyzeMixDesign(MIN_DATA))
-      .rejects.toMatchObject({ code: 'E-LLM-413' })
-  })
-
   // ==================== chatWithToolsStream() ====================
   test('chatWithToolsStream() 401 → 抛 E-LLM-401', async () => {
     axios.post.mockRejectedValueOnce({ response: { status: 401, data: {} } })

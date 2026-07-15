@@ -21,7 +21,7 @@ describe('WikiEngine.recordAnswer (Task 2.9)', () => {
   })
 
   afterEach(async () => {
-    mgr.close()
+    await mgr.close()
     await fs.rm(testPath, { recursive: true, force: true }).catch(() => {})
   })
 
@@ -47,7 +47,7 @@ describe('WikiEngine.recordAnswer (Task 2.9)', () => {
   })
 
   test('NOT_OPEN 抛 WorkspaceError', async () => {
-    mgr.close()
+    await mgr.close()
     await expect(
       wiki.recordAnswer('q', 'a', [])
     ).rejects.toMatchObject({ code: 'NOT_OPEN' })

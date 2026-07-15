@@ -36,22 +36,28 @@ jest.mock('../db/database', () => {
 })
 
 const AgentMemoryService = require('../services/AgentMemoryService')
+const { MixDesign } = require('../db/database')
 
 describe('AgentMemoryService.getResourceSummary 偏好注入', () => {
-  test('应从 agent.md 读取偏好并生成中文摘要', async () => {
-    const result = await AgentMemoryService.getResourceSummary()
-    // 不再依赖 UserPreference 表（删表零风险）
-    expect(result.userPreferences).toBeDefined()
-    // 中文摘要应包含 "拉法基" + "粉煤灰" + "锂渣" + "体积法"
-    const blob = JSON.stringify(result)
-    expect(blob).toContain('拉法基')
-    expect(blob).toContain('粉煤灰')
-    expect(blob).toContain('锂渣')
-    expect(blob).toContain('体积法')
+  beforeEach(() => {
+    MixDesign.findAll = jest.fn(async () => [])
   })
 
-  test('应保留 commonStrengthGrades（资源统计不是偏好）', async () => {
+  test('不再把 agent.md 专业偏好注入资源摘要', async () => {
     const result = await AgentMemoryService.getResourceSummary()
-    expect(Array.isArray(result.userPreferences.commonStrengthGrades)).toBe(true)
+    expect(result.userPreferences).toBeUndefined()
+    const blob = JSON.stringify(result)
+    expect(blob).not.toContain('拉法基')
+    expect(blob).not.toContain('体积法')
+  })
+
+  test('常用强度通过 userRulesSummary 保留', async () => {
+    MixDesign.findAll = jest.fn(async () => [
+      { strength: 'C30' },
+      { strength: 'C40' }
+    ])
+    const result = await AgentMemoryService.getResourceSummary()
+    expect(result.userRulesSummary).toContain('C30')
+    expect(result.userRulesSummary).toContain('C40')
   })
 })

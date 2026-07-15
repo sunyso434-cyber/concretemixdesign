@@ -42,7 +42,7 @@ export function getIndicatorVisibility(_percent) {
 
 /**
  * 根据 percent 返回填充环颜色
- * @returns {string} '#1890ff' 或 '#ff4d4f'
+ * @returns {string} '#4B3FE3' 或 '#ff4d4f'
  */
 export function getIndicatorColor(percent) {
   const safe = clampPercent(percent)

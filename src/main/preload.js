@@ -1,5 +1,97 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
+// Sandboxed Electron preloads cannot require local modules, so this boundary must
+// remain self-contained unless the preload is bundled during the build.
+const INVOKE_CHANNELS = new Set([
+  'agent:abort',
+  'agent:clearAllMemory',
+  'agent:confirm',
+  'agent:deleteSession',
+  'agent:duplicateSession',
+  'agent:getSessionInfo',
+  'agent:getSessionMessages',
+  'agent:listRecentSessions',
+  'agent:listSessions',
+  'agent:listSessionsGrouped',
+  'agent:preferences:delete',
+  'agent:preferences:get',
+  'agent:preferences:upsert',
+  'agent:renameSession',
+  'agent:run',
+  'agent:saveMessage',
+  'agent:suggestions:accept',
+  'agent:suggestions:blacklist',
+  'agent:suggestions:dismiss',
+  'agent:suggestions:list',
+  'aiAnalysis:analyze',
+  'aiAnalysis:chatStream',
+  'aiAnalysis:chatStream:reportError',
+  'aiAnalysis:clearHistory',
+  'aiAnalysis:compressContext',
+  'analysis:prepare',
+  'batchSaveSeriesMixDesigns',
+  'calculateMixDesign',
+  'calculateSeriesMixDesign',
+  'cancel-task',
+  'cancelOptimization',
+  'clear-task',
+  'createMaterial',
+  'createMixDesign',
+  'deleteMaterial',
+  'deleteMixDesign',
+  'get-all-params',
+  'get-all-tasks',
+  'get-app-version',
+  'get-param-by-name',
+  'getAllMaterials',
+  'getAllMixDesigns',
+  'getMixDesignById',
+  'getOptimizationTaskStatus',
+  'optimizeMixDesign',
+  'parse-import-file',
+  'salesQuote:calculate',
+  'salesQuote:createPumpingFeeItem',
+  'salesQuote:deletePumpingFeeItem',
+  'salesQuote:deleteQuote',
+  'salesQuote:listEnabledPumpingFeeItems',
+  'salesQuote:listHistory',
+  'salesQuote:listPumpingFeeItems',
+  'salesQuote:saveQuote',
+  'salesQuote:updatePumpingFeeItem',
+  'set-param',
+  'show-open-dialog',
+  'show-save-dialog',
+  'slash:execute',
+  'start-backup-task',
+  'start-export-task',
+  'start-import-task',
+  'start-restore-task',
+  'updateMaterial',
+  'updateMixDesign',
+  'workspace:rename',
+  'workspace:searchGraph'
+])
+
+const EVENT_CHANNELS = new Set([
+  'agent:confirmation-request',
+  'agent:progress',
+  'agent:sessionUpdated',
+  'agent:suggestions:new',
+  'aiAnalysis:chatStream:event',
+  'background-task-progress',
+  'data-refresh',
+  'optimization-completed',
+  'optimization-failed',
+  'optimization-progress'
+])
+
+function assertAllowedIpcChannel(type, channel) {
+  const channels = type === 'invoke' ? INVOKE_CHANNELS : type === 'event' ? EVENT_CHANNELS : null
+  if (!channels || typeof channel !== 'string' || !channels.has(channel)) {
+    throw new Error(`IPC channel is not allowed: ${String(channel)}`)
+  }
+}
+
 // 存储 listener wrapper 的引用，用于 removeListener
 const listenerCache = new Map()
 
@@ -7,21 +99,33 @@ const listenerCache = new Map()
 let listenerIdCounter = 0
 const generateListenerId = () => `listener_${++listenerIdCounter}_${Date.now()}`
 
+const invokeAllowed = (channel, ...args) => {
+  assertAllowedIpcChannel('invoke', channel)
+  return ipcRenderer.invoke(channel, ...args)
+}
+
+const onAllowed = (channel, func) => {
+  assertAllowedIpcChannel('event', channel)
+  if (typeof func !== 'function') throw new TypeError('IPC listener must be a function')
+  const id = generateListenerId()
+  const wrapper = (_event, ...args) => func(...args)
+  listenerCache.set(id, { channel, wrapper })
+  ipcRenderer.on(channel, wrapper)
+  return id
+}
+
+const removeAllAllowedListeners = (channel) => {
+  assertAllowedIpcChannel('event', channel)
+  ipcRenderer.removeAllListeners(channel)
+  for (const [id, entry] of listenerCache) {
+    if (entry.channel === channel) listenerCache.delete(id)
+  }
+}
+
 // 暴露给渲染进程的 API
 contextBridge.exposeInMainWorld('electronAPI', {
-  invoke: (channel, ...args) => {
-    return ipcRenderer.invoke(channel, ...args)
-  },
-  on: (channel, func) => {
-    const id = generateListenerId()
-    const wrapper = (event, ...args) => func(...args)
-    listenerCache.set(id, { channel, wrapper })
-    ipcRenderer.on(channel, wrapper)
-    return id
-  },
-  once: (channel, func) => {
-    ipcRenderer.once(channel, (event, ...args) => func(...args))
-  },
+  invoke: invokeAllowed,
+  on: onAllowed,
   removeListener: (id) => {
     const entry = listenerCache.get(id)
     if (entry) {
@@ -29,19 +133,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       listenerCache.delete(id)
     }
   },
-  removeAllListeners: (channel) => {
-    ipcRenderer.removeAllListeners(channel)
-    // 清理缓存
-    if (channel) {
-      for (const [id, entry] of listenerCache) {
-        if (entry.channel === channel) {
-          listenerCache.delete(id)
-        }
-      }
-    } else {
-      listenerCache.clear()
-    }
-  },
+  removeAllListeners: removeAllAllowedListeners,
   // 窗口控制
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),
@@ -174,35 +266,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 // 兼容旧的 electron 对象
 contextBridge.exposeInMainWorld('electron', {
   ipcRenderer: {
-    send: (channel, data) => ipcRenderer.send(channel, data),
-    invoke: (channel, data) => ipcRenderer.invoke(channel, data),
-    on: (channel, func) => {
-      const id = generateListenerId()
-      const wrapper = (event, ...args) => func(...args)
-      listenerCache.set(id, { channel, wrapper })
-      ipcRenderer.on(channel, wrapper)
-      return id
-    },
-    once: (channel, func) => {
-      ipcRenderer.once(channel, (event, ...args) => func(...args))
-    },
+    invoke: invokeAllowed,
+    on: onAllowed,
     removeListener: (id) => {
       const entry = listenerCache.get(id)
       if (entry) {
         ipcRenderer.removeListener(entry.channel, entry.wrapper)
         listenerCache.delete(id)
-      }
-    },
-    removeAllListeners: (channel) => {
-      ipcRenderer.removeAllListeners(channel)
-      if (channel) {
-        for (const [id, entry] of listenerCache) {
-          if (entry.channel === channel) {
-            listenerCache.delete(id)
-          }
-        }
-      } else {
-        listenerCache.clear()
       }
     }
   },

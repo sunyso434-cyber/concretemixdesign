@@ -1,8 +1,11 @@
 const path = require('path')
+const os = require('os')
 const fs = require('fs').promises
 const fsSync = require('fs')
 const { KGExtractor } = require('../../workspace/KGExtractor')
 const schema = require('../../workspace/kg-schema.json')
+
+const makeTempDir = prefix => fs.mkdtemp(path.join(os.tmpdir(), prefix))
 
 describe('KGExtractor.extract', () => {
   test('LLM mock 返回标准三元组', async () => {
@@ -94,15 +97,14 @@ describe('KGExtractor.extract', () => {
 describe('KGExtractor.loadGraph + saveGraph', () => {
   test('loadGraph 不存在 → 返回空图', async () => {
     const extractor = new KGExtractor({ llmClient: null })
-    const g = await extractor.loadGraph('/tmp/nonexistent-ws-' + Date.now())
+    const g = await extractor.loadGraph(path.join(os.tmpdir(), 'nonexistent-ws-' + Date.now()))
     expect(g.version).toBe(1)
     expect(g.entities).toEqual({})
     expect(g.relations).toEqual([])
   })
 
   test('saveGraph 原子写 + 读回一致', async () => {
-    const p = path.join('/tmp', 'kg-test-' + Date.now())
-    await fs.mkdir(p, { recursive: true })
+    const p = await makeTempDir('kg-test-')
     const extractor = new KGExtractor({ llmClient: null })
     const g = {
       version: 1, workspacePath: p, entities: { x: { id: 'x', name: '硅灰', type: 'Material' } },
@@ -116,8 +118,7 @@ describe('KGExtractor.loadGraph + saveGraph', () => {
   })
 
   test('saveGraph 原子写：无残留 .tmp 文件', async () => {
-    const p = path.join('/tmp', 'kg-atomic-' + Date.now())
-    await fs.mkdir(p, { recursive: true })
+    const p = await makeTempDir('kg-atomic-')
     const extractor = new KGExtractor({ llmClient: null })
     const g = {
       version: 1, workspacePath: p, entities: {}, relations: [], conflicts: [],
@@ -132,7 +133,7 @@ describe('KGExtractor.loadGraph + saveGraph', () => {
   })
 
   test('loadGraph 损坏 → 抛 KG_GRAPH_CORRUPT', async () => {
-    const p = path.join('/tmp', 'kg-corrupt-' + Date.now())
+    const p = await makeTempDir('kg-corrupt-')
     await fs.mkdir(path.join(p, 'wiki', 'kg'), { recursive: true })
     await fs.writeFile(path.join(p, 'wiki', 'kg', 'graph.json'), '{not valid json', 'utf-8')
     const extractor = new KGExtractor({ llmClient: null })
