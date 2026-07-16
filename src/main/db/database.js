@@ -155,6 +155,23 @@ async function recreateFtsTable(tableName, createSql, triggerSqlList) {
   }
 }
 
+// ponytail: 存量库补 archived 列。baseline 只在首次 alter，之后 model 新增列不会自动落库，
+// 故用 PRAGMA 幂等检测；将来若引入统一迁移框架可替换此处。
+async function ensureArchivedColumn() {
+  try {
+    const cols = await sequelize.query("PRAGMA table_info('ChatSession')", {
+      type: sequelize.QueryTypes.SELECT
+    })
+    const has = cols.some(c => c.name === 'archived')
+    if (!has) {
+      await sequelize.query("ALTER TABLE `ChatSession` ADD COLUMN `archived` BOOLEAN NOT NULL DEFAULT 0")
+      console.log('[schema] ChatSession.archived 列已补充')
+    }
+  } catch (err) {
+    console.warn('[schema] ensureArchivedColumn 失败（忽略，继续启动）:', err.message)
+  }
+}
+
 async function ensureMemoryFts() {
   const [summaryInfo] = await sequelize.query("PRAGMA table_info('session_summaries_fts')")
   const summaryColumns = summaryInfo.map(col => col.name)
@@ -193,6 +210,7 @@ async function syncModels() {
   // UserPreference 已在阶段 B 迁移中废弃，不在此处注册
   const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion]
   await runSchemaBaseline({ sequelize, models: allModels, dbPath })
+  await ensureArchivedColumn()
   await ensureMemoryFts()
 
   // FTS5 表的创建已统一交给 ensureMemoryFts()（覆盖旧库残留的 key_decisions_unfolded 字段）
@@ -244,6 +262,7 @@ async function syncModels() {
 // 导出sequelize实例、关闭函数、同步函数和所有模型
 module.exports.closeAllConnections = closeAllConnections
 module.exports.syncModels = syncModels
+module.exports.ensureArchivedColumn = ensureArchivedColumn
 module.exports.Material = Material
 module.exports.MixDesign = MixDesign
 module.exports.SystemParam = SystemParam
