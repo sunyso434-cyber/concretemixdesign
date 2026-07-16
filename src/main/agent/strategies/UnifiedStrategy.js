@@ -26,6 +26,7 @@ const { classifyError } = require('../errorClassifier')
 const { rotateIfNeeded } = require('../../utils/logRotator')
 const MemoryTierService = require('../../services/MemoryTierService')
 const { ChatHistory } = require('../../db/database')
+const eventBus = require('../EventBus')
 
 // 诊断日志：写到 agent-debug.log（与 agentHandler._log 同一文件）
 const _diagLogFile = path.join(os.homedir(), '.concrete-mixdesign', 'agent-debug.log')
@@ -212,10 +213,10 @@ class UnifiedStrategy {
     // P0：每 20 轮自动触发归档摘要（异步，不阻塞主流程）
     try {
       const msgCount = await ChatHistory.count({ where: { sessionId } })
-      if (msgCount >= 20 && msgCount % 20 === 0) {
-        MemoryTierService.summarizeOldMessages(sessionId, {
-          rangeStart: Math.max(1, msgCount - 19),
-          rangeEnd: msgCount
+      if (msgCount >= 20) {
+        MemoryTierService.summarizeNextBatch(sessionId, {
+          batchSize: 20,
+          minMessages: 20
         }).catch(err => console.warn('[UnifiedStrategy] 归档摘要失败:', err.message))
       }
     } catch (_) {}
@@ -583,6 +584,11 @@ class UnifiedStrategy {
                 mode,
                 status: 'running'
               })
+              // P1：通知 LearningService 工具执行成功，用于偏好学习
+              // LearningService._onToolExecuted 已过滤 result.success===false 和非 calculate_mix_design 工具
+              try {
+                eventBus.emitToolExecuted(name, args, execResult)
+              } catch (_) {}
               const toolContentOk = JSON.stringify(execResult)
               trimmedMessages.push({ role: 'tool', content: toolContentOk, tool_call_id: tc.id })
               try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: toolContentOk, toolCallId: tc.id }) } catch (_) {}

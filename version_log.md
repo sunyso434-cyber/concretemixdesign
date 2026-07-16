@@ -1,3 +1,32 @@
+## v10.10.13 记忆系统全面修复 (2026-07-16)
+
+### 本轮修复
+- **P0 bug**：删除 `database.js` 里旧版 FTS 触发器残留（`key_decisions_unfolded` 字段 + `content='session_summaries'` contentless 模式）。该段代码会在新 FTS 创建后再次运行，插入含不存在列的旧触发器，每次 `SessionSummary.create` 都会报 `no such column: key_decisions_unfolded` 阻断。统一交给 `ensureMemoryFts()` 单一入口。
+- **P0**：会话目录用完整安全 sessionId（之前 `substring(0,8)` 导致所有 `session-*` ID 都写入 `session-` 目录，互相覆盖）。`_getSessionDirName` 替换 `substring(0,8)`，`_resolveWorkspacePath` 兼容未传 `workspacePath` 的调用。
+- **P0**：`MemoryTierService` LLM 注入修复 — `_getDeepSeekService()` 优先用注入实例，否则 fallback 到 `global.deepseekService`（避免拿无 API key 的裸 `new DeepSeekService()`）。新增 `summarizeNextBatch` 用真实 ChatHistory ID 范围替代"消息计数"。
+- **P0**：触发条件 `msgCount % 20 === 0` 改为 `msgCount >= 20`（一次工具调用常跨越 20 的倍数导致漏触发）。
+- **P0**：历史回填 — `MemoryTierService.backfillAll({ batchSize, minMessages, concurrency })` 遍历所有 session，每个 session 串行调 `summarizeNextBatch` 直到无新摘要。session 间并发 3，LLM 失败不中断跳过该 batch。幂等：第二次回填 0 新增。IPC `agent:backfillMemory` 暴露给前端。
+- **P1**：工具成功事件 — `UnifiedStrategy` 工具成功分支插入 `eventBus.emitToolExecuted(name, args, execResult)`，让 `LearningService` 能收到真实成功样本（之前监听 `tool:executed` 但生产代码从未触发）。
+- **P1**：召回路径接入失败教训 + 老板修正记录 — `recallSession` 现在同时返回 `failures`（`LearningService.findFailurePatterns`）和 `corrections`（`AgentMemoryService.findSimilarCorrections`），按 `toolName` + 关键词双路过滤。子调用失败 try/catch 降级不阻断主流程。
+- **P1**：FTS 表结构修复 — `session_summaries_fts` 用 `summary, key_decisions`（去掉不存在的 `key_decisions_unfolded`），`chat_history_fts` 实际创建（之前缺表静默返回空）。触发器 `*_ai/_au/_ad` 完整覆盖 insert/update/delete。
+- **P1**：删除/清空全链路清理 — `agent:deleteSession` 同步删 `SessionSummary` + 工作区归档；`agent:clearAllMemory` 额外清 `PreferenceSuggestion` 和整个 `wiki/chat-history` 目录 + 重置 `chatBM25Index`。`ChatHistorySync.removeSessionArchive/removeAllArchives` 是底层实现。
+- **P2**：测试用真实 `session-*` ID 覆盖目录冲突、删除归档、回填幂等。
+
+### 验证
+- `npx jest`（相关 9 个套件）：130/130 用例通过，含新增 13 条单测。
+- 会话目录唯一性：所有 `session-*` ID 用完整安全名作为子目录名，无截断。
+- FTS 触发器：仅保留 `ensureMemoryFts()` 创的一份，无重复。
+
+### 已知后续项
+- 回填 2332 条历史消息需要老板手动触发 `agent:backfillMemory` IPC（不在启动时自动跑，避免首次启动卡顿）。
+- 老旧工作区里的混合 JSONL 仍存在（如 `D:/C-c/new` 的 1350 条来自 29 会话），需要以 SQLite 为源重新生成。
+
+### 打包产物
+- `dist-10.10.13/砼智 Setup 10.10.13.exe`：145,904,106 字节，SHA-256 `424B9D8B72947B2E0628275BDFF97D6A5BC5D8530CD3DEFB555D8AD589ED328E`。
+- `dist-10.10.13/砼智-10.10.13-portable-x64.exe`：145,457,359 字节，SHA-256 `3A5D9AB0833CAE98CF5E5F81FA1C7F505FF8CD8E187A1F08B5C129FAA82D2168`。
+
+---
+
 ## v10.10.12 项目稳定性与安全性优化 (2026-07-15)
 
 ### 本轮优化

@@ -30,10 +30,17 @@ Thumbs.db
 
 # Optional local tooling (do not commit secrets)
 .claude/settings.local.json
+.agents/skills/
+.codex/config.toml
+.codex/hooks.json
 # Added by code-review-graph
 .code-review-graph/
 .gstack/
 .tmp-test-user-data/
+
+# Python runtime cache
+__pycache__/
+*.py[cod]
 
 # 测试 fixture（自动生成，不入仓）
 src/main/__tests__/workspace/readers/fixtures/*.pdf

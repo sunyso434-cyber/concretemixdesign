@@ -28,10 +28,11 @@ describe('ChatHistoryExporter（纯函数转换）', () => {
 
     test('单条消息生成一行 JSON', () => {
       const messages = [
-        { id: 1, role: 'user', content: '你好', createdAt: '2025-01-01T00:00:00Z' }
+        { id: 1, sessionId: 'session-1740000000000-abc123', role: 'user', content: '你好', createdAt: '2025-01-01T00:00:00Z' }
       ]
       const result = exporter.formatJSONL(messages)
       expect(result).toContain('"id":1')
+      expect(result).toContain('"sessionId":"session-1740000000000-abc123"')
       expect(result).toContain('"role":"user"')
       expect(result).toContain('"content":"你好"')
       expect(result.endsWith('\n')).toBe(true)
@@ -261,18 +262,18 @@ describe('ChatHistoryExporter（纯函数转换）', () => {
       })
     })
 
-    test('slng 取 sessionId 前 8 位', async () => {
+    test('真实 session-* ID 使用完整安全目录名，不再截断成 session-', async () => {
       mockReadFile
         .mockResolvedValueOnce('{"id":1}\n')
         .mockResolvedValueOnce('---\nsessionId: foo\n---')
 
-      await exporter.loadSession(sessionId, workspacePath)
+      const realSessionId = 'session-1740000000000-abc123'
+      await exporter.loadSession(realSessionId, workspacePath)
 
-      // 验证 JSONL 路径包含 slug（前 8 位）: test-sess（跨平台分隔符）
       const call1 = mockReadFile.mock.calls[0][0]
-      expect(call1).toMatch(/wiki[/\\]chat-history[/\\]test-ses[/\\]session\.jsonl$/)
+      expect(call1).toMatch(/wiki[/\\]chat-history[/\\]session-1740000000000-abc123[/\\]session\.jsonl$/)
       const call2 = mockReadFile.mock.calls[1][0]
-      expect(call2).toMatch(/wiki[/\\]chat-history[/\\]test-ses[/\\]session\.md$/)
+      expect(call2).toMatch(/wiki[/\\]chat-history[/\\]session-1740000000000-abc123[/\\]session\.md$/)
     })
 
     test('空 JSONL 返回空消息数组', async () => {

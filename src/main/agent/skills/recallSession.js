@@ -1,63 +1,101 @@
 const MemoryTierService = require('../../services/MemoryTierService')
-const { SessionSummary } = require('../../db/database')
-const { ChatHistory } = require('../../db/database')
-const { sequelize } = require('../../db/database')
-const { buildBM25, queryBM25 } = require('../../workspace/bm25')
-const { Op } = require('sequelize')
+const LearningService = require('../../services/LearningService')
+const AgentMemoryService = require('../../services/AgentMemoryService')
+const { ChatHistory, sequelize } = require('../../db/database')
 
-/**
- * recall_session skill
- * 按关键词检索归档记忆 + 原始对话段落
- */
-async function recallSession(args, context = {}) {
-  const { query, topK = 5 } = args
+async function searchRawMessages(query, limit) {
+  const normalizedQuery = String(query || '').trim()
+  if (!normalizedQuery) return []
 
-  // 1. 走 MemoryTierService.recall（FTS5 + BM25 + decay）
-  const recalled = await MemoryTierService.recall(query, { topK })
-
-  // 2. 补充从 ChatHistory 的原始命中
-  // ponytail: chat_history_fts 表可能不存在，FTS raw search 失败时只返回 summaries
-  let rawMessages = []
+  let rawIds = []
   try {
     const ftsRaw = await sequelize.query(
-      `SELECT rowid FROM chat_history_fts WHERE chat_history_fts MATCH ? LIMIT 10`,
-      { replacements: [query], type: sequelize.QueryTypes.SELECT }
+      `SELECT rowid FROM chat_history_fts WHERE chat_history_fts MATCH ? LIMIT ?`,
+      { replacements: [normalizedQuery, limit], type: sequelize.QueryTypes.SELECT }
     )
-    const rawIds = ftsRaw.map(r => r.rowid)
-    if (rawIds.length > 0) {
-      const messages = await ChatHistory.findAll({ where: { id: rawIds }, limit: 10 })
-      rawMessages = messages.map(m => ({
-        role: m.role, content: m.content?.slice(0, 300), createdAt: m.createdAt
-      }))
-    }
-  } catch (_) {
-    // chat_history_fts 表不存在，静默降级
+    rawIds = ftsRaw.map(r => r.rowid)
+  } catch (err) {
+    const escaped = normalizedQuery.replace(/[%_\\]/g, '\\$&')
+    const likeRows = await sequelize.query(
+      `SELECT id FROM chat_history WHERE content LIKE ? ESCAPE '\\' ORDER BY id DESC LIMIT ?`,
+      { replacements: [`%${escaped}%`, limit], type: sequelize.QueryTypes.SELECT }
+    )
+    rawIds = likeRows.map(r => r.id)
+  }
+
+  if (rawIds.length === 0) return []
+
+  const messages = await ChatHistory.findAll({
+    where: { id: rawIds },
+    order: [['id', 'ASC']],
+    limit
+  })
+  return messages.map(m => ({
+    sessionId: m.sessionId,
+    role: m.role,
+    content: m.content?.slice(0, 300),
+    createdAt: m.createdAt
+  }))
+}
+
+async function recallSession(args, context = {}) {
+  const { query, topK = 5, toolName } = args
+  const normalizedQuery = String(query || '').trim()
+  if (!normalizedQuery) {
+    return { success: false, error: 'query 不能为空', summaries: [], rawMessages: [], failures: [], corrections: [] }
+  }
+
+  const recalled = await MemoryTierService.recall(normalizedQuery, { topK })
+  const rawMessages = await searchRawMessages(normalizedQuery, Math.max(10, topK))
+
+  // P1：接入失败教训 + 老板的修正记录
+  // - findFailurePatterns: 按工具名 + 关键词从 CorrectionRule 表捞失败案例（context 字段含 skillName/args）
+  // - findSimilarCorrections: 按关键词 BM25 找老板手动纠正过的规则
+  let failures = []
+  let corrections = []
+  try {
+    failures = await LearningService.findFailurePatterns(toolName || '', normalizedQuery)
+  } catch (err) {
+    console.warn('[recallSession] findFailurePatterns 失败:', err.message)
+  }
+  try {
+    corrections = await AgentMemoryService.findSimilarCorrections(normalizedQuery, toolName || null, 3)
+  } catch (err) {
+    console.warn('[recallSession] findSimilarCorrections 失败:', err.message)
   }
 
   return {
     success: true,
     summaries: recalled,
-    rawMessages
+    rawMessages,
+    failures,
+    corrections
   }
 }
 
 module.exports = {
   name: 'recall_session',
   category: '记忆',
-  description: '按关键词检索历史对话摘要与原文（跨会话召回老板之前讨论过的内容）',
+  description: '按关键词检索历史对话摘要与原文片段',
   execute: recallSession,
   services: [],
   parameters: {
     query: {
       type: 'string',
-      description: '检索关键词（如"砂率"、"C30 配合比"、"上次报告"）',
+      description: '检索关键词',
       required: true
     },
     topK: {
       type: 'integer',
-      description: '返回结果数（默认 5）',
+      description: '返回结果数量，默认 5',
       required: false,
       default: 5
+    },
+    toolName: {
+      type: 'string',
+      description: '可选的当前工具名，用于检索同类失败教训',
+      required: false,
+      default: null
     }
   }
 }

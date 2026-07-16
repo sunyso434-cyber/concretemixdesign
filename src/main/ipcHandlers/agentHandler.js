@@ -671,12 +671,33 @@ function registerAgentHandlers() {
   })
 
   ipcMain.handle('agent:clearAllMemory', async () => {
-    const { ChatHistory, ChatSession, CorrectionRule } = require('../db/database')
+    const { ChatHistory, ChatSession, CorrectionRule, SessionSummary, PreferenceSuggestion } = require('../db/database')
     // 注意：user_preferences 表已在阶段 B 迁移中删除，不在此处引用
     await ChatHistory.destroy({ where: {}, truncate: true })
     await ChatSession.destroy({ where: {}, truncate: true })  // 清空会话表
     await CorrectionRule.destroy({ where: {}, truncate: true })
+    // P1：同步清 L1 归档记忆 + 自动学习建议，避免旧会话数据被召回
+    try { await SessionSummary.destroy({ where: {}, truncate: true }) } catch (err) {
+      console.warn('[agent:clearAllMemory] 清 SessionSummary 失败:', err.message)
+    }
+    try { await PreferenceSuggestion.destroy({ where: {}, truncate: true }) } catch (err) {
+      console.warn('[agent:clearAllMemory] 清 PreferenceSuggestion 失败:', err.message)
+    }
+    // P1：清工作区里的 chat-history 归档目录（所有工作区扫描一遍）
+    const sync = global.chatHistorySync
+    if (sync && typeof sync.removeAllArchives === 'function') {
+      try { await sync.removeAllArchives() } catch (err) {
+        console.warn('[agent:clearAllMemory] 清工作区归档失败:', err.message)
+      }
+    }
     return { success: true }
+  })
+
+  // P0：一次性历史回填 — 给老板一个手动触发按钮
+  ipcMain.handle('agent:backfillMemory', async () => {
+    const MemoryTierService = require('../services/MemoryTierService')
+    const result = await MemoryTierService.backfillAll({ batchSize: 20, minMessages: 20, concurrency: 3 })
+    return { success: true, ...result }
   })
 
   ipcMain.handle('agent:saveCorrection', async (_event, correction) => {

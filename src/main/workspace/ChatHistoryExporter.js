@@ -15,6 +15,12 @@ class ChatHistoryExporter {
   /** v1.5.3 拆细：构造器无依赖，便于单测 */
   constructor() {}
 
+  static getSessionDirName(sessionId) {
+    const raw = String(sessionId || '').trim()
+    const safe = raw.replace(/[^A-Za-z0-9_-]/g, '_')
+    return safe || 'unknown-session'
+  }
+
   /**
    * Task 3.4 (P3)：exportSession 成功后增量更新 chatBM25Index。
    * - 读 .workspace-index.json，把当前 session.md 单独 buildBM25 → 整体替换 chatBM25Index（P1 简化）
@@ -25,7 +31,7 @@ class ChatHistoryExporter {
    * @returns {Promise<{updated: boolean, sessionPath: string}>}
    */
   async updateChatBM25Index(sessionId, workspacePath) {
-    const slug = sessionId.substring(0, 8)
+    const slug = ChatHistoryExporter.getSessionDirName(sessionId)
     const relPath = `chat-history/${slug}/session.md`
     const mdPath = path.join(workspacePath, 'wiki', relPath)
 
@@ -39,6 +45,8 @@ class ChatHistoryExporter {
 
     try {
       const index = await loadIndex(workspacePath)
+      const docs = await this._loadAllChatHistoryDocs(workspacePath, relPath, content)
+      index.chatBM25Index = buildBM25(docs)
       // P1 简化：只把当前一个 session.md 加入 chatBM25Index（覆盖式）
       // 原因：buildBM25 是全量重建，无法增量加一个 doc；维护多个 doc 需要 postings 合并逻辑
       // 后续可扩展：扫所有 chat-history/*/session.md 全量 rebuild（更安全）
@@ -143,7 +151,7 @@ class ChatHistoryExporter {
    * @returns {Promise<{messages: Array, renderedMd: string, summary: object}>}
    */
   async loadSession(sessionId, workspacePath) {
-    const slug = sessionId.substring(0, 8)
+    const slug = ChatHistoryExporter.getSessionDirName(sessionId)
     const jsonlPath = path.join(workspacePath, 'wiki', 'chat-history', slug, 'session.jsonl')
     const mdPath = path.join(workspacePath, 'wiki', 'chat-history', slug, 'session.md')
     const content = await fs.readFile(jsonlPath, 'utf-8')
@@ -161,12 +169,43 @@ class ChatHistoryExporter {
   _msgToJSON(m) {
     return {
       id: m.id,
+      sessionId: m.sessionId || null,
       role: m.role,
       content: m.content,
       createdAt: m.createdAt,
       toolCalls: m.toolCalls ? (typeof m.toolCalls === 'string' ? JSON.parse(m.toolCalls) : m.toolCalls) : null,
       attachments: m.metadata?.attachments || null
     }
+  }
+
+  async _loadAllChatHistoryDocs(workspacePath, currentRelPath, currentContent) {
+    const chatHistoryDir = path.join(workspacePath, 'wiki', 'chat-history')
+    const docs = []
+    let dirs = []
+
+    try {
+      dirs = await fs.readdir(chatHistoryDir, { withFileTypes: true })
+    } catch {
+      return [{ path: currentRelPath, content: currentContent }]
+    }
+
+    for (const dirent of dirs) {
+      if (!dirent.isDirectory()) continue
+      const relPath = `chat-history/${dirent.name}/session.md`
+      const mdPath = path.join(chatHistoryDir, dirent.name, 'session.md')
+      try {
+        const content = relPath === currentRelPath ? currentContent : await fs.readFile(mdPath, 'utf-8')
+        docs.push({ path: relPath, content })
+      } catch {
+        continue
+      }
+    }
+
+    if (!docs.some(doc => doc.path === currentRelPath)) {
+      docs.push({ path: currentRelPath, content: currentContent })
+    }
+
+    return docs
   }
 }
 

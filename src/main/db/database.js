@@ -139,33 +139,64 @@ const defaultInsulationMaterials = [
 ]
 
 // 同步所有模型并初始化数据
+async function recreateFtsTable(tableName, createSql, triggerSqlList) {
+  await sequelize.query(`DROP TRIGGER IF EXISTS ${tableName}_ai`)
+  await sequelize.query(`DROP TRIGGER IF EXISTS ${tableName}_au`)
+  await sequelize.query(`DROP TRIGGER IF EXISTS ${tableName}_ad`)
+  if (tableName === 'session_summaries_fts') {
+    await sequelize.query('DROP TRIGGER IF EXISTS session_summaries_ai')
+    await sequelize.query('DROP TRIGGER IF EXISTS session_summaries_au')
+    await sequelize.query('DROP TRIGGER IF EXISTS session_summaries_ad')
+  }
+  await sequelize.query(`DROP TABLE IF EXISTS ${tableName}`)
+  await sequelize.query(createSql)
+  for (const sql of triggerSqlList) {
+    await sequelize.query(sql)
+  }
+}
+
+async function ensureMemoryFts() {
+  const [summaryInfo] = await sequelize.query("PRAGMA table_info('session_summaries_fts')")
+  const summaryColumns = summaryInfo.map(col => col.name)
+  const needsSummaryRebuild = !summaryColumns.includes('summary') || !summaryColumns.includes('key_decisions')
+  if (needsSummaryRebuild) {
+    await recreateFtsTable(
+      'session_summaries_fts',
+      `CREATE VIRTUAL TABLE session_summaries_fts USING fts5(summary, key_decisions, tokenize='unicode61 remove_diacritics 2')`,
+      [
+        `CREATE TRIGGER session_summaries_fts_ai AFTER INSERT ON session_summaries BEGIN INSERT INTO session_summaries_fts(rowid, summary, key_decisions) VALUES (new.id, new.summary, COALESCE(new.keyDecisions, '')); END`,
+        `CREATE TRIGGER session_summaries_fts_au AFTER UPDATE ON session_summaries BEGIN DELETE FROM session_summaries_fts WHERE rowid = old.id; INSERT INTO session_summaries_fts(rowid, summary, key_decisions) VALUES (new.id, new.summary, COALESCE(new.keyDecisions, '')); END`,
+        `CREATE TRIGGER session_summaries_fts_ad AFTER DELETE ON session_summaries BEGIN DELETE FROM session_summaries_fts WHERE rowid = old.id; END`
+      ]
+    )
+    await sequelize.query(`INSERT INTO session_summaries_fts(rowid, summary, key_decisions) SELECT id, summary, COALESCE(keyDecisions, '') FROM session_summaries`)
+  }
+
+  const [chatInfo] = await sequelize.query("PRAGMA table_info('chat_history_fts')")
+  const chatColumns = chatInfo.map(col => col.name)
+  const needsChatRebuild = !chatColumns.includes('content') || !chatColumns.includes('sessionId')
+  if (needsChatRebuild) {
+    await recreateFtsTable(
+      'chat_history_fts',
+      `CREATE VIRTUAL TABLE chat_history_fts USING fts5(sessionId, role, content, tokenize='unicode61 remove_diacritics 2')`,
+      [
+        `CREATE TRIGGER chat_history_fts_ai AFTER INSERT ON chat_history BEGIN INSERT INTO chat_history_fts(rowid, sessionId, role, content) VALUES (new.id, new.sessionId, new.role, new.content); END`,
+        `CREATE TRIGGER chat_history_fts_au AFTER UPDATE ON chat_history BEGIN DELETE FROM chat_history_fts WHERE rowid = old.id; INSERT INTO chat_history_fts(rowid, sessionId, role, content) VALUES (new.id, new.sessionId, new.role, new.content); END`,
+        `CREATE TRIGGER chat_history_fts_ad AFTER DELETE ON chat_history BEGIN DELETE FROM chat_history_fts WHERE rowid = old.id; END`
+      ]
+    )
+    await sequelize.query(`INSERT INTO chat_history_fts(rowid, sessionId, role, content) SELECT id, sessionId, role, content FROM chat_history`)
+  }
+}
+
 async function syncModels() {
   // UserPreference 已在阶段 B 迁移中废弃，不在此处注册
   const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion]
   await runSchemaBaseline({ sequelize, models: allModels, dbPath })
+  await ensureMemoryFts()
 
-  // FTS5 virtual table（参考 Mneme）— 幂等，model 上的 afterSync hook 也会建
-  if (SessionSummary) {
-    await sequelize.query(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS session_summaries_fts USING fts5(
-        summary, key_decisions_unfolded,
-        content='session_summaries', content_rowid='id',
-        tokenize='unicode61 remove_diacritics 2'
-      )
-    `)
-    await sequelize.query(`
-      CREATE TRIGGER IF NOT EXISTS session_summaries_ai AFTER INSERT ON session_summaries BEGIN
-        INSERT INTO session_summaries_fts(rowid, summary, key_decisions_unfolded)
-        VALUES (new.id, new.summary, '');
-      END
-    `)
-    await sequelize.query(`
-      CREATE TRIGGER IF NOT EXISTS session_summaries_ad AFTER DELETE ON session_summaries BEGIN
-        INSERT INTO session_summaries_fts(session_summaries_fts, rowid, summary, key_decisions_unfolded)
-        VALUES ('delete', old.id, old.summary, '');
-      END
-    `)
-  }
+  // FTS5 表的创建已统一交给 ensureMemoryFts()（覆盖旧库残留的 key_decisions_unfolded 字段）
+  // SessionSummary.js 的 afterSync hook 也会幂等重建，两处保持一致
 
   console.log('数据库模型同步完成')
 

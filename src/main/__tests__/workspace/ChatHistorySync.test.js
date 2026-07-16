@@ -4,7 +4,7 @@
 
 // Mock 数据库模块（exportSession / exportAllPending 依赖）
 const mockChatHistory = { findAll: jest.fn(), update: jest.fn() }
-const mockChatSession = { findAll: jest.fn(), update: jest.fn() }
+const mockChatSession = { findAll: jest.fn(), findOne: jest.fn(), update: jest.fn() }
 jest.mock('../../db/database', () => ({
   ChatHistory: mockChatHistory,
   ChatSession: mockChatSession
@@ -65,6 +65,7 @@ describe('ChatHistorySync', () => {
     mockExporter.parseJSONL.mockReturnValue([{ id: 1 }])
     mockChatHistory.findAll.mockResolvedValue([])
     mockChatSession.findAll.mockResolvedValue([])
+    mockChatSession.findOne.mockResolvedValue(null)
   })
 
   // ==================== P2b 核心：markPending ====================
@@ -155,6 +156,38 @@ describe('ChatHistorySync', () => {
       expect(mockFs.rename).toHaveBeenCalled()
       expect(mockExporter.formatJSONL).toHaveBeenCalledWith(messages)
       expect(mockExporter.formatMD).toHaveBeenCalledWith('sess-12345678', messages, workspacePath)
+    })
+
+    test('真实 session-* ID 使用完整目录名，避免所有会话写入 session- 目录', async () => {
+      mockChatHistory.findAll.mockResolvedValue([
+        { id: 1, sessionId: 'session-1740000000000-abc123', role: 'user', content: 'x', createdAt: '2025-01-01T00:00:00Z' }
+      ])
+      mockFs.stat.mockRejectedValue(new Error('ENOENT'))
+
+      const result = await sync.exportSession('session-1740000000000-abc123', workspacePath)
+
+      expect(result.filesWritten[0]).toMatch(/chat-history[/\\]session-1740000000000-abc123[/\\]session\.jsonl$/)
+      expect(result.filesWritten[0]).not.toMatch(/chat-history[/\\]session-[/\\]session\.jsonl$/)
+    })
+
+    test('未传 workspacePath 时从 ChatSession 解析工作区路径', async () => {
+      mockChatSession.findOne.mockResolvedValue({ workspacePath: '/db/workspace' })
+      mockChatHistory.findAll.mockResolvedValue([
+        { id: 1, sessionId: 'session-1740000000000-dbpath', role: 'user', content: 'x', createdAt: '2025-01-01T00:00:00Z' }
+      ])
+      mockFs.stat.mockRejectedValue(new Error('ENOENT'))
+
+      await sync.exportSession('session-1740000000000-dbpath')
+
+      expect(mockChatSession.findOne).toHaveBeenCalledWith({
+        where: { sessionId: 'session-1740000000000-dbpath' },
+        raw: true
+      })
+      expect(mockExporter.formatMD).toHaveBeenCalledWith(
+        'session-1740000000000-dbpath',
+        expect.any(Array),
+        '/db/workspace'
+      )
     })
 
     test('增量导出：已有 JSONL，仅追加新消息', async () => {
@@ -637,9 +670,8 @@ describe('ChatHistorySync', () => {
       await sync.migrateSession('sess-mig', fromWs, toWs)
 
       // 检查旧文件被读取
-      const slug = 'sess-mig'.substring(0, 8)
       expect(mockFs.readFile).toHaveBeenCalledWith(
-        expect.stringContaining(slug),
+        expect.stringContaining('sess-mig'),
         'utf-8'
       )
       // 检查旧文件被重写
@@ -756,6 +788,84 @@ describe('ChatHistorySync', () => {
       const result = await sync.loadSession('test-session-id', '/test/ws')
       expect(mockExporter.loadSession).toHaveBeenCalledWith('test-session-id', '/test/ws')
       expect(result).toBe(expected)
+    })
+  })
+
+  // ==================== P1 删除归档 ====================
+
+  describe('removeSessionArchive', () => {
+    const testWs = '/test/workspace'
+    test('删除对应 session 的 wiki/chat-history/<safe-name> 目录', async () => {
+      mockFs.rm = jest.fn().mockResolvedValue(undefined)
+      mockExporter.updateChatBM25Index = jest.fn().mockResolvedValue({ updated: true })
+
+      const result = await sync.removeSessionArchive('session-1740000000000-abc', testWs)
+
+      expect(result.removed).toBe(true)
+      expect(result.sessionDir).toMatch(/chat-history[/\\]session-1740000000000-abc$/)
+      expect(mockFs.rm).toHaveBeenCalledWith(
+        expect.stringContaining('session-1740000000000-abc'),
+        { recursive: true, force: true }
+      )
+    })
+
+    test('真实 session-* ID 不再被截断成 session- 目录', async () => {
+      mockFs.rm = jest.fn().mockResolvedValue(undefined)
+      mockExporter.updateChatBM25Index = jest.fn().mockResolvedValue({ updated: true })
+
+      const result = await sync.removeSessionArchive('session-1740000000000-xyz', testWs)
+
+      expect(result.sessionDir).not.toMatch(/chat-history[/\\]session-[/\\]/)
+      expect(result.sessionDir).toMatch(/session-1740000000000-xyz/)
+    })
+
+    test('fs.rm 抛错时仍返回 removed=false 并继续重建 BM25', async () => {
+      mockFs.rm = jest.fn().mockRejectedValue(new Error('EACCES'))
+      mockExporter.updateChatBM25Index = jest.fn().mockResolvedValue({ updated: true })
+
+      const result = await sync.removeSessionArchive('sess-rm-fail', testWs)
+
+      expect(result.removed).toBe(false)
+      expect(mockExporter.updateChatBM25Index).toHaveBeenCalledWith('sess-rm-fail', testWs)
+    })
+
+    test('无工作区路径且数据库无记录时返回 removed=false', async () => {
+      mockChatSession.findOne.mockResolvedValue(null)
+      sync.workspace = { current: () => null }
+
+      const result = await sync.removeSessionArchive('orphan-session')
+
+      expect(result.removed).toBe(false)
+      expect(result.sessionDir).toBeNull()
+    })
+  })
+
+  describe('removeAllArchives', () => {
+    const testWs = '/test/workspace'
+    beforeEach(() => {
+      mockFs.rm = jest.fn().mockResolvedValue(undefined)
+      sync.workspace = { current: () => ({ path: testWs }) }
+    })
+
+    test('删除 chat-history 整个目录并重置 chatBM25Index', async () => {
+      mockFs.readFile.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))
+      mockFs.writeFile.mockResolvedValue(undefined)
+      mockFs.mkdir.mockResolvedValue(undefined)
+
+      const result = await sync.removeAllArchives(testWs)
+
+      expect(mockFs.rm).toHaveBeenCalledWith(
+        expect.stringContaining('chat-history'),
+        { recursive: true, force: true }
+      )
+      expect(result.removed).toBe(true)
+      expect(result.chatHistoryDir).toMatch(/chat-history$/)
+    })
+
+    test('无 workspace 时返回 removed=false', async () => {
+      sync.workspace = { current: () => null }
+      const result = await sync.removeAllArchives()
+      expect(result.removed).toBe(false)
     })
   })
 

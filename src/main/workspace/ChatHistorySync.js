@@ -72,14 +72,20 @@ class ChatHistorySync {
    * @returns {Promise<{status: string, filesWritten: string[], messageCount: number, isFullExport: boolean}>}
    */
   async exportSession(sessionId, workspacePath) {
+    const targetWorkspacePath = await this._resolveWorkspacePath(sessionId, workspacePath)
+    if (!targetWorkspacePath) {
+      throw new WorkspaceError('CHAT_HISTORY_WORKSPACE_MISSING', `session ${sessionId} 缺少工作区路径`, true)
+    }
+    workspacePath = targetWorkspacePath
+
     // 1. 从 SQLite 读消息
     const messages = await ChatHistory.findAll({
       where: { sessionId },
       order: [['id', 'ASC']]
     })
 
-    const slug = sessionId.substring(0, 8)
-    const sessionDir = path.join(workspacePath, 'wiki', 'chat-history', slug)
+    const slug = this._getSessionDirName(sessionId)
+    const sessionDir = path.join(targetWorkspacePath, 'wiki', 'chat-history', slug)
     const jsonlPath = path.join(sessionDir, 'session.jsonl')
     const mdPath = path.join(sessionDir, 'session.md')
     const tmpUuid = crypto.randomUUID()
@@ -125,13 +131,14 @@ class ChatHistorySync {
       }
 
       // 5. 重生成 MD（v1.5.3 关键：调 exporter.formatMD）
-      const mdContent = this.exporter.formatMD(sessionId, messages, workspacePath)
+let mdContent = this.exporter.formatMD(sessionId, messages, workspacePath)
+      mdContent = this.exporter.formatMD(sessionId, messages, targetWorkspacePath)
       await fs.writeFile(mdPath, mdContent, 'utf-8')
 
       // 6. Task 3.4 (P3)：exportSession 成功后 → 增量更新 chatBM25Index
       // 失败不阻塞主流程（exporter 内部 catch + log）
       if (typeof this.exporter.updateChatBM25Index === 'function') {
-        await this.exporter.updateChatBM25Index(sessionId, workspacePath)
+        await this.exporter.updateChatBM25Index(sessionId, targetWorkspacePath)
       }
 
       return { status: 'ok', filesWritten: [jsonlPath, mdPath], messageCount: messages.length, isFullExport }
@@ -156,7 +163,8 @@ class ChatHistorySync {
 
     for (const sessionId of toExport) {
       try {
-        await this.exportSession(sessionId, current.path)
+        const workspacePath = await this._resolveWorkspacePath(sessionId, current.path, true)
+        await this.exportSession(sessionId, workspacePath)
         exported.push(sessionId)
       } catch (err) {
         errors.push({ sessionId, error: err })
@@ -172,7 +180,8 @@ class ChatHistorySync {
       for (const sess of recent) {
         if (!exported.includes(sess.sessionId)) {
           try {
-            await this.exportSession(sess.sessionId, current.path)
+            const workspacePath = await this._resolveWorkspacePath(sess.sessionId, current.path, true)
+            await this.exportSession(sess.sessionId, workspacePath)
             exported.push(sess.sessionId)
           } catch (err) {
             errors.push({ sessionId: sess.sessionId, error: err })
@@ -412,7 +421,7 @@ class ChatHistorySync {
     await ChatSession.update({ workspacePath: to }, { where: { sessionId } })
 
     // 2. 旧文件加 supersededBy（不删）
-    const slug = sessionId.substring(0, 8)
+    const slug = this._getSessionDirName(sessionId)
     const oldMd = path.join(from, 'wiki', 'chat-history', slug, 'session.md')
 
     let oldExists = false
@@ -454,6 +463,101 @@ class ChatHistorySync {
     }
     this.pendingQueue.clear()
     if (to) this.scheduleExport()
+  }
+  _getSessionDirName(sessionId) {
+    const raw = String(sessionId || '').trim()
+    const safe = raw.replace(/[^A-Za-z0-9_-]/g, '_')
+    return safe || 'unknown-session'
+  }
+
+  async _resolveWorkspacePath(sessionId, fallbackPath = null, preferDatabase = false) {
+    const fromDatabase = async () => {
+      if (typeof ChatSession.findOne !== 'function') return null
+      const session = await ChatSession.findOne({
+        where: { sessionId },
+        raw: true
+      })
+      return session?.workspacePath || null
+    }
+
+    if (preferDatabase) {
+      try {
+        const workspacePath = await fromDatabase()
+        if (workspacePath) return workspacePath
+      } catch {}
+    }
+
+    if (fallbackPath) return fallbackPath
+
+    try {
+      const workspacePath = await fromDatabase()
+      if (workspacePath) return workspacePath
+    } catch {}
+
+    const current = typeof this.workspace?.current === 'function' ? this.workspace.current() : null
+    return current?.path || null
+  }
+
+  /**
+   * 删除工作区里 session 的归档目录（wiki/chat-history/<safe-name>）
+   * P1：会话删除/清空时同步清理 FTS 索引文件和 BM25 索引
+   * @returns {Promise<{removed: boolean, sessionDir: string}>}
+   */
+  async removeSessionArchive(sessionId, workspacePath = null) {
+    const targetWorkspacePath = await this._resolveWorkspacePath(sessionId, workspacePath)
+    if (!targetWorkspacePath) return { removed: false, sessionDir: null }
+
+    const slug = this._getSessionDirName(sessionId)
+    const sessionDir = path.join(targetWorkspacePath, 'wiki', 'chat-history', slug)
+    let removed = false
+    try {
+      await fs.rm(sessionDir, { recursive: true, force: true })
+      removed = true
+    } catch (err) {
+      console.warn('[ChatHistorySync.removeSessionArchive] 删除失败:', err.message)
+    }
+
+    // 同步清掉 BM25 缓存里的对应 session.md
+    try {
+      if (typeof this.exporter?.updateChatBM25Index === 'function') {
+        await this.exporter.updateChatBM25Index(sessionId, targetWorkspacePath)
+      }
+    } catch (err) {
+      console.warn('[ChatHistorySync.removeSessionArchive] 重建 BM25 失败:', err.message)
+    }
+
+    return { removed, sessionDir }
+  }
+
+  /**
+   * 删除工作区里整个 wiki/chat-history 目录（"清空全部对话"使用）
+   * P1：清空数据库时同步清理所有 markdown/jsonl 归档 + BM25 索引
+   * @param {string} [workspacePath] - 不传则用当前工作区
+   * @returns {Promise<{removed: boolean, chatHistoryDir: string|null}>}
+   */
+  async removeAllArchives(workspacePath = null) {
+    const target = workspacePath
+      || (typeof this.workspace?.current === 'function' ? this.workspace.current()?.path : null)
+    if (!target) return { removed: false, chatHistoryDir: null }
+
+    const chatHistoryDir = path.join(target, 'wiki', 'chat-history')
+    let removed = false
+    try {
+      await fs.rm(chatHistoryDir, { recursive: true, force: true })
+      removed = true
+    } catch (err) {
+      console.warn('[ChatHistorySync.removeAllArchives] 删除失败:', err.message)
+    }
+    // 清空 index.json 里的 chatBM25Index，避免旧 session.md 路径残留
+    try {
+      const { loadIndex, saveIndex } = require('./index-store')
+      const index = await loadIndex(target)
+      index.chatBM25Index = { vocabulary: {}, postings: {}, docLengths: {}, avgDocLength: 0, totalDocs: 0 }
+      await saveIndex(target, index)
+    } catch (err) {
+      console.warn('[ChatHistorySync.removeAllArchives] 清空 chatBM25Index 失败:', err.message)
+    }
+    return { removed, chatHistoryDir }
   }
 }
 

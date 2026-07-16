@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 // remain self-contained unless the preload is bundled during the build.
 const INVOKE_CHANNELS = new Set([
   'agent:abort',
+  'agent:backfillMemory',
   'agent:clearAllMemory',
   'agent:confirm',
   'agent:deleteSession',

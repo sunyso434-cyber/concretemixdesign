@@ -1,4 +1,4 @@
-const { ChatHistory, CorrectionRule, ChatSession } = require('../db/database')
+const { ChatHistory, CorrectionRule, ChatSession, SessionSummary } = require('../db/database')
 const Sequelize = require('sequelize')
 const { Op } = Sequelize
 
@@ -125,8 +125,33 @@ class AgentMemoryService {
   }
 
   async deleteSession(sessionId) {
+    // P1：先记录 session 关联的工作区，删除归档目录后再清数据库
+    let workspacePath = null
+    try {
+      const session = await ChatSession.findOne({ where: { sessionId } })
+      workspacePath = session?.workspacePath || null
+    } catch (_) {}
+
     await ChatSession.destroy({ where: { sessionId } })
-    return ChatHistory.destroy({ where: { sessionId } })
+    await ChatHistory.destroy({ where: { sessionId } })
+    // L1 归档记忆按 session 隔离，必须同步删
+    try {
+      const removed = await SessionSummary.destroy({ where: { sessionId } })
+      if (removed > 0) console.log(`[AgentMemoryService] 删除 ${removed} 条 SessionSummary for ${sessionId}`)
+    } catch (err) {
+      console.warn('[AgentMemoryService] 清 SessionSummary 失败:', err.message)
+    }
+
+    // 删除工作区里的 chat-history 归档目录 + 重建 BM25
+    if (global.chatHistorySync?.removeSessionArchive) {
+      try {
+        await global.chatHistorySync.removeSessionArchive(sessionId, workspacePath)
+      } catch (err) {
+        console.warn('[AgentMemoryService] 清工作区归档失败:', err.message)
+      }
+    }
+
+    return { deleted: true }
   }
 
   async duplicateSession(sessionId) {
