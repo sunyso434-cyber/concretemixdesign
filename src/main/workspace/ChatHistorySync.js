@@ -286,6 +286,7 @@ let mdContent = this.exporter.formatMD(sessionId, messages, workspacePath)
     const { fn, col } = require('sequelize')
 
     const unclassified = []
+    const archived = []
 
     // v8.1.0 hotfix-6: 直接从 ChatSession 表查询所有会话，不再依赖文件系统扫描
     // 之前的问题：listSessions 依赖文件系统扫描 + 60s 窗口，导致重命名后会话丢失
@@ -337,6 +338,16 @@ let mdContent = this.exporter.formatMD(sessionId, messages, workspacePath)
       // 3. 按 workspacePath 分组
       const wsMap = new Map()
       for (const s of allSessions) {
+        // 已归档会话单独归类，从主列表隐藏（不删数据，仍作为记忆保留）
+        if (s.archived) {
+          archived.push({
+            sessionId: s.sessionId,
+            sessionName: s.sessionName,
+            lastActivity: activityMap[s.sessionId] || s.lastActivity,
+            workspacePath: s.workspacePath || null
+          })
+          continue
+        }
         const wsPath = s.workspacePath
         if (wsPath) {
           const normalizedPath = wsPath.replace(/\\/g, '/')
@@ -378,14 +389,17 @@ let mdContent = this.exporter.formatMD(sessionId, messages, workspacePath)
       // 按 basename 排序
       workspaces.sort((a, b) => a.basename.localeCompare(b.basename, 'zh-CN'))
 
-      const result = { workspaces, unclassified }
+      // 归档区按最后活动时间倒序
+      archived.sort((a, b) => new Date(b.lastActivity || 0) - new Date(a.lastActivity || 0))
+
+      const result = { workspaces, unclassified, archived }
       // 写入缓存
       this._groupedCache = result
       this._groupedCacheAt = Date.now()
       return result
     } catch (err) {
       console.error('[ChatHistorySync.listSessionsGrouped] 失败:', err.message)
-      return { workspaces: [], unclassified: [] }
+      return { workspaces: [], unclassified: [], archived: [] }
     }
   }
 

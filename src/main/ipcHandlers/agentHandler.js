@@ -656,7 +656,8 @@ function registerAgentHandlers() {
       sessionId: session.sessionId,
       sessionName: session.sessionName,
       workspacePath: session.workspacePath,
-      lastActivity: session.lastActivity
+      lastActivity: session.lastActivity,
+      archived: !!session.archived
     } : null
   })
 

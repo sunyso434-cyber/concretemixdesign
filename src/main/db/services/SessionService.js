@@ -66,6 +66,7 @@ async function discardSessionIfEmpty(sessionId) {
  */
 async function listRecentSessionsWithMeta(limit = 10) {
   const sessions = await ChatSession.findAll({
+    where: { archived: false },
     order: [['lastActivity', 'DESC']],
     limit
   })
