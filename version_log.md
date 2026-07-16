@@ -13,6 +13,14 @@
 - 新增 `agent:archiveSession` IPC（批量、运行中拒绝），已登记通道白名单。
 - `listSessionsGrouped` 过滤归档并单独返回 `archived` 列表；`listRecentSessionsWithMeta` 排除归档。
 
+### 打包记录 (v11.0.0) (2026-07-16)
+- 大版本号 10.11.0 -> 11.0.0（同步 package.json / 输出目录 / 顶栏版本标签 / version_log 标题）
+- 平台：win32 x64，Electron 28.3.3，electron-builder 24.13.3
+- vite build exit 0，3938 modules，9.50s
+- 产物：
+  - `dist-11.0.0/砼智 Setup 11.0.0.exe`（NSIS 安装包，139.1 MB，x64）
+  - `dist-11.0.0/砼智-11.0.0-portable-x64.exe`（便携版，138.7 MB，x64）
+
 ## v10.10.13 记忆系统全面修复 (2026-07-16)
 
 ### 本轮修复
