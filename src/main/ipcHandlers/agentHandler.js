@@ -25,6 +25,7 @@ const SystemService = require('../services/SystemService')
 const { classifyError } = require('../agent/errorClassifier')
 // v9.0.0 补充21：会话业务封装（ensureSession / discardSessionIfEmpty / listRecentSessionsWithMeta）
 const SessionService = require('../db/services/SessionService')
+const { applyArchive } = require('./archiveSessionCore')
 
 // 缓存实例（Skill 系统全局共享，无状态安全）
 let skillRegistry = null
@@ -598,6 +599,19 @@ function registerAgentHandlers() {
     await agentMemoryService.deleteSession(sessionId)
     if (global.chatHistorySync?.invalidateGroupedCache) global.chatHistorySync.invalidateGroupedCache()
     return { success: true }
+  })
+
+  ipcMain.handle('agent:archiveSession', async (_event, { sessionIds, archived }) => {
+    const { ChatSession } = require('../db/database')
+    const isRunning = (sid) => !!sessionAgents.get(sid)?.running
+    const result = await applyArchive({ sessionIds, archived, isRunning, ChatSession })
+    if (global.chatHistorySync?.invalidateGroupedCache) global.chatHistorySync.invalidateGroupedCache()
+    try {
+      if (!_event.sender.isDestroyed()) {
+        _event.sender.send('agent:sessionUpdated', { archived: !!archived })
+      }
+    } catch { /* 忽略 send 失败 */ }
+    return { success: true, ...result }
   })
 
   ipcMain.handle('agent:duplicateSession', async (_event, { sessionId }) => {
