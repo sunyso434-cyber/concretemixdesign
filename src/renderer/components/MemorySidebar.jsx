@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Button, List, Typography, Space, Tabs, Popconfirm, Layout, Dropdown, Modal, Input, message } from 'antd'
+import { Button, Checkbox, List, Typography, Space, Tabs, Popconfirm, Layout, Dropdown, Modal, Input, message } from 'antd'
 import { HistoryOutlined, PlusOutlined, DeleteOutlined, RobotOutlined, FolderOpenOutlined, MoreOutlined, EditOutlined, FolderOutlined, DesktopOutlined, FileTextOutlined, FileOutlined, SwapOutlined, CopyOutlined, InboxOutlined } from '@ant-design/icons'
 import { useAgentStore } from './AgentStore'
 import { createSession, switchSession, loadSessionList } from './agentActions'
@@ -66,6 +66,20 @@ const MemorySidebar = ({ onToggle }) => {
   const SESSION_COLLAPSE_LIMIT = 3
   // 已归档折叠区开关
   const [archivedExpanded, setArchivedExpanded] = useState(false)
+  // 批量选择模式与已选 id 集合
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+
+  // 切换单个会话的勾选状态
+  const toggleSelected = (sessionId) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(sessionId)) next.delete(sessionId); else next.add(sessionId)
+      return next
+    })
+  }
+  // 退出批量选择模式并清空勾选
+  const exitSelectMode = () => { setSelectMode(false); setSelectedIds(new Set()) }
 
   // 获取按工作区分组的会话列表
   const fetchGroupedSessions = async () => {
@@ -193,6 +207,51 @@ const MemorySidebar = ({ onToggle }) => {
     message.success('已恢复')
   }
 
+  // 归档区 id 集合（供批量操作判断）
+  const archivedIdSet = React.useMemo(() => new Set((groupedData.archived || []).map(s => s.sessionId)), [groupedData.archived])
+  const selectedArr = () => Array.from(selectedIds)
+  // 已选项是否包含已归档项 / 未归档项
+  const selectedHasArchived = () => selectedArr().some(id => archivedIdSet.has(id))
+  const selectedHasActive = () => selectedArr().some(id => !archivedIdSet.has(id))
+
+  // 批量归档：仅作用于未归档项
+  const handleBatchArchive = async () => {
+    const ids = selectedArr().filter(id => !archivedIdSet.has(id))
+    if (ids.length === 0) return
+    const r = await window.electronAPI.invoke('agent:archiveSession', { sessionIds: ids, archived: true })
+    if (currentSessionId && ids.includes(currentSessionId)) dispatch({ type: 'SET_SESSION_ARCHIVED', payload: true })
+    await refreshLists()
+    exitSelectMode()
+    message.success(`已归档 ${r?.updated || 0} 条${r?.skipped?.length ? `，${r.skipped.length} 条运行中跳过` : ''}`)
+  }
+
+  // 批量恢复：仅作用于归档项
+  const handleBatchRestore = async () => {
+    const ids = selectedArr().filter(id => archivedIdSet.has(id))
+    if (ids.length === 0) return
+    await window.electronAPI.invoke('agent:archiveSession', { sessionIds: ids, archived: false })
+    if (currentSessionId && ids.includes(currentSessionId)) dispatch({ type: 'SET_SESSION_ARCHIVED', payload: false })
+    await refreshLists()
+    exitSelectMode()
+    message.success('已恢复所选')
+  }
+
+  // 批量删除：仅作用于归档项（主列表删除走单条确认）
+  const handleBatchDelete = () => {
+    const ids = selectedArr().filter(id => archivedIdSet.has(id))
+    if (ids.length === 0) return
+    Modal.confirm({
+      title: `确认删除 ${ids.length} 条归档会话？`,
+      content: '删除后无法恢复。',
+      okText: '删除', okType: 'danger', cancelText: '取消',
+      onOk: async () => {
+        for (const id of ids) await window.electronAPI.invoke('agent:deleteSession', { sessionId: id })
+        await refreshLists()
+        exitSelectMode()
+      }
+    })
+  }
+
   const openRenameModal = (sessionId, currentName) => {
     setRenameModal({ open: true, sessionId, value: currentName || '' })
   }
@@ -269,6 +328,7 @@ const MemorySidebar = ({ onToggle }) => {
         <span className="v9-sidebar-title">历史会话</span>
         <Space size={0}>
           <Button size="small" type="text" icon={<PlusOutlined />} onClick={handleNewSession} title="新建对话" />
+          <Button size="small" type={selectMode ? 'primary' : 'text'} onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)} title="批量管理">批量</Button>
           {onToggle && (
             <Button size="small" type="text" onClick={onToggle} title="关闭侧栏">×</Button>
           )}
@@ -393,10 +453,18 @@ const MemorySidebar = ({ onToggle }) => {
                           padding: '8px 10px 8px 24px',
                           border: 'none'
                         }}
-                        onClick={() => handleLoadSession(s.sessionId, ws.path)}
+                        onClick={() => selectMode ? toggleSelected(s.sessionId) : handleLoadSession(s.sessionId, ws.path)}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                           <Space size={6}>
+                            {selectMode && (
+                              <Checkbox
+                                checked={selectedIds.has(s.sessionId)}
+                                onClick={e => e.stopPropagation()}
+                                onChange={() => toggleSelected(s.sessionId)}
+                                style={{ marginRight: 6 }}
+                              />
+                            )}
                             <RobotOutlined style={{ fontSize: 11, color: 'var(--text-tertiary)' }} />
                             <Text style={{ fontSize: 12, maxWidth: 140 }} ellipsis={{ tooltip: s.sessionName || formatSessionFallback(s.sessionId) }}>
                               {s.sessionName || formatSessionFallback(s.sessionId)}
@@ -487,10 +555,18 @@ const MemorySidebar = ({ onToggle }) => {
                           padding: '8px 10px 8px 24px',
                           border: 'none'
                         }}
-                        onClick={() => handleLoadSession(s.sessionId, null)}
+                        onClick={() => selectMode ? toggleSelected(s.sessionId) : handleLoadSession(s.sessionId, null)}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                           <Space size={6}>
+                            {selectMode && (
+                              <Checkbox
+                                checked={selectedIds.has(s.sessionId)}
+                                onClick={e => e.stopPropagation()}
+                                onChange={() => toggleSelected(s.sessionId)}
+                                style={{ marginRight: 6 }}
+                              />
+                            )}
                             <RobotOutlined style={{ fontSize: 11, color: 'var(--color-text-secondary)' }} />
                             <Text style={{ fontSize: 12, maxWidth: 160 }} ellipsis={{ tooltip: s.sessionName || formatSessionFallback(s.sessionId) }}>
                               {s.sessionName || formatSessionFallback(s.sessionId)}
@@ -567,10 +643,18 @@ const MemorySidebar = ({ onToggle }) => {
                         key={s.sessionId}
                         className={`v9-conv-item ${s.sessionId === currentSessionId ? 'active' : ''}`}
                         style={{ cursor: 'pointer', padding: '8px 10px 8px 24px', border: 'none' }}
-                        onClick={() => handleLoadSession(s.sessionId, s.workspacePath)}
+                        onClick={() => selectMode ? toggleSelected(s.sessionId) : handleLoadSession(s.sessionId, s.workspacePath)}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                           <Space size={6}>
+                            {selectMode && (
+                              <Checkbox
+                                checked={selectedIds.has(s.sessionId)}
+                                onClick={e => e.stopPropagation()}
+                                onChange={() => toggleSelected(s.sessionId)}
+                                style={{ marginRight: 6 }}
+                              />
+                            )}
                             <RobotOutlined style={{ fontSize: 11, color: 'var(--text-tertiary)' }} />
                             <Text style={{ fontSize: 12, maxWidth: 140 }} ellipsis={{ tooltip: s.sessionName || formatSessionFallback(s.sessionId) }}>
                               {s.sessionName || formatSessionFallback(s.sessionId)}
@@ -597,6 +681,21 @@ const MemorySidebar = ({ onToggle }) => {
           }
         ]}
       />
+
+      {/* 批量选择操作条：未选任何项时隐藏；按选中是否含未归档/归档项动态显示对应按钮 */}
+      {selectMode && selectedIds.size > 0 && (
+        <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, marginTop: 8, display: 'flex', gap: 8 }}>
+          {selectedHasActive() && (
+            <Button size="small" icon={<InboxOutlined />} onClick={handleBatchArchive}>归档所选</Button>
+          )}
+          {selectedHasArchived() && (
+            <>
+              <Button size="small" icon={<SwapOutlined />} onClick={handleBatchRestore}>恢复所选</Button>
+              <Button size="small" danger icon={<DeleteOutlined />} onClick={handleBatchDelete}>删除所选</Button>
+            </>
+          )}
+        </div>
+      )}
 
       <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, marginTop: 8 }}>
         <Button size="small" danger block icon={<DeleteOutlined />} onClick={async () => {
