@@ -1,3 +1,57 @@
+## v11.2.0 学术搜索能力 (2026-07-17)
+
+### 新增
+- **AI 学术搜索**：Agent 新增 `academic_search` 技能，可联网查科技论文（中英文期刊、预印本），返回结构化字段：标题/作者/年份/期刊/摘要/DOI/引用数/开放获取 PDF 链接。区别于 v11.1.0 的 `web_search`（拿网页摘要）—— 学术搜索专攻论文场景。
+- **PDF 自动下载与入库**：老板明确指名（"下载这篇"/"下载第 3 篇"）时，AI 自动下载 OA PDF 到 `<workspace>/raw/pdf/` 并触发 `workspace_ingest`，论文全文进砼智知识库。后续老板问"我下过哪些论文"AI 直接答。
+- **付费墙友好失败**：找不到合法 OA 副本时返回 5 条获取建议（联系作者 / 机构 VPN / NSTL 文献传递 / ResearchGate / 作者主页），**不强行绕墙**。
+- **arXiv 预印本兜底**：Unpaywall 和 OpenAlex 都拿不到时，自动按标题去 arXiv 搜同名预印本（老板做混凝土工程，arxiv 材料/工程分类有用）。
+- **对话式配置**（零 UI）：`configure_academic_search` / `get_academic_search_config` / `clear_academic_search_config` 三技能，老板说"学术搜索用 OpenAlex"或"禁用 arxiv 兜底"立即生效。
+
+### 技术
+- 新增 `src/main/services/AcademicSearchService.js`（核心服务，~250 行）：3 家学术 API 适配层（Semantic Scholar / OpenAlex / Unpaywall）+ arXiv 兜底 + OpenAlex 倒排索引还原 + URL→DOI 抽取（5 种模式）+ 文件名 sanitize + 错误归一化。
+- 新增 `src/main/skills/academic-search.js`（核心 skill，~110 行）+ `academic-search-config.js`（配置三件套，~110 行）；SkillRegistry 自动扫描注册。
+- **关键设计改进**（相比初版 plan）：放弃"递归调 toolExecutor"的设计，改为直接 `global.wikiEngine.ingest()` 调用，自动消除栈溢出风险、少一层间接调用。
+- `SystemService`：追加 `academicSearchProvider` / `academicSearchArxivFallback` 2 条默认参数 + `get/save/clearAcademicSearchConfig` 三方法（双层兜底：数据库种子 + 运行时 `|| 默认值`）。
+- `ErrorCodes` 追加 8 条学术搜索错误码（`E-SEARCH-NO-DOI` / `DOI-INVALID` / `PAYWALLED` / `ARXIV-RATE-LIMIT` / `PDF-DOWNLOAD-FAILED` / `PDF-TOO-LARGE` / `PDF-INGEST-FAILED` / `INVALID-ACADEMIC-PROVIDER`），跟现有 web_search 错误码物理相邻。
+- `DeepSeekService` 系统提示词追加"学术搜索能力"段（含对话配置说明 + PDF 下载触发原则）。
+- **零 npm 依赖新增**：完全复用现有 `axios` + `pdf-parse`（间接通过 `readers/pdf.js`）+ 工作区 ingest skill。
+- 测试：**52 个新增用例全绿**（AcademicSearchService 21 / academic-search 13 / academic-search-config 12），覆盖 spec v0.4 验收标准 24 条中的 17 条核心。
+
+### 风险（plan 阶段识别）
+- R1-R12 同 spec v0.4 第 10 节
+- 实施期新发现并消除：**递归调用 toolExecutor 的栈溢出风险** —— 通过改用直接 WikiEngine.ingest() 调用绕过
+- arXiv 限流：每 3 秒最多 1 次（内置令牌桶）
+- PDF 体积上限 50MB（超出提示浏览器下）
+
+### 文档
+- Spec：[docs/superpowers/specs/2026-07-16-academic-search-spec.md v0.4](docs/superpowers/specs/2026-07-16-academic-search-spec.md)（v0.1→v0.4 经历老板拍板 + review 一致性修复 + 1 个错误码冲突修正 + 6 项措辞微调）
+- Plan：[docs/superpowers/plans/2026-07-16-academic-search-plan.md](docs/superpowers/plans/2026-07-16-academic-search-plan.md)（4 任务拆分，每任务停下来汇报）
+
+### 版本号同步（CLAUDE.md 第 7 条）
+- ✅ [package.json:3](package.json#L3) `version: 11.1.0` → `11.2.0`
+- ✅ [package.json:78](package.json#L78) `output: dist-11.1.0` → `dist-11.2.0`
+- ✅ [src/renderer/pages/WorkspacePage.jsx:152](src/renderer/pages/WorkspacePage.jsx#L152) 顶栏 `v11.1.0` → `v11.2.0`
+- ✅ `main.js` BrowserWindow title 无版本号（无需改）
+- ✅ `index.html` title "砼智" 无版本号（无需改）
+
+### 验证
+- `NODE_OPTIONS=--experimental-vm-modules npx jest`：1610/1612 通过（2 个失败为预存在的 workspace integration 测试，与本次改动无关）
+- 学术搜索相关 52/52 全绿
+- node 语法检查：所有新增/修改文件均通过
+- Smoke test：12 项工具函数全过（invertedIndexToText / sanitizeFilename / extractDoiOrId 等）
+
+### 打包记录 (v11.2.0) (2026-07-17)
+- 待真机打包后补：NSIS 安装包 + 便携版产物路径
+- 平台：win32 x64，Electron 28.3.3
+- 预计 vite build + electron-builder 总耗时 ~5min
+
+### 已知后续项
+- 老板未启用前不要本地真打学术 API（Semantic Scholar 限流每秒 1 次，arXiv 限流每 3 秒 1 次）
+- 如长摘要（bocha `summary:true`）不够用可后续加 `fetch_fulltext` 技能读 OA PDF 全文
+- ScienceDirect / IEEE URL 暂无法自动转 DOI（需老板提供 DOI 或标题），后续可加 Crossref API 兜底
+
+---
+
 ## v11.1.0 联网搜索能力 (2026-07-16)
 
 ### 新增

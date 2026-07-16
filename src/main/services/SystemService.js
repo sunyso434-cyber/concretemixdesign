@@ -315,6 +315,18 @@ class SystemService {
           paramValue: '',
           paramType: 'ai',
           description: '搜索 API 密钥'
+        },
+        {
+          paramName: 'academicSearchProvider',
+          paramValue: 'semantic_scholar',
+          paramType: 'ai',
+          description: '学术搜索服务商（semantic_scholar/openalex）'
+        },
+        {
+          paramName: 'academicSearchArxivFallback',
+          paramValue: 'true',
+          paramType: 'ai',
+          description: '学术搜索是否启用 arxiv 预印本兜底'
         }
       ]
 
@@ -1005,6 +1017,49 @@ class SystemService {
    */
   async clearWebSearchConfig() {
     await this.saveWebSearchConfig({ enabled: false, apiKey: '' })
+  }
+
+  /**
+   * 获取学术搜索配置（v11.2.0）
+   * @returns {Promise<{provider: string, arxivFallback: boolean}>}
+   */
+  async getAcademicSearchConfig() {
+    const [provider, arxiv] = await Promise.all([
+      this.getParamByName('academicSearchProvider'),
+      this.getParamByName('academicSearchArxivFallback')
+    ])
+    return {
+      provider: provider?.value || 'semantic_scholar',
+      arxivFallback: arxiv?.value !== 'false'  // 默认 true
+    }
+  }
+
+  /**
+   * 保存学术搜索配置（仅写入传入的字段，其他字段保留不变）
+   * @param {object} cfg - {provider?, arxivFallback?}
+   * @returns {Promise<{provider: string, arxivFallback: boolean}>}
+   */
+  async saveAcademicSearchConfig(cfg = {}) {
+    const writes = []
+    if (cfg.provider !== undefined) {
+      writes.push(this.setParam('academicSearchProvider', cfg.provider || 'semantic_scholar', 'ai', '学术搜索服务商（semantic_scholar/openalex）'))
+    }
+    if (cfg.arxivFallback !== undefined) {
+      writes.push(this.setParam('academicSearchArxivFallback', String(!!cfg.arxivFallback), 'ai', '学术搜索是否启用 arxiv 预印本兜底'))
+    }
+    await Promise.all(writes)
+    return await this.getAcademicSearchConfig()
+  }
+
+  /**
+   * 清除学术搜索配置（恢复默认：provider=semantic_scholar, arxivFallback=true）
+   * @returns {Promise<{provider: string, arxivFallback: boolean}>}
+   */
+  async clearAcademicSearchConfig() {
+    return await this.saveAcademicSearchConfig({
+      provider: 'semantic_scholar',
+      arxivFallback: true
+    })
   }
 
   // ========== LLM 配置管理 ==========

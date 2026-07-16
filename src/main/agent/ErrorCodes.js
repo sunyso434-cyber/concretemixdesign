@@ -74,6 +74,16 @@ const AI_ERROR_REGISTRY = {
   'E-SEARCH-NOT-CONFIGURED': { title: '联网搜索未配置', hint: '请先说「配置联网搜索，服务商 bocha，api key 是 xxx」调用 configure_web_search', recovery: 'fix_settings', severity: 'error' },
   'E-SEARCH-INVALID-QUERY': { title: '搜索关键词无效', hint: '请提供 1-200 字的搜索关键词', recovery: 'fix_params', severity: 'error' },
   'E-SEARCH-INVALID-PROVIDER': { title: '不支持的搜索服务商', hint: '目前仅支持 bocha / tavily，请重新配置', recovery: 'fix_settings', severity: 'error' },
+
+  // ===== 学术搜索相关错误（v11.2.0）=====
+  'E-SEARCH-NO-DOI': { title: 'URL 中未识别到 DOI', hint: '请直接提供 DOI（如 10.1016/j.xxx.2024.123）或论文标题', recovery: 'fix_params', severity: 'warn' },
+  'E-SEARCH-DOI-INVALID': { title: 'DOI 格式无效', hint: 'DOI 应为 10.xxxx/yyyy 格式', recovery: 'fix_params', severity: 'warn' },
+  'E-SEARCH-PAYWALLED': { title: '论文在付费墙后', hint: '已为老板列出 5 条获取建议（联系作者 / 机构订阅 / NSTL 文献传递 / ResearchGate / 作者主页）', recovery: 'manual_resolve', severity: 'info' },
+  'E-SEARCH-ARXIV-RATE-LIMIT': { title: 'arxiv 限流', hint: 'arxiv 每 3 秒限 1 次，已自动等待', recovery: 'wait_retry', severity: 'warn' },
+  'E-SEARCH-PDF-DOWNLOAD-FAILED': { title: 'PDF 下载失败', hint: '已重试 1 次仍失败，请用浏览器下载', recovery: 'manual_resolve', severity: 'warn' },
+  'E-SEARCH-PDF-TOO-LARGE': { title: 'PDF 超过 50 MB', hint: '大文件请用浏览器下载', recovery: 'manual_resolve', severity: 'warn' },
+  'E-SEARCH-PDF-INGEST-FAILED': { title: 'PDF 已下载但入库失败', hint: '文件已落盘，可手动调用 workspace_ingest', recovery: 'manual_resolve', severity: 'warn' },
+  'E-SEARCH-INVALID-ACADEMIC-PROVIDER': { title: '不支持的学术搜索服务商', hint: '目前仅支持 semantic_scholar / openalex，请用 configure_academic_search 重新配置', recovery: 'fix_settings', severity: 'error' },
 }
 
 /**

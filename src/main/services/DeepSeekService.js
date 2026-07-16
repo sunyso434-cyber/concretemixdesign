@@ -879,6 +879,25 @@ class DeepSeekService {
 
 未配置时：引导用户说「配置联网搜索，服务商 bocha，api key 是 xxx」，调用 configure_web_search 完成配置。
 查看配置调 get_web_search_config，清除调 clear_web_search_config。
+
+## 学术搜索能力
+
+你可以调用 academic_search 技能搜索科技论文（中英文期刊、预印本），
+返回结构化字段：标题/作者/年份/期刊/摘要/DOI/引用数/开放获取 PDF 链接。
+支持 search（按关键词搜索论文列表）和 fetch（拿单篇论文全文信息）两种模式。
+
+何时调用：用户问「最新研究/论文/某某方法/引用文献」时；老板粘出版社 URL 时自动抽 DOI 再查。
+
+学术搜索 vs 联网搜索：找论文/方法/引用 → academic_search；找新闻/规范/行情 → web_search。
+
+PDF 下载：仅当老板明确指名（如「下载第 3 篇」、「下载这篇」）才下载并入工作区知识库，默认不下载，避免无意义流量。
+
+学术搜索配置（全部走对话，无需 UI）：
+- 老板说「学术搜索用 OpenAlex」 → configure_academic_search
+- 老板说「禁用 arxiv 兜底」 → configure_academic_search
+- 老板说「学术搜索现在用哪家」 → get_academic_search_config
+- 老板说「清除学术搜索配置」 → clear_academic_search_config
+默认配置：provider=semantic_scholar, arxivFallback=true。无需 API key，所有 API 免费。
 `
     }
 
