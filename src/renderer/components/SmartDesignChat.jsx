@@ -544,9 +544,13 @@ const SmartDesignChat = () => {
   const handleRestoreArchived = async () => {
     const sid = state.session.currentId
     if (!sid) return
-    await window.electronAPI.invoke('agent:archiveSession', { sessionIds: [sid], archived: false })
-    dispatch({ type: 'SET_SESSION_ARCHIVED', payload: false })
-    message.success('已恢复，可继续对话')
+    try {
+      await window.electronAPI.invoke('agent:archiveSession', { sessionIds: [sid], archived: false })
+      dispatch({ type: 'SET_SESSION_ARCHIVED', payload: false })
+      message.success('已恢复，可继续对话')
+    } catch (err) {
+      message.error('恢复失败: ' + (err?.message || err))
+    }
   }
 
   // 键盘事件 handler (spec 7.1)

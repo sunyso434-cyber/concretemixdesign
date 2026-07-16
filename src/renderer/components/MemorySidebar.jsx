@@ -189,22 +189,30 @@ const MemorySidebar = ({ onToggle }) => {
 
   // 归档单个会话：运行中会被后端拒绝并提示
   const handleArchiveSession = async (sessionId) => {
-    const r = await window.electronAPI.invoke('agent:archiveSession', { sessionIds: [sessionId], archived: true })
-    if (r?.skipped?.includes(sessionId)) {
-      message.warning('该会话有任务正在执行，无法归档')
-      return
+    try {
+      const r = await window.electronAPI.invoke('agent:archiveSession', { sessionIds: [sessionId], archived: true })
+      if (r?.skipped?.includes(sessionId)) {
+        message.warning('该会话有任务正在执行，无法归档')
+        return
+      }
+      if (sessionId === currentSessionId) dispatch({ type: 'SET_SESSION_ARCHIVED', payload: true })
+      await refreshLists()
+      message.success('已归档')
+    } catch (err) {
+      message.error('操作失败: ' + (err?.message || err))
     }
-    if (sessionId === currentSessionId) dispatch({ type: 'SET_SESSION_ARCHIVED', payload: true })
-    await refreshLists()
-    message.success('已归档')
   }
 
   // 恢复单个会话：不受运行锁限制
   const handleRestoreSession = async (sessionId) => {
-    await window.electronAPI.invoke('agent:archiveSession', { sessionIds: [sessionId], archived: false })
-    if (sessionId === currentSessionId) dispatch({ type: 'SET_SESSION_ARCHIVED', payload: false })
-    await refreshLists()
-    message.success('已恢复')
+    try {
+      await window.electronAPI.invoke('agent:archiveSession', { sessionIds: [sessionId], archived: false })
+      if (sessionId === currentSessionId) dispatch({ type: 'SET_SESSION_ARCHIVED', payload: false })
+      await refreshLists()
+      message.success('已恢复')
+    } catch (err) {
+      message.error('恢复失败: ' + (err?.message || err))
+    }
   }
 
   // 归档区 id 集合（供批量操作判断）
@@ -219,7 +227,7 @@ const MemorySidebar = ({ onToggle }) => {
     const ids = selectedArr().filter(id => !archivedIdSet.has(id))
     if (ids.length === 0) return
     const r = await window.electronAPI.invoke('agent:archiveSession', { sessionIds: ids, archived: true })
-    if (currentSessionId && ids.includes(currentSessionId)) dispatch({ type: 'SET_SESSION_ARCHIVED', payload: true })
+    if (currentSessionId && ids.includes(currentSessionId) && !(r?.skipped || []).includes(currentSessionId)) dispatch({ type: 'SET_SESSION_ARCHIVED', payload: true })
     await refreshLists()
     exitSelectMode()
     message.success(`已归档 ${r?.updated || 0} 条${r?.skipped?.length ? `，${r.skipped.length} 条运行中跳过` : ''}`)
@@ -248,6 +256,7 @@ const MemorySidebar = ({ onToggle }) => {
         for (const id of ids) await window.electronAPI.invoke('agent:deleteSession', { sessionId: id })
         await refreshLists()
         exitSelectMode()
+        message.success('已删除所选')
       }
     })
   }
