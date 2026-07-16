@@ -345,3 +345,98 @@ describe('ask_user Skill - 未知错误', () => {
     expect(typeof result.error === 'string' || result.error.message?.includes('SOMETHING_UNEXPECTED')).toBe(true)
   })
 })
+
+describe('ask_user Skill - LLM 输入规范化（防前端白屏）', () => {
+  // 防御 LLM 不遵守 schema：把 options 传成 [{text:"C30"}] 对象数组，
+  // 避免对象透传到前端 Button children 触发
+  // React "Objects are not valid as a React child" 白屏。
+
+  test('options 元素是 {text:"..."} 对象时拍平成字符串', async () => {
+    const ctx = _ctx({ orchestrator: _mockOrchestrator('resolve-answer') })
+    await askUser.execute({
+      question: '选择强度等级',
+      inputType: 'choice',
+      options: [{ text: 'C30' }, { text: 'C40' }]
+    }, ctx)
+
+    const payload = ctx.orchestrator.requestConfirmation.mock.calls[0][0]
+    expect(payload.options).toEqual(['C30', 'C40'])
+  })
+
+  test('options 含 label/value 对象时取对应字段', async () => {
+    const ctx = _ctx({ orchestrator: _mockOrchestrator('resolve-answer') })
+    await askUser.execute({
+      question: '选择',
+      inputType: 'choice',
+      options: [{ label: '选项A', value: 'a' }, { value: 'b' }, 'C50']
+    }, ctx)
+
+    const payload = ctx.orchestrator.requestConfirmation.mock.calls[0][0]
+    expect(payload.options).toEqual(['选项A', 'b', 'C50'])
+  })
+
+  test('options 含 null/数字/布尔时过滤 null 并转字符串', async () => {
+    const ctx = _ctx({ orchestrator: _mockOrchestrator('resolve-answer') })
+    await askUser.execute({
+      question: '选择',
+      inputType: 'choice',
+      options: [null, 'C30', 42, true, undefined]
+    }, ctx)
+
+    const payload = ctx.orchestrator.requestConfirmation.mock.calls[0][0]
+    expect(payload.options).toEqual(['C30', '42', 'true'])
+  })
+
+  test('options 不是数组时降级为空数组', async () => {
+    const ctx = _ctx({ orchestrator: _mockOrchestrator('resolve-answer') })
+    await askUser.execute({
+      question: '选择',
+      inputType: 'choice',
+      options: 'C30'
+    }, ctx)
+
+    const payload = ctx.orchestrator.requestConfirmation.mock.calls[0][0]
+    expect(payload.options).toEqual([])
+  })
+
+  test('question 是对象时取 text 字段，不崩溃', async () => {
+    const ctx = _ctx({ orchestrator: _mockOrchestrator('resolve-answer') })
+    const result = await askUser.execute({
+      question: { text: '你好' },
+      inputType: 'text'
+    }, ctx)
+
+    expect(result.success).toBe(true)
+    const payload = ctx.orchestrator.requestConfirmation.mock.calls[0][0]
+    expect(payload.question).toBe('你好')
+  })
+
+  test('placeholder/defaultValue 是对象或数字时规范化', async () => {
+    const ctx = _ctx({ orchestrator: _mockOrchestrator('resolve-answer') })
+    await askUser.execute({
+      question: '问',
+      inputType: 'text',
+      placeholder: { text: '提示' },
+      defaultValue: 100
+    }, ctx)
+
+    const payload = ctx.orchestrator.requestConfirmation.mock.calls[0][0]
+    expect(payload.placeholder).toBe('提示')
+    expect(payload.defaultValue).toBe('100')
+  })
+
+  test('form 模式 field 的 enum options 也被拍平', async () => {
+    const ctx = _ctx({ orchestrator: _mockOrchestrator('resolve-values') })
+    await askUser.execute({
+      question: '表单',
+      inputType: 'form',
+      fields: [{
+        key: 'grade', label: '强度等级', type: 'enum',
+        options: [{ text: 'C30' }, 'C40', { label: 'C50' }]
+      }]
+    }, ctx)
+
+    const payload = ctx.orchestrator.requestConfirmation.mock.calls[0][0]
+    expect(payload.fields[0].options).toEqual(['C30', 'C40', 'C50'])
+  })
+})

@@ -17,6 +17,30 @@
  * - 错误码：E_ASK_USER_REJECTED / E_ASK_USER_TIMEOUT / E_ASK_USER_NO_ORCHESTRATOR / E_ASK_USER_NO_SESSION / E_ASK_USER_FORM_FIELDS_EMPTY
  */
 
+/**
+ * 把单个选项规范化为字符串（防御 LLM 不遵守 schema）
+ * - string -> 原样
+ * - number/boolean -> String()
+ * - object -> 取 text/label/value/name/title 字段，再不行 JSON.stringify
+ * - null/undefined -> null（被 normalizeOptions 过滤掉）
+ */
+function normalizeOption(opt) {
+  if (opt == null) return null
+  if (typeof opt === 'string') return opt
+  if (typeof opt === 'number' || typeof opt === 'boolean') return String(opt)
+  if (typeof opt === 'object') {
+    const text = opt.text ?? opt.label ?? opt.value ?? opt.name ?? opt.title
+    return text != null ? String(text) : JSON.stringify(opt)
+  }
+  return String(opt)
+}
+
+/** 把 options 数组规范化为纯字符串数组；非数组返回空数组 */
+function normalizeOptions(options) {
+  if (!Array.isArray(options)) return []
+  return options.map(normalizeOption).filter(o => o != null)
+}
+
 const skill = {
   name: 'ask_user',
   description: '向用户提问澄清需求或确认操作。inputType=text 自由文本（澄清需求）；inputType=choice 选项选择（删除确认/二选一，所有场景都带"其他"输入框）；inputType=form 结构化表单（保存前确认/改字段）。',
@@ -117,8 +141,18 @@ const skill = {
   },
 
   async execute(args, context) {
-    const { question, inputType = 'text', options = [], placeholder, defaultValue, fields } = args
+    const { question, inputType = 'text', options, placeholder, defaultValue, fields } = args
     const { orchestrator, logger } = context
+
+    // ===== 规范化 LLM 传入的参数 =====
+    // 防御 LLM 不遵守 schema（如把 options 传成 [{text:"C30"}] 对象数组、
+    // 或把 question 传成对象），避免对象透传到前端 Button children 触发
+    // React "Objects are not valid as a React child" 白屏。
+    // 副作用：用户点选项后回传给 LLM 的 answer 也是干净字符串，避免连环出错。
+    const safeQuestion = normalizeOption(question) ?? ''
+    const safeOptions = normalizeOptions(options)
+    const safePlaceholder = placeholder == null ? undefined : normalizeOption(placeholder)
+    const safeDefaultValue = defaultValue == null ? undefined : normalizeOption(defaultValue)
 
     if (!orchestrator || typeof orchestrator.requestConfirmation !== 'function') {
       return {
@@ -127,7 +161,8 @@ const skill = {
       }
     }
 
-    // form 模式校验
+    // form 模式校验 + 规范化 enum 选项
+    let safeFields
     if (inputType === 'form') {
       if (!Array.isArray(fields) || fields.length === 0) {
         return {
@@ -135,7 +170,8 @@ const skill = {
           error: this.errors.E_ASK_USER_FORM_FIELDS_EMPTY
         }
       }
-      // 校验每个 field 都有 key 和 label
+      // 校验每个 field 都有 key 和 label，同时把 enum 的 options 拍平成字符串数组
+      safeFields = []
       for (const f of fields) {
         if (!f.key || !f.label) {
           return {
@@ -143,20 +179,24 @@ const skill = {
             error: { code: 'E_ASK_USER_FORM_FIELD_INVALID', message: `field 缺少 key 或 label: ${JSON.stringify(f)}` }
           }
         }
+        safeFields.push({
+          ...f,
+          options: Array.isArray(f.options) ? normalizeOptions(f.options) : undefined
+        })
       }
     }
 
-    logger?.info(`[ask_user] 提问: "${question.slice(0, 50)}" inputType=${inputType}`)
+    logger?.info(`[ask_user] 提问: "${safeQuestion.slice(0, 50)}" inputType=${inputType}`)
 
     try {
       const result = await orchestrator.requestConfirmation({
         toolName: 'ask_user',
-        question,
+        question: safeQuestion,
         inputType,
-        options,
-        placeholder,
-        defaultValue,
-        fields: inputType === 'form' ? fields : undefined
+        options: safeOptions,
+        placeholder: safePlaceholder,
+        defaultValue: safeDefaultValue,
+        fields: inputType === 'form' ? safeFields : undefined
       })
 
       // form 模式：返回 values

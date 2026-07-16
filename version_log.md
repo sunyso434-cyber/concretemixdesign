@@ -193,3 +193,20 @@
 - 产物：
   - `dist-10.10.12/砼智 Setup 10.10.12.exe`（NSIS 安装包，x64）
   - `dist-10.10.12/砼智-10.10.12-portable-x64.exe`（便携版，x64）
+
+### 打包记录 (v11.0.2) (2026-07-16)
+- 修复：AI 输出过程中白屏 —— `Objects are not valid as a React child (found: object with keys {text})`
+- 根因：LLM 调用 ask_user 工具时把选项 options 传成对象数组 `[{text:"..."}]`（不遵守 schema），后端 SchemaValidator 只校验数组长度不查元素类型，对象一路透传到前端 DecisionGate 的 `<Button>{opt}</Button>`，React 拒绝渲染对象 → 白屏
+- 改 3 个文件 + 2 个版本号文件（package.json 11.0.1→11.0.2 + WorkspacePage.jsx 顶部版本号）：
+  - `src/main/skills/ask-user.js`：execute 入口规范化 question/options/placeholder/defaultValue 与 form 模式 fields[].options 为标量（第二层，后端强化）
+  - `src/renderer/components/DecisionGate.jsx`：渲染前规范化选项（第一层，前端兜底）
+  - `src/main/__tests__/skills/ask-user.test.js`：+7 条规范化测试，共 31 条全过
+- 验证：ask-user 单测 31/31 通过；esbuild 语法检查通过；vite build 通过
+- 平台：win32 x64，Electron 28.3.3
+- vite build exit 0，3938 modules，10.88s
+- electron-builder 24.13.3，exit 0
+- 产物（目录名 dist-11.0.1 为 build 配置写死，文件名已为 11.0.2）：
+  - `dist-11.0.1/砼智 Setup 11.0.2.exe`（NSIS 安装包，x64）
+  - `dist-11.0.1/砼智-11.0.2-portable-x64.exe`（便携版，x64）
+- 遗留：未做第三层根治（SchemaValidator 加 coerce 强制转换层），待老板决定是否单独排
+- 真机验证待办：LLM 传对象不可复现，需实际使用观察 AI 提问弹窗是否还白屏
