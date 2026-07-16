@@ -222,6 +222,36 @@ const MemorySidebar = ({ onToggle }) => {
   const selectedHasArchived = () => selectedArr().some(id => archivedIdSet.has(id))
   const selectedHasActive = () => selectedArr().some(id => !archivedIdSet.has(id))
 
+  // 某分组是否已全部选中（空分组返回 false）
+  const isGroupAllSelected = (groupIds) => groupIds.length > 0 && groupIds.every(id => selectedIds.has(id))
+  // 切换某分组的全选/取消全选
+  const toggleSelectGroup = (groupIds) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (isGroupAllSelected(groupIds)) {
+        groupIds.forEach(id => next.delete(id))
+      } else {
+        groupIds.forEach(id => next.add(id))
+      }
+      return next
+    })
+  }
+  // 分组全选按钮（仅批量模式显示；stopPropagation 防触发归档区折叠）
+  const renderSelectAllBtn = (groupIds) => {
+    if (!selectMode || groupIds.length === 0) return null
+    const all = isGroupAllSelected(groupIds)
+    return (
+      <Button
+        size="small"
+        type="link"
+        style={{ padding: '0 4px', fontSize: 12, height: 'auto' }}
+        onClick={(e) => { e.stopPropagation(); toggleSelectGroup(groupIds) }}
+      >
+        {all ? '取消全选' : '全选'}
+      </Button>
+    )
+  }
+
   // 批量归档：仅作用于未归档项
   const handleBatchArchive = async () => {
     const ids = selectedArr().filter(id => !archivedIdSet.has(id))
@@ -344,6 +374,22 @@ const MemorySidebar = ({ onToggle }) => {
         </Space>
       </div>
 
+      {/* 批量选择操作条：批量模式时固定在列表顶部；显示已选计数与对应操作按钮 */}
+      {selectMode && (
+        <div style={{ borderTop: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)', padding: '6px 0', margin: '8px 0', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Text style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>已选 {selectedIds.size} 项</Text>
+          {selectedIds.size > 0 && selectedHasActive() && (
+            <Button size="small" icon={<InboxOutlined />} onClick={handleBatchArchive}>归档所选</Button>
+          )}
+          {selectedIds.size > 0 && selectedHasArchived() && (
+            <>
+              <Button size="small" icon={<SwapOutlined />} onClick={handleBatchRestore}>恢复所选</Button>
+              <Button size="small" danger icon={<DeleteOutlined />} onClick={handleBatchDelete}>删除所选</Button>
+            </>
+          )}
+        </div>
+      )}
+
       <Tabs
         size="small"
         activeKey={sidebarTab}
@@ -373,6 +419,7 @@ const MemorySidebar = ({ onToggle }) => {
                       <FolderOpenOutlined style={{ marginRight: 6, color: 'var(--text-tertiary)', flexShrink: 0 }} />
                       <Text ellipsis style={{ fontSize: 13, fontWeight: 600, flex: 1, minWidth: 0 }}>{ws.basename}</Text>
                       <span className="v9-conv-group-count">{fileView.showFiles ? (fileView.files.length) : (ws.sessions.length)}</span>
+                      {!fileView.showFiles && renderSelectAllBtn(ws.sessions.map(s => s.sessionId))}
                       <Dropdown
                         menu={{
                           items: [
@@ -554,6 +601,7 @@ const MemorySidebar = ({ onToggle }) => {
                     <div className="v9-conv-group-header">
                       <FolderOpenOutlined style={{ marginRight: 6, color: 'var(--text-tertiary)' }} />
                       <Text ellipsis style={{ fontSize: 13, fontWeight: 600 }}>未分类（v4.9.x 旧数据）</Text>
+                      {renderSelectAllBtn(unclassified.map(s => s.sessionId))}
                     </div>
                     {unclassified.map(s => (
                       <List.Item
@@ -643,6 +691,7 @@ const MemorySidebar = ({ onToggle }) => {
                       已归档 {archivedExpanded ? '▴' : '▾'}
                     </Text>
                     <span className="v9-conv-group-count">{archived.length}</span>
+                    {renderSelectAllBtn(archived.map(s => s.sessionId))}
                   </div>
                   {archivedExpanded && (
                     archived.length === 0 ? (
@@ -691,20 +740,7 @@ const MemorySidebar = ({ onToggle }) => {
         ]}
       />
 
-      {/* 批量选择操作条：未选任何项时隐藏；按选中是否含未归档/归档项动态显示对应按钮 */}
-      {selectMode && selectedIds.size > 0 && (
-        <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, marginTop: 8, display: 'flex', gap: 8 }}>
-          {selectedHasActive() && (
-            <Button size="small" icon={<InboxOutlined />} onClick={handleBatchArchive}>归档所选</Button>
-          )}
-          {selectedHasArchived() && (
-            <>
-              <Button size="small" icon={<SwapOutlined />} onClick={handleBatchRestore}>恢复所选</Button>
-              <Button size="small" danger icon={<DeleteOutlined />} onClick={handleBatchDelete}>删除所选</Button>
-            </>
-          )}
-        </div>
-      )}
+      {/* 批量选择操作条已移至列表顶部（Tabs 上方） */}
 
       <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 8, marginTop: 8 }}>
         <Button size="small" danger block icon={<DeleteOutlined />} onClick={async () => {
