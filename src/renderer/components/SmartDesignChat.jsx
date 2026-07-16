@@ -539,6 +539,16 @@ const SmartDesignChat = () => {
     dispatch({ type: 'RESET_AGENT' })
   }
 
+  // 归档会话只读：当前会话若已归档则禁用输入，恢复后方可继续对话
+  const isArchived = state.session.currentArchived
+  const handleRestoreArchived = async () => {
+    const sid = state.session.currentId
+    if (!sid) return
+    await window.electronAPI.invoke('agent:archiveSession', { sessionIds: [sid], archived: false })
+    dispatch({ type: 'SET_SESSION_ARCHIVED', payload: false })
+    message.success('已恢复，可继续对话')
+  }
+
   // 键盘事件 handler (spec 7.1)
   const handleKeyDown = (e) => {
     if (e.key === 'Escape' && isAgentBusy) {
@@ -1782,6 +1792,12 @@ const SmartDesignChat = () => {
             AI 正在输出中... 按 Esc 或点击停止按钮中断输出（输入框为空时也可按 Enter）
           </div>
         )}
+        {isArchived && (
+          <div className="archived-readonly-hint" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', color: 'var(--text-tertiary)', fontSize: 12 }}>
+            <span>此会话已归档，恢复后可继续对话</span>
+            <Button size="small" type="link" onClick={handleRestoreArchived} style={{ padding: 0 }}>恢复对话</Button>
+          </div>
+        )}
         <div className="smart-chat-input-wrapper">
           <AppstoreOutlined className="smart-chat-input-prefix" />
           <Input.TextArea
@@ -1791,7 +1807,7 @@ const SmartDesignChat = () => {
             onChange={handleInputChange}
             onKeyDown={handleInputKeyDown}
             onSelect={handleInputSelect}
-            disabled={false}
+            disabled={isArchived}
             autoSize={{ minRows: 1, maxRows: 6 }}
             variant="borderless"
           />
@@ -1856,7 +1872,7 @@ const SmartDesignChat = () => {
               type="primary"
               icon={<SendOutlined />}
               onClick={handleSendChat}
-              disabled={!state.input.trim()}
+              disabled={!state.input.trim() || isArchived}
             >
               发送
             </Button>
