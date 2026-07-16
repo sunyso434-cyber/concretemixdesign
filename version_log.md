@@ -41,9 +41,14 @@
 - Smoke test：12 项工具函数全过（invertedIndexToText / sanitizeFilename / extractDoiOrId 等）
 
 ### 打包记录 (v11.2.0) (2026-07-17)
-- 待真机打包后补：NSIS 安装包 + 便携版产物路径
-- 平台：win32 x64，Electron 28.3.3
-- 预计 vite build + electron-builder 总耗时 ~5min
+- 版本号 11.1.0 -> 11.2.0（同步 package.json / 输出目录 dist-11.2.0 / 顶栏版本标签 / version_log）
+- 平台：win32 x64，Electron 28.3.3，electron-builder 24.13.3
+- vite build exit 0，3938 modules，9.84s
+- electron-builder 打包 exit 0
+- 产物：
+  - `dist-11.2.0/砼智 Setup 11.2.0.exe`（NSIS 安装包，x64，~139 MB）
+  - `dist-11.2.0/砼智-11.2.0-portable-x64.exe`（便携版，x64，~139 MB）
+  - `dist-11.2.0/win-unpacked/砼智.exe`（解压版，可直接运行调试）
 
 ### 已知后续项
 - 老板未启用前不要本地真打学术 API（Semantic Scholar 限流每秒 1 次，arXiv 限流每 3 秒 1 次）
