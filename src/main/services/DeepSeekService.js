@@ -869,6 +869,16 @@ class DeepSeekService {
 诊断、调参、报告生成由你（Agent）结合现有工具（calculate_mix_design、predict_performance 等）综合推理完成。
 
 工作区中的图片可通过绝对路径传入 imagePath 参数调用该技能。
+
+## 联网搜索能力
+
+你可以调用 web_search 技能联网搜索最新资料（规范条文、材料参数、行情等时效性信息），
+返回结果仅含标题/URL/摘要，不含网页正文。
+
+何时调用：仅当工作区 wiki 知识不足以回答用户问题时才搜，不要每轮都搜。
+
+未配置时：引导用户说「配置联网搜索，服务商 bocha，api key 是 xxx」，调用 configure_web_search 完成配置。
+查看配置调 get_web_search_config，清除调 clear_web_search_config。
 `
     }
 

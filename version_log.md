@@ -1,3 +1,25 @@
+## v11.1.0 联网搜索能力 (2026-07-16)
+
+### 新增
+- **AI 联网搜索**：Agent 新增 `web_search` 技能，可联网查最新资料（规范条文、材料参数、行情等时效性信息），返回标题/URL/长摘要回灌给 LLM。
+- **对话式配置**（照抄视觉模式）：`configure_web_search` / `get_web_search_config` / `clear_web_search_config` 三技能，用户说一句「配置联网搜索，服务商 bocha，api key 是 xxx」即可，不改设置页。
+- **多供应商适配层**：首版支持 **博查(bocha，国内免费源)** + **Tavily(海外)**；各家接口/返回格式不同，用适配层统一成 `{title,url,snippet}`，加一家 = 加一个块。
+
+### 技术
+- `SystemService`：追加 `webSearchEnabled/Provider/ApiKey` 3 条默认参数 + `get/save/clearWebSearchConfig` 三方法（对齐 vision 配置存储）。
+- 新增 `src/main/services/WebSearchService.js`（适配层 + `_classifyError` 复用视觉 HTTP→错误码映射）。
+- 新增 `src/main/skills/web-search.js`、`web-search-config.js`；`ErrorCodes` 追加 3 条 `E-SEARCH-*`。
+- `DeepSeekService` 系统提示词追加"联网搜索能力"段。
+- 测试：25 个用例全绿（WebSearchService 9 / web-search 7 / web-search-config 9）。
+- **使用前提**：需用户到 open.bochaai.com 领博查免费 Key（口令"博查搜索"送 1000 次）后实测；如长摘要不够再加 `web_fetch` 读正文工具。
+
+### 打包记录 (v11.1.0) (2026-07-16)
+- 版本号 11.0.2 -> 11.1.0（同步 package.json version / 输出目录 dist-11.1.0 / 顶栏版本标签）
+- 平台：win32 x64，Electron 28.3.3，electron-builder 24.13.3，vite 3938 模块 12.10s
+- 产物：
+  - `dist-11.1.0/砼智 Setup 11.1.0.exe`（NSIS 安装包，约 140 MB，x64）
+  - `dist-11.1.0/砼智-11.1.0-portable-x64.exe`（便携版，约 139 MB，x64）
+
 ## v11.0.1 批量管理改进 (2026-07-16)
 
 ### 优化

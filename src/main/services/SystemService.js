@@ -297,6 +297,24 @@ class SystemService {
           paramValue: '10',
           paramType: 'ai',
           description: '图片最大文件大小(MB)'
+        },
+        {
+          paramName: 'webSearchEnabled',
+          paramValue: 'false',
+          paramType: 'ai',
+          description: '联网搜索功能开关'
+        },
+        {
+          paramName: 'webSearchProvider',
+          paramValue: 'bocha',
+          paramType: 'ai',
+          description: '搜索服务商（bocha/tavily）'
+        },
+        {
+          paramName: 'webSearchApiKey',
+          paramValue: '',
+          paramType: 'ai',
+          description: '搜索 API 密钥'
         }
       ]
 
@@ -943,6 +961,50 @@ class SystemService {
       maxDimension: 1024,
       maxSizeMb: 10
     })
+  }
+
+  /**
+   * 获取联网搜索配置
+   * @returns {Promise<{enabled: boolean, provider: string, apiKey: string|null}>}
+   */
+  async getWebSearchConfig() {
+    const [enabled, provider, apiKey] = await Promise.all([
+      this.getParamByName('webSearchEnabled'),
+      this.getParamByName('webSearchProvider'),
+      this.getParamByName('webSearchApiKey')
+    ])
+    return {
+      enabled: enabled?.value === 'true',
+      provider: provider?.value || 'bocha',
+      apiKey: apiKey?.value || null
+    }
+  }
+
+  /**
+   * 保存联网搜索配置（仅写入传入的字段，其他字段保留不变）
+   * @param {object} cfg - {enabled?, provider?, apiKey?}
+   * @returns {Promise<void>}
+   */
+  async saveWebSearchConfig(cfg = {}) {
+    const writes = []
+    if (cfg.enabled !== undefined) {
+      writes.push(this.setParam('webSearchEnabled', String(!!cfg.enabled), 'ai', '联网搜索功能开关'))
+    }
+    if (cfg.provider !== undefined) {
+      writes.push(this.setParam('webSearchProvider', cfg.provider || 'bocha', 'ai', '搜索服务商（bocha/tavily）'))
+    }
+    if (cfg.apiKey !== undefined) {
+      writes.push(this.setParam('webSearchApiKey', cfg.apiKey || '', 'ai', '搜索 API 密钥'))
+    }
+    await Promise.all(writes)
+  }
+
+  /**
+   * 清除联网搜索配置（关闭并清空 key，provider 保留默认）
+   * @returns {Promise<void>}
+   */
+  async clearWebSearchConfig() {
+    await this.saveWebSearchConfig({ enabled: false, apiKey: '' })
   }
 
   // ========== LLM 配置管理 ==========
