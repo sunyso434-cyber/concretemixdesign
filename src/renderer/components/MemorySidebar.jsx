@@ -61,6 +61,9 @@ const MemorySidebar = ({ onToggle }) => {
   const [workspaceRenameModal, setWorkspaceRenameModal] = useState({ open: false, path: null, basename: '', value: '' })
   // 工作区文件树视图：{ [path]: { showFiles: bool, files: [], loading: bool } }
   const [wsFileView, setWsFileView] = useState({})
+  // 工作区会话折叠：{ [path]: true } 表示展开；缺省/false 表示折叠（默认只显示前 3 条）
+  const [expandedWs, setExpandedWs] = useState({})
+  const SESSION_COLLAPSE_LIMIT = 3
 
   // 获取按工作区分组的会话列表
   const fetchGroupedSessions = async () => {
@@ -352,8 +355,8 @@ const MemorySidebar = ({ onToggle }) => {
                       </div>
                     ) : (
                     <>
-                    {/* 该工作区下的会话列表 */}
-                    {ws.sessions.map(s => (
+                    {/* 该工作区下的会话列表（默认只显示前 3 条，其余折叠） */}
+                    {(expandedWs[ws.path] ? ws.sessions : ws.sessions.slice(0, SESSION_COLLAPSE_LIMIT)).map(s => (
                       <List.Item
                         key={s.sessionId || `${ws.path}-${Math.random()}`}
                         className={`v9-conv-item ${s.sessionId === currentSessionId ? 'active' : ''}`}
@@ -412,6 +415,22 @@ const MemorySidebar = ({ onToggle }) => {
                         </div>
                       </List.Item>
                     ))}
+                    {ws.sessions.length > SESSION_COLLAPSE_LIMIT && (
+                      <div
+                        className="v9-conv-collapse-toggle"
+                        style={{
+                          cursor: 'pointer',
+                          padding: '4px 10px 4px 24px',
+                          fontSize: 12,
+                          color: 'var(--text-tertiary)'
+                        }}
+                        onClick={() => setExpandedWs(prev => ({ ...prev, [ws.path]: !prev[ws.path] }))}
+                      >
+                        {expandedWs[ws.path]
+                          ? '收起 ▴'
+                          : `展开剩余 ${ws.sessions.length - SESSION_COLLAPSE_LIMIT} 条 ▾`}
+                      </div>
+                    )}
                     </>
                     )}
                   </div>
