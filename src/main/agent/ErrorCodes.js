@@ -69,6 +69,11 @@ const AI_ERROR_REGISTRY = {
   'E-VISION-FILE-NOT-FOUND': { title: '图片不存在', hint: '请检查文件路径', recovery: 'fix_params', severity: 'error' },
   'E-VISION-FILE-TOO-LARGE': { title: '图片过大', hint: '请压缩后再上传', recovery: 'fix_params', severity: 'error' },
   'E-VISION-MISSING-WORKSPACE': { title: '工作区未打开', hint: '请先打开工作区，或传入图片的绝对路径', recovery: 'fix_params', severity: 'error' },
+
+  // ===== 联网搜索相关错误 =====
+  'E-SEARCH-NOT-CONFIGURED': { title: '联网搜索未配置', hint: '请先说「配置联网搜索，服务商 bocha，api key 是 xxx」调用 configure_web_search', recovery: 'fix_settings', severity: 'error' },
+  'E-SEARCH-INVALID-QUERY': { title: '搜索关键词无效', hint: '请提供 1-200 字的搜索关键词', recovery: 'fix_params', severity: 'error' },
+  'E-SEARCH-INVALID-PROVIDER': { title: '不支持的搜索服务商', hint: '目前仅支持 bocha / tavily，请重新配置', recovery: 'fix_settings', severity: 'error' },
 }
 
 /**
