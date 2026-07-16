@@ -28,7 +28,9 @@ export const initialState = {
     sidebarCollapsed: true,
     // v9.0.0 补充21：欢迎页是否可见（true = 显示欢迎页，false = 显示消息列表）
     // 启动默认 true；新建会话后 true；切到已有会话/发首条消息后 false
-    welcomeVisible: true
+    welcomeVisible: true,
+    // 当前打开会话是否已归档（归档=只读，需恢复后才能续聊）
+    currentArchived: false
   },
   // 会话状态缓存：key=sessionId, value={ messages, agent, ts }
   // 用于切换会话时保留后台 agent 的流式输出，支持多会话并行
@@ -253,7 +255,10 @@ export function agentReducer(state, action) {
       }
     }
     case 'SET_SESSION_ID': {
-      return { ...state, session: { ...state.session, currentId: action.payload } }
+      return { ...state, session: { ...state.session, currentId: action.payload, currentArchived: false } }
+    }
+    case 'SET_SESSION_ARCHIVED': {
+      return { ...state, session: { ...state.session, currentArchived: !!action.payload } }
     }
     case 'SET_SESSION_LIST': {
       return { ...state, session: { ...state.session, list: action.payload } }

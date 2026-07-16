@@ -270,3 +270,16 @@ describe('agentReducer - SET_CONTEXT_STATS', () => {
     expect(next.contextRealTokens).toBe(0)
   })
 })
+
+describe('SET_SESSION_ARCHIVED', () => {
+  test('设置当前会话归档标志', () => {
+    const next = agentReducer(initialState, { type: 'SET_SESSION_ARCHIVED', payload: true })
+    expect(next.session.currentArchived).toBe(true)
+  })
+
+  test('新建会话（SET_SESSION_ID）重置归档标志为 false', () => {
+    const archivedState = agentReducer(initialState, { type: 'SET_SESSION_ARCHIVED', payload: true })
+    const next = agentReducer(archivedState, { type: 'SET_SESSION_ID', payload: 'session-new' })
+    expect(next.session.currentArchived).toBe(false)
+  })
+})

@@ -194,6 +194,7 @@ export async function switchSession({ dispatch, sessionId, state }) {
   // 切换工作区（与消息加载解耦）
   try {
     const sessionInfo = await window.electronAPI.invoke('agent:getSessionInfo', { sessionId }).catch(() => null)
+    dispatch({ type: 'SET_SESSION_ARCHIVED', payload: !!sessionInfo?.archived })
 
     if (sessionInfo && sessionInfo.workspacePath) {
       try {
