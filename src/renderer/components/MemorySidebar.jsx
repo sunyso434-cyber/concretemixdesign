@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Button, List, Typography, Space, Tabs, Popconfirm, Layout, Dropdown, Modal, Input, message } from 'antd'
-import { HistoryOutlined, PlusOutlined, DeleteOutlined, RobotOutlined, FolderOpenOutlined, MoreOutlined, EditOutlined, FolderOutlined, DesktopOutlined, FileTextOutlined, FileOutlined, SwapOutlined, CopyOutlined } from '@ant-design/icons'
+import { HistoryOutlined, PlusOutlined, DeleteOutlined, RobotOutlined, FolderOpenOutlined, MoreOutlined, EditOutlined, FolderOutlined, DesktopOutlined, FileTextOutlined, FileOutlined, SwapOutlined, CopyOutlined, InboxOutlined } from '@ant-design/icons'
 import { useAgentStore } from './AgentStore'
 import { createSession, switchSession, loadSessionList } from './agentActions'
 
@@ -64,6 +64,8 @@ const MemorySidebar = ({ onToggle }) => {
   // 工作区会话折叠：{ [path]: true } 表示展开；缺省/false 表示折叠（默认只显示前 3 条）
   const [expandedWs, setExpandedWs] = useState({})
   const SESSION_COLLAPSE_LIMIT = 3
+  // 已归档折叠区开关
+  const [archivedExpanded, setArchivedExpanded] = useState(false)
 
   // 获取按工作区分组的会话列表
   const fetchGroupedSessions = async () => {
@@ -165,6 +167,32 @@ const MemorySidebar = ({ onToggle }) => {
     }
   }
 
+  // 刷新会话列表（主列表 + 分组列表）
+  const refreshLists = async () => {
+    await loadSessionList({ dispatch })
+    await fetchGroupedSessions()
+  }
+
+  // 归档单个会话：运行中会被后端拒绝并提示
+  const handleArchiveSession = async (sessionId) => {
+    const r = await window.electronAPI.invoke('agent:archiveSession', { sessionIds: [sessionId], archived: true })
+    if (r?.skipped?.includes(sessionId)) {
+      message.warning('该会话有任务正在执行，无法归档')
+      return
+    }
+    if (sessionId === currentSessionId) dispatch({ type: 'SET_SESSION_ARCHIVED', payload: true })
+    await refreshLists()
+    message.success('已归档')
+  }
+
+  // 恢复单个会话：不受运行锁限制
+  const handleRestoreSession = async (sessionId) => {
+    await window.electronAPI.invoke('agent:archiveSession', { sessionIds: [sessionId], archived: false })
+    if (sessionId === currentSessionId) dispatch({ type: 'SET_SESSION_ARCHIVED', payload: false })
+    await refreshLists()
+    message.success('已恢复')
+  }
+
   const openRenameModal = (sessionId, currentName) => {
     setRenameModal({ open: true, sessionId, value: currentName || '' })
   }
@@ -228,7 +256,7 @@ const MemorySidebar = ({ onToggle }) => {
     }
   }
 
-  const { workspaces, unclassified } = groupedData
+  const { workspaces, unclassified, archived = [] } = groupedData
 
   return (
     <Sider width={260} style={{
@@ -394,6 +422,12 @@ const MemorySidebar = ({ onToggle }) => {
                                     onClick: () => handleDuplicateSession(s.sessionId)
                                   },
                                   {
+                                    key: 'archive',
+                                    label: '归档',
+                                    icon: <InboxOutlined />,
+                                    onClick: () => handleArchiveSession(s.sessionId)
+                                  },
+                                  {
                                     key: 'delete',
                                     label: '删除',
                                     icon: <DeleteOutlined />,
@@ -482,6 +516,12 @@ const MemorySidebar = ({ onToggle }) => {
                                     onClick: () => handleDuplicateSession(s.sessionId)
                                   },
                                   {
+                                    key: 'archive',
+                                    label: '归档',
+                                    icon: <InboxOutlined />,
+                                    onClick: () => handleArchiveSession(s.sessionId)
+                                  },
+                                  {
                                     key: 'delete',
                                     label: '删除',
                                     icon: <DeleteOutlined />,
@@ -505,6 +545,53 @@ const MemorySidebar = ({ onToggle }) => {
                     ))}
                   </div>
                 )}
+
+                {/* 已归档折叠区 */}
+                <div key="__archived" className="v9-conv-group">
+                  <div
+                    className="v9-conv-group-header"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setArchivedExpanded(v => !v)}
+                  >
+                    <InboxOutlined style={{ marginRight: 6, color: 'var(--text-tertiary)', flexShrink: 0 }} />
+                    <Text style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>
+                      已归档 {archivedExpanded ? '▴' : '▾'}
+                    </Text>
+                    <span className="v9-conv-group-count">{archived.length}</span>
+                  </div>
+                  {archivedExpanded && (
+                    archived.length === 0 ? (
+                      <div style={{ padding: '8px 24px', color: 'var(--text-tertiary)', fontSize: 12 }}>暂无归档会话</div>
+                    ) : archived.map(s => (
+                      <List.Item
+                        key={s.sessionId}
+                        className={`v9-conv-item ${s.sessionId === currentSessionId ? 'active' : ''}`}
+                        style={{ cursor: 'pointer', padding: '8px 10px 8px 24px', border: 'none' }}
+                        onClick={() => handleLoadSession(s.sessionId, s.workspacePath)}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                          <Space size={6}>
+                            <RobotOutlined style={{ fontSize: 11, color: 'var(--text-tertiary)' }} />
+                            <Text style={{ fontSize: 12, maxWidth: 140 }} ellipsis={{ tooltip: s.sessionName || formatSessionFallback(s.sessionId) }}>
+                              {s.sessionName || formatSessionFallback(s.sessionId)}
+                            </Text>
+                          </Space>
+                          <Dropdown
+                            menu={{
+                              items: [
+                                { key: 'restore', label: '恢复', icon: <SwapOutlined />, onClick: () => handleRestoreSession(s.sessionId) },
+                                { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true, onClick: () => handleDeleteSession(s.sessionId) }
+                              ]
+                            }}
+                            trigger={['click']}
+                          >
+                            <Button size="small" type="text" icon={<MoreOutlined />} onClick={e => e.stopPropagation()} />
+                          </Dropdown>
+                        </div>
+                      </List.Item>
+                    ))
+                  )}
+                </div>
               </div>
             )
           }
