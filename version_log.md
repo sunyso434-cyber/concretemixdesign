@@ -1,3 +1,46 @@
+## v11.3.0 AI 自动回填问答 (2026-07-17)
+
+### 新增
+- **`workspace_recordAnswer` 工具**：Agent 新增伪 Skill（[src/main/agent/workspaceTools.js](src/main/agent/workspaceTools.js)），调用 `WikiEngine.recordAnswer` 把"以后还用得上"的知识问答回填到 `wiki/answers/<timestamp>.md`，自动更新 `wiki/index.md`（追加「## 问答」节链接）+ `wiki/log.md`（schema §4 格式）+ 异步轮转 log。
+- **触发条件内置到 system prompt**：[src/main/agent/systemPromptBuilder.js](src/main/agent/systemPromptBuilder.js) 新增「何时回填问答」节，明确 3 条同时满足才调（可复用工程知识 / wiki 里没有或不全 / 非一次性查询），并列出正反例，避免 AI 把闲聊/报错排查也写进去。
+- **目录懒加载**：之前 `wiki/answers/` 永远不会被创建（[WikiEngine.recordAnswer](src/main/workspace/WikiEngine.js#L1388-L1462) 实现完整但 UI/IPC/Agent 工具零入口）；现在 Agent 工具接入后首次触发 `recordAnswer` 时自动 `mkdir({recursive:true})`，目录就活了。
+- **零 UI**：延续 v11.2.0 学术搜索的设计（老板 2026-07-16 强调"不增加 UI，所有设置走 agent 对话"），不画按钮、不加设置页。
+
+### 技术
+- [src/main/agent/workspaceTools.js](src/main/agent/workspaceTools.js)：在 `buildWorkspaceSkills` 数组追加 `workspace_recordAnswer`，参数 `{question:string, answer:string, refs?:string[]}`，description 写明 3 条触发条件 + 正反例。
+- [src/main/agent/systemPromptBuilder.js](src/main/agent/systemPromptBuilder.js)：工具清单 7→8，新加一节"何时回填问答"，沿用现有 `WORKSPACE_TOOLS_PROMPT` 常量结构（不引入新模板）。
+- **未改 WikiEngine.recordAnswer 本体**：原方法已经处理 mkdir/index/log/轮转/Bm25 排除全部场景，零修改复用。
+- **零 npm 依赖新增**：完全用现有 `WorkspaceError` + `ErrorCodes.createError` 错误包装 + `gray-matter` 解析。
+
+### 测试
+- 新增 [src/main/agent/__tests__/workspaceTools.test.js](src/main/agent/__tests__/workspaceTools.test.js)（4 个用例）：Skill 注册 / 成功调用 → 写文件 / refs 缺省 → 默认空数组 / NOT_OPEN 错误包装成 ErrorCodes 标准格式。
+- 已有 [src/main/__tests__/workspace/WikiEngine.recordAnswer.test.js](src/main/__tests__/workspace/WikiEngine.recordAnswer.test.js) 4 个用例无回归。
+- **8/8 测试通过**（耗时 ~1s）。
+
+### 版本号同步（CLAUDE.md 第 7 条）
+- ✅ [package.json:3](package.json#L3) `version: 11.2.0` → `11.3.0`
+- ✅ [package.json:78](package.json#L78) `output: dist-11.2.0` → `dist-11.3.0`
+- ✅ [src/renderer/pages/WorkspacePage.jsx:152](src/renderer/pages/WorkspacePage.jsx#L152) 顶栏 `v11.2.0` → `v11.3.0`
+- ✅ `main.js` BrowserWindow title 无版本号（无需改）
+- ✅ `index.html` title "砼智" 无版本号（无需改）
+- 复查：grep `11.2.0` / `v11.2.0` / `dist-11.2.0` 命中仅剩 version_log.md 历史条目 + package-lock.json（node-gyp 依赖版本，跟 app 无关）+ AcademicSearchService 等代码注释（v11.2.0 加的功能标记，非用户可见）
+
+### 风险
+- R1：AI 误判把一次性问答也存 → system prompt 3 条触发条件 + 「不要调」反例清单压制。后续若发现频率过高可加"每日上限 N 条"硬约束。
+- R2：refs 数组被 LLM 传成字符串 → 当前 Skill 层不校验，会冒泡到 WikiEngine.recordAnswer 抛 TypeError 被 catch 成 UNKNOWN。→ 等下次真实错误出现再加 schema 校验，YAGNI。
+
+### 打包记录 (v11.3.0) (2026-07-17)
+- 版本号 11.2.0 -> 11.3.0（同步 package.json / 输出目录 dist-11.3.0 / 顶栏版本标签 / version_log）
+- 平台：win32 x64，Electron 28.3.3，electron-builder 24.13.3
+- vite build exit 0（10.94s）
+- electron-builder 打包 exit 0
+- 产物：
+  - `dist-11.3.0/砼智 Setup 11.3.0.exe`（NSIS 安装包，x64，~139.1 MB）
+  - `dist-11.3.0/砼智-11.3.0-portable-x64.exe`（便携版，x64，~138.7 MB）
+  - `dist-11.3.0/win-unpacked/砼智.exe`（解压版，x64，~168.9 MB）
+
+---
+
 ## v11.2.0 学术搜索能力 (2026-07-17)
 
 ### 新增
