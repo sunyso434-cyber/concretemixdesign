@@ -5,8 +5,9 @@
 // v1.5.3 决策：固定 7 个 workspace 工具说明（与 workspaceTools.js 注册的伪 Skill 一一对应）
 // Task 4.4：注入到 system prompt，让 LLM 知道每个工具怎么用、返回什么
 // v2026-06-22：listFiles 扩 enum + 加 ingested 状态字段（修「LLM 误判未导入」bug）
+// v2026-07-17：新增 workspace_recordAnswer（Agent 自动回填问答到 wiki/answers/）
 const WORKSPACE_TOOLS_PROMPT = `
-可用 workspace 工具（共 7 个）：
+可用 workspace 工具（共 8 个）：
 - workspace_search(query, topK) → 找相关 wiki 页（含 chat-history，不调 LLM）。**返回结果含 summary/keyPoints，大多数情况直接看结果即可回答。**
 - workspace_readPage(wikiPath, {query?, depth?}) → 读 wiki 页。
   - depth='relevant'（默认）：返回相关段落原文（~2K tokens，纯本地，~200ms）
@@ -24,6 +25,7 @@ const WORKSPACE_TOOLS_PROMPT = `
   - 二进制（.pdf/.docx/.xlsx 等）不支持，需先 workspace_ingest
   - 单文件超 300KB 自动截断
 - workspace_organize({ filenames }) → 把根目录散落的指定文件按类型归位到 raw/{类型}/。**手动触发**：用户说"把 XX 归到 raw"或"整理这些文件"时调用。不自动扫描整个根目录。
+- workspace_recordAnswer({ question, answer, refs? }) → 把本轮问答里"以后还用得上"的知识回填到 wiki/answers/。详见下方「何时回填问答」节。
 
 raw/ 目录说明（v2026-07-03）：
 - raw/ 是原始文件存放区，内部按类型分子目录（raw/pdf raw/docx raw/xlsx raw/md raw/txt raw/images 等）
@@ -42,6 +44,15 @@ raw/ 目录说明（v2026-07-03）：
 5. 复杂问题 → 综合 search + searchGraph + readPage
 6. 需看原始文件原文（非 wiki 摘要）→ workspace_readRaw(filePath)
 7. workspace_grep 的 path 参数支持 raw 和 root，可搜原始文件
+
+何时回填问答（workspace_recordAnswer）：
+- **满足全部 3 条**才调一次：
+  1. 回答里含**可复用的工程知识**（规范条文、参数阈值、施工要点、常见错误），不是临时数值计算（如"算下 C30 用量"）
+  2. 当前 wiki 里**没有或不全**该知识（先用 workspace_search 验证一遍，搜得到就别重复）
+  3. 用户**不是一次性查询**——"为什么水胶比不能超过 0.6"算知识性，"帮我算一下 C30"算一次性
+- **不要调**：闲聊、报错排查、临时数值、不确定答案、用户明确说"别记下来"
+- **典型该调的例子**：用户问"抗渗混凝土水胶比上限？"，你回答"≤0.45，依据 JTG 3420-2020 §5.2"，调一次把问答回填，refs=['sources/jtg-3420-2020.md']
+- **典型不该调的例子**：用户问"我今天配的料够不够？"、"这个报错怎么修"、闲聊打招呼
 `
 
 // 蓝图技能创建路由提示（按需加载策略）：

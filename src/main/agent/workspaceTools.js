@@ -305,6 +305,26 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         }
         return { organized: results }
       }
+    ),
+    skill('workspace_recordAnswer',
+      '把本次问答里"以后还用得上"的知识回填到 wiki/answers/。' +
+      '只有当问答包含可复用的工程经验、规范条文、参数阈值等才调，闲聊/一次性查询不要调。' +
+      '调用条件：(1) 回答含可复用的工程知识（不是临时数值计算）；' +
+      '(2) 当前 wiki 里没有或不全（先 workspace_search 验证）；' +
+      '(3) 用户不是一次性查询（"为什么…"算知识性，"帮我算…"算一次性）。' +
+      '返回 { status, answerPath }，answerPath 是 wiki/answers/ 下的相对路径。',
+      {
+        question: { type: 'string', description: '用户的原始问题', required: true },
+        answer: { type: 'string', description: '你给出的完整回答（建议含数值/规范来源）', required: true },
+        refs: {
+          type: 'array',
+          description: '引用过的 wiki 页相对路径列表（如 sources/jgj-55-2011.md），无引用传空数组',
+          required: false,
+          default: [],
+          items: { type: 'string' }
+        }
+      },
+      (args) => getWiki().recordAnswer(args.question, args.answer, args.refs || [])
     )
   ]
 }
