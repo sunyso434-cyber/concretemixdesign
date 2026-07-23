@@ -1,8 +1,26 @@
 {
   "name": "concrete-mixdesign",
-  "version": "11.8.4",
+  "version": "0.0.1",
   "description": "砼智 Concrete Agent",
   "main": "main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron:dev": "set \"ELECTRON_RUN_AS_NODE=\" && cross-env NODE_ENV=development electron .",
+    "electron:build": "cross-env NODE_ENV=production vite build && electron-builder",
+    "backup": "node backup.js",
+    "test": "jest",
+    "test:manual": "node tests/manual/run-node-suites.js",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
+  },
+  "keywords": [
+    "concrete",
+    "mix design",
+    "electron",
+    "react"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -28,10 +46,69 @@
     "remark-gfm": "^4.0.1",
     "sequelize": "^6.37.8",
     "sequelize-cli": "^6.6.5",
-    "sql.js": "^1.14.1",
+    "sql.js": "^1.14.0",
     "sqlite3": "^6.0.1",
     "uuid": "^14.0.0",
     "xlsx": "^0.18.5"
   },
-  "type": "commonjs"
+  "type": "commonjs",
+  "build": {
+    "appId": "com.concrete.mixdesign",
+    "productName": "砼智",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "output": "dist-0.0.1",
+      "buildResources": "public"
+    },
+    "files": [
+      "main.js",
+      "package.json",
+      "build/**",
+      "src/main/**",
+      "migrations/*.js",
+      "src/shared/**",
+      "resources/**",
+      "node_modules/**"
+    ],
+    "asarUnpack": [
+      "node_modules/sqlite3/**",
+      "resources/models/**",
+      "resources/officecli/**"
+    ],
+    "extraMetadata": {
+      "main": "main.js"
+    },
+    "win": {
+      "icon": "public/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "certificateFile": null,
+      "certificatePassword": null,
+      "signingHashAlgorithms": ["sha256"],
+      "sign": null
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable-x64.exe"
+    },
+    "buildDependenciesFromSource": true,
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "public/icon.ico",
+      "uninstallerIcon": "public/icon.ico",
+      "installerHeaderIcon": "public/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "砼智"
+    }
+  }
 }

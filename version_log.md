@@ -1,3 +1,24 @@
+## v0.0.1 大版本重置 (2026-07-23)
+
+> **背景**：老板决定将版本号重置为 `0.0.1`，从大版本号体系切换到小步快跑模式。
+
+### 变更
+- ✅ `package.json`：`version` 11.8.4 → 0.0.1；补全 `scripts` 段（`dev` / `build` / `electron:dev` / `electron:build` / `test` 等）和 `build` 段（`appId` / `productName: 砼智` / `output: dist-0.0.1` / NSIS + portable x64 / asarUnpack sqlite3+models+officecli）
+- ✅ `src/main/services/WebFetchService.js`：注释和 User-Agent 字符串 `11.8.4` → `0.0.1`
+- ✅ `src/renderer/pages/WorkspacePage.jsx`：顶栏版本号 `v11.8.4` → `v0.0.1`
+
+### 打包记录 (v0.0.1) (2026-07-23)
+- 工具链：vite v5.4.21 + electron-builder v24.13.3，输出 NSIS 安装包 + 便携版 + 解压版
+- 同步：`package.json:3` / `package.json:60` (output) / `WebFetchService.js:5,112` / `WorkspacePage.jsx:152`
+- 产物路径与大小：
+  - `dist-0.0.1/砼智 Setup 0.0.1.exe`（NSIS 安装包，x64，~163 MB）
+  - `dist-0.0.1/砼智-0.0.1-portable-x64.exe`（便携版，x64，~162 MB）
+  - `dist-0.0.1/win-unpacked/`（解压版，~715 MB）
+  - `dist-0.0.1/builder-debug.yml`（electron-builder 配置快照）
+  - `dist-0.0.1/latest.yml`（自动更新元信息）
+
+---
+
 ## 🔧 后端源码抢救 (2026-07-23)
 
 > **背景**：一次错误的 git 操作导致 v11.3.1 → v11.8.4 之间的所有提交丢失（reflog / 悬空对象均已被清空，无法从 git 找回）。git HEAD 回退到 v11.3.0。所幸 `dist-11.8.4` 打包产物仍在，从其 `win-unpacked/resources/app.asar` 中抢救出后端源码。
