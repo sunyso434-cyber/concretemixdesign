@@ -1,34 +1,34 @@
-# 混凝土配合比设计系统
+# 砼智 Concrete Agent
 
-基于 Electron + React 的混凝土配合比智能设计软件，集成 AI Agent 辅助设计。
+基于 Electron + React 的混凝土配合比智能设计软件，集成 AI Agent 辅助设计与知识库管理。
 
-## 技能系统说明
+**当前版本：v0.0.1**
 
-本项目存在两套完全独立的"技能"体系，**本质不同，互不关联**：
+## 核心功能
 
-### 应用级技能（业务计算）
+### AI 智能设计
+- **配合比智能设计**：AI Agent 多步编排，自动调用计算/优化/审查技能，支持多轮对话与工具调用
+- **LLM 自动路由**：多模型故障自动切换（failover），激活模型优先；前端实时显示当前使用的 LLM，用户可感知路由状态
+- **联网搜索 + 学术搜索**：Agent 可调用网页抓取与学术论文检索能力辅助设计
+- **上下文压缩**：长对话自动压缩摘要，突破上下文长度限制
 
-- **位置**：`src/main/skills/`（内置）+ `~/.concrete-mixdesign/skills/`（用户自建）
-- **格式**：JavaScript 代码模块
-- **用途**：混凝土配合比计算、成本优化、规范审查等核心业务
-- **执行方式**：代码计算，LLM 只负责决定调用哪个技能，不参与计算过程
-- **数量**：包含多个内置业务技能和共享工具模块
+### 业务计算
+- **配合比计算**：基于 JGJ55 标准的混凝土配合比设计
+- **成本优化**：网格搜索寻找最低成本配比
+- **规范合规审查**：自动检查配比是否符合规范
+- **强度预测**：XGBoost 模型预测 28 天抗压强度（模型存于 `resources/models/`）
+- **销售报价**：含泵送费等附加项的报价生成
 
-核心技能包括：
-| 技能 | 功能 |
-|------|------|
-| `calculate_mix_design` | 配合比计算 |
-| `optimize_mix_cost` | 成本优化（网格搜索） |
-| `check_compliance` | 规范合规审查 |
-| `predict_performance` | XGBoost 强度预测 |
-| `calculate_sales_quote` | 销售报价生成 |
+### 知识库与文档
+- **工作区（Workspace）**：项目管理与文件组织
+- **Wiki 知识引擎**：文档入库、全文检索（BM25）、知识图谱抽取与合并、健康检查
+- **Office 文档处理**：通过 OfficeCLI 创建/编辑/读取 docx/xlsx/pptx（Agent 可生成格式化报告）
+- **会话归档**：批量归档/恢复/删除历史会话，归档会话只读
 
-### Agent 级指令（编码辅助）
-
-- **位置**：`.claude/skills/`、`.agents/skills/` 等目录
-- **格式**：Markdown 文件（SKILL.md）
-- **用途**：告诉 AI 编码助手如何操作 Office 文档（docx、pdf、pptx）
-- **与业务无关**：这些是开发辅助工具，不参与配合比计算
+### 交互体验
+- **Todo 计划面板**：实时显示 Agent 任务清单与进度
+- **历史消息自动加载**：滚动到顶自动加载更多历史
+- **批量管理模式**：材料/方案的批量操作
 
 ## 快速开始
 
@@ -52,33 +52,72 @@ npm run build
 npm run electron:build
 ```
 
+打包产物输出到 `dist-<版本号>/`，包含 NSIS 安装包、便携版和解压版。
+
 ## 技术栈
 
 - **桌面框架**：Electron
-- **前端**：React + Ant Design
-- **AI 服务**：DeepSeek API
+- **前端**：React + Ant Design + Vite
+- **AI 服务**：多 LLM 自动路由（DeepSeek / Minimax / Kimi 等，支持 failover 故障切换）
 - **数据库**：SQLite（Sequelize ORM）
-- **机器学习**：ONNX Runtime（XGBoost 强度预测）
+- **机器学习**：XGBoost 强度预测（模型序列化为 JSON，纯 JS 推理）
+- **文档处理**：OfficeCLI（docx/xlsx/pptx 读写）
+- **测试**：Jest
 
 ## 项目结构
 
 ```
 src/
 ├── main/                    # 主进程
-│   ├── skills/              # 应用级技能（JS 代码）
-│   ├── agent/               # Agent 基础设施
-│   │   ├── SkillRegistry.js    # 技能注册与发现
-│   │   ├── SkillExecutor.js    # 技能执行引擎
-│   │   ├── SchemaValidator.js  # 参数校验
-│   │   ├── ContextProvider.js  # 上下文注入
-│   │   └── AgentOrchestrator.js # 多步 Agent 编排
-│   ├── services/            # 业务服务层
+│   ├── agent/               # Agent 基础设施（编排/策略/工具/系统提示）
+│   ├── skills/              # 应用级技能（业务计算 JS 模块）
+│   ├── services/            # 业务服务层（LLM/搜索/记忆/压缩等）
 │   ├── ipcHandlers/         # IPC 接口
-│   └── db/                  # 数据库模型
+│   ├── workspace/           # 工作区与 Wiki 知识引擎
+│   ├── officecli/           # Office 文档处理桥接
+│   ├── db/                  # 数据库模型
+│   └── migrations/          # 数据库迁移
 ├── renderer/                # 渲染进程（React UI）
+│   ├── pages/               # 页面（工作区/材料/方案/设置）
+│   └── components/          # 组件（聊天/Agent/报告/导入导出等）
+├── shared/                  # 主进程与渲染进程共享代码
 └── ...
+resources/
+├── models/                  # XGBoost 模型文件
+└── officecli/               # OfficeCLI 二进制（按平台分目录）
 ```
 
-## 版本
+## 技能系统说明
 
-当前版本：10.10.12
+本项目存在两套独立的"技能"体系：
+
+### 应用级技能（业务计算）
+
+- **位置**：`src/main/skills/`（内置）+ `~/.concrete-mixdesign/skills/`（用户自建）
+- **格式**：JavaScript 代码模块
+- **用途**：混凝土配合比计算、成本优化、规范审查等核心业务
+- **执行方式**：代码计算，LLM 只负责决定调用哪个技能，不参与计算过程
+
+核心技能：
+
+| 技能 | 功能 |
+|------|------|
+| `calculate_mix_design` | 配合比计算 |
+| `optimize_mix_cost` | 成本优化（网格搜索） |
+| `check_compliance` | 规范合规审查 |
+| `predict_performance` | XGBoost 强度预测 |
+| `calculate_sales_quote` | 销售报价生成 |
+
+### Agent 工具体系
+
+Agent 运行时可调用的工作区/文档/搜索工具（如 `workspace_writeFile`、`create_office_file`、`edit_office_file`、`workspace_lint`、`web_fetch` 等），由 Agent 编排器统一注册与执行，实现多步工具调用完成复杂任务。
+
+## 配置
+
+- **LLM 配置**：在应用内「设置 → LLM 管理」添加多个模型（API Key / Base URL / 模型名），可激活默认模型
+- **OfficeCLI**：首次打包时自动包含，无需手动安装
+- **数据存储**：用户数据存于 `~/.concrete-mixdesign/`
+
+## 版本记录
+
+详见 [version_log.md](version_log.md)。
