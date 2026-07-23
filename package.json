@@ -67,13 +67,19 @@
       "src/main/**",
       "migrations/*.js",
       "src/shared/**",
-      "resources/**",
+      "resources/models/**",
       "node_modules/**"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/officecli/${os}/",
+        "to": "officecli/",
+        "filter": ["**/*", "!*.update.partial", "!*.old"]
+      }
     ],
     "asarUnpack": [
       "node_modules/sqlite3/**",
-      "resources/models/**",
-      "resources/officecli/**"
+      "resources/models/**"
     ],
     "extraMetadata": {
       "main": "main.js"

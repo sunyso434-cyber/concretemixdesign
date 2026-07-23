@@ -41,6 +41,7 @@ function getBinaryPath() {
     baseDir = path.join(__dirname, '..', '..', '..', 'resources', 'officecli', platformCfg.dir)
   } else {
     // 生产环境：从 Electron resources 加载
+    // extraResources 配置把二进制平铺到 resources/officecli/<binary>（与历史打包结构一致）
     baseDir = path.join(process.resourcesPath, 'officecli')
   }
 
