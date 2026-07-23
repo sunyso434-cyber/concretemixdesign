@@ -3,6 +3,22 @@ const { messagesToText, DEFAULT_CONTEXT_LIMIT } = require('../../shared/utils/co
 const MIN_PRESERVE_RECENT_TOKENS = 2000
 const MAX_PRESERVE_RECENT_TOKENS = 8000
 
+/**
+ * 提取单条消息的文本内容（与 shared/utils/contextStats.js 的 extractContent 逻辑一致）
+ * 支持 string / array-of-parts 两种 content 结构
+ */
+function extractContent(message) {
+  if (!message || !message.content) return ''
+  if (typeof message.content === 'string') return message.content
+  if (Array.isArray(message.content)) {
+    return message.content
+      .filter(p => p && p.type === 'text' && typeof p.text === 'string')
+      .map(p => p.text)
+      .join('\n')
+  }
+  return ''
+}
+
 const COMPRESS_SYSTEM_PROMPT = `你是一个混凝土配合比设计领域的专业对话摘要助手。
 你的任务是把一段长对话历史压缩成结构化摘要，供后续 AI agent 继续工作时参考。
 摘要必须保留所有可执行的关键信息：用户需求、关键参数、已完成步骤、待办事项。`
@@ -71,9 +87,7 @@ function selectTail(messages, budget) {
   for (let i = turns.length - 1; i >= 0; i--) {
     const turn = messages.slice(turns[i].start, turns[i].end)
     const turnTokens = Math.ceil(
-      turn.reduce((sum, message) => (
-        sum + ((message && message.content && message.content.length) || 0)
-      ), 0) / 4
+      turn.reduce((sum, message) => sum + extractContent(message).length, 0) / 4
     )
     if (total + turnTokens > budget && tailStartIdx !== null) break
     total += turnTokens

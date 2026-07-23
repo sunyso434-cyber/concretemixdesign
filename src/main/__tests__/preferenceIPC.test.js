@@ -195,64 +195,6 @@ describe('7 个偏好 IPC channel', () => {
     expect(result.error).toBeDefined()
   })
 
-  // ===== v4.6.x agent:rules:upsert 修复方案 A：渲染进程整体保存 rules =====
-
-  test('agent:rules:upsert 应接收 v2 sections 对象并写盘', async () => {
-    const handler = mockHandlers.get('agent:rules:upsert')
-    expect(handler).toBeDefined()
-
-    const rules = {
-      version: 2,
-      sections: [
-        { title: '回复规范', subSections: [{ title: null, items: ['语气：严谨专业', '称呼：老板'] }] },
-        { title: '业务规则', subSections: [
-          { title: '材料', items: ['掺合料 种类 矿粉'] },
-          { title: '计算方法', items: ['质量法'] }
-        ]},
-        { title: '工作流程', subSections: [{ title: null, items: ['先确认强度等级'] }] }
-      ]
-    }
-    const result = await handler({}, { rules })
-    expect(result.success).toBe(true)
-    // 主进程返回最新 cached
-    expect(result.data).toBeDefined()
-    const p = v2ToV1Proxy(result.data.parsed)
-    expect(p.professionalPrefs.materials).toContainEqual({
-      category: '', dimension: '', value: '掺合料 种类 矿粉'
-    })
-    expect(p.professionalPrefs.method).toBe('质量法')
-    expect(p.replyStyle).toEqual({})
-    // 写盘内容必须是合法 markdown items（不再出 YAML materials: 头丢失）
-    const onDisk = fs.readFileSync(tmpFile, 'utf8')
-    expect(onDisk).toContain('- 掺合料 种类 矿粉')
-    expect(onDisk).toContain('- 质量法')
-  })
-
-  test('agent:rules:upsert 参数缺失时返回 success:false', async () => {
-    const handler = mockHandlers.get('agent:rules:upsert')
-    const result = await handler({}, { rules: null })
-    expect(result.success).toBe(false)
-    expect(result.error).toContain('rules')
-  })
-
-  test('agent:rules:upsert 即使只含 method 也能正确写入', async () => {
-    const handler = mockHandlers.get('agent:rules:upsert')
-    const rules = {
-      version: 2,
-      sections: [
-        { title: '业务规则', subSections: [
-          { title: '计算方法', items: ['体积法'] }
-        ]}
-      ]
-    }
-    const result = await handler({}, { rules })
-    expect(result.success).toBe(true)
-    expect(v2ToV1Proxy(result.data.parsed).professionalPrefs.method).toBe('体积法')
-    // 关键：markdown items 正确写盘，不再出"materials: 头丢失"问题
-    const onDisk = fs.readFileSync(tmpFile, 'utf8')
-    expect(onDisk).toContain('- 体积法')
-  })
-
   afterAll(async () => {
     await sequelize.close()
     if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)

@@ -201,6 +201,31 @@ class WikiEngine {
     await this._bm25Lock
   }
 
+  // 知识库刷新：扫 wiki/answers/*.md 全量重建 answer 独立索引
+  // - 不进 index.files（answers 是直接 wiki 页，非「源文件→wiki页」映射）
+  // - 原地写 index.answerBM25Index，调用方负责 saveIndex
+  async _rebuildAnswerBM25(index, current) {
+    const answersDir = path.join(current.path, 'wiki', 'answers')
+    let entries = []
+    try {
+      entries = await fs.readdir(answersDir)
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err
+    }
+    const docs = []
+    for (const name of entries) {
+      if (!name.endsWith('.md')) continue
+      try {
+        const raw = await fs.readFile(path.join(answersDir, name), 'utf-8')
+        const parsed = matter(raw)
+        docs.push({ path: `answers/${name}`, content: parsed.content })
+      } catch {
+        // 单文件读失败跳过，不影响其他
+      }
+    }
+    index.answerBM25Index = buildBM25(docs)
+  }
+
   // Task 2.1: 原子性 ingest (P2a 升级)
   // - 所有目标文件先在 .tmp/ingest-<uuid>/ 下准备
   // - 校验后通过 fs.rename 一次性提交（POSIX 原子操作）
@@ -398,9 +423,11 @@ class WikiEngine {
       let kgMergeResult = null
       if (this.kgExtractor && kgResult && kgResult.quality === 'high') {
         try {
-          const { mergeInto } = require('./kg-merge')
+          const { mergeInto, purgeBySource } = require('./kg-merge')
           const oldGraph = await this.kgExtractor.loadGraph(current.path)
-          const { graph: newGraph, conflicts } = mergeInto(oldGraph, kgResult, filename)
+          // 知识库刷新：先清除本文件上次贡献的旧三元组，再合并新的
+          const purged = purgeBySource(oldGraph, filename)
+          const { graph: newGraph, conflicts } = mergeInto(purged, kgResult, filename)
           await this.kgExtractor.saveGraph(current.path, newGraph)
           kgMergeResult = {
             mergedEntities: kgResult.entities.length,
@@ -415,40 +442,13 @@ class WikiEngine {
       }
 
       // ===== 4. 反向关联更新 + 清理 .tmp/ =====
-      // 4a. 反向关联更新：新笔记 A 关联到旧笔记 B → 在 B 的 relatedPages 里加上 A
-      // - 只处理 summaryResult.relatedLinks（LLM 选出的关联，已过滤 confidence/relation/存在性）
-      // - 反向 relation 用"被引用"统一表示（避免 LLM 再调一次）
-      // - 幂等：B 的 relatedPages 里已有 A 则跳过
+      // 4a. 知识库刷新：先清悬空（本文件上次留下的反向条目），再按语义写新反向关联
+      // - _purgeReverseLinks 扫所有 wiki/sources/*.md，删掉 relatedPages 里指向本文件的旧条目
+      // - _updateReverseLinks 按 REVERSE_RELATION_MAP 把正向关系映射成反向关系（未知回退「被引用」）
       // - 放在 fs.rm(.tmp) 之前，避免 Windows 上 rm 异步删除时序导致 .tmp/ 残留
-      let refsUpdated = 0
       const newPageRel = `sources/${slug}.md`
-      const relatedLinks = summaryResult?.relatedLinks || []
-      if (relatedLinks.length > 0) {
-        for (const link of relatedLinks) {
-          try {
-            const targetPath = path.join(current.path, 'wiki', link.page)
-            const raw = await fs.readFile(targetPath, 'utf-8')
-            const { data: targetFm, content: targetContent } = matter(raw)
-            const existingRelated = Array.isArray(targetFm.relatedPages) ? targetFm.relatedPages : []
-            // 幂等检查：已存在指向新笔记的关联则跳过
-            if (existingRelated.some(r => r.page === newPageRel)) continue
-            // 反向加入
-            existingRelated.push({
-              page: newPageRel,
-              relation: '被引用',
-              confidence: link.confidence || 0.8
-            })
-            targetFm.relatedPages = existingRelated
-            targetFm.updated_at = localISOString()
-            const updatedMd = matter.stringify(targetContent, targetFm)
-            await fs.writeFile(targetPath, updatedMd.replace(/\r\n/g, '\n'), 'utf-8')
-            refsUpdated++
-          } catch (err) {
-            // 反向更新失败不影响 ingest 主流程（target 文件可能被占用/损坏）
-            console.warn(`[WikiEngine.ingest] 反向关联更新失败 (${link.page}):`, err.message)
-          }
-        }
-      }
+      await this._purgeReverseLinks(newPageRel)
+      const refsUpdated = await this._updateReverseLinks(newPageRel, summaryResult?.relatedLinks || [])
 
       // 4b. 清理 .tmp/
       await fs.rm(tmpDir, { recursive: true, force: true })
@@ -1002,15 +1002,25 @@ class WikiEngine {
     const index = await loadIndex(current.path)
     const wikiIndex = index.bm25Index || { vocabulary: {}, postings: {}, docLengths: {}, avgDocLength: 0, totalDocs: 0 }
     const chatIndex = index.chatBM25Index || { vocabulary: {}, postings: {}, docLengths: {}, avgDocLength: 0, totalDocs: 0 }
+    const answerIndex = index.answerBM25Index || { vocabulary: {}, postings: {}, docLengths: {}, avgDocLength: 0, totalDocs: 0 }
 
     // Task 3.4 (P3)：两边分别查，合并排序后截 topK
     const wikiHits = queryBM25(wikiIndex, query, topK)
     const chatHits = queryBM25(chatIndex, query, topK)
+    const answerHitsRaw = queryBM25(answerIndex, query, topK)
 
     const wikiTagged = wikiHits.map(h => ({ ...h, sourceType: 'wiki' }))
     const chatTagged = chatHits.map(h => ({ ...h, sourceType: 'chatHistory' }))
+    // Task 2（知识库刷新）：answer 命中按可配置系数降权（默认 0.8），排在规范原文之后
+    const { getRefreshConfig } = require('./refresh-config')
+    const refreshCfg = await getRefreshConfig()
+    const answerTagged = answerHitsRaw.map(h => ({
+      ...h,
+      score: h.score * refreshCfg.demoteFactor,
+      sourceType: 'answer'
+    }))
 
-    const merged = wikiTagged.concat(chatTagged)
+    const merged = wikiTagged.concat(chatTagged).concat(answerTagged)
       .sort((a, b) => b.score - a.score)
       .slice(0, topK)
 
@@ -1396,11 +1406,41 @@ class WikiEngine {
     const tsFile = now.toISOString().replace(/[:.]/g, '-')  // 文件名安全
     const tsLog = now.toISOString().slice(0, 16).replace('T', ' ')  // log 行用 YYYY-MM-DD HH:mm
 
-    // 1. 写 wiki/answers/<timestamp>.md（frontmatter + 正文）
     const answersDir = path.join(wikiDir, 'answers')
     await fs.mkdir(answersDir, { recursive: true })
-    const answerRel = `answers/${tsFile}.md`
-    const answerAbs = path.join(answersDir, `${tsFile}.md`)
+
+    // 知识库刷新：upsert —— BM25 粗筛候选，再用问题文本 2-gram Jaccard 判是否同一问题
+    // ponytail：Jaccard 只识别措辞高度相似的重复；语义相同但措辞差异大的重复本期不处理（需 embedding，YAGNI）
+    const { getRefreshConfig } = require('./refresh-config')
+    let overwriteRel = null
+    try {
+      const idxForUpsert = await loadIndex(current.path)
+      const ai = idxForUpsert.answerBM25Index
+      if (ai && ai.totalDocs > 0) {
+        const cfg = await getRefreshConfig()
+        const hits = queryBM25(ai, q, 1)
+        if (hits.length > 0) {
+          const candAbs = path.join(current.path, 'wiki', hits[0].path)
+          const candRaw = await fs.readFile(candAbs, 'utf-8')
+          const candQ = matter(candRaw).data.question || ''
+          const setA = new Set(tokenize(q))
+          const setB = new Set(tokenize(candQ))
+          let inter = 0
+          for (const t of setA) if (setB.has(t)) inter++
+          const union = setA.size + setB.size - inter
+          const sim = union > 0 ? inter / union : 0
+          if (sim >= cfg.upsertThreshold) overwriteRel = hits[0].path // 形如 answers/<ts>.md
+        }
+      }
+    } catch {
+      // 查重失败不阻塞，退化为新建
+    }
+
+    // 1. 写 wiki/answers/<timestamp>.md（frontmatter + 正文）
+    // - 命中相似旧问题 → 复用其路径（覆盖更新）
+    // - 否则按当前时间戳新建
+    const answerRel = overwriteRel || `answers/${tsFile}.md`
+    const answerAbs = path.join(answersDir, path.basename(answerRel))
     const refsYaml = (refs || []).map(r => `  - "${r.replace(/"/g, '\\"')}"`).join('\n')
     const md = `---
 question: "${String(q).replace(/"/g, '\\"')}"
@@ -1416,27 +1456,30 @@ ${String(a)}
     await fs.writeFile(answerAbs, md, 'utf-8')
 
     // 2. 更新 wiki/index.md（追加「## 问答」节 + 链接）
-    const indexAbs = path.join(wikiDir, 'index.md')
-    const indexLink = `- [${q}](${answerRel})\n`
-    let indexExists = true
-    try {
-      await fs.access(indexAbs)
-    } catch {
-      indexExists = false
-    }
-    if (!indexExists) {
-      const init = `# Wiki Index\n\n## 问答\n\n${indexLink}`
-      await fs.writeFile(indexAbs, init, 'utf-8')
-    } else {
-      // 已有 index.md：在「## 问答」节后追加（无该节则创建并追加）
-      const raw = await fs.readFile(indexAbs, 'utf-8')
-      if (/## 问答/.test(raw)) {
-        // 在「## 问答」段尾追加（找到下一个 ## 或文件末尾）
-        const appended = raw.replace(/(## 问答\n[\s\S]*?)(?=\n## |\n*$)/, `$1${indexLink}`)
-        await fs.writeFile(indexAbs, appended, 'utf-8')
+    // - 覆盖模式（overwriteRel != null）跳过：旧链接已存在，避免重复
+    if (!overwriteRel) {
+      const indexAbs = path.join(wikiDir, 'index.md')
+      const indexLink = `- [${q}](${answerRel})\n`
+      let indexExists = true
+      try {
+        await fs.access(indexAbs)
+      } catch {
+        indexExists = false
+      }
+      if (!indexExists) {
+        const init = `# Wiki Index\n\n## 问答\n\n${indexLink}`
+        await fs.writeFile(indexAbs, init, 'utf-8')
       } else {
-        // 没「## 问答」节 → 追加新节
-        await fs.appendFile(indexAbs, `\n## 问答\n\n${indexLink}`, 'utf-8')
+        // 已有 index.md：在「## 问答」节后追加（无该节则创建并追加）
+        const raw = await fs.readFile(indexAbs, 'utf-8')
+        if (/## 问答/.test(raw)) {
+          // 在「## 问答」段尾追加（找到下一个 ## 或文件末尾）
+          const appended = raw.replace(/(## 问答\n[\s\S]*?)(?=\n## |\n*$)/, `$1${indexLink}`)
+          await fs.writeFile(indexAbs, appended, 'utf-8')
+        } else {
+          // 没「## 问答」节 → 追加新节
+          await fs.appendFile(indexAbs, `\n## 问答\n\n${indexLink}`, 'utf-8')
+        }
       }
     }
 
@@ -1451,7 +1494,10 @@ ${String(a)}
       await fs.writeFile(logAbs, logLine, 'utf-8')
     }
 
-    // 4. 不重建 BM25（answer 文档不入索引）
+    // 4. 知识库刷新：重建 answer 独立索引并持久化（替换旧的「不重建 BM25」）
+    const idx = await loadIndex(current.path)
+    await this._rebuildAnswerBM25(idx, current)
+    await saveIndex(current.path, idx)
 
     // 5. Task 6.6 (P6 健壮性)：末尾尝试轮转 log.md
     // - 失败不阻塞 recordAnswer 主流程（log 轮转是后台维护，不影响问答回填）
@@ -1653,6 +1699,64 @@ ${segment.text}
     } catch (err) {
       console.warn('[WikiEngine._maybeRotateLog] log 轮转失败:', err.message)
     }
+  }
+
+  // 知识库刷新：清除其他页里指向 newPageRel 的旧反向条目（重导前调用）
+  // - 扫 wiki/sources/*.md 的 relatedPages，过滤掉 r.page === newPageRel 的条目
+  // - 无变化就不写盘（避免无谓 fs.writeFile + mtime 抖动）
+  async _purgeReverseLinks(newPageRel) {
+    const current = this.workspace.current()
+    const sourcesDir = path.join(current.path, 'wiki', 'sources')
+    let entries = []
+    try { entries = await fs.readdir(sourcesDir) } catch (err) { if (err.code !== 'ENOENT') throw err }
+    for (const name of entries) {
+      if (!name.endsWith('.md')) continue
+      const abs = path.join(sourcesDir, name)
+      try {
+        const raw = await fs.readFile(abs, 'utf-8')
+        // ponytail: 传 {} 绕过 gray-matter 模块级缓存（按 file.content 字符串 key）
+        const { data: fm, content } = matter(raw, {})
+        if (!Array.isArray(fm.relatedPages)) continue
+        const filtered = fm.relatedPages.filter(r => r.page !== newPageRel)
+        if (filtered.length === fm.relatedPages.length) continue // 无变化
+        fm.relatedPages = filtered
+        fm.updated_at = localISOString()
+        await fs.writeFile(abs, matter.stringify(content, fm).replace(/\r\n/g, '\n'), 'utf-8')
+      } catch (err) {
+        console.warn(`[WikiEngine] 清悬空反向引用失败 (${name}):`, err.message)
+      }
+    }
+  }
+
+  // 知识库刷新：按语义映射写入反向关系（清悬空后调用）
+  // - 用 REVERSE_RELATION_MAP[link.relation] 把正向映射成反向（引用→被引用 / 补充→被补充 / 反驳→被反驳 / 对比→对比）
+  // - 未知 relation 回退「被引用」（防 LLM 输出新词丢关联）
+  // - 幂等：target.relatedPages 里已有 newPageRel 则跳过（避免清悬空后再被加回来）
+  // - 单条失败不影响其它（try/catch + console.warn）
+  // @returns {Promise<number>} 实际更新的反向条目数
+  async _updateReverseLinks(newPageRel, relatedLinks) {
+    const current = this.workspace.current()
+    const { REVERSE_RELATION_MAP } = require('./refresh-config')
+    let refsUpdated = 0
+    for (const link of (relatedLinks || [])) {
+      try {
+        const targetPath = path.join(current.path, 'wiki', link.page)
+        const raw = await fs.readFile(targetPath, 'utf-8')
+        // ponytail: 传 {} 绕过 gray-matter 模块级缓存（按 file.content 字符串 key）
+        const { data: targetFm, content: targetContent } = matter(raw, {})
+        const existingRelated = Array.isArray(targetFm.relatedPages) ? targetFm.relatedPages : []
+        if (existingRelated.some(r => r.page === newPageRel)) continue
+        const reverse = REVERSE_RELATION_MAP[link.relation] || '被引用'
+        existingRelated.push({ page: newPageRel, relation: reverse, confidence: link.confidence || 0.8 })
+        targetFm.relatedPages = existingRelated
+        targetFm.updated_at = localISOString()
+        await fs.writeFile(targetPath, matter.stringify(targetContent, targetFm).replace(/\r\n/g, '\n'), 'utf-8')
+        refsUpdated++
+      } catch (err) {
+        console.warn(`[WikiEngine] 反向关联更新失败 (${link.page}):`, err.message)
+      }
+    }
+    return refsUpdated
   }
 
   /**

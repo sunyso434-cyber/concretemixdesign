@@ -13,10 +13,10 @@ const WORKSPACE_TOOLS_PROMPT = `
   - depth='relevant'（默认）：返回相关段落原文（~2K tokens，纯本地，~200ms）
   - depth='full'：返回全文+LLM摘要（~8K tokens，5-15s）
 - workspace_ingest(filename) → 原始文件入 wiki（自动调 KG 提取+LLM摘要）
-- workspace_writeFile({ type, filename, payload }) → 写 docx/xlsx/md 到 reports/
+- workspace_writeFile({ type, filename, payload }) → 写 md 到 reports/（仅支持 md 格式。docx/xlsx 请用 officecli 系列：create_office_file + edit_office_file）
 - workspace_listFiles({ subdir, recursive?, includeDirs?, withIngestStatus? }) → 列出工作区条目
   **判断文件是否已导入时，务必用 subdir="root" + withIngestStatus=true，结果里每个文件带 ingested:true/false 字段**——别靠文件名猜。
-  - subdir 可选：root / wiki / wiki/sources / wiki/reports / wiki/kg/sources / reports / chat-history / raw / raw/pdf / raw/docx / raw/xlsx / raw/md / raw/txt / raw/images / raw/json / raw/js / raw/others
+  - subdir 可选：root / wiki / wiki/sources / wiki/reports / wiki/kg/sources / wiki/chat-history / reports / raw / raw/pdf / raw/docx / raw/xlsx / raw/md / raw/txt / raw/images / raw/json / raw/js / raw/others
   - recursive:true 递归子目录；includeDirs:true 列出目录条目
 - workspace_lint() → 健康检查（不阻塞）
 - workspace_searchGraph(query, topK) → 查询知识图谱，返回完整三元组。**前提：当前工作区必须已打开**。
@@ -83,7 +83,7 @@ const REPORT_SKILL_MATRIX = `## 5 类报告 → 必调 Skill 矩阵（软约束�
 ## workspace 工具软提示
 
 读工作区资料时：\`workspace_search(query)\` → \`workspace_readPage(path)\`。
-写报告时：\`payload = { title, sections: [{type:'h1'|'h2'|'p'|'list'|'table'|'code', ...}] }\` → \`workspace_writeFile({ type:'docx'|'xlsx'|'md', filename, payload })\`。**payload 必须包含 sections 数组**——只传 title 会只生成标题没正文。`
+写 md 报告时：\`payload = { title, sections: [{type:'h1'|'h2'|'p'|'list'|'table'|'code', ...}] }\` → \`workspace_writeFile({ type:'md', filename, payload })\`。**payload 必须包含 sections 数组**——只传 title 会只生成标题没正文。\n写 docx/xlsx 时：**必须用 officecli 系列技能**。工作流：\`create_office_file\` 创建空白文档 → \`edit_office_file\` 批量添加内容（支持 add/set/add_table/replace，一次最多50个操作，支持 font.ea/font.latin/size/bold/firstLineIndent/lineSpacing 等完整格式属性） → \`read_office_file\` 校验。模板场景用 \`merge_office_template\`。`
 
 /**
  * 构造 system prompt（v2）

@@ -41,7 +41,7 @@ const AGENT_LOCK_TIMEOUT = 120000 // 2 分钟超时自动释放（spec 8.2）
 // 兼容旧代码引用的全局 orchestrator（取最近一次创建的实例，仅供 getOrchestrator 内部使用）
 let orchestrator = null
 
-const { getInstance: getAgentMdService, agentMdPath } = require('../agent/agentMd')
+const { getInstance: getAgentMdService } = require('../agent/agentMd')
 const { AgentMdParser } = require('../agent/agentMd/AgentMdParser')
 const { getSuggestionStore } = require('../agent/preferences')
 const LearningService = require('../services/LearningService')
@@ -1094,78 +1094,6 @@ module.exports = {
       return { success: true, data: { skillName, filePath } }
     } catch (error) {
       return { success: false, error: error.message }
-    }
-  })
-
-  // ===== AgentMd (用户自定义规则) =====
-
-  ipcMain.handle('agentMd:load', async () => {
-    try {
-      const svc = getAgentMdService()
-      return { success: true, data: svc.getCached() }
-    } catch (err) {
-      return { success: false, error: err.message }
-    }
-  })
-
-  ipcMain.handle('agentMd:save', async (_event, { content }) => {
-    try {
-      const svc = getAgentMdService()
-      // 4KB 警告
-      if (content && content.length > 4 * 1024) {
-        console.warn(`[AgentMd] 保存内容 ${content.length} 字节，超过 4KB 阈值`)
-      }
-      await svc.saveToFile(content || '')
-      return { success: true }
-    } catch (err) {
-      return { success: false, error: err.message }
-    }
-  })
-
-  /**
-   * 整体保存"我的规则" tab 的结构化对象（v4.6.x 修复方案 A）
-   *
-   * 老方案缺陷：渲染进程手工拼 YAML 字符串再走 agentMd:save，
-   *   - 双轨序列化（前端拼字符串 vs 主进程 yaml.dump）容易写不一致
-   *   - 一处 bug 触发 YAML 解析失败，watcher 二次抛错会让主进程崩溃
-   * 新方案：渲染进程只传结构化 rules 对象，序列化统一由主进程 AgentMdParser.formatToMarkdown 完成。
-   * 这与设计文档 docs/superpowers/specs/2026-06-15-user-preference-redesign-design.md §5.2 进程归属约定一致。
-   */
-  ipcMain.handle('agent:rules:upsert', async (_event, { rules }) => {
-    try {
-      if (!rules || typeof rules !== 'object') {
-        return { success: false, error: '参数 rules 必须是对象' }
-      }
-      const svc = getAgentMdService()
-      const content = AgentMdParser.formatToMarkdown(rules)
-      // 4KB 警告
-      if (content && content.length > 4 * 1024) {
-        console.warn(`[AgentMd] 保存内容 ${content.length} 字节，超过 4KB 阈值`)
-      }
-      await svc.saveToFile(content)
-      return { success: true, data: svc.getCached() }
-    } catch (err) {
-      console.error('[AgentHandler] agent:rules:upsert 失败:', err.message)
-      return { success: false, error: err.message }
-    }
-  })
-
-  ipcMain.handle('agentMd:reload', async () => {
-    try {
-      const svc = getAgentMdService()
-      svc.loadFromFile()
-      return { success: true, data: svc.getCached() }
-    } catch (err) {
-      return { success: false, error: err.message }
-    }
-  })
-
-  ipcMain.handle('shell:openAgentMd', async () => {
-    try {
-      await shell.openPath(agentMdPath)
-      return { success: true }
-    } catch (err) {
-      return { success: false, error: err.message }
     }
   })
 

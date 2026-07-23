@@ -15,7 +15,9 @@ function defaultIndex(workspacePath) {
     files: {},
     bm25Index: emptyBM25,
     // Task 3.4 (P3)：chat-history 独立索引
-    chatBM25Index: emptyBM25
+    chatBM25Index: emptyBM25,
+    // 知识库刷新：answers 独立索引
+    answerBM25Index: emptyBM25
   }
 }
 

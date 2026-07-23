@@ -11,14 +11,37 @@
 
 const UnifiedStrategy = require('../strategies/UnifiedStrategy')
 
+// v11.7.11: UnifiedStrategy 接入 failover (v11.7.6) 后，主循环用
+// `new DeepSeekService(config, sys).chatWithToolsStream(...)` 替代了原来的
+// `this.deepseekService.chatWithToolsStream(...)`。所以这里 mock DeepSeekService
+// 构造函数，让 failover 内部 new 出来的实例也是 mock，避免打真实 API。
+// 注意 jest.mock 会被 hoist 到顶层，factory 必须用 lazy ref（let 引用），变量名
+// 必须以 `mock` 前缀（jest 强制：防未初始化 mock 变量被 hoist 后引用）。
+let mockChat = null
+let mockGetConfig = null
+jest.mock('../../services/DeepSeekService', () => {
+  return jest.fn().mockImplementation(function (config, sys) {
+    return {
+      config,
+      systemService: sys,
+      chatWithToolsStream: (...args) => mockChat(...args),
+      _getConfig: (...args) => mockGetConfig(...args)
+    }
+  })
+})
+
 describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
   // 共用 mock 工厂
   const makeMocks = () => {
-    const deepseekService = {
-      chatWithToolsStream: jest.fn(),
-      // v1.2: 复用 _getConfig() 读取 maxSteps
-      _getConfig: jest.fn(async () => ({ maxSteps: 20 }))
+    if (!mockChat) {
+      mockChat = jest.fn()
+      mockGetConfig = jest.fn()
     }
+    // 重置 mock 状态（保留 jest.fn 实例本身，避免测试间 mock.calls 串台）
+    mockChat.mockReset()
+    mockGetConfig.mockReset()
+    mockGetConfig.mockResolvedValue({ maxSteps: 20, apiKey: 'sk-test' })
+
     const skillRegistry = {
       getSkill: jest.fn(),
       getToolSchemas: jest.fn(() => [])
@@ -34,7 +57,13 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     const systemService = {
       getAgentConfig: jest.fn(async () => ({ messageTrimmerTokenBudget: 30000 }))
     }
-    return { deepseekService, skillRegistry, skillExecutor, agentMemoryService, systemService }
+    return {
+      deepseekService: { chatWithToolsStream: mockChat, _getConfig: mockGetConfig },
+      skillRegistry,
+      skillExecutor,
+      agentMemoryService,
+      systemService
+    }
   }
 
   test('场景 1: 用户消息 → LLM 单次回复 → 直接结束', async () => {

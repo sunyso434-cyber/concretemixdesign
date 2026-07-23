@@ -14,7 +14,7 @@ describe('WikiEngine.readPage（分层读取）', () => {
   beforeEach(async () => {
     tmpDir = path.join(process.cwd(), '.tmp', `readpage-${Date.now()}`)
     await fs.mkdir(tmpDir, { recursive: true })
-    for (const sub of ['wiki', 'wiki/sources', 'reports', 'chat-history']) {
+    for (const sub of ['wiki', 'wiki/sources', 'reports']) {
       await fs.mkdir(path.join(tmpDir, sub), { recursive: true })
     }
     mgr = new WorkspaceManager()

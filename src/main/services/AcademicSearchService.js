@@ -18,7 +18,7 @@ const { createError } = require('../agent/ErrorCodes')
  * 本文件 createError 调用时显式传 message/hint，不依赖注册表。
  */
 
-const SUPPORTED_PROVIDERS = ['semantic_scholar', 'openalex']
+const SUPPORTED_PROVIDERS = ['semantic_scholar', 'openalex', 'nstl']
 const ARXIV_MIN_INTERVAL_MS = 3000          // arxiv 限流：每 3 秒 1 次
 const PDF_MAX_SIZE_BYTES = 50 * 1024 * 1024 // 50 MB
 const UNPAYWALL_EMAIL = 'concrete-agent@local'  // Unpaywall 强制要求带 email
@@ -62,6 +62,74 @@ const PROVIDERS = {
       })
       return (res.data?.results || []).map(_mapOpenAlex)
     }
+  },
+  nstl: {
+    listUrl: 'https://www.nstl.gov.cn/api/service/nstl/web/execute?target=nstl4.search4&function=paper/pc/list/pl',
+    detailUrl: 'https://www.nstl.gov.cn/api/service/nstl/web/execute?target=nstl4.search4&function=paper/pc/detail',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'Origin': 'https://www.nstl.gov.cn',
+      'Referer': 'https://www.nstl.gov.cn/resources_search.html',
+      'X-Requested-With': 'XMLHttpRequest'
+    },
+    // 搜索流程：① POST 列表接口拿 id 列表 → ② 并发调详情接口拿完整字段
+    async search(query, count, timeout) {
+      // 1. 列表接口
+      const listQuery = JSON.stringify({
+        c: count, st: '0', f: [], p: '',
+        q: [{ k: 'fulltext', a: 1, o: '', f: 1, v: query }],
+        op: 'AND',
+        s: ['nstl', 'haveAbsAuK:desc', 'yea:desc', 'score'],
+        t: ['JournalPaper']
+      })
+      const listForm = new URLSearchParams({
+        query: listQuery,
+        webDisplayId: '11',
+        sl: '1',
+        pageSize: String(count),
+        pageNumber: '1'
+      }).toString()
+      const listRes = await axios.post(this.listUrl, listForm, {
+        headers: this.headers, timeout
+      })
+      const listData = listRes.data?.data
+      if (!Array.isArray(listData) || listData.length === 0) return []
+      // 列表每条是 [{f,v}] 数组，提取 id
+      const ids = listData.map(item => {
+        const idField = Array.isArray(item) ? item.find(f => f.f === 'id') : null
+        return idField?.v || null
+      }).filter(Boolean)
+
+      // 2. 并发调详情接口（5 篇并发，避免压垮）
+      const CONCURRENCY = 5
+      const results = []
+      for (let i = 0; i < ids.length; i += CONCURRENCY) {
+        const batch = ids.slice(i, i + CONCURRENCY)
+        const batchResults = await Promise.all(
+          batch.map(id => this._fetchDetail(id, timeout).catch(() => null))
+        )
+        for (const r of batchResults) {
+          if (r) results.push(_mapNstl(r))
+        }
+      }
+      return results
+    },
+    // 详情接口
+    async _fetchDetail(id, timeout) {
+      const form = new URLSearchParams({
+        id,
+        webDisplayId: '1001',
+        searchWordId: 'probe',
+        searchId: 'probe',
+        searchSequence: '1'
+      }).toString()
+      const res = await axios.post(this.detailUrl, form, {
+        headers: this.headers, timeout
+      })
+      return res.data?.data
+    }
   }
 }
 
@@ -98,6 +166,82 @@ function _mapOpenAlex(p) {
     citationCount: p.cited_by_count || 0,
     openAccessPdf: pdfUrl,
     source: 'openalex'
+  }
+}
+
+// NSTL 详情接口返回的是 [{f:'字段名', v:值}, ...] 数组结构，需转成对象再提取
+function _mapNstl(fields) {
+  if (!Array.isArray(fields)) return _emptyNstl()
+  // 把 [{f,v}] 数组转成 {字段名: v} 对象
+  // 注意：标量字段 v 是 [value]，嵌套字段 v 是 [{f,v},...]
+  const obj = {}
+  for (const item of fields) {
+    if (item && item.f) obj[item.f] = item.v
+  }
+
+  // 作者：hasAut 的 v 是 [[{f,v},...], ...] 二维数组
+  // 外层 v 数组的每个元素 = 一个作者的字段数组 [{f:'nam',v:['姓名']}, {f:'id',...}, ...]
+  let authors = []
+  if (Array.isArray(obj.hasAut)) {
+    authors = obj.hasAut.map(authorFields => {
+      if (!Array.isArray(authorFields)) return { name: '' }
+      const nameField = authorFields.find(x => x.f === 'nam')
+      const nameArr = nameField?.v
+      const name = Array.isArray(nameArr) ? nameArr[0] : nameArr
+      return { name: name || '' }
+    }).filter(a => a.name)
+  }
+
+  // 期刊名：hasSo 的 v 是 [[{f,v},...], ...] 二维数组
+  // 第一个元素是期刊对象，期刊标题字段是 tit（不是 nam）
+  let venue = ''
+  if (Array.isArray(obj.hasSo) && obj.hasSo.length > 0) {
+    const sourceFields = obj.hasSo[0]
+    if (Array.isArray(sourceFields)) {
+      const titleField = sourceFields.find(x => x.f === 'tit')
+      const nameArr = titleField?.v
+      venue = Array.isArray(nameArr) ? nameArr[0] || '' : (nameArr || '')
+    }
+  }
+
+  // 摘要：优先 abs（中文），没有则 abal（英文）
+  const absArr = obj.abs
+  const abalArr = obj.abal
+  const abstract = (Array.isArray(absArr) ? absArr[0] : absArr)
+    || (Array.isArray(abalArr) ? abalArr[0] : abalArr)
+    || ''
+  // 年份：yea 是 ["2026"]
+  const yeaArr = obj.yea
+  const yeaStr = Array.isArray(yeaArr) ? yeaArr[0] : yeaArr
+  const year = yeaStr ? parseInt(yeaStr, 10) : null
+  // DOI
+  const doiArr = obj.doi
+  const doi = (Array.isArray(doiArr) ? doiArr[0] : doiArr) || null
+  // 标题
+  const titArr = obj.tit
+  const title = (Array.isArray(titArr) ? titArr[0] : titArr) || ''
+  // id
+  const idArr = obj.id
+  const id = (Array.isArray(idArr) ? idArr[0] : idArr) || ''
+
+  return {
+    title,
+    authors,
+    year: (Number.isInteger(year) && year > 0) ? year : null,
+    venue,
+    abstract,
+    doi,
+    url: id ? `https://www.nstl.gov.cn/paper_detail.html?id=${id}` : '',
+    citationCount: 0, // NSTL 不提供引用数
+    openAccessPdf: null, // NSTL 全文走文献传递申请，无直链
+    source: 'nstl'
+  }
+}
+
+function _emptyNstl() {
+  return {
+    title: '', authors: [], year: null, venue: '', abstract: '',
+    doi: null, url: '', citationCount: 0, openAccessPdf: null, source: 'nstl'
   }
 }
 
@@ -270,6 +414,8 @@ class AcademicSearchService {
 
   /**
    * search 模式：按关键词搜索论文列表
+   * 级联 fallback：主 provider 报错/0结果/置信度低（摘要全空）时自动跳下一个
+   * fallback 链：配置的 provider → 其余 provider 按顺序补
    * @param {string} query - 搜索关键词（1-200 字）
    * @param {number} count - 返回条数 1-10（默认 5）
    */
@@ -277,8 +423,7 @@ class AcademicSearchService {
     if (!query || typeof query !== 'string') {
       throw createError('E-SEARCH-INVALID-QUERY', '搜索关键词无效', '请提供 1-200 字的搜索关键词')
     }
-    const impl = PROVIDERS[this.provider]
-    if (!impl) {
+    if (!PROVIDERS[this.provider]) {
       throw createError(
         'E-SEARCH-INVALID-ACADEMIC-PROVIDER',
         '不支持的学术搜索服务商',
@@ -288,20 +433,81 @@ class AcademicSearchService {
     }
     const n = parseInt(count, 10)
     const finalCount = Math.min(Math.max(Number.isNaN(n) ? 5 : n, 1), 10)
-    try {
-      const results = await impl.search(query, finalCount, this.timeout)
+
+    // 构建 fallback 链：用户选择永远排第一，用户选择无效后 fallback 阶段才考虑语言
+    // 中文查询（含汉字）→ fallback 阶段 nstl 优先于其他英文 provider（解决 openalex 挡住 nstl 的 bug）
+    // 英文查询 → fallback 阶段按 SUPPORTED_PROVIDERS 定义顺序
+    const isChinese = /[\u4e00-\u9fa5]/.test(query)
+    let chain
+    if (isChinese && this.provider !== 'nstl') {
+      // 中文查询且用户选的不是 nstl：用户选的排第一，fallback 阶段 nstl 优先于 openalex
+      const others = SUPPORTED_PROVIDERS.filter(p => p !== 'nstl' && p !== this.provider)
+      chain = [this.provider, 'nstl', ...others]
+    } else {
+      // 英文查询 或 用户已显式配置 nstl：按 SUPPORTED_PROVIDERS 定义顺序
+      chain = [this.provider, ...SUPPORTED_PROVIDERS.filter(p => p !== this.provider)]
+    }
+    const triedProviders = []   // 记录尝试过的 provider，用于结果回显
+    const errors = []           // 记录各 provider 的失败原因，用于调试
+
+    for (const provider of chain) {
+      const impl = PROVIDERS[provider]
+      triedProviders.push(provider)
+      try {
+        const results = await impl.search(query, finalCount, this.timeout)
+        // 置信度判断：结果非空，且至少 1 篇有摘要 → 视为成功
+        // 摘要全空视为低置信度，继续 fallback
+        const hasUsefulResults = results.length > 0
+          && results.some(r => (r.abstract || '').trim().length > 0)
+        if (hasUsefulResults) {
+          return {
+            success: true,
+            mode: 'search',
+            query,
+            provider,              // 实际命中的 provider
+            fallbackUsed: triedProviders.length > 1,  // 是否触发了 fallback
+            providersTried: triedProviders,
+            total: results.length,
+            results
+          }
+        }
+        // 0 结果或摘要全空 → 记录原因，继续 fallback
+        errors.push({ provider, reason: results.length === 0 ? 'no_results' : 'all_empty_abstract' })
+      } catch (error) {
+        // 报错 → 记录原因，继续 fallback
+        if (error?.success === false && error?.code) {
+          errors.push({ provider, reason: error.code })
+        } else {
+          const classified = this._classifyError(error, 'search')
+          errors.push({ provider, reason: classified.code })
+        }
+      }
+    }
+
+    // 所有 provider 都失败 → 抛最后一个的错误
+    const last = errors[errors.length - 1]
+    const lastErr = last?.reason
+    // 如果全是 no_results / all_empty_abstract（非异常），返回空结果而不是报错
+    if (errors.every(e => e.reason === 'no_results' || e.reason === 'all_empty_abstract')) {
       return {
         success: true,
         mode: 'search',
         query,
         provider: this.provider,
-        total: results.length,
-        results
+        fallbackUsed: triedProviders.length > 1,
+        providersTried: triedProviders,
+        total: 0,
+        results: []
       }
-    } catch (error) {
-      if (error?.success === false && error?.code) throw error
-      throw this._classifyError(error, 'search')
     }
+    // 有异常类错误，抛最后一个非 no_results 的
+    const realError = errors.find(e => e.reason !== 'no_results' && e.reason !== 'all_empty_abstract')
+    throw createError(
+      realError?.reason || 'E-SYS-999',
+      '所有学术搜索服务商均失败',
+      `已尝试 ${triedProviders.join(' → ')}，错误：${errors.map(e => `${e.provider}=${e.reason}`).join(', ')}`,
+      { providersTried: triedProviders, errors }
+    )
   }
 
   /**

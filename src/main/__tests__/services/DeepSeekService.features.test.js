@@ -64,7 +64,7 @@ describe('DeepSeekService._applyProviderFeatures 厂商特性开关', () => {
     expect(body.chat_template_kwargs).toBeUndefined()
   })
 
-  test('MiniMax M3：thinking=false 发送 thinking: { type: "disabled" }', () => {
+  test('MiniMax M3：thinking=false 发送 thinking: { type: "disabled" }（v11.7.9: max_tokens 优先）', () => {
     const body = {}
     service._applyProviderFeatures(body, {
       provider: 'minimax',
@@ -73,8 +73,8 @@ describe('DeepSeekService._applyProviderFeatures 厂商特性开关', () => {
       features: { supportsThinking: true, supportsMaxTokens: true, supportsMaxCompletionTokens: true },
     })
     expect(body.thinking).toEqual({ type: 'disabled' })
-    expect(body.max_completion_tokens).toBe(8192)
-    expect(body.max_tokens).toBeUndefined()
+    expect(body.max_tokens).toBe(8192)
+    expect(body.max_completion_tokens).toBeUndefined()
     expect(body.reasoning_effort).toBeUndefined()
   })
 
@@ -89,7 +89,7 @@ describe('DeepSeekService._applyProviderFeatures 厂商特性开关', () => {
     expect(body.thinking).toEqual({ type: 'adaptive' })
   })
 
-  test('OpenAI：用 max_completion_tokens + reasoning_effort', () => {
+  test('OpenAI：supportsMaxTokens=false 时 fallback 到 max_completion_tokens', () => {
     const body = {}
     service._applyProviderFeatures(body, {
       provider: 'openai',
@@ -103,7 +103,7 @@ describe('DeepSeekService._applyProviderFeatures 厂商特性开关', () => {
     expect(body.thinking).toBeUndefined()
   })
 
-  test('Moonshot：用 max_completion_tokens，不支持 reasoning_effort', () => {
+  test('Moonshot：supportsMaxTokens=false 时 fallback 到 max_completion_tokens', () => {
     const body = {}
     service._applyProviderFeatures(body, {
       provider: 'moonshot',
@@ -139,15 +139,26 @@ describe('DeepSeekService._applyProviderFeatures 厂商特性开关', () => {
     expect(body.reasoning_effort).toBeUndefined()
   })
 
-  test('通义千问：supportsMaxCompletionTokens=true 优先 max_completion_tokens', () => {
+  test('通义千问：supportsMaxTokens=true 优先 max_tokens（v11.7.9 优先级调整）', () => {
     const body = {}
     service._applyProviderFeatures(body, {
       provider: 'qwen',
       maxTokens: 4096,
       features: { supportsMaxTokens: true, supportsMaxCompletionTokens: true },
     })
-    expect(body.max_completion_tokens).toBe(4096)
-    expect(body.max_tokens).toBeUndefined()
+    expect(body.max_tokens).toBe(4096)
+    expect(body.max_completion_tokens).toBeUndefined()
+  })
+
+  test('v11.7.9：两者都支持时 max_tokens 优先', () => {
+    const body = {}
+    service._applyProviderFeatures(body, {
+      provider: 'moonshot',
+      maxTokens: 4096,
+      features: { supportsMaxTokens: true, supportsMaxCompletionTokens: true },
+    })
+    expect(body.max_tokens).toBe(4096)
+    expect(body.max_completion_tokens).toBeUndefined()
   })
 
   test('Ollama：用 max_tokens', () => {

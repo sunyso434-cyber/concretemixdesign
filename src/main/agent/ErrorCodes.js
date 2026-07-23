@@ -31,6 +31,20 @@ module.exports = {
   TIMEOUT_RETRY_EXHAUSTED: 'TIMEOUT_RETRY_EXHAUSTED',
   RATE_LIMIT_EXHAUSTED: 'RATE_LIMIT_EXHAUSTED',
 
+  // ===== OfficeCLI 相关错误（v11.7.0）=====
+  UNSUPPORTED_PROP: 'UNSUPPORTED_PROP',
+  ADD_TABLE_FAILED: 'ADD_TABLE_FAILED',
+  BATCH_FAILED: 'BATCH_FAILED',
+  MOVE_FAILED: 'MOVE_FAILED',
+  SWAP_FAILED: 'SWAP_FAILED',
+  VALIDATE_FAILED: 'VALIDATE_FAILED',
+  REFRESH_FAILED: 'REFRESH_FAILED',
+  IMPORT_FAILED: 'IMPORT_FAILED',
+  RESIDENT_OPEN_FAILED: 'RESIDENT_OPEN_FAILED',
+  RESIDENT_NOT_OPEN: 'RESIDENT_NOT_OPEN',
+  QUERY_FAILED: 'QUERY_FAILED',
+  RAW_FAILED: 'RAW_FAILED',
+
   // ===== 转发函数引用（兼容对象方法调用形式）=====
   // 见下方 createError / _getRecoveryStrategy 的模块作用域函数定义；
   // 这里挂回对象上，让 `ErrorCodes.createError(...)` 这种老用法继续 work。
@@ -84,6 +98,20 @@ const AI_ERROR_REGISTRY = {
   'E-SEARCH-PDF-TOO-LARGE': { title: 'PDF 超过 50 MB', hint: '大文件请用浏览器下载', recovery: 'manual_resolve', severity: 'warn' },
   'E-SEARCH-PDF-INGEST-FAILED': { title: 'PDF 已下载但入库失败', hint: '文件已落盘，可手动调用 workspace_ingest', recovery: 'manual_resolve', severity: 'warn' },
   'E-SEARCH-INVALID-ACADEMIC-PROVIDER': { title: '不支持的学术搜索服务商', hint: '目前仅支持 semantic_scholar / openalex，请用 configure_academic_search 重新配置', recovery: 'fix_settings', severity: 'error' },
+
+  // ===== OfficeCLI 相关错误（v11.7.0）=====
+  'UNSUPPORTED_PROP': { title: 'OfficeCLI 不支持的格式属性', hint: '检查属性名拼写，常用：bold/italic/font/size/color/align/firstLineIndent/lineSpacing/lineRule/font.ea/font.latin', recovery: 'fix_params', severity: 'error' },
+  'ADD_TABLE_FAILED': { title: '添加表格失败', hint: 'rows/cols 是正整数，parent 用 /body', recovery: 'fix_params', severity: 'error' },
+  'BATCH_FAILED': { title: '批量操作失败', hint: '逐条回退定位哪条失败', recovery: 'manual_resolve', severity: 'error' },
+  'MOVE_FAILED': { title: '移动元素失败', hint: '源 path 和 after/before 在同父容器', recovery: 'fix_params', severity: 'error' },
+  'SWAP_FAILED': { title: '交换元素失败', hint: '两 path 同类型', recovery: 'fix_params', severity: 'error' },
+  'VALIDATE_FAILED': { title: 'OpenXML 校验失败', hint: '从备份恢复或重新生成', recovery: 'manual_resolve', severity: 'error' },
+  'REFRESH_FAILED': { title: '刷新目录/页码失败', hint: '仅 Word + Windows 支持', recovery: 'manual_resolve', severity: 'error' },
+  'IMPORT_FAILED': { title: 'CSV/TSV 导入失败', hint: '源文件存在、表头合法、目标 sheet 存在', recovery: 'fix_params', severity: 'error' },
+  'RESIDENT_OPEN_FAILED': { title: '打开驻留进程失败', hint: '检查文件是否被独占锁定', recovery: 'retry', severity: 'error' },
+  'RESIDENT_NOT_OPEN': { title: '文件未在驻留模式打开', hint: '先调用 open_office_resident', recovery: 'fix_params', severity: 'error' },
+  'QUERY_FAILED': { title: '查询元素失败', hint: 'selector 用 element/attribute/value 三选一', recovery: 'fix_params', severity: 'error' },
+  'RAW_FAILED': { title: '底层 XML part 操作失败', hint: '会损坏文件，先备份', recovery: 'manual_resolve', severity: 'error' },
 }
 
 /**

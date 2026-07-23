@@ -15,7 +15,10 @@ try {
 
 if (!userDataPath) {
   // 优先使用环境变量，其次回退到当前工作目录下的 data 文件夹
-  userDataPath = process.env.USER_DATA_PATH || process.env.APPDATA || path.join(process.cwd(), 'data')
+  const basePath = process.env.USER_DATA_PATH || process.env.APPDATA || path.join(process.cwd(), 'data')
+  // Electron app.getPath('userData') 会返回 <Roaming>/concrete-mixdesign，
+  // 非 Electron 环境需手动补上这个子目录以保持路径一致
+  userDataPath = path.join(basePath, 'concrete-mixdesign')
 }
 
 // 数据库文件路径

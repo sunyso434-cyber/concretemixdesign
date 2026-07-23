@@ -1,3 +1,23 @@
+## 🔧 后端源码抢救 (2026-07-23)
+
+> **背景**：一次错误的 git 操作导致 v11.3.1 → v11.8.4 之间的所有提交丢失（reflog / 悬空对象均已被清空，无法从 git 找回）。git HEAD 回退到 v11.3.0。所幸 `dist-11.8.4` 打包产物仍在，从其 `win-unpacked/resources/app.asar` 中抢救出后端源码。
+
+### ✅ 已恢复（从 app.asar 抢救的真源码）
+- **51 个后端文件**：16 个新增 + 35 个修改，覆盖恢复到磁盘。
+- 新增亮点：`services/llmFailover.js`（大模型故障切换）、`services/WebFetchService.js`（网页抓取）、`skills/web-fetch.js`、`skills/update-agent-rules.js`、`officecli/officecli-bridge.js`、`workspace/refresh-config.js` 及配套测试。
+- 修改亮点：`resources/models/{density,strength28d,superplasticizerdosage}.json`（模型重训）、`agent/*`、`services/{DeepSeekService,AcademicSearchService,MemoryTierService,contextCompression,SystemService}`、`workspace/{WikiEngine,WorkspaceManager,kg-merge,index-store,write-handler}` 等。
+- 验证：全部文件 `node --check` 语法通过；恢复的服务测试 114 项全绿。
+
+### ⚠️ 未能恢复（asar 只有编译压缩产物）
+- **前端 React 源码（`src/renderer/**`）停留在 v11.3.0**。asar 内前端仅为 vite 编译压缩后的 `build/renderer/assets/*.js`，无可读 jsx 源码。经老板确认：**只救后端，前端先不动**。
+- 后果：若日后重新 `npm run build`，界面会退回 v11.3.0；顶栏版本标签源码仍为 v11.3.0（编译产物显示 11.8.4）。11.3.1→11.8.4 的界面改动需后续按需手动重做。
+- **v11.3.1 → v11.8.4 的详细 changelog 无法找回**（version_log 记录随提交一并丢失）。
+
+### 🗑️ 磁盘残留（未自动处理，待老板决定）
+- 6 个 `.gitkeep` 空占位符 + 2 个迁移测试文件（`migrations/__tests__/2026-06-15-*.test.js`）在 11.8.4 中已不存在，本次保留未删。
+
+---
+
 ## v11.3.0 AI 自动回填问答 (2026-07-17)
 
 ### 新增

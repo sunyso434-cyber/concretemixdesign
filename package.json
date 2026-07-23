@@ -1,26 +1,8 @@
 {
   "name": "concrete-mixdesign",
-  "version": "11.3.0",
+  "version": "11.8.4",
   "description": "砼智 Concrete Agent",
   "main": "main.js",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "electron:dev": "set \"ELECTRON_RUN_AS_NODE=\" && cross-env NODE_ENV=development electron .",
-    "electron:build": "cross-env NODE_ENV=production vite build && electron-builder",
-    "backup": "node backup.js",
-    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest",
-    "test:manual": "node tests/manual/run-node-suites.js",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
-  },
-  "keywords": [
-    "concrete",
-    "mix design",
-    "electron",
-    "react"
-  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
@@ -51,88 +33,5 @@
     "uuid": "^14.0.0",
     "xlsx": "^0.18.5"
   },
-  "devDependencies": {
-    "@babel/preset-env": "^7.29.7",
-    "@babel/preset-react": "^7.29.7",
-    "@electron/rebuild": "^4.0.3",
-    "@playwright/test": "^1.61.0",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@vitejs/plugin-react": "^4.2.1",
-    "babel-jest": "^30.4.1",
-    "cross-env": "^10.1.0",
-    "electron": "^28.3.3",
-    "electron-builder": "^24.9.1",
-    "electron-rebuild": "^3.2.9",
-    "jest": "^29.7.0",
-    "jest-environment-jsdom": "^29.7.0",
-    "pdfkit": "^0.19.1",
-    "vite": "^5.0.8"
-  },
-  "type": "commonjs",
-  "build": {
-    "appId": "com.concrete.mixdesign",
-    "productName": "砼智",
-    "copyright": "Copyright © 2026",
-    "directories": {
-      "output": "dist-11.3.0",
-      "buildResources": "public"
-    },
-    "files": [
-      "main.js",
-      "package.json",
-      "build/**",
-      "migrations/*.js",
-      "src/main/**",
-      "src/shared/**",
-      "resources/**",
-      "node_modules/**"
-    ],
-    "asarUnpack": [
-      "node_modules/sqlite3/**",
-      "resources/models/**"
-    ],
-    "extraMetadata": {
-      "main": "main.js"
-    },
-    "win": {
-      "icon": "public/icon.ico",
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "certificateFile": null,
-      "certificatePassword": null,
-      "signingHashAlgorithms": [
-        "sha256"
-      ],
-      "sign": null
-    },
-    "portable": {
-      "artifactName": "${productName}-${version}-portable-x64.exe"
-    },
-    "buildDependenciesFromSource": true,
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "installerIcon": "public/icon.ico",
-      "uninstallerIcon": "public/icon.ico",
-      "installerHeaderIcon": "public/icon.ico",
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "砼智"
-    },
-    "npmRebuild": false
-  }
+  "type": "commonjs"
 }

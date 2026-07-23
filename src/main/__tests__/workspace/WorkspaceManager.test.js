@@ -34,7 +34,7 @@ describe('WorkspaceManager', () => {
   test('open 后自动建子目录', async () => {
     await mgr.open(testPath)
     const subdirs = await fs.readdir(testPath)
-    expect(subdirs).toEqual(expect.arrayContaining(['wiki', 'reports', 'chat-history']))
+    expect(subdirs).toEqual(expect.arrayContaining(['wiki', 'reports']))
   })
 
   test('未 open 时 listFiles 抛 NOT_OPEN', async () => {

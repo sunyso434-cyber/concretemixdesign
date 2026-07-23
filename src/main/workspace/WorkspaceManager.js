@@ -24,7 +24,7 @@ class WorkspaceManager extends EventEmitter {
       await fs.access(p, fs.constants.W_OK)
       // v2026-07-03：新增 raw/ 原始文件存放区，内部按文件类型分子目录
       const rawSubdirs = ['raw', 'raw/pdf', 'raw/docx', 'raw/xlsx', 'raw/md', 'raw/txt', 'raw/images', 'raw/json', 'raw/js', 'raw/others']
-      const baseSubdirs = ['wiki', 'reports', 'chat-history']
+      const baseSubdirs = ['wiki', 'reports']
       for (const sub of baseSubdirs.concat(rawSubdirs)) {
         await fs.mkdir(path.join(p, sub), { recursive: true })
       }
@@ -101,7 +101,7 @@ class WorkspaceManager extends EventEmitter {
     console.log('[WorkspaceManager.watch] starting chokidar on:', watchPath)
     this._watcher = chokidar.watch(watchPath, {
       ignored: [
-        /(^|[\/\\])wiki\//, /(^|[\/\\])reports\//, /(^|[\/\\])chat-history\//,
+        /(^|[\/\\])wiki\//, /(^|[\/\\])reports\//,
         /(^|[\/\\])\.tmp\//, /^~\$/, /\.crdownload$/, /\.part$/,
         /(^|[\/\\])\.DS_Store$/, /(^|[\/\\])Thumbs\.db$/, /(^|[\/\\])desktop\.ini$/,
         /(^|[\/\\])\..+/  // 隐藏文件

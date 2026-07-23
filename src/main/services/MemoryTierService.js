@@ -73,15 +73,19 @@ class MemoryTierService {
       { rawMode: true }
     )
 
+    // DeepSeekService.chat() 返回 { reply, toolCalls, messages }，不是 { content }
+    const rawContent = response.reply || response.content || ''
     let parsed = {
-      summary: response.content?.slice(0, 200) || 'empty summary',
+      summary: rawContent.slice(0, 200) || 'empty summary',
       keyDecisions: [],
       toolCalls: []
     }
     try {
-      const jsonMatch = response.content?.match(/\{[\s\S]*\}/)
+      const jsonMatch = rawContent.match(/\{[\s\S]*\}/)
       if (jsonMatch) parsed = { ...parsed, ...JSON.parse(jsonMatch[0]) }
-    } catch (_) {}
+    } catch (_) {
+      console.warn('[MemoryTierService.summarizeOldMessages] JSON 解析失败，使用原文作为摘要')
+    }
 
     return SessionSummary.create({
       sessionId,

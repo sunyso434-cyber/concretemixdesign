@@ -171,15 +171,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openUserDir: () => ipcRenderer.invoke('skill:openUserDir'),
     reload: () => ipcRenderer.invoke('skill:reload')
   },
-  // AgentMd (用户自定义规则)
-  agentMd: {
-    load: () => ipcRenderer.invoke('agentMd:load'),
-    save: (content) => ipcRenderer.invoke('agentMd:save', { content }),
-    reload: () => ipcRenderer.invoke('agentMd:reload')
-  },
-  shell: {
-    openAgentMd: () => ipcRenderer.invoke('shell:openAgentMd')
-  },
   // === v1.5.3 新增：workspace 模块（Task 1.9）===
   // 命名统一：所有 workspace IPC 都通过 electronAPI.workspace.* 访问
   // 与未来 skill.*/agentMd.* 命名风格一致

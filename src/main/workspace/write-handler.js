@@ -16,7 +16,6 @@
 //   - 单元测试直接调本模块，不必 mock electron.ipcMain
 const path = require('path')
 const fs = require('fs').promises
-const matter = require('gray-matter')
 const writers = require('./writers')
 const { WorkspaceError } = require('./WorkspaceError')
 
@@ -28,12 +27,12 @@ const { WorkspaceError } = require('./WorkspaceError')
  * @param {Object} args
  * @param {Object} args.workspaceManager - WorkspaceManager 实例（需有 current() 方法）
  * @param {Object} [args.wikiEngine] - WikiEngine 实例；传入时会把报告同步 ingest 为 wiki 页面
- * @param {string} args.type - 'docx' | 'xlsx' | 'markdown' | 'md'
+ * @param {string} args.type - 'markdown' | 'md'
  * @param {string} args.filename - 落盘文件名（不含路径），如 'report.docx'
  * @param {Object} args.payload - writer payload（spec §4.4）。patches 模式下忽略。
  * @param {Array} [args.patches] - v10.2.0 局部 patch 模式：[{ find, replace, replaceAll? }]。仅 .md/.markdown 支持。
  * @param {Object} [args.style] - 报告样式（已合并好的最终 style 对象，由调用方 mergeStyle 后传入）。
- *   仅 docx writer 使用；xlsx/md writer 忽略。结构见 skills/report-styles.js DEFAULT_REPORT_STYLE。
+ *   仅 md writer 使用（docx/xlsx 已迁移到 officecli）。
  * @returns {Promise<{path: string, size: number, savedAt: string, wikiPage?: string, backupPath?: string, patchResults?: Array}>}
  */
 async function writeFile({ workspaceManager, wikiEngine = null, type, filename, payload, patches, style = null }) {
@@ -47,7 +46,7 @@ async function writeFile({ workspaceManager, wikiEngine = null, type, filename, 
   if (!type || typeof type !== 'string') {
     throw new WorkspaceError(
       'E-PARAM-MISSING',
-      '缺少必填参数: type（文件类型，必须是 docx / xlsx / md 之一）',
+      '缺少必填参数: type（文件类型，仅支持 md）',
       false,
       { received: { type, hasFilename: !!filename, hasPayload: !!payload, hasPatches: Array.isArray(patches) } }
     )
@@ -108,27 +107,13 @@ async function writeFile({ workspaceManager, wikiEngine = null, type, filename, 
     throw new WorkspaceError('WRITE_FAIL', `写入文件失败：${err.message}`, true, err)
   }
 
-  // 4) 同步生成 wiki 可搜索版本
-  // - docx/xlsx：原文件不是文本，生成 md 内容后通过 ingestReport 直接写 wiki/sources/
-  // - md/markdown：原文件可直接 ingest，走 wikiEngine.ingest(reports/)
+  // 4) 同步生成 wiki 可搜索版本（md 文件直接 ingest）
   let wikiPage = null
   if (wikiEngine) {
     try {
-      if (type === 'md' || type === 'markdown') {
-        const ingestResult = await wikiEngine.ingest({ filename: `reports/${filename}` })
-        wikiPage = ingestResult.pagesCreated?.[0] || null
-      } else {
-        const mdBuf = await writers.write('md', payload)
-        const parsed = matter(mdBuf.toString('utf-8'))
-        const ingestResult = await wikiEngine.ingestReport({
-          filename: `reports/${filename}`,
-          content: parsed.content,
-          title: parsed.data.title || payload.title
-        })
-        wikiPage = ingestResult.wikiPage
-      }
+      const ingestResult = await wikiEngine.ingest({ filename: `reports/${filename}` })
+      wikiPage = ingestResult.pagesCreated?.[0] || null
     } catch (err) {
-      // wiki 同步失败不影响原文件写入，仅记录日志
       console.warn('[write-handler] 同步 wiki 版本失败:', err.message)
     }
   }

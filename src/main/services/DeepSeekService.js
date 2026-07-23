@@ -245,6 +245,100 @@ const TOOLS = [
   },
   ]
 
+// ========== 内联思考解析器（MiniMax M3 等厂商） ==========
+// 某些厂商不走 reasoning_content 独立字段，而是把 <think>...</think>
+// 混在 content 正文里。此解析器在流式阶段就把它们分离成 reasoning / text 事件，
+// 让后续链路无需感知厂商差异。
+
+/**
+ * 检查字符串末尾是否是不完整的 <think> 起始标签
+ * 例：'xxx<th' → 返回 3, 'xxx<thin' → 返回 5
+ */
+function _partialStartTagLen(str) {
+  const tag = '<think>'
+  for (let i = tag.length - 1; i >= 1; i--) {
+    if (str.endsWith(tag.slice(0, i))) return i
+  }
+  return 0
+}
+
+/**
+ * 检查字符串末尾是否是不完整的 </think> 结束标签
+ */
+function _partialEndTagLen(str) {
+  const tag = '</think>'
+  for (let i = tag.length - 1; i >= 1; i--) {
+    if (str.endsWith(tag.slice(0, i))) return i
+  }
+  return 0
+}
+
+/**
+ * 把含 <think> 标签的 content chunk 拆成 reasoning / text 两部分
+ * @param {string} chunk — 当前 chunk 的 delta.content
+ * @param {{inThink: boolean, buffer: string}} state — 跨 chunk 状态
+ * @returns {Array<{type: 'reasoning'|'text', content: string}>}
+ */
+function parseInlineThinking(chunk, state) {
+  const text = state.buffer + chunk
+  state.buffer = ''
+
+  const results = []
+  let pos = 0
+
+  while (pos < text.length) {
+    if (state.inThink) {
+      // 当前在 <think> 块内，找 </think>
+      const endIdx = text.indexOf('</think>', pos)
+      if (endIdx === -1) {
+        // 没找到结束标签 → 剩余内容全是 thinking
+        const remaining = text.slice(pos)
+        const partialLen = _partialEndTagLen(remaining)
+        if (partialLen > 0) {
+          // 末尾可能是被截断的 </think>，先缓存起来
+          results.push({ type: 'reasoning', content: remaining.slice(0, -partialLen) })
+          state.buffer = remaining.slice(-partialLen)
+        } else {
+          results.push({ type: 'reasoning', content: remaining })
+        }
+        break
+      } else {
+        // 找到 </think> → 结束 thinking 模式
+        results.push({ type: 'reasoning', content: text.slice(pos, endIdx) })
+        pos = endIdx + 8 // 跳过 '</think>'
+        state.inThink = false
+      }
+    } else {
+      // 当前在正文区域，找 <think>
+      const startIdx = text.indexOf('<think>', pos)
+      if (startIdx === -1) {
+        // 没找到起始标签 → 剩余内容全是正文
+        const remaining = text.slice(pos)
+        const partialLen = _partialStartTagLen(remaining)
+        if (partialLen > 0) {
+          // 末尾可能是被截断的 <think>，先缓存
+          if (remaining.length > partialLen) {
+            results.push({ type: 'text', content: remaining.slice(0, -partialLen) })
+          }
+          state.buffer = remaining.slice(-partialLen)
+        } else {
+          results.push({ type: 'text', content: remaining })
+        }
+        break
+      } else {
+        // 找到 <think> → 进入 thinking 模式
+        if (startIdx > pos) {
+          results.push({ type: 'text', content: text.slice(pos, startIdx) })
+        }
+        pos = startIdx + 7 // 跳过 '<think>'
+        state.inThink = true
+      }
+    }
+  }
+
+  return results.filter(r => r.content.length > 0)
+}
+
 class DeepSeekService {
   constructor(apiKeyOrConfig, systemService = null) {
     // 支持两种构造方式：
@@ -350,6 +444,7 @@ class DeepSeekService {
     const data = error && error.response && error.response.data
     let rawMessage = ''
     if (data && typeof data.on === 'function') {
+      // 仍是 readable stream（_callAPI 非流式或 _callAPIStream 未预读场景）
       try {
         const body = await this._readErrorBody(data)
         if (body != null) {
@@ -364,10 +459,17 @@ class DeepSeekService {
       } catch (_) { }
     } else if (data && data.error && data.error.message) {
       rawMessage = data.error.message
+    } else if (data && typeof data === 'string') {
+      // v11.7.5: _callAPIStream 已将 stream 预读为字符串
+      rawMessage = data.slice(0, 500)
     } else if (data && typeof data === 'object') {
       try {
         rawMessage = JSON.stringify(data).slice(0, 500)
       } catch (_) { }
+    }
+    // v11.7.5: 兜底取 _apiErrorBody（_callAPIStream 预注入）
+    if (!rawMessage && error && error._apiErrorBody) {
+      rawMessage = String(error._apiErrorBody).slice(0, 500)
     }
     if (!rawMessage && error && error.message) rawMessage = String(error.message)
 
@@ -443,11 +545,13 @@ class DeepSeekService {
   _applyProviderFeatures(requestBody, cfg) {
     const features = cfg.features || {}
 
-    // max_completion_tokens 优先（MiniMax-M3/OpenAI/Moonshot 推荐），其次 max_tokens
-    if (features.supportsMaxCompletionTokens && cfg.maxTokens) {
-      requestBody.max_completion_tokens = cfg.maxTokens
-    } else if (features.supportsMaxTokens && cfg.maxTokens) {
-      requestBody.max_tokens = cfg.maxTokens
+    // v11.7.9: max_tokens 优先（兼容性更广，火山引擎等第三方网关均支持）
+    // max_completion_tokens 作为备选（OpenAI/Moonshot 推荐但网关可能不支持）
+    // v11.7.5: 强制 Number() 防止前端传字符串导致 API 400（如 "1024" 而非 1024）
+    if (features.supportsMaxTokens && cfg.maxTokens) {
+      requestBody.max_tokens = Number(cfg.maxTokens)
+    } else if (features.supportsMaxCompletionTokens && cfg.maxTokens) {
+      requestBody.max_completion_tokens = Number(cfg.maxTokens)
     }
 
     // thinking：各厂商格式不同
@@ -577,14 +681,43 @@ class DeepSeekService {
     }
 
     const apiUrl = `${(cfg.baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '')}/chat/completions`
-    const response = await axios.post(apiUrl, requestBody, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${cfg.apiKey || this.config.apiKey}`
-      },
-      responseType: 'stream',
-      timeout: cfg.timeout
-    })
+
+    // v11.7.5: HTTP 错误时预读响应体，注入 error._apiErrorBody，避免 _buildClassifiedError 再去读已消耗的 stream
+    let response
+    try {
+      response = await axios.post(apiUrl, requestBody, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cfg.apiKey || this.config.apiKey}`
+        },
+        responseType: 'stream',
+        timeout: cfg.timeout
+      })
+    } catch (postError) {
+      const status = postError.response?.status || '?'
+      let errorBody = ''
+      const data = postError.response?.data
+      if (data) {
+        if (typeof data.on === 'function') {
+          // 流式数据：先读完再保存（会消耗 stream，所以一并注入到 error 上）
+          try {
+            errorBody = await this._readErrorBody(data)
+            if (typeof errorBody === 'object') errorBody = JSON.stringify(errorBody)
+          } catch (_) {}
+          // 替换 response.data 为已读字符串，防止 _buildClassifiedError 读到空流
+          postError.response.data = errorBody || ''
+        } else if (typeof data === 'string') {
+          errorBody = data
+        } else {
+          errorBody = JSON.stringify(data)
+        }
+      }
+      const shortBody = (typeof errorBody === 'string' ? errorBody : '').slice(0, 500)
+      console.error(`[DeepSeek] 💥 流式 HTTP ${status} 错误:`, shortBody || postError.message)
+      console.error(`[DeepSeek]     provider=${cfg.provider}, model=${cfg.model}, url=${apiUrl}`)
+      postError._apiErrorBody = shortBody
+      throw postError
+    }
 
     return new Promise((resolve, reject) => {
       let buffer = ''
@@ -604,6 +737,9 @@ class DeepSeekService {
           reject(new Error(`流式响应超时: ${idleTime}ms 无数据`))
         }
       }, 10000) // 每10秒检查一次
+
+      // 内联思考状态机（跨 chunk 持久）：MiniMax 等厂商把 <think> 混在 content 里
+      const inlineState = { inThink: false, buffer: '' }
 
       const mergeToolCallDelta = (deltaToolCall) => {
         const index = deltaToolCall.index || 0
@@ -647,9 +783,24 @@ class DeepSeekService {
           }
         }
         if (delta.content) {
-          finalMessage.content += delta.content
-          if (onEvent) {
-            onEvent({ type: 'text_delta', content: delta.content })
+          const thinkingFormat = cfg.thinkingFormat || (cfg.features && cfg.features.thinkingFormat)
+          if (thinkingFormat === 'inline') {
+            // 内联思考模式（MiniMax M3）：解析 <think> 标签，分流到 reasoning / text
+            const parts = parseInlineThinking(delta.content, inlineState)
+            for (const part of parts) {
+              if (part.type === 'reasoning') {
+                finalMessage.reasoning_content = (finalMessage.reasoning_content || '') + part.content
+                if (onEvent) onEvent({ type: 'reasoning_delta', content: part.content })
+              } else {
+                finalMessage.content += part.content
+                if (onEvent) onEvent({ type: 'text_delta', content: part.content })
+              }
+            }
+          } else {
+            finalMessage.content += delta.content
+            if (onEvent) {
+              onEvent({ type: 'text_delta', content: delta.content })
+            }
           }
         }
 
@@ -898,6 +1049,8 @@ PDF 下载：仅当老板明确指名（如「下载第 3 篇」、「下载这�
 - 老板说「学术搜索现在用哪家」 → get_academic_search_config
 - 老板说「清除学术搜索配置」 → clear_academic_search_config
 默认配置：provider=semantic_scholar, arxivFallback=true。无需 API key，所有 API 免费。
+
+中文搜索优化：使用 semantic_scholar 或 openalex 搜索时，如果 query 含中文，先自行翻译成英文再传入。例：query="C50 自密实混凝土抗冻性" → 翻译为 "C50 self-compacting concrete frost resistance"。用 wanfang 搜中文期刊时保留中文 query，不用翻译。
 `
     }
 
@@ -995,7 +1148,9 @@ PDF 下载：仅当老板明确指名（如「下载第 3 篇」、「下载这�
       return {
         reply: content,
         toolCalls: aiMessage.tool_calls || null,
-        messages // Return full message list for frontend to extract tool_call display data
+        messages, // Return full message list for frontend to extract tool_call display data
+        usage: aiMessage.usage || null,
+        contextLimit: cfg.contextLimit || 800000,
       }
     } catch (error) {
       throw await this._buildClassifiedError(error, 'DeepSeekService.chat')
@@ -1021,32 +1176,40 @@ PDF 下载：仅当老板明确指名（如「下载第 3 篇」、「下载这�
    */
   async _callSummaryAPI(cfg, systemPrompt, userPrompt) {
     const baseUrl = cfg.baseUrl || 'https://api.deepseek.com/v1'
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${cfg.apiKey}`
-      },
-      body: JSON.stringify({
-        model: cfg.model || 'deepseek-chat',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        temperature: 0.3,
-        max_tokens: 2000
+    // v8.4.2：添加 30s 超时，避免压缩时 API 卡住导致按钮无限转圈
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 30000)
+    try {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cfg.apiKey}`
+        },
+        body: JSON.stringify({
+          model: cfg.model || 'deepseek-chat',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature: 0.3,
+          max_tokens: 2000
+        }),
+        signal: controller.signal,
       })
-    })
 
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '')
-      throw new Error(`LLM API 错误：${response.status} ${errText}`)
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '')
+        throw new Error(`LLM API 错误：${response.status} ${errText}`)
+      }
+
+      const data = await response.json()
+      const summary = data.choices?.[0]?.message?.content || ''
+      const realTokens = data.usage?.total_tokens || 0
+      return { summary, realTokens }
+    } finally {
+      clearTimeout(timeoutId)
     }
-
-    const data = await response.json()
-    const summary = data.choices?.[0]?.message?.content || ''
-    const realTokens = data.usage?.total_tokens || 0
-    return { summary, realTokens }
   }
 
   /**
@@ -1101,3 +1264,5 @@ PDF 下载：仅当老板明确指名（如「下载第 3 篇」、「下载这�
 }
 
 module.exports = DeepSeekService
+// 导出内联思考解析器，供测试和诊断脚本使用
+module.exports.parseInlineThinking = parseInlineThinking

@@ -1062,6 +1062,37 @@ class SystemService {
     })
   }
 
+  /**
+   * 读取知识库刷新配置（v11.4.0 知识库刷新）
+   * @returns {Promise<{demoteFactor:number, upsertThreshold:number}>}
+   */
+  async getWorkspaceRefreshConfig() {
+    const [demote, threshold] = await Promise.all([
+      this.getParamByName('kbDemoteFactor'),
+      this.getParamByName('kbUpsertThreshold')
+    ])
+    // 注意：getParamByName 返回 {value} 对象（或 null），不是裸值
+    return {
+      demoteFactor: demote?.value != null && demote.value !== '' ? Number(demote.value) : 0.8,
+      upsertThreshold: threshold?.value != null && threshold.value !== '' ? Number(threshold.value) : 0.75
+    }
+  }
+
+  /**
+   * 保存知识库刷新配置
+   * @param {object} cfg - {demoteFactor?, upsertThreshold?}
+   */
+  async saveWorkspaceRefreshConfig(cfg = {}) {
+    const writes = []
+    if (cfg.demoteFactor !== undefined) {
+      writes.push(this.setParam('kbDemoteFactor', String(cfg.demoteFactor), 'ai', 'answer 命中降权系数'))
+    }
+    if (cfg.upsertThreshold !== undefined) {
+      writes.push(this.setParam('kbUpsertThreshold', String(cfg.upsertThreshold), 'ai', 'recordAnswer 查重覆盖阈值'))
+    }
+    await Promise.all(writes)
+  }
+
   // ========== LLM 配置管理 ==========
 
   /**
@@ -1221,7 +1252,7 @@ class SystemService {
           // gpt-4o 系列原生支持 image_url
           supportsThinking: false,
           supportsReasoningEffort: true,
-          supportsMaxTokens: false,
+          supportsMaxTokens: true,
           supportsMaxCompletionTokens: true,
           supportsTools: true,
           supportsStreaming: true,
@@ -1246,7 +1277,7 @@ class SystemService {
           // Kimi K2.5 原生支持视觉输入
           supportsThinking: false, // 默认关闭避免误用（仅 kimi-k2.7-code 支持）
           supportsReasoningEffort: false,
-          supportsMaxTokens: false,
+          supportsMaxTokens: true,
           supportsMaxCompletionTokens: true,
           supportsTools: true,
           supportsStreaming: true,
@@ -1354,6 +1385,7 @@ class SystemService {
           supportsTools: true,
           supportsStreaming: true,
           supportsVision: true, // M3 支持 image_url 和 video_url
+          thinkingFormat: 'inline', // M3 把思考混在 content 里（<think>...</think>），不走 reasoning_content
         },
       },
     ]

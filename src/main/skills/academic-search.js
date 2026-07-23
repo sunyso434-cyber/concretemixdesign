@@ -22,7 +22,7 @@ function withErrorCodeAlias(err) {
 const skills = [
   {
     name: 'academic_search',
-    description: '搜索科技论文（中英文期刊、预印本），返回结构化字段：标题/作者/年份/期刊/摘要/DOI/引用数。支持 search（关键词搜索论文列表）和 fetch（拿单篇全文 PDF）两种模式。仅当工作区 wiki 知识不足以回答或用户明确要求时才调用，不要每轮都搜。',
+    description: '搜索科技论文（中英文期刊、预印本），返回结构化字段：标题/作者/年份/期刊/摘要/DOI/引用数。支持 search（关键词搜索论文列表）和 fetch（拿单篇全文 PDF）两种模式。provider 可选 semantic_scholar/openalex/nstl，nstl 覆盖中文期刊最全但只返回摘要（全文需走文献传递申请）。仅当工作区 wiki 知识不足以回答或用户明确要求时才调用，不要每轮都搜。',
     version: '1.0.0',
     category: 'agent',
     parameters: {

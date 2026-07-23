@@ -54,8 +54,10 @@ function mergeInto(oldGraph, newTriples, source) {
       existing.aliases = [...aliasSet]
       // 缺字段补齐
       if (!existing.source && e.source) existing.source = e.source
+      // 知识库刷新：维护 sources 归属（去重）
+      existing.sources = [...new Set([...(existing.sources || []), source])]
     } else {
-      graph.entities[e.id] = { ...e }
+      graph.entities[e.id] = { ...e, sources: [source] }
     }
   }
 
@@ -74,6 +76,8 @@ function mergeInto(oldGraph, newTriples, source) {
         if (r.evidence && !(existing.evidence || '').includes(r.evidence)) {
           existing.evidence = `${existing.evidence || ''} | ${source}: ${r.evidence}`
         }
+        // 知识库刷新：合并 sources 归属（去重）
+        existing.sources = [...new Set([...(existing.sources || []), source])]
       } else {
         // 不同 predicate：标冲突 + 保留新关系
         conflicts.push({
@@ -85,10 +89,10 @@ function mergeInto(oldGraph, newTriples, source) {
           ],
           detectedAt: new Date().toISOString()
         })
-        graph.relations.push({ ...r })
+        graph.relations.push({ ...r, sources: [source] })
       }
     } else {
-      graph.relations.push({ ...r })
+      graph.relations.push({ ...r, sources: [source] })
     }
   }
 
@@ -186,4 +190,45 @@ function checkSize(graph) {
   return { warnings }
 }
 
-module.exports = { mergeInto, compactGraph, checkSize }
+/**
+ * 按来源清旧：移除某文件上次贡献的三元组痕迹。
+ * - 每条 relation 从 sources 移除 source；移除后为空 → 删关系
+ * - 缺 sources 字段的存量关系：视为无法归属，保持不动（不误删）
+ * - 清理不再被任何 relation 引用的孤立 entity
+ * - 不可变：返回新图，不修改入参
+ * @param {object} graph
+ * @param {string} source - 要清除的来源文件名
+ * @returns {object} 新图
+ */
+function purgeBySource(graph, source) {
+  const g = JSON.parse(JSON.stringify(graph || { entities: {}, relations: [] }))
+  g.entities = g.entities || {}
+  g.relations = g.relations || []
+
+  const kept = []
+  for (const r of g.relations) {
+    if (!Array.isArray(r.sources)) { kept.push(r); continue } // 存量无归属 → 保留
+    const remaining = r.sources.filter(s => s !== source)
+    if (remaining.length === 0) continue // 唯一来源被清 → 删关系
+    kept.push({ ...r, sources: remaining })
+  }
+
+  // 清理孤立 entity（不再被任何保留关系引用）
+  const referenced = new Set()
+  for (const r of kept) {
+    referenced.add(r.subjectId)
+    referenced.add(r.objectId)
+  }
+  const compactedEntities = {}
+  for (const [id, e] of Object.entries(g.entities)) {
+    if (referenced.has(id)) compactedEntities[id] = e
+  }
+
+  g.relations = kept
+  g.entities = compactedEntities
+  g.mergeVersion = (g.mergeVersion || 0) + 1
+  g.updatedAt = new Date().toISOString()
+  return g
+}
+
+module.exports = { mergeInto, compactGraph, checkSize, purgeBySource }

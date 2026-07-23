@@ -5,6 +5,7 @@
 
 const DeepSeekService = require('../services/DeepSeekService')
 const { classifyError } = require('../agent/errorClassifier')
+const { tryWithFailover } = require('../services/llmFailover')
 const SystemService = require('../services/SystemService')
 const MaterialService = require('../services/MaterialService')
 const MixDesignService = require('../services/MixDesignService/index')
@@ -383,10 +384,14 @@ const chatWithAI = async (event, { message, context }) => {
 }
 
 const chatWithAIStream = async (event, { requestId, message, context }) => {
-  const service = await getDeepSeekService()
-  if (!service) {
-    throw new Error('DeepSeek API鏈厤缃紝璇峰湪绯荤粺璁剧疆涓厤缃瓵PI瀵嗛挜')
+  const configs = await SystemService.getLlmConfigs()
+  if (configs.length === 0) {
+    throw new Error('未配置 LLM，请在设置中添加')
   }
+
+  // v11.7.9: 获取激活配置 ID，传入 failover 确保激活模型优先尝试
+  const activeConfig = await SystemService.getActiveLlmConfig()
+  const activeId = activeConfig?.id || null
 
   const sendStreamEvent = (payload) => {
     event.sender.send(CHAT_STREAM_EVENT, {
@@ -395,30 +400,51 @@ const chatWithAIStream = async (event, { requestId, message, context }) => {
     })
   }
 
+  const toolExecutor = createToolExecutor(message, context)
+
   try {
-    const toolExecutor = createToolExecutor(message, context)
-    const result = await service.chatStream(message, context, {
-      toolExecutor,
-      onEvent: sendStreamEvent
-    })
+    const { result } = await tryWithFailover(
+      configs,
+      async (config) => {
+        // v8.4.2：每次尝试新建一个临时 DeepSeekService（不走全局单例缓存）
+        // 因为不同 config 的 apiKey/baseUrl/model 都不同
+        const service = new DeepSeekService(config, SystemService)
+        return service.chatStream(message, context, {
+          toolExecutor,
+          onEvent: sendStreamEvent
+        })
+      },
+      (fromName, toName, reason) => {
+        sendStreamEvent({
+          type: 'model_switched',
+          from: fromName,
+          to: toName,
+          reason,
+        })
+      },
+      { activeId }  // v11.7.9: 激活模型优先
+    )
 
     // v8.4.x：流式结束后下发真实 token 用量（DeepSeek 最后一个 chunk 会带 usage 字段）。
     // 渲染端 contextStats 用于校准 token 显示比例。
+    // v8.4.2：同时下发 contextLimit，让前端圆环按当前模型的实际上下文上限计算百分比
     if (result && result.usage) {
       const u = result.usage
       const realTokens = (u.prompt_tokens || 0) + (u.completion_tokens || 0) || u.total_tokens || 0
       sendStreamEvent({
         type: 'usage',
         realTokens,
-        usage: u
+        usage: u,
+        contextLimit: result.contextLimit || 800000,
       })
     }
 
     sendStreamEvent({ type: 'done', result })
     return result
   } catch (error) {
-    sendStreamEvent({ type: 'error', error: error.message })
-    console.error('AI娴佸紡瀵硅瘽澶辫触:', error)
+    const errMsg = error.message || (error.code ? `[${error.code}] ${error.title || ''}` : 'AI 对话失败')
+    sendStreamEvent({ type: 'error', error: errMsg })
+    console.error('AI流式对话失败:', error)
     throw error
   }
 }
@@ -485,20 +511,34 @@ const registerAiAnalysisHandlers = (deps = {}) => {
   targetIpcMain.handle('aiAnalysis:chatStream', chatWithAIStream)
   targetIpcMain.handle('aiAnalysis:clearHistory', clearChatHistory)
 
-  // ===== 上下文压缩（v8.4.x 新增） =====
+  // ===== 上下文压缩（v8.4.x 新增 / v8.4.2 failover） =====
   // 渲染端 handleCompressContextImpl 通过 aiAnalysis:compressContext 调用。
   // 返回 {success, data: {summary, recentMessages, realTokens}} 或 {success: false, error}。
+  // v8.4.2：接入 tryWithFailover，压缩失败时自动切换备用模型重试
   targetIpcMain.handle('aiAnalysis:compressContext', async (event, { messages, previousSummary }) => {
     try {
-      const service = await getDeepSeekService()
-      if (!service) {
-        return { success: false, error: 'DeepSeek 服务未初始化，请检查 API 密钥配置' }
+      const configs = await SystemService.getLlmConfigs()
+      if (configs.length === 0) {
+        return { success: false, error: '未配置 LLM，请在设置中添加' }
       }
-      const data = await service.compressContext(messages || [], previousSummary || '')
+
+      // v11.7.9: 激活配置优先
+      const activeConfig = await SystemService.getActiveLlmConfig()
+      const activeId = activeConfig?.id || null
+
+      const { result: data } = await tryWithFailover(
+        configs,
+        async (config) => {
+          const service = new DeepSeekService(config, SystemService)
+          return service.compressContext(messages || [], previousSummary || '')
+        },
+        null,  // 压缩不需要通知前端切换（静默切换）
+        { activeId }  // v11.7.9: 激活模型优先
+      )
       return { success: true, data }
     } catch (error) {
       console.error('[aiAnalysis:compressContext] failed:', error)
-      return { success: false, error: error.message || '压缩失败' }
+      return { success: false, error: error.message || error.title || '压缩失败' }
     }
   })
 

@@ -24,6 +24,8 @@ const { DEFAULT_AGENT_MAX_STEPS } = require('../../utils/agentConstants')
 const { getInstance: getAgentMdService } = require('../agentMd')
 const { classifyError } = require('../errorClassifier')
 const { rotateIfNeeded } = require('../../utils/logRotator')
+const { tryWithFailover } = require('../../services/llmFailover')
+const DeepSeekService = require('../../services/DeepSeekService')
 const MemoryTierService = require('../../services/MemoryTierService')
 const { ChatHistory } = require('../../db/database')
 const eventBus = require('../EventBus')
@@ -289,6 +291,14 @@ class UnifiedStrategy {
     // 2. 主循环（流式）
     const toolSchemas = this.skillRegistry.getToolSchemas()
 
+    // v11.7.5: 获取全部 LLM 配置，用于 failover 自动切换
+    let allLlmConfigs = null
+    if (this.systemService && typeof this.systemService.getLlmConfigs === 'function') {
+      try {
+        allLlmConfigs = await this.systemService.getLlmConfigs()
+      } catch (e) { /* 获取失败则降级为仅当前 config */ }
+    }
+
     // v1.2: 从配置读取最大循环步数
     // v1.2: 复用 DeepSeekService._getConfig()，避免重复实现"读 systemService + 兜底"逻辑
     let maxSteps = DEFAULT_AGENT_MAX_STEPS
@@ -326,34 +336,77 @@ class UnifiedStrategy {
 
       let response
       try {
-        // ===== 流式调用 LLM =====
-        response = await this.deepseekService.chatWithToolsStream(
-          trimmedMessages,
-          toolSchemas,
-          (event) => {
-            // 实时转发流式事件给前端
-            if (event.type === 'reasoning_delta') {
-              this._notifyProgress(webContents, {
-                type: 'reasoning_delta',
-                content: event.content,
-                roundIndex,
-                mode,
-                status: 'running'
-              })
-            } else if (event.type === 'text_delta') {
-              this._notifyProgress(webContents, {
-                type: 'text_delta',
-                content: event.content,
-                mode,
-                status: 'running'
-              })
-            }
-          }
+        // ===== 流式调用 LLM（v11.7.5: 接入 failover 自动切换） =====
+        // 用全部配置列表做 failover；如果取不到则降级为仅当前 service 的 config
+        const failoverConfigs = (allLlmConfigs && allLlmConfigs.length > 0)
+          ? allLlmConfigs
+          : [await this.deepseekService._getConfig().catch(() => ({}))]
+
+        // v11.7.9: 激活配置优先 — 获取当前激活的配置 ID 传入 failover
+        let activeId = null
+        if (this.systemService && typeof this.systemService.getActiveLlmConfig === 'function') {
+          try {
+            const ac = await this.systemService.getActiveLlmConfig()
+            activeId = ac?.id || null
+          } catch (_) {}
+        }
+
+        let switchedFrom = null
+        const { result, usedConfig } = await tryWithFailover(
+          failoverConfigs,
+          async (config) => {
+            const service = new DeepSeekService(config, this.systemService)
+            return service.chatWithToolsStream(
+              trimmedMessages,
+              toolSchemas,
+              (event) => {
+                // 实时转发流式事件给前端
+                if (event.type === 'reasoning_delta') {
+                  this._notifyProgress(webContents, {
+                    type: 'reasoning_delta',
+                    content: event.content,
+                    roundIndex,
+                    mode,
+                    status: 'running'
+                  })
+                } else if (event.type === 'text_delta') {
+                  this._notifyProgress(webContents, {
+                    type: 'text_delta',
+                    content: event.content,
+                    mode,
+                    status: 'running'
+                  })
+                }
+              }
+            )
+          },
+          (fromName, toName, reason) => {
+            switchedFrom = fromName
+            this._notifyProgress(webContents, {
+              type: 'model_switched',
+              from: fromName,
+              to: toName,
+              reason,
+            })
+          },
+          { activeId }  // v11.7.9: 激活模型优先
         )
+        response = result
+
+        // v11.7.7: 通知前端当前路由到的 LLM 模型，让用户可感知路由状态
+        if (usedConfig) {
+          this._notifyProgress(webContents, {
+            type: 'model_info',
+            model: usedConfig.model || '',
+            provider: usedConfig.provider || '',
+            name: usedConfig.name || '',
+          })
+        }
 
         // [DEBUG] 记录 LLM 成功返回
         const successLog = {
           round: roundIndex, status: 'ok',
+          switchedFrom: switchedFrom || undefined,
           content: response.content?.slice(0, 500),
           tool_calls: response.tool_calls?.map(tc => ({ id: tc.id, name: tc.function?.name, args: tc.function?.arguments?.slice(0, 300) })),
           reasoning_content: response.reasoning_content?.slice(0, 300),

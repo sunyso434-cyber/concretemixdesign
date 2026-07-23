@@ -34,7 +34,7 @@ const BINARY_EXTS = new Set([
 
 const EXCLUDED_DIRS = new Set([
   'node_modules', '.git', '.tmp', '.svn', '.hg',
-  'wiki', 'reports', 'chat-history'
+  'wiki', 'reports'
 ])
 
 function isTextFile(filename) {

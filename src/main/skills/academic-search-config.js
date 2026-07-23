@@ -8,12 +8,12 @@
 
 const { createError } = require('../agent/ErrorCodes')
 
-const SUPPORTED = ['semantic_scholar', 'openalex']
+const SUPPORTED = ['semantic_scholar', 'openalex', 'nstl']
 
 const skills = [
   {
     name: 'configure_academic_search',
-    description: '配置学术搜索参数（provider 搜索服务商 + arxiv 兜底开关）。学术搜索用于查询科技论文（中英文期刊、预印本）。支持 semantic_scholar（推荐，免费）/ openalex（免费）。所有 API 无需 key。老板说"学术搜索用 OpenAlex"、"禁用 arxiv 兜底"等指令时调用此技能。',
+    description: '配置学术搜索参数（provider 搜索服务商 + arxiv 兜底开关）。学术搜索用于查询科技论文（中英文期刊、预印本）。支持 semantic_scholar（推荐，免费）/ openalex（免费）/ nstl（国家科技图书文献中心，中文期刊覆盖最全，返回题录+摘要）。所有 API 无需 key。老板说"学术搜索用 OpenAlex"、"学术搜索用 NSTL 查中文"、"禁用 arxiv 兜底"等指令时调用此技能。',
     version: '1.0.0',
     category: 'agent',
     parameters: {
@@ -21,7 +21,7 @@ const skills = [
         type: 'string',
         enum: SUPPORTED,
         required: false,
-        description: '学术搜索服务商：semantic_scholar（推荐）或 openalex'
+        description: '学术搜索服务商：semantic_scholar（推荐）或 openalex 或 nstl（中文期刊）'
       },
       arxivFallback: {
         type: 'boolean',

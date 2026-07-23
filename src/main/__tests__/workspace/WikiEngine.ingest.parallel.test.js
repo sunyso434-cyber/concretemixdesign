@@ -14,7 +14,7 @@ describe('WikiEngine.ingest（并行 KG + 摘要）', () => {
   beforeEach(async () => {
     tmpDir = path.join(process.cwd(), '.tmp', `ingest-${Date.now()}`)
     await fs.mkdir(tmpDir, { recursive: true })
-    for (const sub of ['wiki', 'wiki/sources', 'reports', 'chat-history']) {
+    for (const sub of ['wiki', 'wiki/sources', 'reports']) {
       await fs.mkdir(path.join(tmpDir, sub), { recursive: true })
     }
     // 预建一个已有页面（供 existingPages 列表用）

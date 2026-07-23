@@ -21,14 +21,14 @@ function defaultFilename(quote, mode, type) {
 
 module.exports = {
   name: 'format_quote_report',
-  description: '【报价单导出】把 reverse_sales_quote / forward_sales_quote 算出的 quote 对象，转换为 workspace 报告格式（6 大块表格 + 报价说明），写入工作区 reports/ 目录。文件类型支持 md / xlsx / docx，**默认输出 md**，只有用户明确要求 xlsx 或 docx 时才输出对应格式。**与 workspace_writeFile 的区别**：本工具专门处理 quote 对象，自动应用样例图片的 6 大块结构（材料/生产制造费/管理费/利税合计/运输泵送费/总计），reverse 模式报价说明体现包装策略，forward 模式体现设备费/技术服务费说明。',
+  description: '【报价单导出】把 reverse_sales_quote / forward_sales_quote 算出的 quote 对象，转换为 workspace 报告格式（6 大块表格 + 报价说明），写入工作区 reports/ 目录。仅支持 md 格式。如需 docx/xlsx，先生成 md 后用 officecli 系列技能（create_office_file + edit_office_file）转换。**与 workspace_writeFile 的区别**：本工具专门处理 quote 对象，自动应用样例图片的 6 大块结构（材料/生产制造费/管理费/利税合计/运输泵送费/总计），reverse 模式报价说明体现包装策略，forward 模式体现设备费/技术服务费说明。',
   version: '1.1.0',
   category: 'core',
 
   parameters: {
     quote: { type: 'object', required: true, description: 'reverse_sales_quote / forward_sales_quote 返回的 data 字段' },
     mode: { type: 'string', required: false, description: 'reverse / forward，影响 sections 内容。缺省读 quote.mode' },
-    type: { type: 'string', required: false, description: 'md / xlsx / docx，默认 md（用户明确要求时才用 xlsx 或 docx）' },
+    type: { type: 'string', required: false, description: '仅支持 md（默认）。docx/xlsx 请用 officecli 系列技能' },
     filename: { type: 'string', required: false, description: '输出文件名，默认 "<强度>_<普通/特殊>混凝土报价单_<日期>.md"' },
     style: { type: 'object', required: false, description: '样式覆盖（report-styles.js mergeStyle 接受的格式，仅 docx 生效）' }
   },

@@ -11,6 +11,13 @@ const { buildWorkspaceSkills } = require('../../agent/workspaceTools')
 const { WorkspaceError } = require('../../workspace/WorkspaceError')
 const ErrorCodes = require('../../agent/ErrorCodes')
 
+// ponytail: 避免 fs mock 干扰 babel 模块解析，不用 jest.spyOn(fs)
+// 改为在 beforeEach 中直接 monkey-patch fs.existsSync
+const _fs = require('fs')
+const _origExistsSync = _fs.existsSync
+function _mockFsExistsSync(val) { _fs.existsSync = jest.fn().mockReturnValue(val) }
+function _restoreFsExistsSync() { _fs.existsSync = _origExistsSync }
+
 function makeMockWiki() {
   return {
     search: jest.fn().mockResolvedValue([{ path: 'sources/a.md', score: 1.0 }]),
@@ -34,18 +41,22 @@ function makeMockKG() {
 }
 
 describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
-  test('返回 10 个伪 Skill，名称集合与 brief 一致', () => {
+test('返回 20 个伪 Skill，名称集合与 brief 一致', () => {
     const skills = buildWorkspaceSkills({
       workspaceManager: makeMockWM(),
       wikiEngine: makeMockWiki(),
       kgExtractor: null
     })
-    expect(skills).toHaveLength(10)
+    expect(skills).toHaveLength(20)
     const names = skills.map(s => s.name).sort()
     expect(names).toEqual([
       'workspace_grep', 'workspace_ingest', 'workspace_lint', 'workspace_listFiles',
       'workspace_readPage', 'workspace_search', 'workspace_searchGraph', 'workspace_writeFile',
-      'workspace_readRaw', 'workspace_organize'
+      'workspace_readRaw', 'workspace_organize', 'workspace_recordAnswer',
+      'read_office_file', 'edit_office_file',
+      'create_office_file', 'merge_office_template',
+      'move_office_element', 'validate_office_file',
+      'import_office_csv', 'officecli_raw', 'officecli_help'
     ].sort())
   })
 
@@ -267,7 +278,7 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
 
   // ===== 集成：SkillRegistry.register 能成功 =====
 
-  test('所有 8 个伪 Skill 能被 SkillRegistry.register 接受（验证 4 字段协议）', () => {
+  test('所有 20 个伪 Skill 能被 SkillRegistry.register 接受（验证 4 字段协议）', () => {
     const SkillRegistry = require('../../agent/SkillRegistry')
     const reg = new SkillRegistry()
     const skills = buildWorkspaceSkills({
@@ -276,17 +287,19 @@ describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
       kgExtractor: null
     })
     for (const s of skills) {
-      // 不抛错即通过（register 内部 _validateSkill 检查 name/description/execute）
       reg.register(s, { builtin: true, filePath: '<workspace-pseudo>' })
     }
-    expect(reg.size).toBe(10)
-    // getToolSchemas 包含这 10 个
+    expect(reg.size).toBe(20)
     const schemas = reg.getToolSchemas()
     const names = schemas.map(sc => sc.function.name).sort()
     expect(names).toEqual([
       'workspace_grep', 'workspace_ingest', 'workspace_lint', 'workspace_listFiles',
       'workspace_readPage', 'workspace_search', 'workspace_searchGraph', 'workspace_writeFile',
-      'workspace_readRaw', 'workspace_organize'
+      'workspace_readRaw', 'workspace_organize', 'workspace_recordAnswer',
+      'read_office_file', 'edit_office_file',
+      'create_office_file', 'merge_office_template',
+      'move_office_element', 'validate_office_file',
+      'import_office_csv', 'officecli_raw', 'officecli_help'
     ].sort())
   })
 })
@@ -402,5 +415,162 @@ describe('buildWorkspaceSkills v8.0.4 hotfix：workspace_searchGraph workspacePa
     const searchGraph = skills.find(s => s.name === 'workspace_searchGraph')
     expect(searchGraph.description).toContain('当前工作区')
     expect(searchGraph.description).toContain('LLM 不需要传')
+  })
+})
+
+// v11.7.0: 老板 2026-07-21 速查手册场景端到端验证
+// ponytail: fs mock 必须在所有 require 之后才激活（babel 内部用 fs 解析 config）
+
+describe('v11.7.0 officecli 全能力补齐 — 老板速查手册场景', () => {
+  let officecli
+  let execSpy, availSpy, addTableSpy
+
+  beforeEach(() => {
+    // ① 先 require（此时 fs 未被 mock，babel 正常解析）
+    officecli = require('../../officecli/officecli-bridge')
+    execSpy = jest.spyOn(officecli, 'execOfficeCliSync').mockReturnValue({ stdout: '', stderr: '' })
+    availSpy = jest.spyOn(officecli, 'checkAvailability').mockReturnValue({
+      available: true, version: '1.0.0', path: '/x/officecli.exe'
+    })
+    addTableSpy = jest.spyOn(officecli, 'addTable').mockReturnValue({ stdout: '/body/tbl[1]', stderr: '' })
+
+    // ② require 完成后再 patch fs（后续 skill.execute 的 fs.existsSync 调用走 mock）
+    _fs.existsSync = jest.fn().mockReturnValue(true)
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    _fs.existsSync = _origExistsSync
+  })
+
+  test('add 段落完整 props 透传（中文仿宋+英文新罗马+小四+首行缩进+1.5倍行距）', async () => {
+    const wm = { current: () => ({ path: '/ws' }) }
+    const skills = buildWorkspaceSkills({ workspaceManager: wm, wikiEngine: makeMockWiki(), kgExtractor: null })
+    const edit = skills.find(s => s.name === 'edit_office_file')
+
+    const result = await edit.execute({
+      filePath: 'reports/速查手册.docx',
+      operations: [{
+        action: 'add',
+        path: '/body',
+        type: 'paragraph',
+        value: '粗骨料应满足 JGJ 52-2006 第 3.1.1 条要求',
+        props: {
+          'font.ea': '仿宋',
+          'font.latin': 'Times New Roman',
+          size: '12pt',
+          firstLineIndent: '480',  // 2 字符 × 12pt × 20 twips/pt = 480
+          lineSpacing: '360',      // 1.5 倍 × 240 = 360
+          lineRule: 'auto'
+        }
+      }]
+    }, {})
+
+    expect(result.success).toBe(true)
+    expect(execSpy).toHaveBeenCalled()
+    // 找出 add 调用的 args
+    const addCall = execSpy.mock.calls.find(c => c[0] && c[0][0] === 'add')
+    expect(addCall).toBeDefined()
+    const args = addCall[0]
+    expect(args).toContain('--type')
+    expect(args).toContain('paragraph')
+    expect(args).toContain('text=粗骨料应满足 JGJ 52-2006 第 3.1.1 条要求')
+    expect(args).toContain('font.ea=仿宋')
+    expect(args).toContain('font.latin=Times New Roman')
+    expect(args).toContain('size=12pt')
+    expect(args).toContain('firstLineIndent=480')
+    expect(args).toContain('lineSpacing=360')
+    expect(args).toContain('lineRule=auto')
+  })
+
+  test('add_table action 透传到 addTable 桥接', async () => {
+    const wm = { current: () => ({ path: '/ws' }) }
+    const skills = buildWorkspaceSkills({ workspaceManager: wm, wikiEngine: makeMockWiki(), kgExtractor: null })
+    const edit = skills.find(s => s.name === 'edit_office_file')
+
+    const rowsData = [
+      ['检测项目', 'Ⅰ类', 'Ⅱ类'],
+      ['碎石压碎指标/%', '≤10', '≤20']
+    ]
+    const result = await edit.execute({
+      filePath: 'reports/速查手册.docx',
+      operations: [{
+        action: 'add_table',
+        path: '/body',
+        rows: 2,
+        cols: 3,
+        colWidths: [2000, 1500, 1500],
+        rowsData
+      }]
+    }, {})
+
+    expect(result.success).toBe(true)
+    expect(addTableSpy).toHaveBeenCalledTimes(1)
+    const callArgs = addTableSpy.mock.calls[0]
+    expect(callArgs[1]).toBe('/body')  // parentPath
+    expect(callArgs[2]).toMatchObject({
+      rows: 2, cols: 3, colWidths: [2000, 1500, 1500], rowsData
+    })
+  })
+
+  test('set 操作触发 UNSUPPORTED_PROP 时透传错误码', async () => {
+    const wm = { current: () => ({ path: '/ws' }) }
+    // 模拟 setElementText 抛 UNSUPPORTED 错误
+    execSpy.mockImplementation(() => {
+      throw new Error('UNSUPPORTED props on /body/p[1]: text (not supported)')
+    })
+
+    const skills = buildWorkspaceSkills({ workspaceManager: wm, wikiEngine: makeMockWiki(), kgExtractor: null })
+    const edit = skills.find(s => s.name === 'edit_office_file')
+
+    const result = await edit.execute({
+      filePath: 'reports/速查手册.docx',
+      operations: [{ action: 'set', path: '/body/p[1]', value: 'x' }]
+    }, {})
+
+    expect(result.success).toBe(true)  // 整体成功，但 result.results[0].status = 'error'
+    expect(result.data.results[0].status).toBe('error')
+    expect(result.data.results[0].error.code).toBe('UNSUPPORTED_PROP')
+  })
+
+  test('add_table schema 暴露 rows/cols/colWidths/rowsData 字段', () => {
+    const skills = buildWorkspaceSkills({ workspaceManager: makeMockWM(), wikiEngine: makeMockWiki(), kgExtractor: null })
+    const edit = skills.find(s => s.name === 'edit_office_file')
+    const itemsSchema = edit.parameters.operations.items
+    expect(itemsSchema.properties.action.enum).toContain('add_table')
+    expect(itemsSchema.properties.rows).toBeDefined()
+    expect(itemsSchema.properties.cols).toBeDefined()
+    expect(itemsSchema.properties.colWidths).toBeDefined()
+    expect(itemsSchema.properties.rowsData).toBeDefined()
+    // props 描述必须包含中文仿宋/英文新罗马关键词（老板速查手册格式要求）
+    expect(itemsSchema.properties.props.description).toContain('font.ea')
+    expect(itemsSchema.properties.props.description).toContain('font.latin')
+    expect(itemsSchema.properties.props.description).toContain('firstLineIndent')
+    expect(itemsSchema.properties.props.description).toContain('lineSpacing')
+  })
+
+  // v11.7.0: officecli_help 技能验证
+  test('officecli_help 参数 schema 正确（format/verb/element/json）', async () => {
+    const skills = buildWorkspaceSkills({ workspaceManager: makeMockWM(), wikiEngine: makeMockWiki(), kgExtractor: null })
+    const help = skills.find(s => s.name === 'officecli_help')
+    expect(help).toBeDefined()
+    expect(help.parameters.format.enum).toEqual(['docx', 'xlsx', 'pptx', 'all'])
+    expect(help.parameters.format.required).toBe(true)
+    expect(help.parameters.verb.required).toBe(false)
+    expect(help.parameters.element.required).toBe(false)
+    expect(help.parameters.json.default).toBe(false)
+  })
+
+  test('officecli_help 调 officecliHelp bridge 并返回结果', async () => {
+    const officecli = require('../../officecli/officecli-bridge')
+    const helpSpy = jest.spyOn(officecli, 'officecliHelp').mockReturnValue('paragraph items...')
+
+    const skills = buildWorkspaceSkills({ workspaceManager: makeMockWM(), wikiEngine: makeMockWiki(), kgExtractor: null })
+    const help = skills.find(s => s.name === 'officecli_help')
+
+    const result = await help.execute({ format: 'docx', verb: 'add' }, {})
+    expect(result.success).toBe(true)
+    expect(helpSpy).toHaveBeenCalledWith({ format: 'docx', verb: 'add', element: undefined, json: undefined })
+    expect(result.data.result).toBe('paragraph items...')
   })
 })
