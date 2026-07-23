@@ -59,6 +59,9 @@ src/main/__tests__/workspace/readers/fixtures/*.csv
 # OfficeCLI 二进制（通过 download:officecli 下载，打包时 electron-builder 自动包含）
 resources/officecli/*/officecli
 resources/officecli/*/officecli.exe
+# OfficeCLI 自动更新产生的残留文件（旧版备份 + 下载分片），不入仓
+resources/officecli/*/*.old
+resources/officecli/*/*.update.partial
 # OfficeCLI 自动更新下载的临时分片文件
 *.update.partial
 
