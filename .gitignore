@@ -28,11 +28,17 @@ Thumbs.db
 .env
 .env.*
 
-# Optional local tooling (do not commit secrets)
-.claude/settings.local.json
-.agents/skills/
-.codex/config.toml
-.codex/hooks.json
+# AI 编码助手工具配置（个人开发环境，不入仓）
+AGENTS.md
+claude.md
+CLAUDE.md
+.claude/
+.codex/
+.cursor/
+.agents/
+.trae/
+trae-skills/
+docs/superpowers/
 # Added by code-review-graph
 .code-review-graph/
 .gstack/
