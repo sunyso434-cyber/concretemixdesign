@@ -49,3 +49,9 @@ src/main/__tests__/workspace/readers/fixtures/*.xlsx
 src/main/__tests__/workspace/readers/fixtures/*.csv
 !src/main/__tests__/workspace/readers/fixtures/generate.js
 !src/main/__tests__/workspace/readers/fixtures/generate-wrapper.js
+
+# OfficeCLI 二进制（通过 download:officecli 下载，打包时 electron-builder 自动包含）
+resources/officecli/*/officecli
+resources/officecli/*/officecli.exe
+# OfficeCLI 自动更新下载的临时分片文件
+*.update.partial
