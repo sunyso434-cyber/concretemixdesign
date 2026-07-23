@@ -67,3 +67,49 @@ resources/officecli/*/*.update.partial
 
 # 一次性恢复/抢救脚本（一次性使用，跑完可删）
 scripts/recover-*.js
+
+# === 项目整理（2026-07-23）：项目无关杂项不入仓 ===
+
+# 归档目录（项目无关文件归档，仅本地保留）
+_archive/
+
+# 构建产物（vite build 输出，打包时自动生成）
+build/
+
+# 运行时数据库（程序运行时读写，不入仓）
+data/
+db/
+
+# AI 工具/记忆配置（个人开发环境，不入仓）
+.superpowers/
+memory/
+.mcp.json
+skills-lock.json
+temp-agency-agents/
+
+# 根目录杂项（日志/截图/临时文件，归档到 _archive/）
+*.log
+build-*.log
+bug*.png
+头像.png
+LOGO.png
+newlogo.png
+concrete-agent-prototype.html
+test.html
+test-react.html
+ui-design-demo.html
+check-db.js
+cleanup-db.js
+backup.js
+generate-latest-yml.js
+temp_*.json
+test_model.json
+template_training_data.xlsx
+temp_icons/
+coverage/
+test-results/
+backups/
+IMPLEMENTATION_PLAN.md
+UPDATE_README.md
+AGENTS.md
+version_log_*.md
