@@ -20,7 +20,10 @@ export const initialState = {
     timeline: [],
     replyText: '',
     requestId: null,
-    runMode: 'auto'
+    runMode: 'auto',
+    // v11.7.7: 当前路由到的 LLM 信息（provider + model），用户可感知路由状态
+    currentModel: '',
+    currentProvider: ''
   },
   session: {
     currentId: null,
@@ -105,7 +108,8 @@ export function agentReducer(state, action) {
       return { ...state, messages: [...newMessages, ...state.messages] }
     }
     case 'CLEAR_MESSAGES': {
-      return { ...state, messages: [] }
+      // v8.4.2：清空消息时同步重置 contextRealTokens，避免新对话污染
+      return { ...state, messages: [], contextRealTokens: 0 }
     }
     case 'COMPRESS_MESSAGES': {
       const { summary, recentMessages } = action.payload
@@ -121,9 +125,11 @@ export function agentReducer(state, action) {
       }
     }
     case 'SET_CONTEXT_STATS': {
+      // v8.4.2：支持同时更新 contextLimit；不传时保持原值
       return {
         ...state,
-        contextRealTokens: action.payload.realTokens || 0
+        contextRealTokens: action.payload.realTokens || 0,
+        contextLimit: action.payload.contextLimit || state.contextLimit
       }
     }
     case 'REASONING_START': {
@@ -404,6 +410,17 @@ export function agentReducer(state, action) {
       return {
         ...state,
         sessionsCache: { ...state.sessionsCache, [sessionId]: updated }
+      }
+    }
+    case 'SET_MODEL_INFO': {
+      // v11.7.7: 记录当前路由到的 LLM provider 和 model，让用户可感知路由状态
+      return {
+        ...state,
+        agent: {
+          ...state.agent,
+          currentModel: action.payload.model || '',
+          currentProvider: action.payload.provider || ''
+        }
       }
     }
     default:

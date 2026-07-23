@@ -137,6 +137,13 @@ describe('agentReducer', () => {
     expect(next.messages).toEqual([])
   })
 
+  test('CLEAR_MESSAGES 同步清除 contextRealTokens（v8.4.2）', () => {
+    const state = { ...initialState, messages: [{ role: 'user', content: 'q' }], contextRealTokens: 50000 }
+    const next = agentReducer(state, { type: 'CLEAR_MESSAGES' })
+    expect(next.messages).toEqual([])
+    expect(next.contextRealTokens).toBe(0)
+  })
+
   test('SET_MESSAGES 替换 messages（_streaming 字段默认 undefined）', () => {
     const state = { ...initialState, messages: [{ role: 'user', content: 'old' }] }
     const next = agentReducer(state, {
@@ -268,6 +275,25 @@ describe('agentReducer - SET_CONTEXT_STATS', () => {
       payload: { realTokens: 0 }
     })
     expect(next.contextRealTokens).toBe(0)
+  })
+
+  test('同步更新 contextLimit（v8.4.2）', () => {
+    const next = agentReducer(initialState, {
+      type: 'SET_CONTEXT_STATS',
+      payload: { realTokens: 50000, contextLimit: 128000 }
+    })
+    expect(next.contextRealTokens).toBe(50000)
+    expect(next.contextLimit).toBe(128000)
+  })
+
+  test('contextLimit 不传时保持原值（v8.4.2）', () => {
+    const state = { ...initialState, contextLimit: 512000 }
+    const next = agentReducer(state, {
+      type: 'SET_CONTEXT_STATS',
+      payload: { realTokens: 500 }
+    })
+    expect(next.contextRealTokens).toBe(500)
+    expect(next.contextLimit).toBe(512000)
   })
 })
 

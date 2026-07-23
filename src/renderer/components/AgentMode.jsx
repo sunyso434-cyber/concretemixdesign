@@ -76,6 +76,13 @@ export default function useAgentMode() {
       }
 
       switch (eventType) {
+        // v11.7.7: 记录当前路由到的 LLM 模型信息，用户可感知路由状态
+        case 'model_info':
+          dispatch({
+            type: 'SET_MODEL_INFO',
+            payload: { model: data.model, provider: data.provider }
+          })
+          return
         case 'reasoning_start':
           dispatch({ type: 'REASONING_START', payload: { roundIndex: data.roundIndex } })
           return

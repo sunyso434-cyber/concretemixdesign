@@ -156,6 +156,7 @@ const SmartDesignChat = () => {
   const inputRef = useRef(null)
   const inputAreaRef = useRef(null)  // Ctrl+V 粘贴作用域控制
   const slashMenuApiRef = useRef({ moveSelection: () => {}, getSelectedIndex: () => 0 })
+  const chatListRef = useRef(null)  // 消息滚动容器，用于检测滚动到顶自动加载历史
 
   // 跟踪当前 todo 状态，用于 agent 完成时拍快照存入消息
   const latestTodoRef = useRef({ todos: [], summary: { total: 0, completed: 0 } })
@@ -645,10 +646,13 @@ const SmartDesignChat = () => {
       attachments: currentAttachments.length > 0 ? currentAttachments : undefined
     })
   }
-  // 加载更早的历史消息
+  // 加载更早的历史消息（滚动到顶自动触发，同时保持滚动位置不跳）
   const handleLoadMoreHistory = useCallback(async () => {
     if (historyLoading || !hasMoreHistory || !state.session.currentId) return
     setHistoryLoading(true)
+    // 记录加载前的 scrollHeight，用于加载后保持滚动位置
+    const listEl = chatListRef.current
+    const prevScrollHeight = listEl ? listEl.scrollHeight : 0
     try {
       const { loaded, hasMore } = await loadMoreSessionMessages({
         dispatch,
@@ -659,10 +663,33 @@ const SmartDesignChat = () => {
       if (loaded === 0) {
         setHasMoreHistory(false)
       }
+      // 加载后用 RAF 调整 scrollTop，保持原视觉位置不跳
+      if (listEl && loaded > 0) {
+        requestAnimationFrame(() => {
+          if (chatListRef.current) {
+            chatListRef.current.scrollTop = chatListRef.current.scrollHeight - prevScrollHeight
+          }
+        })
+      }
     } finally {
       setHistoryLoading(false)
     }
   }, [historyLoading, hasMoreHistory, state.session.currentId, state.messages, dispatch])
+
+  // 滚动到顶部时自动加载更多历史消息
+  useEffect(() => {
+    const listEl = chatListRef.current
+    if (!listEl) return
+    const handleScroll = () => {
+      // 滚动到顶部（留 30px 缓冲）且还有更多消息、不在加载中时自动触发
+      if (listEl.scrollTop <= 30 && hasMoreHistory && !historyLoading && state.session.currentId) {
+        handleLoadMoreHistory()
+      }
+    }
+    listEl.addEventListener('scroll', handleScroll, { passive: true })
+    return () => listEl.removeEventListener('scroll', handleScroll)
+  }, [hasMoreHistory, historyLoading, state.session.currentId, handleLoadMoreHistory])
+
   const handleSend = useCallback(async () => {
     const input = state.input
     if (!input.trim()) return
@@ -1452,6 +1479,14 @@ const SmartDesignChat = () => {
                   onClick={() => setLintModalOpen(true)}
                 />
               </Tooltip>
+              {/* v11.7.7: 显示当前路由到的 LLM 模型，用户可感知路由状态 */}
+              {state.agent.currentModel && (
+                <Tooltip title={`当前模型：${state.agent.currentProvider} · ${state.agent.currentModel}`}>
+                  <Tag color="blue" style={{ marginRight: 0, cursor: 'default' }}>
+                    {state.agent.currentModel}
+                  </Tag>
+                </Tooltip>
+              )}
               {(() => {
                 const percent = getContextPercent({
                   realTokens: state.contextRealTokens,
@@ -1469,7 +1504,7 @@ const SmartDesignChat = () => {
             </div>
           </div>
 
-          <div className="smart-chat-list">
+          <div className="smart-chat-list" ref={chatListRef}>
         {welcomeVisible ? (
           // v9.0.0 补充21：欢迎页（左侧最近会话 + 右侧欢迎语 + 顶部工作区状态条）
           <WelcomeScreen
@@ -1484,18 +1519,6 @@ const SmartDesignChat = () => {
         ) : (
           <List
             dataSource={state.messages}
-            header={state.messages.length > 0 && hasMoreHistory ? (
-              <div style={{ textAlign: 'center', padding: '8px 0' }}>
-                <Button
-                  size="small"
-                  loading={historyLoading}
-                  onClick={handleLoadMoreHistory}
-                  disabled={historyLoading}
-                >
-                  加载更多历史消息
-                </Button>
-              </div>
-            ) : null}
             renderItem={(item) => {
               // P3 commit 2: SystemErrorBubble 渲染 type='error' 气泡（chat stream + Agent 错误路径共用）
               if (item.type === 'error') {

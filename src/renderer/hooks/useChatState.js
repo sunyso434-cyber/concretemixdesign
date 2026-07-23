@@ -83,6 +83,7 @@ const useChatState = () => {
       setAnalysisData(null)
       setAnalysisResult(null)
       setPendingMaterialPicker(null)
+      setPreviousSummary('')  // v8.4.2：清空对话时重置压缩摘要，避免新对话污染
       message.success('对话已清空')
     } catch (error) {
       console.error('清空对话失败:', error)

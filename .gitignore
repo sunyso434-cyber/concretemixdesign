@@ -61,3 +61,6 @@ resources/officecli/*/officecli
 resources/officecli/*/officecli.exe
 # OfficeCLI 自动更新下载的临时分片文件
 *.update.partial
+
+# 一次性恢复/抢救脚本（一次性使用，跑完可删）
+scripts/recover-*.js
