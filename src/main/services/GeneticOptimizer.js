@@ -93,13 +93,7 @@ class GeneticOptimizer {
         stallCount++
       }
 
-      // 早停判断
-      if (noImproveCount >= cfg.patience) {
-        converged = true
-        break
-      }
-
-      // --- 构建下一代 ---
+      // --- 构建下一代（含重启检查，放在早停之前确保重启有机会触发）---
       const nextPopulation = []
 
       // 精英保留：前 N 个直接进入下一代
@@ -117,6 +111,13 @@ class GeneticOptimizer {
           nextPopulation.push({ genes: this._randomIndividual(geneSpec) })
         }
         stallCount = 0
+        noImproveCount = 0  // 解耦重启与早停：重启后同时重置两个计数器
+      }
+
+      // 早停判断
+      if (noImproveCount >= cfg.patience) {
+        converged = true
+        break
       }
 
       // 通过选择 + 交叉 + 变异填充剩余个体
@@ -236,11 +237,15 @@ class GeneticOptimizer {
    * 锦标赛选择：从 k 个随机个体中选出最优
    */
   _tournamentSelect(evaluated, k) {
+    // 过滤违反硬约束的个体（fitness=MAX_VALUE），使其不参与选择
+    const valid = evaluated.filter(ind => ind.fitness < Number.MAX_VALUE)
+    if (valid.length === 0) return evaluated[0]  // 防御：全都无效时返回第一个
+
     let best = null
     let bestFitness = Infinity
     for (let i = 0; i < k; i++) {
-      const idx = Math.floor(Math.random() * evaluated.length)
-      const candidate = evaluated[idx]
+      const idx = Math.floor(Math.random() * valid.length)
+      const candidate = valid[idx]
       if (candidate.fitness < bestFitness) {
         bestFitness = candidate.fitness
         best = candidate
