@@ -258,6 +258,24 @@ class ConcreteFitness {
         density: genes.flyAsh ? genes.flyAsh.density * 1000 : 0
       },
       {
+        type: 'slag',
+        materialId: genes.slag ? genes.slag.id : 0,
+        mass: Math.round(amounts.slag || 0),
+        density: genes.slag ? genes.slag.density * 1000 : 0
+      },
+      {
+        type: 'lithiumSlag',
+        materialId: genes.lithiumSlag ? genes.lithiumSlag.id : 0,
+        mass: Math.round(amounts.lithiumSlag || 0),
+        density: genes.lithiumSlag ? genes.lithiumSlag.density * 1000 : 0
+      },
+      {
+        type: 'compositePowder',
+        materialId: genes.compositePowder ? genes.compositePowder.id : 0,
+        mass: Math.round(amounts.compositePowder || 0),
+        density: genes.compositePowder ? genes.compositePowder.density * 1000 : 0
+      },
+      {
         type: 'water',
         materialId: genes.water.id,
         mass: Math.round(amounts.water || 0),
