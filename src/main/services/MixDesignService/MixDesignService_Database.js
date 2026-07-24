@@ -96,7 +96,7 @@ class MixDesignService_Database {
   // 计算配合比
   async calculateMixDesign(params) {
     try {
-      const { strength, slump, tempSettings, materials, calculationMethod = 'mass', targetDensity = 2400, airContent, flyAshDosage, slagDosage, lithiumSlagDosage, compositePowderDosage, sandRatio, waterRatio: inputWaterRatio, _overrideBaseWaterAmount, _overrideSpDosage } = params
+      const { strength, slump, tempSettings, materials, calculationMethod = 'mass', targetDensity = 2400, airContent, flyAshDosage, slagDosage, lithiumSlagDosage, compositePowderDosage, sandRatio, waterRatio: inputWaterRatio, _overrideBaseWaterAmount, _overrideSpDosage, _overrideWaterRatio } = params
 
       console.log('开始JGJ 55标准配合比计算...')
       console.log('输入参数:', { strength, slump, tempSettings, calculationMethod, targetDensity, airContent, flyAshDosage, slagDosage, lithiumSlagDosage, compositePowderDosage, sandRatio })
@@ -228,7 +228,7 @@ class MixDesignService_Database {
           { label: '胶凝材料强度f_b', value: `f_b = f_ce × γ_f = ${adjustedCementStrength.toFixed(2)} MPa` },
           { label: '公式', value: 'W/B = (α_a × f_b) / (f_cu,0 + α_a × α_b × f_b)' },
           { label: '代入', value: `W/B = (${alphaA} × ${adjustedCementStrength.toFixed(2)}) / (${targetStrength.toFixed(2)} + ${alphaA} × ${alphaB} × ${adjustedCementStrength.toFixed(2)})` },
-          { label: '水胶比', value: waterRatio.toFixed(4), highlight: true }
+          { label: '水胶比', value: _overrideWaterRatio !== undefined ? `${_overrideWaterRatio.toFixed(4)}（基因控制，计算值 ${waterRatio.toFixed(4)}）` : `${waterRatio.toFixed(4)}`, highlight: true }
         ]
       })
 
@@ -351,7 +351,8 @@ class MixDesignService_Database {
       calculationSteps.push({ step: 6, title: '用水量计算', details: waterAdjustments })
 
       // 10. 计算胶凝材料总量
-      const cementitiousAmount = waterAmount / waterRatio
+      const effectiveWaterRatio = _overrideWaterRatio !== undefined ? _overrideWaterRatio : waterRatio
+      const cementitiousAmount = waterAmount / effectiveWaterRatio
 
       // 11. 计算砂率
       let finalSandRatio
@@ -376,7 +377,7 @@ class MixDesignService_Database {
         step: 7,
         title: '胶凝材料与砂率',
         details: [
-          { label: '胶凝材料总量', value: `B = ${waterAmount.toFixed(2)} / ${waterRatio.toFixed(4)} = ${cementitiousAmount.toFixed(2)} kg/m³`, highlight: true },
+          { label: '胶凝材料总量', value: `B = ${waterAmount.toFixed(2)} / ${effectiveWaterRatio.toFixed(4)} = ${cementitiousAmount.toFixed(2)} kg/m³${_overrideWaterRatio !== undefined ? `（基因控制 W/B，计算值 ${waterRatio.toFixed(4)}）` : ''}`, highlight: true },
           { label: '水泥用量', value: `${(cementitiousAmount * cementPercentage).toFixed(2)} kg/m³（${(cementPercentage * 100).toFixed(1)}%）` },
           flyAshDosage > 0 ? { label: '粉煤灰用量', value: `${(cementitiousAmount * flyAshPercentage).toFixed(2)} kg/m³（${flyAshDosage}%）` } : null,
           slagDosage > 0 ? { label: '矿渣粉用量', value: `${(cementitiousAmount * slagPercentage).toFixed(2)} kg/m³（${slagDosage}%）` } : null,
