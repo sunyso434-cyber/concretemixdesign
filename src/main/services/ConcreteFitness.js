@@ -40,6 +40,10 @@ class ConcreteFitness {
     this.targetStrength = targetStrength
     this.slump = slump
     this.options = options
+    this.additiveTotalMax = options?.additiveTotalMax ?? 50
+    this.singleAdditiveMax = options?.singleAdditiveMax ?? 30
+    this.spDosageMin = options?.spDosageMin ?? 1.0
+    this.spDosageMax = options?.spDosageMax ?? 5.0
   }
 
   /**
@@ -111,10 +115,10 @@ class ConcreteFitness {
     const sandTotalAmount = amounts.sand || 0
     const stoneTotalAmount = amounts.stone || 0
 
-    const sand1Mass = sandTotalAmount * (1 - sand2Proportion)
-    const sand2Mass = sandTotalAmount * sand2Proportion
-    const stone1Mass = stoneTotalAmount * (1 - stone2Proportion)
-    const stone2Mass = stoneTotalAmount * stone2Proportion
+    const sand1Mass = sandTotalAmount * (1 - sand2Proportion / 100)
+    const sand2Mass = sandTotalAmount * (sand2Proportion / 100)
+    const stone1Mass = stoneTotalAmount * (1 - stone2Proportion / 100)
+    const stone2Mass = stoneTotalAmount * (stone2Proportion / 100)
 
     // 4. 计算真实材料成本（元/m³）
     // 单价单位：元/吨，用量单位：kg/m³ → 元/kg = 元/吨 ÷ 1000
@@ -185,8 +189,8 @@ class ConcreteFitness {
     const additiveTotal = (genes.flyAshDosage ?? 0) + (genes.slagDosage ?? 0)
       + (genes.lithiumSlagDosage ?? 0) + (genes.compositePowderDosage ?? 0)
     let additivePenalty = 0
-    if (additiveTotal > 50) {
-      additivePenalty = 5 * (additiveTotal - 50)
+    if (additiveTotal > this.additiveTotalMax) {
+      additivePenalty = 5 * (additiveTotal - this.additiveTotalMax)
     }
 
     // 10. 总适应度 = 成本 + 各罚分
@@ -225,24 +229,6 @@ class ConcreteFitness {
       materials: [],
       predictions: { strength28d, density, spDosage: spPredicted }
     }
-  }
-
-  /**
-   * 计算减水剂偏差罚分
-   * 偏差 > 0.5 个百分点时：
-   *   materialCost = spPrice/1000 × (deviation × binderTotal / 100)
-   *   riskCost     = 10 × deviation
-   *   总罚分 = materialCost + riskCost
-   * @param {Object} spMaterial - 减水剂材料
-   * @param {number} spDeviation - 偏差（百分点）
-   * @param {Object} amounts - 各材料用量
-   * @returns {number} 减水剂偏差罚分
-   */
-  _calcSpPenalty(spMaterial, spDeviation, amounts) {
-    const spPrice = (spMaterial && spMaterial.price) || 0
-    const binderTotal = (amounts.cement || 0) + (amounts.flyAsh || 0) + (amounts.slag || 0)
-      + (amounts.lithiumSlag || 0) + (amounts.compositePowder || 0)
-    return calcSpPenalty(spPrice, spDeviation, binderTotal).penalty
   }
 
   /**

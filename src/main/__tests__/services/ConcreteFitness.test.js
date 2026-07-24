@@ -265,6 +265,53 @@ describe('ConcreteFitness.evaluate', () => {
     expect(result.additivePenalty).toBe(25)
   })
 
+  test('sand2Proportion/stone2Proportion 从百分比转换为小数', async () => {
+    const snapshot = makeSnapshot()
+    // 给砂和石各添加第二种材料
+    snapshot.candidatePools.sand.push({ id: 8, name: '河砂', type: '细骨料', price: 90, density: 2.60 })
+    snapshot.candidatePools.stone.push({ id: 12, name: '碎石10-20', type: '粗骨料', price: 95, density: 2.75 })
+
+    const fitness = new ConcreteFitness(snapshot, 38, 200, { additiveTotalMax: 50 })
+    const genes = {
+      cement: snapshot.candidatePools.cement[0],
+      sand: [snapshot.candidatePools.sand[0], snapshot.candidatePools.sand[1]],
+      stone: [snapshot.candidatePools.stone[0], snapshot.candidatePools.stone[1]],
+      sp: snapshot.candidatePools.sp[0],
+      water: snapshot.candidatePools.water[0],
+      wb: 0.45,
+      sandRatio: 40,
+      spDosage: 1.5,
+      sand2Proportion: 30, // 30% → 0.3
+      stone2Proportion: 40 // 40% → 0.4
+    }
+    MixDesignService_Database.calculateMixDesign.mockResolvedValue({
+      materials: {
+        water: 165, cement: 280, flyAsh: 0, slag: 0,
+        lithiumSlag: 0, compositePowder: 0,
+        sand: 700, stone: 1000, superplasticizer: 5.95
+      }
+    })
+    XGBoostPredictionService.predict.mockResolvedValue({
+      predictions: {
+        strength28d: { value: 40 },
+        density: { value: 2400 },
+        superplasticizer_dosage: { value: 1.2 }
+      }
+    })
+    const result = await fitness.evaluate(genes)
+    // 验证质量拆分比例正确
+    const matMap = {}
+    for (const m of result.materials) {
+      matMap[m.type] = m
+    }
+    // sandTotal = 700, sand2Proportion = 30% → sand1 = 490, sand2 = 210
+    expect(matMap.sand1.mass).toBe(490)
+    expect(matMap.sand2.mass).toBe(210)
+    // stoneTotal = 1000, stone2Proportion = 40% → stone1 = 600, stone2 = 400
+    expect(matMap.stone1.mass).toBe(600)
+    expect(matMap.stone2.mass).toBe(400)
+  })
+
   test('返回结构包含所有必要字段', async () => {
     const snapshot = makeSnapshot()
     const fitness = new ConcreteFitness(snapshot, 38, 200, {})

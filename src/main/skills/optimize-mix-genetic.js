@@ -212,11 +212,17 @@ module.exports = {
       return { success: false, error: `候选池构建失败: ${err.message}` }
     }
 
-    // ===== 4. 构建 ConcreteFitness =====
+    // ===== 4. 构建 ConcreteFitness（传递可选参数） =====
     const fitness = new ConcreteFitness(
       snapshot,
       args.targetStrength,
-      args.slump
+      args.slump,
+      {
+        additiveTotalMax: args.additiveTotalMax ?? 50,
+        singleAdditiveMax: args.singleAdditiveMax ?? 30,
+        spDosageMin: args.spDosageMin ?? 1.0,
+        spDosageMax: args.spDosageMax ?? 5.0
+      }
     )
 
     // ===== 5. 解析选项 =====
