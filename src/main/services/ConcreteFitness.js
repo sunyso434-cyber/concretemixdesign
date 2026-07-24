@@ -2,6 +2,27 @@ const XGBoostPredictionService = require('./XGBoostPredictionService')
 const MixDesignService_Database = require('./MixDesignService/MixDesignService_Database')
 
 /**
+ * 计算减水剂偏差罚分（独立函数，可单独测试）
+ * 偏差 > 0.5 个百分点时：
+ *   materialCost = spPrice/1000 × (deviation × binderTotal / 100)
+ *   riskCost     = 10 × deviation
+ *   总罚分 = materialCost + riskCost
+ * @param {number} spPrice - 减水剂单价（元/吨）
+ * @param {number} spDeviation - 偏差（百分点）
+ * @param {number} binderTotal - 胶凝材料总量（kg/m³）
+ * @returns {{ penalty: number, materialCost: number, riskCost: number }}
+ */
+function calcSpPenalty(spPrice, spDeviation, binderTotal) {
+  if (spDeviation <= 0.5) {
+    return { penalty: 0, materialCost: 0, riskCost: 0 }
+  }
+  const materialCost = (spPrice / 1000) * (spDeviation * binderTotal / 100)
+  const riskCost = 10 * spDeviation
+  const penalty = materialCost + riskCost
+  return { penalty, materialCost, riskCost }
+}
+
+/**
  * 混凝土适应度函数
  * 评估基因方案（配比参数 + 材料选择）的适应度
  * 适应度 = 真实成本 + 强度罚分 + 减水剂偏差罚分 + 掺合料总掺超限罚分
@@ -155,7 +176,10 @@ class ConcreteFitness {
 
     // 8. 减水剂偏差罚分
     const spDeviation = Math.abs(spPredicted - genes.spDosage)
-    const spDeviationPenalty = this._calcSpPenalty(genes.sp, spDeviation, amounts)
+    const spPrice = (genes.sp && genes.sp.price) || 0
+    const binderTotal = (amounts.cement || 0) + (amounts.flyAsh || 0) + (amounts.slag || 0)
+      + (amounts.lithiumSlag || 0) + (amounts.compositePowder || 0)
+    const { penalty: spDeviationPenalty, materialCost: spMaterialCost, riskCost: spRiskCost } = calcSpPenalty(spPrice, spDeviation, binderTotal)
 
     // 9. 掺合料总掺超限罚分
     const additiveTotal = (genes.flyAshDosage ?? 0) + (genes.slagDosage ?? 0)
@@ -177,6 +201,8 @@ class ConcreteFitness {
       strengthGap,
       spDeviation,
       spDeviationPenalty,
+      spMaterialCost,
+      spRiskCost,
       additivePenalty,
       materials,
       predictions: { strength28d, density, spDosage: spPredicted }
@@ -193,6 +219,8 @@ class ConcreteFitness {
       strengthGap,
       spDeviation: 0,
       spDeviationPenalty: 0,
+      spMaterialCost: 0,
+      spRiskCost: 0,
       additivePenalty: 0,
       materials: [],
       predictions: { strength28d, density, spDosage: spPredicted }
@@ -211,18 +239,10 @@ class ConcreteFitness {
    * @returns {number} 减水剂偏差罚分
    */
   _calcSpPenalty(spMaterial, spDeviation, amounts) {
-    if (spDeviation <= 0.5) return 0
-
     const spPrice = (spMaterial && spMaterial.price) || 0
     const binderTotal = (amounts.cement || 0) + (amounts.flyAsh || 0) + (amounts.slag || 0)
       + (amounts.lithiumSlag || 0) + (amounts.compositePowder || 0)
-
-    // materialCost: 多用的减水剂材料成本
-    const materialCost = (spPrice / 1000) * (spDeviation * binderTotal / 100)
-    // riskCost: 偏差风险罚分
-    const riskCost = 10 * spDeviation
-
-    return materialCost + riskCost
+    return calcSpPenalty(spPrice, spDeviation, binderTotal).penalty
   }
 
   /**
@@ -303,3 +323,4 @@ class ConcreteFitness {
 }
 
 module.exports = ConcreteFitness
+module.exports.calcSpPenalty = calcSpPenalty

@@ -1,4 +1,5 @@
 const ConcreteFitness = require('../../services/ConcreteFitness')
+const { calcSpPenalty } = ConcreteFitness
 
 jest.mock('../../services/XGBoostPredictionService', () => ({
   predict: jest.fn()
@@ -34,6 +35,53 @@ function makeSnapshot() {
     }
   }
 }
+
+describe('calcSpPenalty', () => {
+  test('偏差大于0.5个百分点计算罚分', () => {
+    // spPrice=3500元/吨, deviation=0.8pp, binderTotal=350kg
+    // materialCost = 3500/1000 * (0.8 * 350/100) = 3.5 * 2.8 = 9.8
+    // riskCost = 10 * 0.8 = 8.0
+    // penalty = 9.8 + 8.0 = 17.8
+    const result = calcSpPenalty(3500, 0.8, 350)
+    expect(result.materialCost).toBeCloseTo(9.8, 1)
+    expect(result.riskCost).toBeCloseTo(8.0, 1)
+    expect(result.penalty).toBeCloseTo(17.8, 1)
+  })
+
+  test('偏差小于0.5个百分点无罚分', () => {
+    const result = calcSpPenalty(3500, 0.3, 350)
+    expect(result.penalty).toBe(0)
+    expect(result.materialCost).toBe(0)
+    expect(result.riskCost).toBe(0)
+  })
+
+  test('零价格时罚分仅含风险成本', () => {
+    // spPrice=0, deviation=0.8pp, binderTotal=350kg
+    // materialCost = 0/1000 * (0.8 * 350/100) = 0
+    // riskCost = 10 * 0.8 = 8.0
+    const result = calcSpPenalty(0, 0.8, 350)
+    expect(result.materialCost).toBe(0)
+    expect(result.riskCost).toBeCloseTo(8.0, 1)
+    expect(result.penalty).toBeCloseTo(8.0, 1)
+  })
+
+  test('零胶凝材料时罚分仅含风险成本', () => {
+    // spPrice=3500, deviation=0.8pp, binderTotal=0
+    // materialCost = 3500/1000 * (0.8 * 0/100) = 0
+    // riskCost = 10 * 0.8 = 8.0
+    const result = calcSpPenalty(3500, 0.8, 0)
+    expect(result.materialCost).toBe(0)
+    expect(result.riskCost).toBeCloseTo(8.0, 1)
+    expect(result.penalty).toBeCloseTo(8.0, 1)
+  })
+
+  test('偏差刚好0.5个百分点边界值无罚分', () => {
+    const result = calcSpPenalty(3500, 0.5, 350)
+    expect(result.penalty).toBe(0)
+    expect(result.materialCost).toBe(0)
+    expect(result.riskCost).toBe(0)
+  })
+})
 
 describe('ConcreteFitness.evaluate', () => {
   beforeEach(() => {
@@ -178,6 +226,8 @@ describe('ConcreteFitness.evaluate', () => {
     // riskCost = 10 * 0.8 = 8
     // total ≈ 17.52
     expect(result.spDeviationPenalty).toBeCloseTo(17.52, 1)
+    expect(result.spMaterialCost).toBeCloseTo(9.52, 1)
+    expect(result.spRiskCost).toBeCloseTo(8, 1)
   })
 
   test('掺合料总掺超限罚分', async () => {
@@ -250,6 +300,8 @@ describe('ConcreteFitness.evaluate', () => {
     expect(result).toHaveProperty('strengthGap')
     expect(result).toHaveProperty('spDeviation')
     expect(result).toHaveProperty('spDeviationPenalty')
+    expect(result).toHaveProperty('spMaterialCost')
+    expect(result).toHaveProperty('spRiskCost')
     expect(result).toHaveProperty('additivePenalty')
     expect(result).toHaveProperty('materials')
     expect(result).toHaveProperty('predictions')
