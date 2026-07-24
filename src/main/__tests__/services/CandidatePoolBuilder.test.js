@@ -56,6 +56,15 @@ describe('CandidatePoolBuilder.buildSnapshot', () => {
       .rejects.toThrow('细骨料候选最多2种')
   })
 
+  test('石超过2个抛错', async () => {
+    const materialIds = {
+      cementIds: [1], sandIds: [7], stoneIds: [9, 10, 11], spIds: [10], waterIds: [12],
+      flyAshIds: [], slagIds: [], lithiumSlagIds: [], compositePowderIds: []
+    }
+    await expect(CandidatePoolBuilder.buildSnapshot(materialIds))
+      .rejects.toThrow('粗骨料候选最多2种')
+  })
+
   test('ID 不存在抛错', async () => {
     const materialIds = {
       cementIds: [999], sandIds: [7], stoneIds: [9], spIds: [10], waterIds: [11],

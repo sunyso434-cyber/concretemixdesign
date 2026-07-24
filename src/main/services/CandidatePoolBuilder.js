@@ -16,16 +16,6 @@ const FIELD_TO_POOL_KEY = {
   waterIds: 'water',
 }
 
-/**
- * 候选池中文标签（用于校验错误信息）
- */
-const POOL_LABELS = {
-  cement: '水泥',
-  water: '水',
-  sand: '细骨料',
-  stone: '粗骨料',
-}
-
 const CandidatePoolBuilder = {
   /**
    * 从 materialIds 构建材料快照。
@@ -91,12 +81,23 @@ const CandidatePoolBuilder = {
       throw new Error('水候选必须且只能指定 1 种')
     }
 
+    const spIds = getIds('spIds')
+    if (spIds.length === 0) {
+      throw new Error('减水剂候选不能为空')
+    }
+
     const sandIds = getIds('sandIds')
+    if (sandIds.length === 0) {
+      throw new Error('细骨料候选不能为空')
+    }
     if (sandIds.length > 2) {
       throw new Error('细骨料候选最多2种')
     }
 
     const stoneIds = getIds('stoneIds')
+    if (stoneIds.length === 0) {
+      throw new Error('粗骨料候选不能为空')
+    }
     if (stoneIds.length > 2) {
       throw new Error('粗骨料候选最多2种')
     }
