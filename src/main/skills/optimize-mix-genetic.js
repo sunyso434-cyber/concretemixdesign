@@ -225,68 +225,84 @@ module.exports = {
     const spDosageMax = args.spDosageMax ?? 5.0
 
     // ===== 6. 动态构造 geneSpec =====
-    const geneSpec = { continuous: [], discrete: [] }
+    /**
+     * 构建基因编码规范
+     * @param {Object} snap - 材料快照
+     * @param {Object} [opts] - 可选参数 { singleAdditiveMax, spDosageMin, spDosageMax, wbMin }
+     * @returns {{ continuous: Array, discrete: Array }}
+     */
+    function buildGeneSpec(snap, opts = {}) {
+      const wbMin = opts.wbMin ?? 0.30
+      const smax = opts.singleAdditiveMax ?? 30
+      const spMin = opts.spDosageMin ?? 1.0
+      const spMax = opts.spDosageMax ?? 5.0
+      const spec = { continuous: [], discrete: [] }
 
-    // W/B（必有）
-    geneSpec.continuous.push({ name: 'wb', min: 0.30, max: 0.60 })
+      // W/B（必有）
+      spec.continuous.push({ name: 'wb', min: wbMin, max: 0.60 })
 
-    // 水泥（必有）
-    geneSpec.discrete.push({
-      name: 'cementGene',
-      candidates: Array.from({ length: snapshot.candidatePools.cement.length }, (_, i) => i)
-    })
+      // 水泥（必有）
+      spec.discrete.push({
+        name: 'cementGene',
+        candidates: Array.from({ length: snap.candidatePools.cement.length }, (_, i) => i)
+      })
 
-    // 掺合料（池非空才加入）
-    for (const admixture of ['flyAsh', 'slag', 'lithiumSlag', 'compositePowder']) {
-      const pool = snapshot.candidatePools[admixture]
-      if (pool && pool.length > 0) {
-        geneSpec.discrete.push({
-          name: `${admixture}Gene`,
-          candidates: Array.from({ length: pool.length }, (_, i) => i)
-        })
-        geneSpec.continuous.push({ name: `${admixture}Dosage`, min: 0, max: singleAdditiveMax })
+      // 掺合料（池非空才加入）
+      for (const admixture of ['flyAsh', 'slag', 'lithiumSlag', 'compositePowder']) {
+        const pool = snap.candidatePools[admixture]
+        if (pool && pool.length > 0) {
+          spec.discrete.push({
+            name: `${admixture}Gene`,
+            candidates: Array.from({ length: pool.length }, (_, i) => i)
+          })
+          spec.continuous.push({ name: `${admixture}Dosage`, min: 0, max: smax })
+        }
       }
-    }
 
-    // 砂率（必有）
-    geneSpec.continuous.push({ name: 'sandRatio', min: 30, max: 55 })
+      // 砂率（必有）
+      spec.continuous.push({ name: 'sandRatio', min: 30, max: 55 })
 
-    // 砂1（必有）
-    geneSpec.discrete.push({
-      name: 'sand1Gene',
-      candidates: Array.from({ length: snapshot.candidatePools.sand.length }, (_, i) => i)
-    })
-
-    // 第2种砂（pool.length > 1 才加入）
-    if (snapshot.candidatePools.sand.length > 1) {
-      geneSpec.discrete.push({
-        name: 'sand2Gene',
-        candidates: Array.from({ length: snapshot.candidatePools.sand.length }, (_, i) => i)
+      // 砂1（必有）
+      spec.discrete.push({
+        name: 'sand1Gene',
+        candidates: Array.from({ length: snap.candidatePools.sand.length }, (_, i) => i)
       })
-      geneSpec.continuous.push({ name: 'sand2Proportion', min: 0, max: 100 })
-    }
 
-    // 石1（必有）
-    geneSpec.discrete.push({
-      name: 'stone1Gene',
-      candidates: Array.from({ length: snapshot.candidatePools.stone.length }, (_, i) => i)
-    })
+      // 第2种砂（pool.length > 1 才加入）
+      if (snap.candidatePools.sand.length > 1) {
+        spec.discrete.push({
+          name: 'sand2Gene',
+          candidates: Array.from({ length: snap.candidatePools.sand.length }, (_, i) => i)
+        })
+        spec.continuous.push({ name: 'sand2Proportion', min: 0, max: 100 })
+      }
 
-    // 第2种碎石（pool.length > 1 才加入）
-    if (snapshot.candidatePools.stone.length > 1) {
-      geneSpec.discrete.push({
-        name: 'stone2Gene',
-        candidates: Array.from({ length: snapshot.candidatePools.stone.length }, (_, i) => i)
+      // 石1（必有）
+      spec.discrete.push({
+        name: 'stone1Gene',
+        candidates: Array.from({ length: snap.candidatePools.stone.length }, (_, i) => i)
       })
-      geneSpec.continuous.push({ name: 'stone2Proportion', min: 0, max: 100 })
+
+      // 第2种碎石（pool.length > 1 才加入）
+      if (snap.candidatePools.stone.length > 1) {
+        spec.discrete.push({
+          name: 'stone2Gene',
+          candidates: Array.from({ length: snap.candidatePools.stone.length }, (_, i) => i)
+        })
+        spec.continuous.push({ name: 'stone2Proportion', min: 0, max: 100 })
+      }
+
+      // 减水剂（必有）
+      spec.discrete.push({
+        name: 'spGene',
+        candidates: Array.from({ length: snap.candidatePools.sp.length }, (_, i) => i)
+      })
+      spec.continuous.push({ name: 'spDosage', min: spMin, max: spMax })
+
+      return spec
     }
 
-    // 减水剂（必有）
-    geneSpec.discrete.push({
-      name: 'spGene',
-      candidates: Array.from({ length: snapshot.candidatePools.sp.length }, (_, i) => i)
-    })
-    geneSpec.continuous.push({ name: 'spDosage', min: spDosageMin, max: spDosageMax })
+    const geneSpec = buildGeneSpec(snapshot, { singleAdditiveMax, spDosageMin, spDosageMax })
 
     // ===== 7. 基因解码函数 =====
     /**
@@ -361,9 +377,8 @@ module.exports = {
     // ===== 10. 全淘汰重试 =====
     if (result.stats.allInvalid) {
       if (logger) logger.warn('初始种群全部不达标，降低 W/B 下限重试')
-      const wbGene = geneSpec.continuous.find(g => g.name === 'wb')
-      if (wbGene) wbGene.min = 0.25
-      result = await optimizer.run(fitnessWrapper, geneSpec)
+      const retryGeneSpec = buildGeneSpec(snapshot, { singleAdditiveMax, spDosageMin, spDosageMax, wbMin: 0.25 })
+      result = await optimizer.run(fitnessWrapper, retryGeneSpec)
 
       if (result.stats.allInvalid) {
         if (logger) logger.error('降低 W/B 下限后仍全部不达标')
@@ -380,9 +395,22 @@ module.exports = {
     // 按适应度（成本）升序排列
     validated.sort((a, b) => a.fitness - b.fitness)
 
-    // ===== 12. 选 Top-3（不凑数） =====
-    // 按适应度升序取前 3，验证状态标注在每条方案上供参考
-    const top3 = validated.slice(0, 3)
+    // ===== 12. 选 Top-3（按验证状态筛选，不凑数） =====
+    const passed = validated.filter(s => s.validation.status === 'pass')
+      .sort((a, b) => a.fitness - b.fitness)
+    const warned = validated.filter(s => s.validation.status === 'warning')
+      .sort((a, b) => a.fitness - b.fitness)
+    // ❌ 直接排除，不参与筛选
+
+    const top3 = []
+    if (passed.length >= 3) {
+      top3.push(...passed.slice(0, 3))
+    } else {
+      top3.push(...passed)
+      const needed = 3 - top3.length
+      top3.push(...warned.slice(0, needed))
+    }
+    // 不足 3 个不凑数
 
     return {
       success: true,

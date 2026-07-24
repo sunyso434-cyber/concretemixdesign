@@ -42,13 +42,13 @@ function makeMockSolution(fitness) {
     genes: { wb: 0.5, sandRatio: 40, spDosage: 1.5 },
     fitness,
     materials: [
-      { type: 'cement', materialId: 1, mass: 280, density: 3100 },
-      { type: 'water', materialId: 11, mass: 165, density: 1000 },
-      { type: 'sand1', materialId: 7, mass: 700, density: 2650 },
-      { type: 'stone1', materialId: 9, mass: 1000, density: 2700 },
-      { type: 'sp', materialId: 10, mass: 5, density: 1050 }
+      { type: 'cement', materialId: 1, mass: 350, density: 3100 },
+      { type: 'water', materialId: 11, mass: 175, density: 1000 },
+      { type: 'sand1', materialId: 7, mass: 750, density: 2650 },
+      { type: 'stone1', materialId: 9, mass: 1050, density: 2700 },
+      { type: 'sp', materialId: 10, mass: 7, density: 1050 }
     ],
-    predictions: { strength28d: 40, density: 2400, spDosage: 1.2 }
+    predictions: { strength28d: 40, density: 2332, spDosage: 1.2 }
   }
 }
 
