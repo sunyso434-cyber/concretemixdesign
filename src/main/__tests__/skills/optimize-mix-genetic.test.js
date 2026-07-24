@@ -80,10 +80,15 @@ describe('optimize_mix_genetic skill', () => {
       slump: 200
     })
     expect(result.success).toBe(true)
-    expect(result.data.topSolutions).toBeDefined()
-    expect(result.data.topSolutions.length).toBeGreaterThan(0)
     expect(result.data.top3).toBeDefined()
     expect(result.data.top3.length).toBe(3)
+    // 验证格式化输出包含材料用量和配比参数
+    const plan = result.data.top3[0]
+    const key = Object.keys(plan)[0]
+    expect(plan[key]).toBeDefined()
+    expect(plan[key]['材料用量(kg/m³)']).toBeDefined()
+    expect(plan[key]['配比参数']).toBeDefined()
+    expect(plan[key]['配比参数']['水胶比(W/B)']).toBe('0.500')
     expect(result.data.gaStats).toBeDefined()
   })
 
@@ -115,5 +120,44 @@ describe('optimize_mix_genetic skill', () => {
       targetStrength: 38, slump: 200, populationSize: 10, generations: 10
     })
     expect(result.data.top3.length).toBe(2)
+  })
+
+  test('所有方案复核fail时三级回退返回fail方案', async () => {
+    // 构造体积误差 > 5% 的方案（mass 极端值），所有方案都被 Validator 判 fail
+    // 验证 Top-3 三级回退：pass 空 -> warning 空 -> 从 fail 取前3
+    function makeFailSolution(fitness) {
+      return {
+        genes: { wb: 0.5, sandRatio: 40, spDosage: 1.5 },
+        fitness,
+        // mass 5000kg -> 体积 = 5000/3100 + 0.015 ≈ 1.62 m³，误差 62% -> fail
+        materials: [
+          { type: 'cement', materialId: 1, mass: 5000, density: 3100 },
+          { type: 'water', materialId: 11, mass: 0, density: 1000 },
+          { type: 'sand1', materialId: 7, mass: 0, density: 2650 },
+          { type: 'stone1', materialId: 9, mass: 0, density: 2700 },
+          { type: 'sp', materialId: 10, mass: 0, density: 1050 }
+        ],
+        predictions: { strength28d: 40, density: 5000 }
+      }
+    }
+    GeneticOptimizer.mockImplementation(() => ({
+      run: jest.fn().mockResolvedValue({
+        bestSolutions: [
+          makeFailSolution(280),
+          makeFailSolution(290),
+          makeFailSolution(300)
+        ],
+        stats: { generationsRun: 100, converged: true, time: 800 }
+      })
+    }))
+    const result = await optimizeMixGenetic.execute({
+      cementIds: [1], sandIds: [7], stoneIds: [9], spIds: [10], waterIds: [11],
+      targetStrength: 38, slump: 200, populationSize: 10, generations: 10
+    })
+    // 所有方案 fail 时，三级回退应返回 fail 方案（不返回空数组）
+    expect(result.data.top3.length).toBe(3)
+    const plan = result.data.top3[0]
+    const key = Object.keys(plan)[0]
+    expect(plan[key]['成本与复核']['复核结论']).toBe('fail')
   })
 })

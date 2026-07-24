@@ -401,30 +401,83 @@ module.exports = {
     // 按适应度（成本）升序排列
     validated.sort((a, b) => a.fitness - b.fitness)
 
-    // ===== 12. 选 Top-3（按验证状态筛选，不凑数） =====
+    // ===== 12. 选 Top-3（三级回退：pass -> warning -> fail 兜底） =====
+    // 优先返回复核通过的方案；不足时从 warning 补；仍不足从 fail 补（标注 fail 让用户看到 GA 找到了什么）
     const passed = validated.filter(s => s.validation.status === 'pass')
       .sort((a, b) => a.fitness - b.fitness)
     const warned = validated.filter(s => s.validation.status === 'warning')
       .sort((a, b) => a.fitness - b.fitness)
-    // ❌ 直接排除，不参与筛选
+    const failed = validated.filter(s => s.validation.status === 'fail')
+      .sort((a, b) => a.fitness - b.fitness)
 
     const top3 = []
-    if (passed.length >= 3) {
-      top3.push(...passed.slice(0, 3))
-    } else {
-      top3.push(...passed)
+    top3.push(...passed.slice(0, 3))
+    if (top3.length < 3) {
       const needed = 3 - top3.length
       top3.push(...warned.slice(0, needed))
     }
+    if (top3.length < 3) {
+      const needed = 3 - top3.length
+      top3.push(...failed.slice(0, needed))
+    }
     // 不足 3 个不凑数
+
+    // ===== 13. 格式化 Top-3 为友好输出 =====
+    function formatMix(solution, index) {
+      const mats = solution.materials || []
+      const matMap = {}
+      for (const m of mats) {
+        if (m.mass > 0) matMap[m.type] = matMap[m.type] || 0
+        if (m.mass > 0) matMap[m.type] += m.mass
+      }
+      const g = solution.genes || {}
+      const pred = solution.predictions || {}
+
+      const detail = {}
+      detail['方案' + (index + 1)] = {
+        '材料用量(kg/m³)': {
+          '水泥': matMap.cement || 0,
+          '水': matMap.water || 0,
+          '粉煤灰': matMap.flyAsh || 0,
+          '矿渣粉': matMap.slag || 0,
+          '锂渣': matMap.lithiumSlag || 0,
+          '复合粉': matMap.compositePowder || 0,
+          '砂': (matMap.sand1 || 0) + (matMap.sand2 || 0),
+          '石': (matMap.stone1 || 0) + (matMap.stone2 || 0),
+          '减水剂': matMap.sp || 0
+        },
+        '配比参数': {
+          '水胶比(W/B)': g.wb ? g.wb.toFixed(3) : '-',
+          '砂率(%)': g.sandRatio ?? '-',
+          '减水剂掺量(%)': g.spDosage ? g.spDosage.toFixed(2) : '-',
+          '粉煤灰掺量(%)': g.flyAshDosage ?? 0,
+          '矿渣粉掺量(%)': g.slagDosage ?? 0,
+          '锂渣掺量(%)': g.lithiumSlagDosage ?? 0,
+          '复合粉掺量(%)': g.compositePowderDosage ?? 0
+        },
+        '预测性能': {
+          '28天强度(MPa)': pred.strength28d ?? '-',
+          '容重(kg/m³)': pred.density ?? '-'
+        },
+        '成本与复核': {
+          '材料成本(元/m³)': solution.realCost ? solution.realCost.toFixed(2) : '-',
+          '强度差距(MPa)': solution.strengthGap ?? '-',
+          '复核结论': solution.validation ? solution.validation.status : '-'
+        }
+      }
+      return detail
+    }
+
+    const formattedTop3 = top3.map(function(s, i) { return formatMix(s, i) })
 
     return {
       success: true,
       data: {
-        topSolutions: validated,
-        top3,
+        top3: formattedTop3,
         gaStats: result.stats
       }
     }
-  }
+  },
+
+  services: []
 }
