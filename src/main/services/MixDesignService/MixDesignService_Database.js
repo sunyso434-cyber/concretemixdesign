@@ -269,14 +269,19 @@ class MixDesignService_Database {
 
       // 8. 计算减水率
       // ponytail: 没选减水剂材料 → 减水率=0%（用水量不修正减水）
-      // 减水率公式：材料 waterReducingRate + (strengthDosage - 材料推荐掺量) / 0.1 × 材料 waterReducingRatePer01Dosage
+      // 减水率公式：材料 waterReducingRate + (实际掺量 - 材料推荐掺量) / 0.1 × 材料 waterReducingRatePer01Dosage
       // 注：砂石 MB/细度模数 微调产生的掺量变化不参与减水率（用户规则）
+      // 修复 bug C：减水率用的掺量优先取 GA 传入的 _overrideSpDosage，回退到 strengthDosage
+      //   原来一直用 strengthDosage，导致 GA 的 spDosage 基因无法影响减水率/用水量
       let waterReducingRate = 0
       if (superplasticizerMaterial) {
         const baseDosage = parseFloat(superplasticizerMaterial.recommendedDosage) || 0
         const baseReducingRate = parseFloat(superplasticizerMaterial.waterReducingRate) || 25
+        const dosageForReducingRate = _overrideSpDosage !== undefined
+          ? _overrideSpDosage
+          : superplasticizerResult.strengthDosage
         waterReducingRate = await MixDesignService_Aggregate.calculateWaterReducingRate(
-          baseReducingRate, baseDosage, superplasticizerResult.strengthDosage,
+          baseReducingRate, baseDosage, dosageForReducingRate,
           superplasticizerMaterial, tempSettings
         )
       }

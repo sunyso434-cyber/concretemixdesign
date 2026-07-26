@@ -59,18 +59,16 @@ module.exports = {
     sandIds: {
       type: 'array',
       items: { type: 'integer' },
-      description: '细骨料候选ID列表（必填，最多2种）',
+      description: '细骨料候选ID列表（必填，可传多种，最终使用≤2种）',
       required: true,
-      minItems: 1,
-      maxItems: 2
+      minItems: 1
     },
     stoneIds: {
       type: 'array',
       items: { type: 'integer' },
-      description: '粗骨料候选ID列表（必填，最多2种）',
+      description: '粗骨料候选ID列表（必填，可传多种，最终使用≤2种）',
       required: true,
-      minItems: 1,
-      maxItems: 2
+      minItems: 1
     },
     spIds: {
       type: 'array',

@@ -400,13 +400,17 @@ class MixDesignService_Aggregate {
 
   // 计算减水率（按老板新规则：基准=材料推荐掺量，掺量=等级基础掺量，砂石微调不影响减水率）
   // 公式：减水率 = 材料 waterReducingRate + (strengthDosage - 材料推荐掺量) / 0.1 × 材料 waterReducingRatePer01Dosage
+  // ponytail: 加 clamp [0, 40]，防止掺量偏离推荐值过远时减水率外推到不合理值（负值或超物理上限）
+  //   工程上减水剂最高减水率约 35%，留余量到 40%；负减水率无物理意义
   async calculateWaterReducingRate(baseReducingRate, baseDosage, strengthDosage, superplasticizerMaterial = null, tempSettings = null) {
     try {
       const ratePer01 = await MixDesignService_WaterRatio.getWaterReducingRatePer01Dosage(superplasticizerMaterial, tempSettings)
       const dosageDiff = strengthDosage - baseDosage
       const rateAdjustment = (dosageDiff / 0.1) * ratePer01
       const finalRate = baseReducingRate + rateAdjustment
-      return finalRate
+      // clamp 到 [0, 40]，避免外推失真
+      const clampedRate = Math.max(0, Math.min(40, finalRate))
+      return clampedRate
     } catch (error) {
       console.error('计算减水率失败:', error)
       return baseReducingRate

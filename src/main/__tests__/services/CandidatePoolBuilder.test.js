@@ -47,22 +47,22 @@ describe('CandidatePoolBuilder.buildSnapshot', () => {
       .rejects.toThrow('水候选必须且只能指定 1 种')
   })
 
-  test('砂超过2个抛错', async () => {
+  test('砂超过2个不再抛错（方案A：候选池放宽，最终使用≤2种）', async () => {
     const materialIds = {
       cementIds: [1], sandIds: [7, 8, 11], stoneIds: [9], spIds: [10], waterIds: [12],
       flyAshIds: [], slagIds: [], lithiumSlagIds: [], compositePowderIds: []
     }
-    await expect(CandidatePoolBuilder.buildSnapshot(materialIds))
-      .rejects.toThrow('细骨料候选最多2种')
+    const snapshot = await CandidatePoolBuilder.buildSnapshot(materialIds)
+    expect(snapshot.candidatePools.sand.length).toBe(3)
   })
 
-  test('石超过2个抛错', async () => {
+  test('石超过2个不再抛错（方案A：候选池放宽，最终使用≤2种）', async () => {
     const materialIds = {
       cementIds: [1], sandIds: [7], stoneIds: [9, 10, 11], spIds: [10], waterIds: [12],
       flyAshIds: [], slagIds: [], lithiumSlagIds: [], compositePowderIds: []
     }
-    await expect(CandidatePoolBuilder.buildSnapshot(materialIds))
-      .rejects.toThrow('粗骨料候选最多2种')
+    const snapshot = await CandidatePoolBuilder.buildSnapshot(materialIds)
+    expect(snapshot.candidatePools.stone.length).toBe(3)
   })
 
   test('ID 不存在抛错', async () => {

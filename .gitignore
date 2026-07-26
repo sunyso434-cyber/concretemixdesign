@@ -112,4 +112,7 @@ backups/
 IMPLEMENTATION_PLAN.md
 UPDATE_README.md
 AGENTS.md
+version_log.md
 version_log_*.md
+dev_log.md
+dev_log_*.md

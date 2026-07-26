@@ -44,6 +44,9 @@ class ConcreteFitness {
     this.singleAdditiveMax = options?.singleAdditiveMax ?? 30
     this.spDosageMin = options?.spDosageMin ?? 1.0
     this.spDosageMax = options?.spDosageMax ?? 5.0
+    // 方案B：胶凝材料下限约束（用户可调，默认300）
+    // 训练数据胶凝材料下限300，低于此值模型外推预测不可信
+    this.binderMin = options?.binderMin ?? 300
   }
 
   /**
@@ -186,23 +189,40 @@ class ConcreteFitness {
       strengthPenalty = strengthGap * 2
     }
 
+    // 7.5 方案F：强度余量罚分（递增式）
+    // 强度超出目标5 MPa以内不罚（安全余量）；超出5~10 MPa部分罚 4元/MPa；
+    // 超出10 MPa以上部分罚 6元/MPa（递增压制过度保守解）
+    // 目的：打破"强度都达标→适应度平坦→GA随机停泊"的不稳定问题
+    const strengthSurplus = -strengthGap  // 正值=超出，负值=不足
+    const strengthSurplusPenalty = this._calcStrengthSurplusPenalty(strengthSurplus)
+
     // 8. 减水剂偏差罚分
     const spDeviation = Math.abs(spPredicted - genes.spDosage)
     const spPrice = (genes.sp && genes.sp.price) || 0
     const binderTotal = (amounts.cement || 0) + (amounts.flyAsh || 0) + (amounts.slag || 0)
       + (amounts.lithiumSlag || 0) + (amounts.compositePowder || 0)
-    const { penalty: spDeviationPenalty, materialCost: spMaterialCost, riskCost: spRiskCost } = calcSpPenalty(spPrice, spDeviation, binderTotal)
 
-    // 9. 掺合料总掺超限罚分
-    const additiveTotal = (genes.flyAshDosage ?? 0) + (genes.slagDosage ?? 0)
-      + (genes.lithiumSlagDosage ?? 0) + (genes.compositePowderDosage ?? 0)
-    let additivePenalty = 0
-    if (additiveTotal > this.additiveTotalMax) {
-      additivePenalty = 5 * (additiveTotal - this.additiveTotalMax)
+    // 8.5 方案B：胶凝材料下限约束（避免模型外推失真）
+    // 训练数据胶凝材料下限300，低于此值模型预测不可信，直接淘汰
+    if (binderTotal < this.binderMin) {
+      return this._binderReject(realCost, binderTotal, this.binderMin, spPredicted, strength28d, density)
     }
 
+    const { penalty: spDeviationPenalty, materialCost: spMaterialCost, riskCost: spRiskCost } = calcSpPenalty(spPrice, spDeviation, binderTotal)
+
+    // 9. 掺合料总掺超限罚分（梯度递增式）
+    const additiveTotal = (genes.flyAshDosage ?? 0) + (genes.slagDosage ?? 0)
+      + (genes.lithiumSlagDosage ?? 0) + (genes.compositePowderDosage ?? 0)
+    const additivePenalty = this._calcAdditivePenalty(additiveTotal)
+
+    // 9.5 方案E：砂率合理性罚分
+    // 模型对砂率不敏感（r=-0.32），GA 会压到下限省成本，但工程上砂率过低会离析
+    // 合理区间 = JGJ 55 表5.4.1 查表 + 细度模数修正（基准 2.7）
+    // 偏离区间每 1% 罚 4 元
+    const sandRatioPenalty = this._calcSandRatioPenalty(genes.sandRatio, genes.wb, sand1)
+
     // 10. 总适应度 = 成本 + 各罚分
-    const fitness = realCost + strengthPenalty + spDeviationPenalty + additivePenalty
+    const fitness = realCost + strengthPenalty + strengthSurplusPenalty + spDeviationPenalty + additivePenalty + sandRatioPenalty
 
     // 11. 构建材料输出数组
     const materials = this._buildMaterials(genes, amounts, sand1, sand2, stone1, stone2, sand1Mass, sand2Mass, stone1Mass, stone2Mass)
@@ -211,14 +231,52 @@ class ConcreteFitness {
       fitness,
       realCost,
       strengthGap,
+      strengthSurplus: strengthSurplus > 0 ? strengthSurplus : 0,
+      strengthSurplusPenalty,
       spDeviation,
       spDeviationPenalty,
       spMaterialCost,
       spRiskCost,
       additivePenalty,
+      additiveTotal,
+      sandRatioPenalty,
       materials,
+      amounts,
       predictions: { strength28d, density, spDosage: spPredicted }
     }
+  }
+
+  /**
+   * 计算掺合料总掺超限罚分（梯度递增式）
+   * 每超 1% 一个梯度，罚分翻倍：1%=10, 2%=20, 3%=40, 4%=80, 5%=160...
+   * @param {number} additiveTotal - 掺合料总掺量百分比
+   * @returns {number}
+   */
+  _calcAdditivePenalty(additiveTotal) {
+    const excess = additiveTotal - this.additiveTotalMax
+    if (excess <= 0) return 0
+    // 梯度递增：每超 1% 一个梯度，罚分翻倍
+    // excess=0.5 → tier=0 → 罚 10
+    // excess=1.0 → tier=0 → 罚 10
+    // excess=1.01 → tier=1 → 罚 20
+    // excess=2.0 → tier=1 → 罚 20
+    // excess=2.01 → tier=2 → 罚 40
+    const tier = Math.floor(excess - 1e-9)
+    return 10 * Math.pow(2, tier)
+  }
+
+  /**
+   * 方案F：计算强度余量罚分（递增式）
+   * surplus <= 5       → 0（安全余量，不罚）
+   * 5 < surplus <= 10  → (surplus-5) × 4 元/MPa
+   * surplus > 10       → 5×4 + (surplus-10) × 6 元/MPa
+   * @param {number} surplus - 强度超出目标的余量（MPa），负值表示不足则不罚
+   * @returns {number}
+   */
+  _calcStrengthSurplusPenalty(surplus) {
+    if (surplus <= 5) return 0
+    if (surplus <= 10) return (surplus - 5) * 4
+    return 5 * 4 + (surplus - 10) * 6
   }
 
   /**
@@ -237,6 +295,66 @@ class ConcreteFitness {
       materials: [],
       predictions: { strength28d, density, spDosage: spPredicted }
     }
+  }
+
+  /**
+   * 方案B：胶凝材料下限淘汰返回值
+   * 胶凝材料 < binderMin（默认300），模型外推预测不可信，直接淘汰
+   */
+  _binderReject(realCost, binderTotal, binderMin, spPredicted, strength28d, density) {
+    return {
+      fitness: Number.MAX_VALUE,
+      realCost,
+      strengthGap: 0,
+      spDeviation: 0,
+      spDeviationPenalty: 0,
+      spMaterialCost: 0,
+      spRiskCost: 0,
+      additivePenalty: 0,
+      materials: [],
+      predictions: { strength28d, density, spDosage: spPredicted },
+      rejectReason: `胶凝材料 ${binderTotal.toFixed(0)} < 下限 ${binderMin} kg/m³（外推失真）`
+    }
+  }
+
+  /**
+   * 方案E：计算砂率合理性罚分
+   * 方法：JGJ 55-2011 表5.4.1 查表 + 细度模数修正（基准 2.7）
+   *   - 查表：水胶比 0.40→[30,35]，0.50→[33,38]，0.60→[36,41]，中间线性插值
+   *   - fm 修正：细度模数每偏离基准 2.7 一个 0.1，区间上下限整体平移 0.5%
+   *   - 罚分：偏离区间每 1% 罚 4 元
+   *   - 水胶比超出 [0.40, 0.60] 范围用边界值（不外推）
+   */
+  _calcSandRatioPenalty(sandRatio, wb, sand1) {
+    // 1. JGJ 55-2011 表5.4.1 水胶比-砂率区间（碎石混凝土）
+    let tableMin, tableMax
+    if (wb <= 0.40) {
+      tableMin = 30; tableMax = 35
+    } else if (wb >= 0.60) {
+      tableMin = 36; tableMax = 41
+    } else {
+      // 在 0.40~0.60 之间线性插值
+      const t = (wb - 0.40) / 0.20
+      tableMin = 30 + t * (36 - 30)
+      tableMax = 35 + t * (41 - 35)
+    }
+
+    // 2. 细度模数修正（基准 2.7，每 0.1 fm 变化，砂率上下限平移 0.5%）
+    const finenessModulus = sand1?.finenessModulus ?? 2.7
+    const fmAdjust = (finenessModulus - 2.7) * 5  // 系数 5 = 0.05 × 100（每0.1 fm → 0.5%）
+
+    // 3. 最终合理区间
+    const lowerBound = tableMin + fmAdjust
+    const upperBound = tableMax + fmAdjust
+
+    // 4. 罚分（偏离区间每 1% 罚 4 元）
+    let penalty = 0
+    if (sandRatio < lowerBound) {
+      penalty = (lowerBound - sandRatio) * 4
+    } else if (sandRatio > upperBound) {
+      penalty = (sandRatio - upperBound) * 4
+    }
+    return penalty
   }
 
   /**

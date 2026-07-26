@@ -90,16 +90,10 @@ const CandidatePoolBuilder = {
     if (sandIds.length === 0) {
       throw new Error('细骨料候选不能为空')
     }
-    if (sandIds.length > 2) {
-      throw new Error('细骨料候选最多2种')
-    }
 
     const stoneIds = getIds('stoneIds')
     if (stoneIds.length === 0) {
       throw new Error('粗骨料候选不能为空')
-    }
-    if (stoneIds.length > 2) {
-      throw new Error('粗骨料候选最多2种')
     }
 
     // 7. 构建 candidatePools
