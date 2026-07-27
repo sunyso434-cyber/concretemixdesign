@@ -23787,8 +23787,7 @@
       "reg_alpha": 0.039690253578226635,
       "gamma": 4.206847013729197,
       "random_state": 42,
-      "objective": "reg:squarederror",
-      "missing": NaN
+      "objective": "reg:squarederror"
     },
     "tuned": true,
     "n_trials": 200

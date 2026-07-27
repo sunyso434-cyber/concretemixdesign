@@ -164,7 +164,9 @@ def tune_hyperparameters(X, y, target_name, n_trials=50, n_splits=5):
     best = dict(study.best_params)
     best["random_state"] = 42
     best["objective"] = "reg:squarederror"
-    best["missing"] = np.nan  # 与训练时保持一致
+    # 老板 2026-07-27: missing=np.nan 是 XGBoost 运行时参数，不存进 JSON
+    # (np.nan 会被 json.dump 写成 NaN, JS 的 JSON.parse 不认, 导致模型加载失败)
+    # 训练时 model_params 会单独补 missing=np.nan，不依赖 best_params 里的这个字段
     print(f"  [Optuna] {target_name}: trials={n_trials}, best_RMSE={study.best_value:.4f}")
     print(f"           best_params={best}")
     return best
@@ -174,6 +176,8 @@ def train_target(X, y, args, target_name, best_params=None):
     # 老板 2026-07-27: 优先用 Optuna 调出的 best_params；未调参时回退到 args 默认
     if best_params:
         model_params = dict(best_params)
+        # missing 不存进 best_params (避免 JSON 序列化 NaN), 但训练时需要补上
+        model_params["missing"] = np.nan
     else:
         model_params = {
             "n_estimators": args.n_estimators,
