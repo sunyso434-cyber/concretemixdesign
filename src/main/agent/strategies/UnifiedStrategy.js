@@ -612,8 +612,9 @@ class UnifiedStrategy {
 
               if (failureCounters.skillExec >= HARD_FUSE_THRESHOLD) {
                 errorHandler.fatal('orchestrator', { counters: failureCounters })
-                // Task 2: 微压缩
-                const cacheResultFatal = this.toolResultStore.store(sessionId, tc.id, execResult)
+                // Task 2: 微压缩（带 try-catch，磁盘 I/O 失败不阻塞主流程）
+                let cacheResultFatal = null
+                try { cacheResultFatal = this.toolResultStore.store(sessionId, tc.id, execResult) } catch (_) {}
                 const toolErrContent1 = JSON.stringify(execResult)
                 if (cacheResultFatal && cacheResultFatal.offloaded) {
                   trimmedMessages.push({
@@ -639,9 +640,10 @@ class UnifiedStrategy {
                 return { success: false, error: classifiedError }
               }
 
-              // Task 2: 微压缩
+              // Task 2: 微压缩（带 try-catch）
               const failResult = { ...execResult, hint: '此步骤执行失败，请尝试其他方法或跳过' }
-              const cacheResultFail = this.toolResultStore.store(sessionId, tc.id, failResult)
+              let cacheResultFail = null
+              try { cacheResultFail = this.toolResultStore.store(sessionId, tc.id, failResult) } catch (_) {}
               const toolContentFail = JSON.stringify(failResult)
               if (cacheResultFail && cacheResultFail.offloaded) {
                 trimmedMessages.push({
@@ -677,8 +679,9 @@ class UnifiedStrategy {
               try {
                 eventBus.emitToolExecuted(name, args, execResult)
               } catch (_) {}
-              // Task 2: 微压缩 — 大工具结果落盘
-              const cacheResultOk = this.toolResultStore.store(sessionId, tc.id, execResult)
+              // Task 2: 微压缩 — 大工具结果落盘（带 try-catch）
+              let cacheResultOk = null
+              try { cacheResultOk = this.toolResultStore.store(sessionId, tc.id, execResult) } catch (_) {}
               const toolContentOk = JSON.stringify(execResult)
               if (cacheResultOk && cacheResultOk.offloaded) {
                 trimmedMessages.push({
@@ -707,9 +710,10 @@ class UnifiedStrategy {
               mode,
               status: 'running'
             })
-            // Task 2: 微压缩
+            // Task 2: 微压缩（带 try-catch）
             const missingResult = { success: false, error: `工具 ${name} 不存在` }
-            const cacheResultMiss = this.toolResultStore.store(sessionId, tc.id, missingResult)
+            let cacheResultMiss = null
+            try { cacheResultMiss = this.toolResultStore.store(sessionId, tc.id, missingResult) } catch (_) {}
             const toolContentMissing = JSON.stringify(missingResult)
             if (cacheResultMiss && cacheResultMiss.offloaded) {
               trimmedMessages.push({
