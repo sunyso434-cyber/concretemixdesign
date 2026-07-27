@@ -116,10 +116,11 @@ class UnifiedStrategy {
   _extractRecentFilePaths(messages, maxCount = 5) {
     if (!Array.isArray(messages)) return []
     const FILE_SKILLS = new Set([
-      'workspace_readPage', 'workspace_readRaw', 'workspace_grep',
+      'workspace_readPage', 'workspace_readRaw',
       'workspace_ingest', 'workspace_writeFile',
     ])
     const paths = []
+    const seen = new Set()
     for (let i = messages.length - 1; i >= 0 && paths.length < maxCount; i--) {
       const m = messages[i]
       if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
@@ -128,8 +129,11 @@ class UnifiedStrategy {
           if (name && FILE_SKILLS.has(name)) {
             try {
               const args = JSON.parse(tc.function.arguments)
-              const filePath = args.wikiPath || args.filename || args.query || ''
-              if (filePath) paths.push({ skill: name, path: filePath })
+              const filePath = args.wikiPath || args.filename || ''
+              if (filePath && !seen.has(filePath)) {
+                seen.add(filePath)
+                paths.push({ skill: name, path: filePath })
+              }
             } catch (_) {}
           }
         }
@@ -162,7 +166,7 @@ class UnifiedStrategy {
       try {
         const cfg = await this.systemService.getAgentConfig()
         if (cfg && Number.isFinite(cfg.deepseekContextLimit)) {
-          contextLimit = cfg.contextLimit
+          contextLimit = cfg.deepseekContextLimit
         }
       } catch (_) {}
     }
