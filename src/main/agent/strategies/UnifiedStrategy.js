@@ -27,6 +27,7 @@ const { rotateIfNeeded } = require('../../utils/logRotator')
 const { tryWithFailover } = require('../../services/llmFailover')
 const DeepSeekService = require('../../services/DeepSeekService')
 const MemoryTierService = require('../../services/MemoryTierService')
+const ToolResultStore = require('../ToolResultStore')
 const { ChatHistory } = require('../../db/database')
 const eventBus = require('../EventBus')
 
@@ -57,6 +58,8 @@ class UnifiedStrategy {
     this.softSkillInjector = softSkillInjector || null
     // webContents 在 execute() 时才知道，先置空
     this.webContents = null
+    // Task 2: 工具结果缓存（微压缩）
+    this.toolResultStore = new ToolResultStore()
   }
 
   /**
@@ -609,8 +612,23 @@ class UnifiedStrategy {
 
               if (failureCounters.skillExec >= HARD_FUSE_THRESHOLD) {
                 errorHandler.fatal('orchestrator', { counters: failureCounters })
+                // Task 2: 微压缩
+                const cacheResultFatal = this.toolResultStore.store(sessionId, tc.id, execResult)
                 const toolErrContent1 = JSON.stringify(execResult)
-                trimmedMessages.push({ role: 'tool', content: toolErrContent1, tool_call_id: tc.id })
+                if (cacheResultFatal && cacheResultFatal.offloaded) {
+                  trimmedMessages.push({
+                    role: 'tool',
+                    content: JSON.stringify({
+                      _cached: true,
+                      path: cacheResultFatal.path,
+                      summary: cacheResultFatal.summary,
+                      tool_call_id: tc.id
+                    }),
+                    tool_call_id: tc.id
+                  })
+                } else {
+                  trimmedMessages.push({ role: 'tool', content: toolErrContent1, tool_call_id: tc.id })
+                }
                 try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: toolErrContent1, toolCallId: tc.id }) } catch (_) {}
                 finalResult = { reply: `执行"${name}"时连续失败：${errorMsg}`, mode, error: true }
                 const classifiedError = classifyError(new Error('max_failures_exceeded: skill execution failures exceeded threshold'), {
@@ -621,7 +639,24 @@ class UnifiedStrategy {
                 return { success: false, error: classifiedError }
               }
 
-              trimmedMessages.push({ role: 'tool', content: JSON.stringify({ ...execResult, hint: '此步骤执行失败，请尝试其他方法或跳过' }), tool_call_id: tc.id })
+              // Task 2: 微压缩
+              const failResult = { ...execResult, hint: '此步骤执行失败，请尝试其他方法或跳过' }
+              const cacheResultFail = this.toolResultStore.store(sessionId, tc.id, failResult)
+              const toolContentFail = JSON.stringify(failResult)
+              if (cacheResultFail && cacheResultFail.offloaded) {
+                trimmedMessages.push({
+                  role: 'tool',
+                  content: JSON.stringify({
+                    _cached: true,
+                    path: cacheResultFail.path,
+                    summary: cacheResultFail.summary,
+                    tool_call_id: tc.id
+                  }),
+                  tool_call_id: tc.id
+                })
+              } else {
+                trimmedMessages.push({ role: 'tool', content: toolContentFail, tool_call_id: tc.id })
+              }
               try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: JSON.stringify(execResult), toolCallId: tc.id }) } catch (_) {}
             } else {
               failureCounters.skillExec = 0
@@ -642,8 +677,23 @@ class UnifiedStrategy {
               try {
                 eventBus.emitToolExecuted(name, args, execResult)
               } catch (_) {}
+              // Task 2: 微压缩 — 大工具结果落盘
+              const cacheResultOk = this.toolResultStore.store(sessionId, tc.id, execResult)
               const toolContentOk = JSON.stringify(execResult)
-              trimmedMessages.push({ role: 'tool', content: toolContentOk, tool_call_id: tc.id })
+              if (cacheResultOk && cacheResultOk.offloaded) {
+                trimmedMessages.push({
+                  role: 'tool',
+                  content: JSON.stringify({
+                    _cached: true,
+                    path: cacheResultOk.path,
+                    summary: cacheResultOk.summary,
+                    tool_call_id: tc.id
+                  }),
+                  tool_call_id: tc.id
+                })
+              } else {
+                trimmedMessages.push({ role: 'tool', content: toolContentOk, tool_call_id: tc.id })
+              }
               try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: toolContentOk, toolCallId: tc.id }) } catch (_) {}
             }
           } else {
@@ -657,9 +707,40 @@ class UnifiedStrategy {
               mode,
               status: 'running'
             })
-            const toolContentMissing = JSON.stringify({ success: false, error: `工具 ${name} 不存在` })
-            trimmedMessages.push({ role: 'tool', content: toolContentMissing, tool_call_id: tc.id })
+            // Task 2: 微压缩
+            const missingResult = { success: false, error: `工具 ${name} 不存在` }
+            const cacheResultMiss = this.toolResultStore.store(sessionId, tc.id, missingResult)
+            const toolContentMissing = JSON.stringify(missingResult)
+            if (cacheResultMiss && cacheResultMiss.offloaded) {
+              trimmedMessages.push({
+                role: 'tool',
+                content: JSON.stringify({
+                  _cached: true,
+                  path: cacheResultMiss.path,
+                  summary: cacheResultMiss.summary,
+                  tool_call_id: tc.id
+                }),
+                tool_call_id: tc.id
+              })
+            } else {
+              trimmedMessages.push({ role: 'tool', content: toolContentMissing, tool_call_id: tc.id })
+            }
             try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: toolContentMissing, toolCallId: tc.id }) } catch (_) {}
+          }
+        }
+
+        // Task 2: 最近 3 次工具结果还原（防上下文摘要化关键信息）
+        const recentKeys = this.toolResultStore.getRecentKeys(sessionId, 3)
+        for (const key of recentKeys) {
+          const toolMsg = trimmedMessages.find(m => m.role === 'tool' && m.tool_call_id === key.toolCallId)
+          if (toolMsg) {
+            const content = typeof toolMsg.content === 'string' ? JSON.parse(toolMsg.content) : toolMsg.content
+            if (content && content._cached) {
+              const full = this.toolResultStore.get(key.toolCallId)
+              if (full) {
+                toolMsg.content = JSON.stringify(full)
+              }
+            }
           }
         }
 

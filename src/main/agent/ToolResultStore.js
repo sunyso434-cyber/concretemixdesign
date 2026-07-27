@@ -21,7 +21,7 @@ class ToolResultStore {
   }
 
   store(sessionId, toolCallId, result) {
-    const resultStr = JSON.stringify(result)
+    const resultStr = JSON.stringify(result) || ''
     const size = resultStr.length
 
     // 小结果：不离盘，直接返回

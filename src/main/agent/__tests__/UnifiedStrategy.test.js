@@ -361,4 +361,80 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     // llmParse 路径在第 3 次失败时注入软提醒
     expect(countSoftWarnInjections(mocks)).toBe(1)
   })
+
+  // ============== Task 2: Microcompaction 集成测试 ==============
+
+  test('场景 16 (Task 2 / Microcompaction): 大工具结果落盘，超出最近 3 条的上下文保留摘要引用', async () => {
+    const mocks = makeMocks()
+    const largeResult = { success: true, data: 'x'.repeat(25000) }
+    const mockSkill = { name: 'big_tool', parameters: {} }
+    mocks.skillRegistry.getSkill.mockReturnValue(mockSkill)
+    mocks.skillExecutor.execute.mockResolvedValue(largeResult)
+
+    // LLM 一次调 4 个工具（第 1 个工具的结果会超出最近 3 条范围）
+    mocks.deepseekService.chatWithToolsStream
+      .mockResolvedValueOnce({
+        content: null,
+        tool_calls: [
+          { id: 'c1', function: { name: 'big_tool', arguments: '{}' } },
+          { id: 'c2', function: { name: 'big_tool', arguments: '{}' } },
+          { id: 'c3', function: { name: 'big_tool', arguments: '{}' } },
+          { id: 'c4', function: { name: 'big_tool', arguments: '{}' } }
+        ]
+      })
+      .mockResolvedValueOnce({ content: 'done', tool_calls: null })
+
+    const strategy = new UnifiedStrategy(mocks)
+    const result = await strategy.execute({ sessionId: 's_micro', message: 'run big tool' })
+
+    // 执行应正常完成
+    expect(result.success).toBe(true)
+    expect(result.content).toBe('done')
+
+    // 第二次 LLM 调用的消息中
+    const calls = mocks.deepseekService.chatWithToolsStream.mock.calls
+    const secondMsgs = calls[1][0]
+
+    // c1（最旧，被踢出最近 3 条范围）应保留 _cached 引用
+    const c1Msg = secondMsgs.find(m => m.role === 'tool' && m.tool_call_id === 'c1')
+    expect(c1Msg).toBeDefined()
+    const c1Content = JSON.parse(c1Msg.content)
+    expect(c1Content._cached).toBe(true)
+    expect(c1Content.path).toContain('c1.json')
+    expect(c1Content.summary).toBeDefined()
+    expect(c1Content.summary.length).toBeLessThan(25000)
+
+    // c4（最新的，在最近 3 条范围内）应被还原为完整结果
+    const c4Msg = secondMsgs.find(m => m.role === 'tool' && m.tool_call_id === 'c4')
+    expect(c4Msg).toBeDefined()
+    const c4Content = JSON.parse(c4Msg.content)
+    expect(c4Content._cached).toBeUndefined()
+    expect(c4Content.success).toBe(true)
+    expect(c4Content.data.length).toBe(25000)
+
+    // 小结果不离盘验证
+    const mockSkillSmall = { name: 'small_tool', parameters: {} }
+    mocks.skillRegistry.getSkill.mockReturnValue(mockSkillSmall)
+    const smallResult = { success: true, data: 'small' }
+    mocks.skillExecutor.execute.mockResolvedValue(smallResult)
+    // 重置 mock，让下一轮 LLM 调工具
+    mocks.deepseekService.chatWithToolsStream
+      .mockResolvedValueOnce({
+        content: null,
+        tool_calls: [{ id: 'c5', function: { name: 'small_tool', arguments: '{}' } }]
+      })
+      .mockResolvedValueOnce({ content: 'done2', tool_calls: null })
+
+    const result2 = await strategy.execute({ sessionId: 's_small', message: 'small' })
+    expect(result2.success).toBe(true)
+
+    const calls2 = mocks.deepseekService.chatWithToolsStream.mock.calls
+    const secondMsgs2 = calls2[calls2.length - 1][0]  // 取最后一次调用的消息
+    const c5Msg = secondMsgs2.find(m => m.role === 'tool' && m.tool_call_id === 'c5')
+    expect(c5Msg).toBeDefined()
+    const c5Content = JSON.parse(c5Msg.content)
+    // 小结果不应有 _cached
+    expect(c5Content._cached).toBeUndefined()
+    expect(c5Content.data).toBe('small')
+  })
 })
