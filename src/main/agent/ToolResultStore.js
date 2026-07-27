@@ -13,7 +13,7 @@ class ToolResultStore {
   constructor({ cacheDir } = {}) {
     this.cacheDir = cacheDir || DEFAULT_CACHE_DIR
     // 内存缓存：快速读取最近结果
-    // Map<toolCallId, { result, storedAt, isCached }>
+    // Map<toolCallId, { result, storedAt }>
     this._memoryCache = new Map()
     // 按 sessionId 记录最近 key 的插入顺序
     // Map<sessionId, Array<{ toolCallId, storedAt }>>
@@ -26,7 +26,7 @@ class ToolResultStore {
 
     // 小结果：不离盘，直接返回
     if (size < OFFLOAD_THRESHOLD) {
-      this._memoryCache.set(toolCallId, { result, storedAt: Date.now(), isCached: false })
+      this._memoryCache.set(toolCallId, { result, storedAt: Date.now() })
       this._recordKey(sessionId, toolCallId)
       return { offloaded: false }
     }
@@ -41,11 +41,12 @@ class ToolResultStore {
       // 超大结果：摘要后落盘，内存也存摘要
       const summarized = { _summarized: true, originalSize: size, ...this._summarize(result) }
       fs.writeFileSync(filePath, JSON.stringify(summarized), 'utf8')
+      this._memoryCache.set(toolCallId, { result: summarized, storedAt: Date.now() })
       storeResult = summarized
     } else {
       // 中等结果：完整落盘，内存缓存完整
       fs.writeFileSync(filePath, resultStr, 'utf8')
-      this._memoryCache.set(toolCallId, { result, storedAt: Date.now(), isCached: true })
+      this._memoryCache.set(toolCallId, { result, storedAt: Date.now() })
       storeResult = result
     }
 
@@ -107,17 +108,29 @@ class ToolResultStore {
     try {
       fs.rmSync(sessionDir, { recursive: true, force: true })
     } catch (_) {}
-    this._sessionKeys.delete(sessionId)
     // 从内存缓存中删除该 session 的 key
-    for (const [key, _] of this._memoryCache) {
-      // 粗略清理：遍历所有 key 删除（小规模场景，可接受）
+    const keys = this._sessionKeys.get(sessionId)
+    if (keys) {
+      for (const k of keys) {
+        this._memoryCache.delete(k.toolCallId)
+      }
     }
+    this._sessionKeys.delete(sessionId)
   }
 
   clearExpired(maxAge = 7 * 24 * 60 * 60 * 1000) {
+    const now = Date.now()
+
+    // 清理内存缓存中过期的条目
+    for (const [key, entry] of this._memoryCache) {
+      if (now - entry.storedAt > maxAge) {
+        this._memoryCache.delete(key)
+      }
+    }
+
+    // 清理磁盘上过期的缓存文件
     try {
       const sessions = fs.readdirSync(this.cacheDir)
-      const now = Date.now()
       for (const sessionId of sessions) {
         const sessionDir = path.join(this.cacheDir, sessionId)
         try {

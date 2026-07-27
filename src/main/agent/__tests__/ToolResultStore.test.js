@@ -68,15 +68,49 @@ describe('ToolResultStore', () => {
     expect(cached).toEqual(bigResult)
   })
 
-  test('clear: 清理会话目录', () => {
+  test('clear: 清理会话目录和内存缓存', () => {
     const dir = path.join(os.tmpdir(), 'tool-cache-test4-' + Date.now())
     const st = new ToolResultStore({ cacheDir: dir })
     st.store('s1', 'c1', { data: 'x'.repeat(25000) })
     st.store('s2', 'c2', { data: 'x'.repeat(25000) })
     st.clear('s1')
+    // 磁盘清理
     const sessionDir = path.join(dir, 's1')
     expect(fs.existsSync(sessionDir)).toBe(false)
     // s2 不受影响
     expect(fs.existsSync(path.join(dir, 's2'))).toBe(true)
+    // 内存缓存清理
+    expect(st.get('c1')).toBeNull()
+    expect(st.get('c2')).toBeDefined()
+  })
+
+  test('clearExpired: 清理过期缓存（内存 + 磁盘）', () => {
+    const dir = path.join(os.tmpdir(), 'tool-cache-test5-' + Date.now())
+    const st = new ToolResultStore({ cacheDir: dir })
+    const now = Date.now()
+
+    // c_old 用小结果（不离盘，只测内存缓存清理）
+    const spy = jest.spyOn(Date, 'now').mockImplementation(() => now - 3600000)
+    st.store('s_exp', 'c_old', { data: 'old' })
+    spy.mockRestore()
+
+    // c_old_big 用大结果（离盘），写入后用 fs.utimesSync 把 mtime 改到 1 小时前
+    st.store('s_exp', 'c_old_big', { data: 'x'.repeat(25000) })
+    const oldFilePath = path.join(dir, 's_exp', 'c_old_big.json')
+    fs.utimesSync(oldFilePath, new Date(now - 3600000), new Date(now - 3600000))
+
+    // c_fresh 用当前时间
+    st.store('s_exp', 'c_fresh', { data: 'y'.repeat(25000) })
+
+    // 清理 5 分钟过期的
+    st.clearExpired(5 * 60 * 1000)
+
+    // 内存缓存：c_old 过期被删，c_fresh 还在
+    expect(st.get('c_old')).toBeNull()
+    expect(st.get('c_fresh')).toBeDefined()
+
+    // 磁盘文件：c_old_big 过期被删，c_fresh 文件还在
+    expect(fs.existsSync(oldFilePath)).toBe(false)
+    expect(fs.existsSync(path.join(dir, 's_exp', 'c_fresh.json'))).toBe(true)
   })
 })
