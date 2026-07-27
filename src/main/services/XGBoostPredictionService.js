@@ -129,13 +129,14 @@ class XGBoostPredictionService {
 
       for (const [target, model] of Object.entries(models)) {
         // 老板 2026-07-10: 不同目标用不同特征子集
-        //   - superplasticizer_dosage: 自己不能作特征（数据泄漏），置为缺失 -1
-        //   - strength_28d / density: 不用坍落度作特征 (index 34)，置为缺失 -1
+        //   - superplasticizer_dosage: 自己不能作特征（数据泄漏），置为缺失 null
+        //   - strength_28d / density: 不用坍落度作特征 (index 31)，置为缺失 null
+        // 老板 2026-07-27: 维度 35→32, 缺失值 -1 → null (与训练 XGBRegressor(missing=NaN) 对齐)
         const targetFeatures = Object.assign([], features)
         if (target === 'superplasticizer_dosage') {
-          targetFeatures[7] = -1
+          targetFeatures[7] = null
         } else {
-          targetFeatures[34] = -1
+          targetFeatures[31] = null
         }
         const { value, warnings: predictWarnings } = this._predictOne(model, targetFeatures)
         const { confidence, warnings: rangeWarnings } = this._checkFeatureRange(model, targetFeatures)
@@ -337,8 +338,9 @@ class XGBoostPredictionService {
   }
 
   async _buildFeatureVector(inputParams) {
-    // 老板 2026-07-10: 增加坍落度特征（35 维），用于减水剂掺量预测
-    const features = new Array(35).fill(-1)
+    // 老板 2026-07-27: 维度 35→32 (删除 temperature/humidity/curing_age 3 个常量列)
+    // 缺失值 -1 → null (与训练 XGBRegressor(missing=NaN) 对齐, 修复训练/预测不一致)
+    const features = new Array(32).fill(null)
     const warnings = []
 
     let params = { ...inputParams }
@@ -374,10 +376,7 @@ class XGBoostPredictionService {
       cementId,
       sandId,
       stoneId,
-      superplasticizerId,
-      temperature,
-      humidity,
-      curingAge
+      superplasticizerId
     } = params
 
     if (waterBinderRatio === undefined || waterBinderRatio === null) {
@@ -410,21 +409,21 @@ class XGBoostPredictionService {
       }
 
       const findField = (id, type, field, label) => {
-        if (!id) return -1
+        if (!id) return null
         const numericId = Number(id)
         const mat = matById.get(numericId)
         if (!mat) {
           warnings.push(`${label}材料ID=${id}不存在，按缺失值处理`)
-          return -1
+          return null
         }
         if (mat.type !== type) {
           warnings.push(`${label}材料ID=${id}类型为${mat.type || '未知'}，不是${type}，按缺失值处理`)
-          return -1
+          return null
         }
         const val = mat[field]
         if (val === undefined || val === null) {
           warnings.push(`${mat.name || `${type}ID=${id}`}缺少${label}，按缺失值处理`)
-          return -1
+          return null
         }
         return val
       }
@@ -455,15 +454,15 @@ class XGBoostPredictionService {
       // 不重复打 warning（fallback 是预期的，不算"按缺失处理"）
       const findFieldCompat = (id, typeA, typeB, field, label) => {
         const mat = id ? matById.get(Number(id)) : null
-        if (!mat) return -1
+        if (!mat) return null
         if (mat.type !== typeA && mat.type !== typeB) {
           warnings.push(`${label}材料ID=${id}类型为${mat.type || '未知'}，不是${typeA}/${typeB}，按缺失值处理`)
-          return -1
+          return null
         }
         const val = mat[field]
         if (val === undefined || val === null) {
           warnings.push(`${mat.name || `ID=${id}`}缺少${label}，按缺失值处理`)
-          return -1
+          return null
         }
         return val
       }
@@ -471,17 +470,14 @@ class XGBoostPredictionService {
       features[29] = findFieldCompat(superplasticizerId, '减水剂', '外加剂', 'solidContent', '减水剂含固量')
       features[30] = findFieldCompat(superplasticizerId, '减水剂', '外加剂', 'recommendedDosage', '减水剂推荐掺量')
     } catch (err) {
-      console.error('获取材料属性失败，使用-1填充:', err.message)
+      console.error('获取材料属性失败，使用null填充:', err.message)
       warnings.push(`材料属性读取失败，相关材料特征按缺失值处理: ${err.message}`)
     }
 
-    features[31] = temperature ?? 20
-    features[32] = humidity ?? 95
-    features[33] = curingAge ?? 28
-    // 老板 2026-07-10: 坍落度特征 (index=34)，仅减水剂掺量预测使用；
-    // 强度/容重预测会在 predict() 循环里强制置 -1。
+    // 老板 2026-07-27: 坍落度特征 (index=31, 原34), 仅减水剂掺量预测使用；
+    // 强度/容重预测会在 predict() 循环里强制置 null。
     // 未提供时使用训练集均值 200mm
-    features[34] = (params.slump !== undefined && params.slump !== null) ? Number(params.slump) : 200
+    features[31] = (params.slump !== undefined && params.slump !== null) ? Number(params.slump) : 200
 
     return { features, warnings }
   }

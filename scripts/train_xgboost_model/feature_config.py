@@ -30,10 +30,10 @@ FEATURE_CONFIG = [
     {"index": 28, "name": "super_water_reducing_rate", "group": "material", "default": -1, "label": "减水率(%)"},
     {"index": 29, "name": "super_solid_content", "group": "material", "default": -1, "label": "含固量(%)"},
     {"index": 30, "name": "super_recommended_dosage", "group": "material", "default": -1, "label": "推荐掺量(%)"},
-    {"index": 31, "name": "temperature", "group": "env", "default": 20, "label": "养护温度(℃)"},
-    {"index": 32, "name": "humidity", "group": "env", "default": 95, "label": "相对湿度(%)"},
-    {"index": 33, "name": "curing_age", "group": "env", "default": 28, "label": "龄期(天)"},
-    {"index": 34, "name": "feature_slump", "group": "mix", "default": 200, "label": "坍落度(mm)"},
+    # 老板 2026-07-27: 删除 temperature/humidity/curing_age 3 个常量列
+    # (训练数据中分别全是 20/95/28, 零方差零贡献)
+    # 原 feature_slump 从 index 34 -> 31
+    {"index": 31, "name": "feature_slump", "group": "mix", "default": 200, "label": "坍落度(mm)"},
 ]
 
 FEATURE_NAMES = [f["name"] for f in FEATURE_CONFIG]
@@ -44,20 +44,22 @@ TARGET_COLUMNS = ["target_strength_28d", "target_superplasticizer_dosage", "targ
 MIX_FEATURES = [f["name"] for f in FEATURE_CONFIG if f["group"] == "mix"]
 FLAG_FEATURES = [f["name"] for f in FEATURE_CONFIG if f["group"] == "flag"]
 MATERIAL_FEATURES = [f["name"] for f in FEATURE_CONFIG if f["group"] == "material"]
-ENV_FEATURES = [f["name"] for f in FEATURE_CONFIG if f["group"] == "env"]
+# 老板 2026-07-27: env 组已删除 (temperature/humidity/curing_age 是常量列)
+ENV_FEATURES = []
 
 # 老板 2026-07-10: 修复减水剂掺量模型数据泄漏 + 强度/容重不应使用坍落度
 # 三个目标用不同特征子集：
 #   - strength_28d / density: 不含坍落度 (坍落度对新拌流动性有影响，对 28d 强度/容重几乎无影响)
-#   - superplasticizer_dosage: 35 维全留，但训练时把 index 7 (superplasticizer_dosage 列) 置 -1 防泄漏
-# 注意：保留 superplasticizer_dosage 在 feature_names 中作为占位，老板要求"不移除"以最小化改动
+#   - superplasticizer_dosage: 32 维全留，但训练时把 superplasticizer_dosage 列置 NaN 防泄漏
+# 老板 2026-07-27: 维度 35→32 (删了 3 个常量 env 列), 防 -1 改成 NaN
 TARGET_FEATURES = {
     "strength_28d": [f["name"] for f in FEATURE_CONFIG if f["name"] != "feature_slump"],
     "density": [f["name"] for f in FEATURE_CONFIG if f["name"] != "feature_slump"],
-    "superplasticizer_dosage": list(FEATURE_NAMES),  # 35 维全留，index 7 训练/预测时置 -1
+    "superplasticizer_dosage": list(FEATURE_NAMES),  # 32 维全留，superplasticizer_dosage 训练/预测时置 NaN
 }
 
-# 训练/预测时需要强制置 -1 的特征（防数据泄漏）。key=目标名, value=特征名列表
+# 训练/预测时需要强制置缺失的特征（防数据泄漏）。key=目标名, value=特征名列表
+# 老板 2026-07-27: 防泄漏值从 -1 改成 NaN，与 XGBRegressor(missing=np.nan) 对齐
 TARGET_FORCE_MISSING = {
     "superplasticizer_dosage": ["superplasticizer_dosage"],  # 不能用自己预测自己
 }

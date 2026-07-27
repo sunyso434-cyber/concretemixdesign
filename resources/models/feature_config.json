@@ -221,27 +221,6 @@
     },
     {
       "index": 31,
-      "name": "temperature",
-      "group": "env",
-      "default": 20,
-      "label": "养护温度(℃)"
-    },
-    {
-      "index": 32,
-      "name": "humidity",
-      "group": "env",
-      "default": 95,
-      "label": "相对湿度(%)"
-    },
-    {
-      "index": 33,
-      "name": "curing_age",
-      "group": "env",
-      "default": 28,
-      "label": "龄期(天)"
-    },
-    {
-      "index": 34,
       "name": "feature_slump",
       "group": "mix",
       "default": 200,
