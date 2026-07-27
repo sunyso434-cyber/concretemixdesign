@@ -2,30 +2,10 @@ const XGBoostPredictionService = require('./XGBoostPredictionService')
 const MixDesignService_Database = require('./MixDesignService/MixDesignService_Database')
 
 /**
- * 计算减水剂偏差罚分（独立函数，可单独测试）
- * 偏差 > 0.5 个百分点时：
- *   materialCost = spPrice/1000 × (deviation × binderTotal / 100)
- *   riskCost     = 10 × deviation
- *   总罚分 = materialCost + riskCost
- * @param {number} spPrice - 减水剂单价（元/吨）
- * @param {number} spDeviation - 偏差（百分点）
- * @param {number} binderTotal - 胶凝材料总量（kg/m³）
- * @returns {{ penalty: number, materialCost: number, riskCost: number }}
- */
-function calcSpPenalty(spPrice, spDeviation, binderTotal) {
-  if (spDeviation <= 0.5) {
-    return { penalty: 0, materialCost: 0, riskCost: 0 }
-  }
-  const materialCost = (spPrice / 1000) * (spDeviation * binderTotal / 100)
-  const riskCost = 10 * spDeviation
-  const penalty = materialCost + riskCost
-  return { penalty, materialCost, riskCost }
-}
-
-/**
  * 混凝土适应度函数
  * 评估基因方案（配比参数 + 材料选择）的适应度
- * 适应度 = 真实成本 + 强度罚分 + 减水剂偏差罚分 + 掺合料总掺超限罚分
+ * 适应度 = 真实成本 + 强度罚分 + 强度余量罚分 + 掺合料总掺超限罚分 + 砂率罚分
+ * 减水剂成本用 XGBoost 预测掺量计算（不用基因掺量），但用水量等不重算
  * 适应度越低越好
  */
 class ConcreteFitness {
@@ -123,24 +103,12 @@ class ConcreteFitness {
     const stone1Mass = stoneTotalAmount * (1 - stone2Proportion / 100)
     const stone2Mass = stoneTotalAmount * (stone2Proportion / 100)
 
-    // 4. 计算真实材料成本（元/m³）
-    // 单价单位：元/吨，用量单位：kg/m³ → 元/kg = 元/吨 ÷ 1000
-    const getPrice = (mat) => (mat && mat.price) || 0
-
-    let realCost = 0
-    realCost += (amounts.cement || 0) * getPrice(genes.cement) / 1000
-    realCost += (amounts.water || 0) * getPrice(genes.water) / 1000
-    realCost += (amounts.flyAsh || 0) * getPrice(genes.flyAsh) / 1000
-    realCost += (amounts.slag || 0) * getPrice(genes.slag) / 1000
-    realCost += (amounts.lithiumSlag || 0) * getPrice(genes.lithiumSlag) / 1000
-    realCost += (amounts.compositePowder || 0) * getPrice(genes.compositePowder) / 1000
-    realCost += sand1Mass * getPrice(sand1) / 1000
-    realCost += sand2Mass * getPrice(sand2) / 1000
-    realCost += stone1Mass * getPrice(stone1) / 1000
-    realCost += stone2Mass * getPrice(stone2) / 1000
-    realCost += (amounts.superplasticizer || 0) * getPrice(genes.sp) / 1000
+    // 4. 计算胶凝材料总量（提前算，供减水剂用量计算用）
+    const binderTotal = (amounts.cement || 0) + (amounts.flyAsh || 0) + (amounts.slag || 0)
+      + (amounts.lithiumSlag || 0) + (amounts.compositePowder || 0)
 
     // 5. XGBoost 预测：强度28d、容重、减水剂掺量
+    // 输入用基因 spDosage（不换成预测值，避免误差传递：预测值是模型的"建议"，用它再喂模型会引入误差）
     const xgbParams = {
       cementAmount: amounts.cement || 0,
       waterBinderRatio: genes.wb,
@@ -174,10 +142,32 @@ class ConcreteFitness {
     const density = pred.predictions && pred.predictions.density ? pred.predictions.density.value : 0
     const spPredicted = pred.predictions && pred.predictions.superplasticizer_dosage ? pred.predictions.superplasticizer_dosage.value : 0
 
-    // 6. 计算强度差距
+    // 6. 计算减水剂预测用量（用预测掺量，不用基因掺量）
+    // 注意：用水量、胶凝材料、砂石等不随预测掺量重算（保持 amounts 原值）
+    const spPredictedAmount = binderTotal * (spPredicted / 100)
+
+    // 7. 计算真实材料成本（元/m³）
+    // 单价单位：元/吨，用量单位：kg/m³ → 元/kg = 元/吨 ÷ 1000
+    // 减水剂成本用预测掺量算的用量，其他材料用原 amounts
+    const getPrice = (mat) => (mat && mat.price) || 0
+
+    let realCost = 0
+    realCost += (amounts.cement || 0) * getPrice(genes.cement) / 1000
+    realCost += (amounts.water || 0) * getPrice(genes.water) / 1000
+    realCost += (amounts.flyAsh || 0) * getPrice(genes.flyAsh) / 1000
+    realCost += (amounts.slag || 0) * getPrice(genes.slag) / 1000
+    realCost += (amounts.lithiumSlag || 0) * getPrice(genes.lithiumSlag) / 1000
+    realCost += (amounts.compositePowder || 0) * getPrice(genes.compositePowder) / 1000
+    realCost += sand1Mass * getPrice(sand1) / 1000
+    realCost += sand2Mass * getPrice(sand2) / 1000
+    realCost += stone1Mass * getPrice(stone1) / 1000
+    realCost += stone2Mass * getPrice(stone2) / 1000
+    realCost += spPredictedAmount * getPrice(genes.sp) / 1000
+
+    // 8. 计算强度差距
     const strengthGap = this.targetStrength - strength28d
 
-    // 7. 强度罚分
+    // 9. 强度罚分
     // 差距 >= 3MPa → 硬淘汰
     if (strengthGap >= 3) {
       return this._hardReject(realCost, strengthGap, spPredicted, strength28d, density)
@@ -189,43 +179,35 @@ class ConcreteFitness {
       strengthPenalty = strengthGap * 2
     }
 
-    // 7.5 方案F：强度余量罚分（递增式）
+    // 9.5 方案F：强度余量罚分（递增式）
     // 强度超出目标5 MPa以内不罚（安全余量）；超出5~10 MPa部分罚 4元/MPa；
     // 超出10 MPa以上部分罚 6元/MPa（递增压制过度保守解）
     // 目的：打破"强度都达标→适应度平坦→GA随机停泊"的不稳定问题
     const strengthSurplus = -strengthGap  // 正值=超出，负值=不足
     const strengthSurplusPenalty = this._calcStrengthSurplusPenalty(strengthSurplus)
 
-    // 8. 减水剂偏差罚分
-    const spDeviation = Math.abs(spPredicted - genes.spDosage)
-    const spPrice = (genes.sp && genes.sp.price) || 0
-    const binderTotal = (amounts.cement || 0) + (amounts.flyAsh || 0) + (amounts.slag || 0)
-      + (amounts.lithiumSlag || 0) + (amounts.compositePowder || 0)
-
-    // 8.5 方案B：胶凝材料下限约束（避免模型外推失真）
+    // 10. 方案B：胶凝材料下限约束（避免模型外推失真）
     // 训练数据胶凝材料下限300，低于此值模型预测不可信，直接淘汰
     if (binderTotal < this.binderMin) {
       return this._binderReject(realCost, binderTotal, this.binderMin, spPredicted, strength28d, density)
     }
 
-    const { penalty: spDeviationPenalty, materialCost: spMaterialCost, riskCost: spRiskCost } = calcSpPenalty(spPrice, spDeviation, binderTotal)
-
-    // 9. 掺合料总掺超限罚分（梯度递增式）
+    // 11. 掺合料总掺超限罚分（梯度递增式）
     const additiveTotal = (genes.flyAshDosage ?? 0) + (genes.slagDosage ?? 0)
       + (genes.lithiumSlagDosage ?? 0) + (genes.compositePowderDosage ?? 0)
     const additivePenalty = this._calcAdditivePenalty(additiveTotal)
 
-    // 9.5 方案E：砂率合理性罚分
+    // 12. 方案E：砂率合理性罚分
     // 模型对砂率不敏感（r=-0.32），GA 会压到下限省成本，但工程上砂率过低会离析
     // 合理区间 = JGJ 55 表5.4.1 查表 + 细度模数修正（基准 2.7）
     // 偏离区间每 1% 罚 4 元
     const sandRatioPenalty = this._calcSandRatioPenalty(genes.sandRatio, genes.wb, sand1)
 
-    // 10. 总适应度 = 成本 + 各罚分
-    const fitness = realCost + strengthPenalty + strengthSurplusPenalty + spDeviationPenalty + additivePenalty + sandRatioPenalty
+    // 13. 总适应度 = 成本 + 各罚分（已删除减水剂偏差罚分，减水剂成本用预测掺量算）
+    const fitness = realCost + strengthPenalty + strengthSurplusPenalty + additivePenalty + sandRatioPenalty
 
-    // 11. 构建材料输出数组
-    const materials = this._buildMaterials(genes, amounts, sand1, sand2, stone1, stone2, sand1Mass, sand2Mass, stone1Mass, stone2Mass)
+    // 14. 构建材料输出数组（减水剂用量用预测掺量算）
+    const materials = this._buildMaterials(genes, amounts, sand1, sand2, stone1, stone2, sand1Mass, sand2Mass, stone1Mass, stone2Mass, spPredictedAmount)
 
     return {
       fitness,
@@ -233,16 +215,18 @@ class ConcreteFitness {
       strengthGap,
       strengthSurplus: strengthSurplus > 0 ? strengthSurplus : 0,
       strengthSurplusPenalty,
-      spDeviation,
-      spDeviationPenalty,
-      spMaterialCost,
-      spRiskCost,
       additivePenalty,
       additiveTotal,
       sandRatioPenalty,
       materials,
       amounts,
-      predictions: { strength28d, density, spDosage: spPredicted }
+      spPredictedAmount,
+      predictions: {
+        strength28d,
+        density,
+        spDosagePredicted: spPredicted,
+        spDosageGene: genes.spDosage
+      }
     }
   }
 
@@ -287,13 +271,9 @@ class ConcreteFitness {
       fitness: Number.MAX_VALUE,
       realCost,
       strengthGap,
-      spDeviation: 0,
-      spDeviationPenalty: 0,
-      spMaterialCost: 0,
-      spRiskCost: 0,
       additivePenalty: 0,
       materials: [],
-      predictions: { strength28d, density, spDosage: spPredicted }
+      predictions: { strength28d, density, spDosagePredicted: spPredicted }
     }
   }
 
@@ -306,13 +286,9 @@ class ConcreteFitness {
       fitness: Number.MAX_VALUE,
       realCost,
       strengthGap: 0,
-      spDeviation: 0,
-      spDeviationPenalty: 0,
-      spMaterialCost: 0,
-      spRiskCost: 0,
       additivePenalty: 0,
       materials: [],
-      predictions: { strength28d, density, spDosage: spPredicted },
+      predictions: { strength28d, density, spDosagePredicted: spPredicted },
       rejectReason: `胶凝材料 ${binderTotal.toFixed(0)} < 下限 ${binderMin} kg/m³（外推失真）`
     }
   }
@@ -359,9 +335,10 @@ class ConcreteFitness {
 
   /**
    * 构建材料输出数组（供 Validator 使用）
+   * @param {number} spPredictedAmount - 减水剂用量（按预测掺量算，kg/m³）
    * @returns {Array<{type: string, materialId: number, mass: number, density: number}>}
    */
-  _buildMaterials(genes, amounts, sand1, sand2, stone1, stone2, sand1Mass, sand2Mass, stone1Mass, stone2Mass) {
+  _buildMaterials(genes, amounts, sand1, sand2, stone1, stone2, sand1Mass, sand2Mass, stone1Mass, stone2Mass, spPredictedAmount) {
     return [
       {
         type: 'cement',
@@ -426,7 +403,7 @@ class ConcreteFitness {
       {
         type: 'sp',
         materialId: genes.sp.id,
-        mass: Math.round(amounts.superplasticizer || 0),
+        mass: Math.round(spPredictedAmount || 0),
         density: genes.sp.density * 1000
       }
     ]
@@ -453,4 +430,3 @@ class ConcreteFitness {
 }
 
 module.exports = ConcreteFitness
-module.exports.calcSpPenalty = calcSpPenalty

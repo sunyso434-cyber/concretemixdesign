@@ -48,7 +48,7 @@ function makeMockSolution(fitness) {
       { type: 'stone1', materialId: 9, mass: 1050, density: 2700 },
       { type: 'sp', materialId: 10, mass: 7, density: 1050 }
     ],
-    predictions: { strength28d: 40, density: 2332, spDosage: 1.2 }
+    predictions: { strength28d: 40, density: 2332, spDosagePredicted: 1.2 }
   }
 }
 

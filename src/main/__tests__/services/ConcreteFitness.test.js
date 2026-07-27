@@ -1,5 +1,4 @@
 const ConcreteFitness = require('../../services/ConcreteFitness')
-const { calcSpPenalty } = ConcreteFitness
 
 jest.mock('../../services/XGBoostPredictionService', () => ({
   predict: jest.fn()
@@ -36,53 +35,6 @@ function makeSnapshot() {
   }
 }
 
-describe('calcSpPenalty', () => {
-  test('偏差大于0.5个百分点计算罚分', () => {
-    // spPrice=3500元/吨, deviation=0.8pp, binderTotal=350kg
-    // materialCost = 3500/1000 * (0.8 * 350/100) = 3.5 * 2.8 = 9.8
-    // riskCost = 10 * 0.8 = 8.0
-    // penalty = 9.8 + 8.0 = 17.8
-    const result = calcSpPenalty(3500, 0.8, 350)
-    expect(result.materialCost).toBeCloseTo(9.8, 1)
-    expect(result.riskCost).toBeCloseTo(8.0, 1)
-    expect(result.penalty).toBeCloseTo(17.8, 1)
-  })
-
-  test('偏差小于0.5个百分点无罚分', () => {
-    const result = calcSpPenalty(3500, 0.3, 350)
-    expect(result.penalty).toBe(0)
-    expect(result.materialCost).toBe(0)
-    expect(result.riskCost).toBe(0)
-  })
-
-  test('零价格时罚分仅含风险成本', () => {
-    // spPrice=0, deviation=0.8pp, binderTotal=350kg
-    // materialCost = 0/1000 * (0.8 * 350/100) = 0
-    // riskCost = 10 * 0.8 = 8.0
-    const result = calcSpPenalty(0, 0.8, 350)
-    expect(result.materialCost).toBe(0)
-    expect(result.riskCost).toBeCloseTo(8.0, 1)
-    expect(result.penalty).toBeCloseTo(8.0, 1)
-  })
-
-  test('零胶凝材料时罚分仅含风险成本', () => {
-    // spPrice=3500, deviation=0.8pp, binderTotal=0
-    // materialCost = 3500/1000 * (0.8 * 0/100) = 0
-    // riskCost = 10 * 0.8 = 8.0
-    const result = calcSpPenalty(3500, 0.8, 0)
-    expect(result.materialCost).toBe(0)
-    expect(result.riskCost).toBeCloseTo(8.0, 1)
-    expect(result.penalty).toBeCloseTo(8.0, 1)
-  })
-
-  test('偏差刚好0.5个百分点边界值无罚分', () => {
-    const result = calcSpPenalty(3500, 0.5, 350)
-    expect(result.penalty).toBe(0)
-    expect(result.materialCost).toBe(0)
-    expect(result.riskCost).toBe(0)
-  })
-})
-
 describe('ConcreteFitness.evaluate', () => {
   beforeEach(() => {
     XGBoostPredictionService.predict.mockReset()
@@ -101,7 +53,7 @@ describe('ConcreteFitness.evaluate', () => {
       flyAsh: snapshot.candidatePools.flyAsh[0],
       wb: 0.45,
       flyAshDosage: 15,
-      sandRatio: 40,
+      sandRatio: 35,
       spDosage: 1.5
     }
     MixDesignService_Database.calculateMixDesign.mockResolvedValue({
@@ -135,7 +87,7 @@ describe('ConcreteFitness.evaluate', () => {
       flyAsh: snapshot.candidatePools.flyAsh[0],
       wb: 0.50,
       flyAshDosage: 15,
-      sandRatio: 40,
+      sandRatio: 36,
       spDosage: 1.5
     }
     MixDesignService_Database.calculateMixDesign.mockResolvedValue({
@@ -190,7 +142,7 @@ describe('ConcreteFitness.evaluate', () => {
     expect(result.fitness).toBe(Number.MAX_VALUE)
   })
 
-  test('减水剂偏差罚分', async () => {
+  test('减水剂成本用预测掺量计算', async () => {
     const snapshot = makeSnapshot()
     const fitness = new ConcreteFitness(snapshot, 38, 200, {})
     const genes = {
@@ -220,14 +172,16 @@ describe('ConcreteFitness.evaluate', () => {
       }
     })
     const result = await fitness.evaluate(genes)
-    // spDeviation = |2.8 - 2.0| = 0.8
-    expect(result.spDeviation).toBeCloseTo(0.8, 2)
-    // materialCost = 3500/1000 * (0.8 * 340/100) = 3.5 * 2.72 = 9.52
-    // riskCost = 10 * 0.8 = 8
-    // total ≈ 17.52
-    expect(result.spDeviationPenalty).toBeCloseTo(17.52, 1)
-    expect(result.spMaterialCost).toBeCloseTo(9.52, 1)
-    expect(result.spRiskCost).toBeCloseTo(8, 1)
+    // binderTotal = 280 + 60 = 340
+    // spPredictedAmount = 340 * 2.8 / 100 = 9.52
+    expect(result.spPredictedAmount).toBeCloseTo(9.52, 2)
+    // 减水剂成本 = 9.52 * 3500 / 1000 = 33.32
+    // 验证 predictions 同时包含基因值和预测值
+    expect(result.predictions.spDosagePredicted).toBe(2.8)
+    expect(result.predictions.spDosageGene).toBe(2.0)
+    // 验证已删除减水剂偏差罚分相关字段
+    expect(result).not.toHaveProperty('spDeviation')
+    expect(result).not.toHaveProperty('spDeviationPenalty')
   })
 
   test('掺合料总掺超限罚分', async () => {
@@ -261,8 +215,8 @@ describe('ConcreteFitness.evaluate', () => {
     })
     const result = await fitness.evaluate(genes)
     // additiveTotal = 35 + 20 = 55, over 50 by 5
-    // additivePenalty = 5 * 5 = 25
-    expect(result.additivePenalty).toBe(25)
+    // 梯度递增：excess=5, tier=floor(5-1e-9)=4, 10×2^4=160
+    expect(result.additivePenalty).toBe(160)
   })
 
   test('sand2Proportion/stone2Proportion 从百分比转换为小数', async () => {
@@ -286,7 +240,8 @@ describe('ConcreteFitness.evaluate', () => {
     }
     MixDesignService_Database.calculateMixDesign.mockResolvedValue({
       materials: {
-        water: 165, cement: 280, flyAsh: 0, slag: 0,
+        // cement 用量给 320 让 binderTotal ≥ 300，避免触发胶凝材料下限淘汰
+        water: 165, cement: 320, flyAsh: 0, slag: 0,
         lithiumSlag: 0, compositePowder: 0,
         sand: 700, stone: 1000, superplasticizer: 5.95
       }
@@ -345,13 +300,12 @@ describe('ConcreteFitness.evaluate', () => {
     expect(result).toHaveProperty('fitness')
     expect(result).toHaveProperty('realCost')
     expect(result).toHaveProperty('strengthGap')
-    expect(result).toHaveProperty('spDeviation')
-    expect(result).toHaveProperty('spDeviationPenalty')
-    expect(result).toHaveProperty('spMaterialCost')
-    expect(result).toHaveProperty('spRiskCost')
     expect(result).toHaveProperty('additivePenalty')
     expect(result).toHaveProperty('materials')
     expect(result).toHaveProperty('predictions')
+    expect(result).toHaveProperty('spPredictedAmount')
+    expect(result.predictions).toHaveProperty('spDosagePredicted')
+    expect(result.predictions).toHaveProperty('spDosageGene')
     expect(result.materials).toBeInstanceOf(Array)
     expect(result.materials.length).toBe(11)
     // Check materials structure

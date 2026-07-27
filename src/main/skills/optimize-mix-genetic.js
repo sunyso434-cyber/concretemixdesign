@@ -447,7 +447,8 @@ module.exports = {
         '配比参数': {
           '水胶比(W/B)': g.wb ? g.wb.toFixed(3) : '-',
           '砂率(%)': g.sandRatio ?? '-',
-          '减水剂掺量(%)': g.spDosage ? g.spDosage.toFixed(2) : '-',
+          '减水剂掺量-基因(%)': g.spDosage ? g.spDosage.toFixed(2) : '-',
+          '减水剂掺量-预测(%)': pred.spDosagePredicted ? pred.spDosagePredicted.toFixed(2) : '-',
           '粉煤灰掺量(%)': g.flyAshDosage ?? 0,
           '矿渣粉掺量(%)': g.slagDosage ?? 0,
           '锂渣掺量(%)': g.lithiumSlagDosage ?? 0,
