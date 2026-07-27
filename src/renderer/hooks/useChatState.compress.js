@@ -23,7 +23,8 @@ export async function handleCompressContextImpl({
   setIsCompressing,
   setPreviousSummary,
   messages,
-  previousSummary
+  previousSummary,
+  todos  // 新增：当前 todo 列表，压缩后恢复未完成项
 }) {
   const list = messages || []
 
@@ -54,7 +55,18 @@ export async function handleCompressContextImpl({
       payload: { summary, recentMessages }
     })
 
-    // 2. 写入真实 tokens
+    // 2. Layer 3: 恢复未完成 todo
+    const currentTodos = todos || []
+    const pendingTodos = currentTodos.filter(t => t.status !== 'completed')
+    if (pendingTodos.length > 0) {
+      dispatch({
+        type: 'SET_TODOS',
+        payload: pendingTodos
+      })
+      message.success(`已保留 ${pendingTodos.length} 个待办事项`)
+    }
+
+    // 3. 写入真实 tokens
     dispatch({
       type: 'SET_CONTEXT_STATS',
       payload: { realTokens: realTokens || 0 }

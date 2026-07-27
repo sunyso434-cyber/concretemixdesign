@@ -102,9 +102,10 @@ const useChatState = () => {
       setIsCompressing,
       setPreviousSummary,
       messages: state.messages,
-      previousSummary
+      previousSummary,
+      todos: state.todos  // 传入当前 todo，压缩后恢复未完成项
     })
-  }, [dispatch, state.messages, previousSummary])
+  }, [dispatch, state.messages, previousSummary, state.todos])
 
   return {
     // 附件

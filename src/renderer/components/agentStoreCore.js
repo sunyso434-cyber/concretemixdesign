@@ -124,6 +124,13 @@ export function agentReducer(state, action) {
         messages: [compactedMessage, ...(recentMessages || [])]
       }
     }
+    case 'SET_TODOS': {
+      // Layer 3 状态保留：压缩上下文后恢复未完成 todo
+      return {
+        ...state,
+        todos: action.payload
+      }
+    }
     case 'CONTEXT_COMPACTED': {
       const { summary, realTokens } = action.payload
       return {

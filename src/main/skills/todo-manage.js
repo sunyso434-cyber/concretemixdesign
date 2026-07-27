@@ -279,10 +279,18 @@ const skill = {
 
 /**
  * 清理指定会话的 Todo 数据（由 agentHandler 在会话结束时调用）
+ * 仅在所有 todo 都已完成时删除；有未完成 todo 则保留，防误删
  * @param {string} sessionId - 会话 ID
  */
 skill._cleanupSession = function _cleanupSession(sessionId) {
-  if (sessionId) _sessionTodos.delete(sessionId)
+  if (!sessionId) return
+  const todos = _sessionTodos.get(sessionId)
+  if (!todos) return
+  const pendingTodos = todos.filter(t => t.status !== 'completed')
+  if (pendingTodos.length === 0) {
+    _sessionTodos.delete(sessionId)
+  }
+  // 有未完成 todo → 保留，不做清理
 }
 
 /**

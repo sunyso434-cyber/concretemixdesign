@@ -370,10 +370,14 @@ describe('todo_manage Skill - 会话隔离', () => {
 
 describe('todo_manage Skill - _cleanupSession', () => {
   test('清理后 list 返回空', async () => {
-    await todoManage.execute({
+    const created = await todoManage.execute({
       action: 'create',
       todos: [{ content: 'A' }, { content: 'B' }, { content: 'C' }]
     }, _ctx('cleanup-1'))
+    // 全部完成后才能被 cleanup 删除
+    for (const t of created.todos) {
+      await todoManage.execute({ action: 'complete', id: t.id }, _ctx('cleanup-1'))
+    }
 
     todoManage._cleanupSession('cleanup-1')
 
@@ -383,7 +387,7 @@ describe('todo_manage Skill - _cleanupSession', () => {
   })
 
   test('清理 A 不影响 B', async () => {
-    await todoManage.execute({
+    const createdA = await todoManage.execute({
       action: 'create',
       todos: [{ content: 'A-1' }]
     }, _ctx('cleanup-A'))
@@ -391,6 +395,10 @@ describe('todo_manage Skill - _cleanupSession', () => {
       action: 'create',
       todos: [{ content: 'B-1' }]
     }, _ctx('cleanup-B'))
+    // 完成 A 所有的任务后 cleanup 才能删除
+    for (const t of createdA.todos) {
+      await todoManage.execute({ action: 'complete', id: t.id }, _ctx('cleanup-A'))
+    }
 
     todoManage._cleanupSession('cleanup-A')
 
@@ -406,6 +414,44 @@ describe('todo_manage Skill - _cleanupSession', () => {
 
   test('_cleanupSession 缺 sessionId 参数不报错', () => {
     expect(() => todoManage._cleanupSession()).not.toThrow()
+  })
+
+  test('_cleanupSession: 有未完成 todo 时保留', async () => {
+    // 写入一个未完成的 todo
+    const result = await todoManage.execute({
+      action: 'create',
+      todos: [{ content: '未完成任务' }]
+    }, _ctx('s1'))
+    expect(result.total).toBe(1)
+
+    todoManage._cleanupSession('s1')
+
+    // 清单不应被删除
+    const listResult = await todoManage.execute({ action: 'list' }, _ctx('s1'))
+    expect(listResult.total).toBe(1)
+    expect(listResult.todos[0].content).toBe('未完成任务')
+  })
+
+  test('_cleanupSession: 全部完成时清理', async () => {
+    // 创建任务并完成
+    const createResult = await todoManage.execute({
+      action: 'create',
+      todos: [{ content: '已完成任务' }]
+    }, _ctx('s2'))
+    expect(createResult.total).toBe(1)
+
+    const completeResult = await todoManage.execute({
+      action: 'complete',
+      id: createResult.todos[0].id
+    }, _ctx('s2'))
+    expect(completeResult.success).toBe(true)
+
+    // 全部完成，应该清理
+    todoManage._cleanupSession('s2')
+
+    const listResult = await todoManage.execute({ action: 'list' }, _ctx('s2'))
+    expect(listResult.total).toBe(0)
+    expect(listResult.todos).toEqual([])
   })
 })
 
