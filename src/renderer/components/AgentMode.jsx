@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { message } from 'antd'
 import { useAgentStore } from './AgentStore'
 
 /**
@@ -125,6 +126,16 @@ export default function useAgentMode() {
           })
           break
         }
+        case 'context_compacted':
+          // 更新上下文统计
+          if (data.realTokens) {
+            dispatch({
+              type: 'SET_CONTEXT_STATS',
+              payload: { realTokens: data.realTokens }
+            })
+          }
+          message.success('上下文已自动压缩，释放了对话空间')
+          break
         default:
           // 旧格式兼容（无 type 字段的旧事件）
           if (data.status === 'done' && data.result?.reply) {

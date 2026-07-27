@@ -124,6 +124,14 @@ export function agentReducer(state, action) {
         messages: [compactedMessage, ...(recentMessages || [])]
       }
     }
+    case 'CONTEXT_COMPACTED': {
+      const { summary, realTokens } = action.payload
+      return {
+        ...state,
+        contextRealTokens: realTokens || state.contextRealTokens,
+        _lastCompactedAt: Date.now()
+      }
+    }
     case 'SET_CONTEXT_STATS': {
       // v8.4.2：支持同时更新 contextLimit；不传时保持原值
       return {
