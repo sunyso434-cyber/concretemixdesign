@@ -108,6 +108,36 @@ class UnifiedStrategy {
    * @param {number} tokenBudget - 当前 token 预算
    * @returns {Promise<{skipped: string}|{result, todoBackup}>}
    */
+
+  /**
+   * 从消息数组中提取最近 N 次文件操作的文件路径
+   * 用于压缩后通知 AI 重新读取工作文件
+   */
+  _extractRecentFilePaths(messages, maxCount = 5) {
+    if (!Array.isArray(messages)) return []
+    const FILE_SKILLS = new Set([
+      'workspace_readPage', 'workspace_readRaw', 'workspace_grep',
+      'workspace_ingest', 'workspace_writeFile',
+    ])
+    const paths = []
+    for (let i = messages.length - 1; i >= 0 && paths.length < maxCount; i--) {
+      const m = messages[i]
+      if (m.role === 'assistant' && Array.isArray(m.tool_calls)) {
+        for (const tc of m.tool_calls) {
+          const name = tc.function?.name
+          if (name && FILE_SKILLS.has(name)) {
+            try {
+              const args = JSON.parse(tc.function.arguments)
+              const filePath = args.wikiPath || args.filename || args.query || ''
+              if (filePath) paths.push({ skill: name, path: filePath })
+            } catch (_) {}
+          }
+        }
+      }
+    }
+    return paths
+  }
+
   async _autoCompactIfNeeded(messages, sessionId, tokenBudget) {
     const now = Date.now()
 
@@ -131,7 +161,7 @@ class UnifiedStrategy {
     if (this.systemService && typeof this.systemService.getAgentConfig === 'function') {
       try {
         const cfg = await this.systemService.getAgentConfig()
-        if (cfg && Number.isFinite(cfg.contextLimit)) {
+        if (cfg && Number.isFinite(cfg.deepseekContextLimit)) {
           contextLimit = cfg.contextLimit
         }
       } catch (_) {}
@@ -153,6 +183,12 @@ class UnifiedStrategy {
         { sessionId, logger: () => {} }
       )
       if (!todoBackup) todoBackup = { todos: [], total: 0, completed: 0 }
+    } catch (_) {}
+
+    // 提取最近访问的文件路径（压缩后通知 AI 重读）
+    let recentFilePaths = []
+    try {
+      recentFilePaths = this._extractRecentFilePaths(messages, 5)
     } catch (_) {}
 
     // 调 compressContext（复用 DeepSeekService）
@@ -182,7 +218,7 @@ class UnifiedStrategy {
     this._lastCompactionTime = now
     this._previousSummary = result.summary
 
-    return { result, todoBackup }
+    return { result, todoBackup, recentFilePaths }
   }
 
   async execute(input) {
@@ -373,26 +409,24 @@ class UnifiedStrategy {
         errorHandler.warn('truncate_cfg_read', { msg: e?.message })
       }
     }
-    const trimmedMessages = trim(messages, { tokenBudget })
-
-    // Layer 2: 自动压缩检查（水位 ≥ 78% 时触发）
-    const autoCompactResult = await this._autoCompactIfNeeded(trimmedMessages, sessionId, tokenBudget)
+    // Layer 2: 自动压缩检查 — 在 trim 之前检查原始消息水位
+    // 先检查原始 messages（含完整的 system prompt + history），超 78% 才压缩
+    let messagesForLLM = messages
+    const autoCompactResult = await this._autoCompactIfNeeded(messages, sessionId, tokenBudget)
     if (autoCompactResult && autoCompactResult.result) {
-      const { result, todoBackup } = autoCompactResult
+      const { result, todoBackup, recentFilePaths } = autoCompactResult
 
-      // 替换 trimmedMessages
-      const systemMsg = trimmedMessages.find(m => m.role === 'system')
-      trimmedMessages.length = 0
-      const compactedMsg = {
-        role: 'assistant',
-        content: `【对话摘要】${result.summary}`,
-        _compacted: true
-      }
-      trimmedMessages.push(
+      // 构造压缩后的消息数组
+      const systemMsg = messages.find(m => m.role === 'system')
+      const compactedMessages = [
         { role: 'system', content: systemMsg ? systemMsg.content : '' },
-        compactedMsg,
+        {
+          role: 'assistant',
+          content: `【对话摘要】${result.summary}`,
+          _compacted: true
+        },
         ...(result.recentMessages || [])
-      )
+      ]
 
       // 注入续传指令（含 todo 恢复信息）
       if (todoBackup && Array.isArray(todoBackup.todos)) {
@@ -401,11 +435,24 @@ class UnifiedStrategy {
           const todoText = pendingTodos.map(t =>
             `- [${t.status}] ${t.content}`
           ).join('\n')
-          trimmedMessages.push({
+          compactedMessages.push({
             role: 'user',
             content: `【续传指令】你刚才在处理的任务已完成部分，仍有以下待办事项：\n${todoText}\n请继续处理。不要重复已完成的步骤。`
           })
         }
+      }
+
+      messagesForLLM = compactedMessages
+
+      // 添加文件上下文（压缩后告知 AI 之前处理过哪些文件）
+      if (recentFilePaths && recentFilePaths.length > 0) {
+        const fileList = recentFilePaths.map(f =>
+          `  - [${f.skill}] ${f.path}`
+        ).join('\n')
+        compactedMessages.push({
+          role: 'user',
+          content: `【文件上下文】压缩前你正在处理以下文件，如需继续请重新读取：\n${fileList}`
+        })
       }
 
       // 通知前端
@@ -414,12 +461,11 @@ class UnifiedStrategy {
         summary: result.summary,
         realTokens: result.realTokens
       })
-
-      // 重新计算 tokenBudget 应用于被压缩后的消息
-      // 被压缩后消息显著减小，不需要再 trim
     }
 
-    // 注意：用户消息已由前端 agentActions.js 保存，此处不再重复保存
+    // trim 在 auto-compact 之后，压缩后的消息显著减小，trim 基本不触发
+    const trimmedMessages = trim(messagesForLLM, { tokenBudget })
+// 注意：用户消息已由前端 agentActions.js 保存，此处不再重复保存
 
     let finalResult = null
     // [DEBUG] 累积每轮 LLM 调用日志，熔断时附加到错误对象返回前端

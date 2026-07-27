@@ -372,13 +372,8 @@ function registerAgentHandlers() {
         s.running = false
         s.startedAt = 0
       }
-      // v9.1.0 todo_manage：清理该会话的内存清单，防内存泄漏
-      try {
-        const todoManage = require('../skills/todo-manage')
-        if (todoManage._cleanupSession) todoManage._cleanupSession(sessionId)
-      } catch (e) {
-        _log(`[AgentHandler] 清理 todo_manage 失败: ${e.message}`)
-      }
+      // _cleanupSession 已挪到 deleteSession 时执行（有未完成 todo 时保留）
+      // 不再每次 run 结束时清空，让 todo 跨 run 持久存在
       _log(`[AgentHandler] 🔓 agent:run 释放锁 sessionId=${sessionId} requestId=${reqId}`)
     }
   })
