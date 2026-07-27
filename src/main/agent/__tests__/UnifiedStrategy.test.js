@@ -375,6 +375,41 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
 
   // ============== Task 2: Microcompaction 集成测试 ==============
 
+  // ============== Task 7: 集成测试 ==============
+
+  test('集成（Task 7）：大工具结果落盘后 AI 仍能正常工作', async () => {
+    const mocks = makeMocks()
+    const largeResult = { success: true, data: 'x'.repeat(25000) }
+    const mockSkill = { name: 'query_data', parameters: {} }
+    mocks.skillRegistry.getSkill.mockReturnValue(mockSkill)
+    mocks.skillExecutor.execute.mockResolvedValue(largeResult)
+
+    // LLM 调 1 个大工具 → 落盘 → 第二轮看到摘要
+    mocks.deepseekService.chatWithToolsStream
+      .mockResolvedValueOnce({
+        content: null,
+        tool_calls: [{ id: 'c1', function: { name: 'query_data', arguments: '{}' } }]
+      })
+      .mockResolvedValueOnce({ content: '查询完成', tool_calls: null })
+
+    const strategy = new UnifiedStrategy(mocks)
+    const result = await strategy.execute({ sessionId: 's_t7', message: '查数据' })
+
+    expect(result.success).toBe(true)
+    expect(result.content).toBe('查询完成')
+
+    // 验证结果被缓存后通过最近 3 条还原机制恢复为完整内容
+    const calls = mocks.deepseekService.chatWithToolsStream.mock.calls
+    const secondMsgs = calls[1][0]
+    const c1Msg = secondMsgs.find(m => m.role === 'tool' && m.tool_call_id === 'c1')
+    expect(c1Msg).toBeDefined()
+    const c1Content = JSON.parse(c1Msg.content)
+    // 唯一工具结果在最近 3 条内，已被还原为完整结果
+    expect(c1Content._cached).toBeUndefined()
+    expect(c1Content.success).toBe(true)
+    expect(c1Content.data.length).toBe(25000)
+  })
+
   test('场景 16 (Task 2 / Microcompaction): 大工具结果落盘，超出最近 3 条的上下文保留摘要引用', async () => {
     const mocks = makeMocks()
     const largeResult = { success: true, data: 'x'.repeat(25000) }
@@ -562,5 +597,84 @@ describe('_autoCompactIfNeeded', () => {
     )
     expect(result).toEqual({ skipped: 'compression_failed' })
     expect(strategy._compactionFailureCount).toBe(1)
+  })
+})
+
+// ============== Task 7: 集成测试 - 自动压缩通过 execute() ==============
+
+describe('集成测试：自动压缩 (Auto-Compaction)', () => {
+  beforeEach(() => {
+    mockEstimateTokens = jest.fn(() => 160000) // > 78% of 200000
+    if (!mockChat) mockChat = jest.fn()
+    else mockChat.mockReset()
+    if (!mockGetConfig) mockGetConfig = jest.fn()
+    else mockGetConfig.mockReset()
+  })
+
+  test('超过 78% 水位线时触发自动压缩，压缩后 execute() 正常继续', async () => {
+    const strategy = new UnifiedStrategy({
+      deepseekService: {
+        compressContext: jest.fn().mockResolvedValue({
+          summary: '技术讨论摘要',
+          recentMessages: [{ role: 'user', content: '继续讨论' }],
+          realTokens: 500
+        }),
+        chatWithToolsStream: (...args) => mockChat(...args),
+        _getConfig: jest.fn().mockResolvedValue({ maxSteps: 20, apiKey: 'sk-test' })
+      },
+      skillRegistry: { getSkill: jest.fn(), getToolSchemas: jest.fn(() => []) },
+      skillExecutor: { execute: jest.fn() },
+      agentMemoryService: {
+        buildHistoryMessages: jest.fn(async () => []),
+        saveMessage: jest.fn(async () => {})
+      },
+      systemService: {
+        getAgentConfig: jest.fn().mockResolvedValue({ contextLimit: 200000 })
+      }
+    })
+
+    const mockSend = jest.fn()
+    const mockWebContents = {
+      send: mockSend,
+      isDestroyed: jest.fn(() => false)
+    }
+
+    mockChat.mockResolvedValue({ content: '继续技术讨论', tool_calls: null })
+
+    const result = await strategy.execute({
+      sessionId: 's_compact',
+      message: '讨论混凝土配比',
+      webContents: mockWebContents
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.content).toBe('继续技术讨论')
+
+    // 验证自动压缩被触发
+    expect(strategy.deepseekService.compressContext).toHaveBeenCalledTimes(1)
+    expect(strategy._previousSummary).toBe('技术讨论摘要')
+
+    // 验证 LLM 收到的消息已包含压缩摘要
+    const llmCalls = mockChat.mock.calls
+    expect(llmCalls.length).toBe(1)
+    const firstMsgs = llmCalls[0][0]
+    const compactedAssistant = firstMsgs.find(m => m._compacted === true)
+    expect(compactedAssistant).toBeDefined()
+    expect(compactedAssistant.content).toContain('【对话摘要】技术讨论摘要')
+
+    // 验证 recentMessages 已还原
+    const recentUser = firstMsgs.find(m => m.role === 'user' && m.content === '继续讨论')
+    expect(recentUser).toBeDefined()
+
+    // 验证前端事件 context_compacted 已通知
+    expect(mockSend).toHaveBeenCalledWith(
+      'agent:progress',
+      expect.objectContaining({
+        type: 'context_compacted',
+        summary: '技术讨论摘要',
+        realTokens: 500,
+        sessionId: 's_compact'
+      })
+    )
   })
 })
