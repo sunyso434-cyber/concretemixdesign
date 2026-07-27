@@ -598,6 +598,12 @@ function registerAgentHandlers() {
   ipcMain.handle('agent:deleteSession', async (_event, { sessionId }) => {
     await agentMemoryService.deleteSession(sessionId)
     if (global.chatHistorySync?.invalidateGroupedCache) global.chatHistorySync.invalidateGroupedCache()
+    // 清理工具结果缓存
+    try {
+      const ToolResultStore = require('../agent/ToolResultStore')
+      const store = new ToolResultStore()
+      store.clear(sessionId)
+    } catch (_) {}
     return { success: true }
   })
 
