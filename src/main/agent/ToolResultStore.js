@@ -128,6 +128,16 @@ class ToolResultStore {
       }
     }
 
+    // 同步清理 _sessionKeys 中过期的 key
+    for (const [sessionId, keys] of this._sessionKeys) {
+      const remaining = keys.filter(k => now - k.storedAt <= maxAge)
+      if (remaining.length === 0) {
+        this._sessionKeys.delete(sessionId)
+      } else {
+        this._sessionKeys.set(sessionId, remaining)
+      }
+    }
+
     // 清理磁盘上过期的缓存文件
     try {
       const sessions = fs.readdirSync(this.cacheDir)
