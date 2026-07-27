@@ -60,6 +60,11 @@ class UnifiedStrategy {
     this.webContents = null
     // Task 2: 工具结果缓存（微压缩）
     this.toolResultStore = new ToolResultStore()
+    // Task 4: 自动压缩计数器（Layer 2 Auto-Compaction）
+    this._lastCompactionTime = 0
+    this._compactionFailureCount = 0
+    this._compactionSkipCount = 0
+    this._previousSummary = ''
   }
 
   /**
@@ -93,6 +98,91 @@ class UnifiedStrategy {
     if (msg.name) cleaned.name = msg.name
     if (msg.tool_calls) cleaned.tool_calls = msg.tool_calls
     return cleaned
+  }
+
+  /**
+   * Layer 2: 自动压缩检查
+   * 在消息水位 ≥ 78% 时自动压缩上下文
+   * @param {Array} messages - 当前消息数组
+   * @param {string} sessionId - 会话 ID
+   * @param {number} tokenBudget - 当前 token 预算
+   * @returns {Promise<{skipped: string}|{result, todoBackup}>}
+   */
+  async _autoCompactIfNeeded(messages, sessionId, tokenBudget) {
+    const now = Date.now()
+
+    // 防抖：距上次压缩不足 3 分钟 → 跳过
+    if (now - this._lastCompactionTime < 3 * 60 * 1000) {
+      this._compactionSkipCount++
+      return { skipped: 'throttled' }
+    }
+
+    // 熔断：连续 3 次压缩失败 → 永久停止自动压缩
+    if (this._compactionFailureCount >= 3) {
+      return { skipped: 'fused' }
+    }
+
+    // 估算当前 token
+    const { estimateTokens } = require('../../../shared/utils/contextStats')
+    const currentTokens = estimateTokens(messages)
+
+    // 获取 contextLimit
+    let contextLimit = 200000  // 兜底
+    if (this.systemService && typeof this.systemService.getAgentConfig === 'function') {
+      try {
+        const cfg = await this.systemService.getAgentConfig()
+        if (cfg && Number.isFinite(cfg.contextLimit)) {
+          contextLimit = cfg.contextLimit
+        }
+      } catch (_) {}
+    }
+
+    const threshold = Math.floor(contextLimit * 0.78)
+    if (currentTokens < threshold) {
+      return { skipped: 'below_threshold' }
+    }
+
+    // === 到达触发点 ===
+
+    // 备份 todo
+    let todoBackup = { todos: [], total: 0, completed: 0 }
+    try {
+      const todoManage = require('../../skills/todo-manage')
+      todoBackup = await todoManage.execute(
+        { action: 'list' },
+        { sessionId, logger: () => {} }
+      )
+      if (!todoBackup) todoBackup = { todos: [], total: 0, completed: 0 }
+    } catch (_) {}
+
+    // 调 compressContext（复用 DeepSeekService）
+    const deepseek = this.deepseekService
+    if (!deepseek || typeof deepseek.compressContext !== 'function') {
+      return { skipped: 'no_deepseek' }
+    }
+
+    let result
+    try {
+      result = await deepseek.compressContext(messages, this._previousSummary || '')
+    } catch (err) {
+      this._compactionFailureCount++
+      this._lastCompactionTime = now
+      console.warn('[UnifiedStrategy] 自动压缩失败:', err.message)
+      return { skipped: 'compression_failed' }
+    }
+
+    if (!result || !result.summary) {
+      this._compactionFailureCount++
+      this._lastCompactionTime = now
+      return { skipped: 'compression_failed' }
+    }
+
+    // 成功：重置计数器
+    this._compactionFailureCount = 0
+    this._lastCompactionTime = now
+    this._previousSummary = result.summary
+
+    return { result, todoBackup }
   }
 
   async execute(input) {
@@ -284,6 +374,50 @@ class UnifiedStrategy {
       }
     }
     const trimmedMessages = trim(messages, { tokenBudget })
+
+    // Layer 2: 自动压缩检查（水位 ≥ 78% 时触发）
+    const autoCompactResult = await this._autoCompactIfNeeded(trimmedMessages, sessionId, tokenBudget)
+    if (autoCompactResult && autoCompactResult.result) {
+      const { result, todoBackup } = autoCompactResult
+
+      // 替换 trimmedMessages
+      const systemMsg = trimmedMessages.find(m => m.role === 'system')
+      trimmedMessages.length = 0
+      const compactedMsg = {
+        role: 'assistant',
+        content: `【对话摘要】${result.summary}`,
+        _compacted: true
+      }
+      trimmedMessages.push(
+        { role: 'system', content: systemMsg ? systemMsg.content : '' },
+        compactedMsg,
+        ...(result.recentMessages || [])
+      )
+
+      // 注入续传指令（含 todo 恢复信息）
+      if (todoBackup && Array.isArray(todoBackup.todos)) {
+        const pendingTodos = todoBackup.todos.filter(t => t.status !== 'completed')
+        if (pendingTodos.length > 0) {
+          const todoText = pendingTodos.map(t =>
+            `- [${t.status}] ${t.content}`
+          ).join('\n')
+          trimmedMessages.push({
+            role: 'user',
+            content: `【续传指令】你刚才在处理的任务已完成部分，仍有以下待办事项：\n${todoText}\n请继续处理。不要重复已完成的步骤。`
+          })
+        }
+      }
+
+      // 通知前端
+      this._notifyProgress(webContents, {
+        type: 'context_compacted',
+        summary: result.summary,
+        realTokens: result.realTokens
+      })
+
+      // 重新计算 tokenBudget 应用于被压缩后的消息
+      // 被压缩后消息显著减小，不需要再 trim
+    }
 
     // 注意：用户消息已由前端 agentActions.js 保存，此处不再重复保存
 

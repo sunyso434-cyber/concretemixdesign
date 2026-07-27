@@ -30,6 +30,17 @@ jest.mock('../../services/DeepSeekService', () => {
   })
 })
 
+// Task 4: mock contextStats.estimateTokens（_autoCompactIfNeeded 内部 dynamic require）
+let mockEstimateTokens
+jest.mock('../../../shared/utils/contextStats', () => ({
+  estimateTokens: (...args) => mockEstimateTokens(...args)
+}))
+
+// 所有测试前确保 mockEstimateTokens 有默认返回值（低于阈值，避免自动压缩干扰现有测试）
+beforeEach(() => {
+  mockEstimateTokens = jest.fn(() => 1000)
+})
+
 describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
   // 共用 mock 工厂
   const makeMocks = () => {
@@ -436,5 +447,120 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     // 小结果不应有 _cached
     expect(c5Content._cached).toBeUndefined()
     expect(c5Content.data).toBe('small')
+  })
+})
+
+// ============== Task 4: Auto-Compaction 测试 ==============
+
+describe('_autoCompactIfNeeded', () => {
+  let strategy
+
+  function makeCompactMocks() {
+    return new UnifiedStrategy({
+      deepseekService: {
+        compressContext: jest.fn().mockResolvedValue({
+          summary: '对话已被自动压缩',
+          recentMessages: [{ role: 'user', content: '最近对话' }],
+          realTokens: 500
+        }),
+        _getConfig: jest.fn().mockResolvedValue({ maxSteps: 20 })
+      },
+      skillRegistry: {
+        getSkill: jest.fn(),
+        getToolSchemas: jest.fn(() => [])
+      },
+      skillExecutor: {
+        execute: jest.fn()
+      },
+      agentMemoryService: {
+        buildHistoryMessages: jest.fn(async () => []),
+        saveMessage: jest.fn(async () => {})
+      },
+      systemService: {
+        getAgentConfig: jest.fn().mockResolvedValue({ contextLimit: 200000 })
+      }
+    })
+  }
+
+  beforeEach(() => {
+    mockEstimateTokens = jest.fn(() => 1000)
+    strategy = makeCompactMocks()
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  test('低于阈值时返回 skipped: below_threshold', async () => {
+    mockEstimateTokens.mockReturnValue(100000) // 100000 < 156000 = 78% of 200000
+    const result = await strategy._autoCompactIfNeeded(
+      [{ role: 'user', content: 'hi' }], 's1', 30000
+    )
+    expect(result).toEqual({ skipped: 'below_threshold' })
+  })
+
+  test('超过阈值时调用 compressContext', async () => {
+    mockEstimateTokens.mockReturnValue(160000) // 160000 >= 156000
+    strategy.deepseekService.compressContext.mockResolvedValue({
+      summary: '对话摘要',
+      recentMessages: [{ role: 'user', content: '最近消息' }],
+      realTokens: 500
+    })
+    const result = await strategy._autoCompactIfNeeded(
+      [{ role: 'user', content: 'hi' }], 's1', 30000
+    )
+    expect(result.result).toBeDefined()
+    expect(result.result.summary).toBe('对话摘要')
+    expect(strategy.deepseekService.compressContext).toHaveBeenCalledTimes(1)
+  })
+
+  test('节流: 3 分钟内再次调用返回 throttled', async () => {
+    mockEstimateTokens.mockReturnValue(160000)
+    strategy.deepseekService.compressContext.mockResolvedValue({
+      summary: '摘要',
+      recentMessages: [],
+      realTokens: 100
+    })
+    // 第一次调用成功后设置 _lastCompactionTime
+    await strategy._autoCompactIfNeeded(
+      [{ role: 'user', content: 'hi' }], 's1', 30000
+    )
+    // 第二次调用（应触发节流）
+    const result2 = await strategy._autoCompactIfNeeded(
+      [{ role: 'user', content: 'hi' }], 's1', 30000
+    )
+    expect(result2).toEqual({ skipped: 'throttled' })
+    expect(strategy._compactionSkipCount).toBeGreaterThan(0)
+  })
+
+  test('熔断: 连续 3 次压缩失败后返回 fused', async () => {
+    jest.useFakeTimers()
+    mockEstimateTokens.mockReturnValue(160000)
+    strategy.deepseekService.compressContext.mockRejectedValue(new Error('API error'))
+
+    // 连续失败 3 次，每次间隔 4 分钟（超过 3 分钟节流期）
+    for (let i = 0; i < 3; i++) {
+      await strategy._autoCompactIfNeeded(
+        [{ role: 'user', content: 'hi' }], 's1', 30000
+      )
+      jest.advanceTimersByTime(4 * 60 * 1000)
+    }
+
+    // 第 4 次应 fused
+    jest.advanceTimersByTime(4 * 60 * 1000)
+    const result4 = await strategy._autoCompactIfNeeded(
+      [{ role: 'user', content: 'hi' }], 's1', 30000
+    )
+    expect(result4).toEqual({ skipped: 'fused' })
+  })
+
+  test('compressContext 返回空 result 时计数失败', async () => {
+    mockEstimateTokens.mockReturnValue(160000)
+    strategy.deepseekService.compressContext.mockResolvedValue(null)
+    const result = await strategy._autoCompactIfNeeded(
+      [{ role: 'user', content: 'hi' }], 's1', 30000
+    )
+    expect(result).toEqual({ skipped: 'compression_failed' })
+    expect(strategy._compactionFailureCount).toBe(1)
   })
 })
