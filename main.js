@@ -63,6 +63,7 @@ require('./src/main/ipcHandlers/aiAnalysisHandler')
 require('./src/main/ipcHandlers/salesQuoteHandler') // 销售报价 IPC 处理器
 require('./src/main/ipcHandlers/xgboostPredictionHandler').registerHandlers(ipcMain) // XGBoost性能预测 IPC 处理器（A0: 修复注册 bug）
 require('./src/main/ipcHandlers/trialTestHandler').registerHandlers(ipcMain) // 试配记录 IPC 处理器（Task B2）
+require('./src/main/ipcHandlers/trainingHandler').registerHandlers(ipcMain) // 训练 IPC 处理器（Task C3）
 require('./src/main/ipcHandlers/visionHandler') // Task 8：视觉图片上传/列出 IPC 处理器
 require('./src/main/ipcHandlers/agentHandler').registerAgentHandlers() // AI Agent IPC 处理器
 const { registerLlmHandlers } = require('./src/main/ipcHandlers/llmHandler')
