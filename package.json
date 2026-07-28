@@ -80,7 +80,8 @@
     ],
     "asarUnpack": [
       "node_modules/sqlite3/**",
-      "resources/models/**"
+      "resources/models/**",
+      "node_modules/@wlearn/xgboost/**"
     ],
     "extraMetadata": {
       "main": "main.js"
