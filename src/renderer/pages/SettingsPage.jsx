@@ -9,6 +9,7 @@ import ImportWizard from '../components/ImportWizard'
 import RestoreConfirmModal from '../components/RestoreConfirmModal'
 import SalesQuoteSettings from '../components/SalesQuoteSettings'
 import SkillManager from '../components/SkillManager'
+import TrainingPanel from '../components/TrainingPanel'
 import { PARAM_CONFIG, PARAM_TABS } from '../config/paramConfig'
 
 const { Text, Paragraph } = Typography
@@ -190,6 +191,7 @@ const SettingsPage = forwardRef((props, ref) => {
     if (activeTab === '技能管理') return <SkillManager />
     if (activeTab === '销售报价') return <SalesQuoteSettings />
     if (activeTab === 'LLM管理') return <LlmManager />
+    if (activeTab === '模型管理') return <TrainingPanel />
     if (activeTab === '系统设置') {
       return (
         <div>

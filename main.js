@@ -65,6 +65,7 @@ require('./src/main/ipcHandlers/xgboostPredictionHandler').registerHandlers(ipcM
 require('./src/main/ipcHandlers/trialTestHandler').registerHandlers(ipcMain) // 试配记录 IPC 处理器（Task B2）
 require('./src/main/ipcHandlers/trainingHandler').registerHandlers(ipcMain) // 训练 IPC 处理器（Task C3）
 require('./src/main/ipcHandlers/visionHandler') // Task 8：视觉图片上传/列出 IPC 处理器
+require('./src/main/ipcHandlers/trainingHandler').registerHandlers(ipcMain) // 训练 + 回滚 + 模型管理 IPC 处理器
 require('./src/main/ipcHandlers/agentHandler').registerAgentHandlers() // AI Agent IPC 处理器
 const { registerLlmHandlers } = require('./src/main/ipcHandlers/llmHandler')
 registerLlmHandlers()

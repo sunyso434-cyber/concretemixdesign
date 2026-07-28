@@ -3,6 +3,11 @@ const { contextBridge, ipcRenderer } = require('electron')
 // Sandboxed Electron preloads cannot require local modules, so this boundary must
 // remain self-contained unless the preload is bundled during the build.
 const INVOKE_CHANNELS = new Set([
+  'training:run',
+  'training:getStatus',
+  'training:getInfo',
+  'training:rollback',
+  'training:previewArchivedMetrics',
   'agent:abort',
   'agent:archiveSession',
   'agent:backfillMemory',
@@ -75,6 +80,7 @@ const INVOKE_CHANNELS = new Set([
 ])
 
 const EVENT_CHANNELS = new Set([
+  'training:progress',
   'agent:confirmation-request',
   'agent:progress',
   'agent:sessionUpdated',
