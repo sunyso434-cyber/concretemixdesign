@@ -73,6 +73,7 @@ const CorrectionRule = require('./models/CorrectionRule')
 const AuditLog = require('./models/AuditLog')
 const SessionSummary = require('./models/SessionSummary')
 const PreferenceSuggestion = require('./models/PreferenceSuggestion')
+const MaterialBatch = require('./models/MaterialBatch')
 
 // ChatSession 是工厂函数模型（需传入 sequelize），其他模型已自加载 sequelize
 const ChatSessionModel = require('./models/ChatSession')
@@ -211,10 +212,13 @@ async function ensureMemoryFts() {
 
 async function syncModels() {
   // UserPreference 已在阶段 B 迁移中废弃，不在此处注册
-  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion]
+  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion, MaterialBatch]
   await runSchemaBaseline({ sequelize, models: allModels, dbPath })
   await ensureArchivedColumn()
   await ensureMemoryFts()
+
+  // 审查 P7：为 material_batches.materialId 创建索引
+  await sequelize.query('CREATE INDEX IF NOT EXISTS idx_material_batches_materialId ON material_batches (materialId)')
 
   // FTS5 表的创建已统一交给 ensureMemoryFts()（覆盖旧库残留的 key_decisions_unfolded 字段）
   // SessionSummary.js 的 afterSync hook 也会幂等重建，两处保持一致
@@ -281,3 +285,4 @@ module.exports.ChatSession = ChatSession
 module.exports.AuditLog = AuditLog
 module.exports.SessionSummary = SessionSummary
 module.exports.PreferenceSuggestion = PreferenceSuggestion
+module.exports.MaterialBatch = MaterialBatch
