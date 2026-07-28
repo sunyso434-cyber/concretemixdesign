@@ -1,7 +1,7 @@
 const { Sequelize, DataTypes } = require('sequelize')
 const fs = require('fs')
 const path = require('path')
-const { runSchemaBaseline } = require('./schemaMigrator')
+const { ensureColumn, runSchemaBaseline } = require('./schemaMigrator')
 
 // 在 Electron 环境中使用 app.getPath('userData')，否则回退到项目目录下的 data 子目录
 let userDataPath
@@ -216,6 +216,9 @@ async function syncModels() {
   await runSchemaBaseline({ sequelize, models: allModels, dbPath })
   await ensureArchivedColumn()
   await ensureMemoryFts()
+
+  // A3：为 materials 表添加 currentBatchId 字段（幂等）
+  await ensureColumn(sequelize, 'materials', 'currentBatchId', 'INTEGER')
 
   // 审查 P7：为 material_batches.materialId 创建索引
   await sequelize.query('CREATE INDEX IF NOT EXISTS idx_material_batches_materialId ON material_batches (materialId)')
