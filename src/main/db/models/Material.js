@@ -218,6 +218,12 @@ const Material = sequelize.define('Material', {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
     comment: '是否系统预设材料，true表示系统预设，false表示用户添加'
+  },
+  // 当前批次 ID（关联 material_batches 表）
+  currentBatchId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    comment: '当前使用的批次ID'
   }
 }, {
   tableName: 'materials',

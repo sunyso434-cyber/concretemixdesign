@@ -1,5 +1,6 @@
 const { ipcMain } = require('electron')
 const MaterialService = require('../services/MaterialService')
+const MaterialBatchService = require('../services/MaterialBatchService')
 
 class MaterialHandler {
   constructor() {
@@ -91,6 +92,87 @@ class MaterialHandler {
         return { success: true }
       } catch (error) {
         console.error('initDefaultMaterials failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    // ==================== 批次管理 IPC ====================
+    ipcMain.handle('material:getBatches', async (event, { materialId }) => {
+      try {
+        const batches = await MaterialBatchService.getBatchesByMaterialId(materialId)
+        return { success: true, data: batches }
+      } catch (error) {
+        console.error('material:getBatches failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('material:getBatchById', async (event, { id }) => {
+      try {
+        const batch = await MaterialBatchService.getBatchById(id)
+        return { success: true, data: batch }
+      } catch (error) {
+        console.error('material:getBatchById failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('material:getCurrentBatch', async (event, { materialId }) => {
+      try {
+        const batch = await MaterialBatchService.getCurrentBatch(materialId)
+        return { success: true, data: batch }
+      } catch (error) {
+        console.error('material:getCurrentBatch failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('material:createBatch', async (event, data) => {
+      try {
+        const batch = await MaterialBatchService.createBatch(data)
+        return { success: true, data: batch }
+      } catch (error) {
+        console.error('material:createBatch failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('material:updateBatch', async (event, { id, ...data }) => {
+      try {
+        const batch = await MaterialBatchService.updateBatch(id, data)
+        return { success: true, data: batch }
+      } catch (error) {
+        console.error('material:updateBatch failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('material:deleteBatch', async (event, { id }) => {
+      try {
+        await MaterialBatchService.deleteBatch(id)
+        return { success: true }
+      } catch (error) {
+        console.error('material:deleteBatch failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('material:setCurrentBatch', async (event, { materialId, batchId }) => {
+      try {
+        const batch = await MaterialBatchService.setCurrentBatch(materialId, batchId)
+        return { success: true, data: batch }
+      } catch (error) {
+        console.error('material:setCurrentBatch failed:', error)
+        return { success: false, error: error.message }
+      }
+    })
+
+    ipcMain.handle('material:getExpiringBatches', async () => {
+      try {
+        const batches = await MaterialBatchService.getExpiringBatches()
+        return { success: true, data: batches }
+      } catch (error) {
+        console.error('material:getExpiringBatches failed:', error)
         return { success: false, error: error.message }
       }
     })
