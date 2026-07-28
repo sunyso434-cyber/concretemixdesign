@@ -1009,6 +1009,27 @@ const SmartDesignChat = () => {
       const slump = cardData.slump || source.slump
       const now = new Date()
       const timestamp = now.toLocaleString('zh-CN', { hour12: false })
+
+      // 审查 N13：保存前加载材料库，根据材料 ID 查完整对象，不再透传 AI 返回的不完整数据
+      const rawSelected = source.selectedMaterials || cardData.selectedMaterials || bestSol.selectedMaterials || {}
+      const allMaterials = await getAllMaterials()
+      const fullMaterialDetails = {}
+      for (const [key, val] of Object.entries(rawSelected)) {
+        if (val == null) continue
+        // 处理数组（sand/stone 多选场景）：逐项查库
+        if (Array.isArray(val)) {
+          fullMaterialDetails[key] = val.map(item => {
+            const id = item?.id ?? item
+            return id != null ? (allMaterials.find(m => String(m.id) === String(id)) || item) : item
+          })
+        } else {
+          // 单值：val 可能是完整对象（含 id），也可能是原始 ID
+          const materialId = val?.id ?? val
+          if (materialId == null) continue
+          fullMaterialDetails[key] = allMaterials.find(m => String(m.id) === String(materialId)) || val
+        }
+      }
+
       const saveData = {
         name: `${strength || 'AI'}${cardData.bestSolution ? '成本优化方案' : '智能设计方案'} - ${timestamp}`,
         projectName: 'AI智能设计',
@@ -1020,7 +1041,7 @@ const SmartDesignChat = () => {
         materials: source.materials || cardData.materials || bestSol.materials,
         materialCosts: source.materialCosts || cardData.materialCosts || bestSol.materialCosts,
         totalCost: source.totalCost || cardData.totalCost || bestSol.totalCost,
-        materialDetails: source.selectedMaterials || cardData.selectedMaterials || bestSol.selectedMaterials,
+        materialDetails: fullMaterialDetails,
         fineAggregateBreakdown: source.fineAggregateBreakdown || cardData.fineAggregateBreakdown || bestSol.fineAggregateBreakdown,
         coarseAggregateBreakdown: source.coarseAggregateBreakdown || cardData.coarseAggregateBreakdown || bestSol.coarseAggregateBreakdown,
         status: 'AI生成'
