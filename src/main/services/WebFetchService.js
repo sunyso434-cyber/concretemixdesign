@@ -2,7 +2,7 @@ const axios = require('axios')
 const { createError } = require('../agent/ErrorCodes')
 
 /**
- * 网页正文抓取服务（砼智 v0.0.8 新增）
+ * 网页正文抓取服务（砼智 v0.0.9 新增）
  *
  * 基于 Jina Reader (https://r.jina.ai)，无 API key 模式，复用 Jina 免费层。
  *
@@ -109,7 +109,7 @@ class WebFetchService {
 
     const headers = {
       'Accept': accept,
-      'User-Agent': 'ConcreteAgent/0.0.8 (web_fetch; jina reader free tier)'
+      'User-Agent': 'ConcreteAgent/0.0.9 (web_fetch; jina reader free tier)'
     }
     if (format === 'text') {
       headers['X-Return-Format'] = 'text'
