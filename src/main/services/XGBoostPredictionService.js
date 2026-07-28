@@ -15,8 +15,6 @@ function getModelsDir() {
   return path.join(__dirname, '..', '..', '..', 'resources', 'models')
 }
 
-const MODELS_DIR = getModelsDir()
-
 // 老板 2026-07-10: 去除坍落度作为目标，减水剂掺量作为新目标
 // 文件名去掉下划线以匹配 train.py 第145行的 replace("_", "")
 const MODEL_FILES = {
@@ -55,7 +53,7 @@ class XGBoostPredictionService {
 
     let featureConfigPath
     try {
-      featureConfigPath = path.join(MODELS_DIR, 'feature_config.json')
+      featureConfigPath = path.join(getModelsDir(), 'feature_config.json')
       const raw = fs.readFileSync(featureConfigPath, 'utf-8')
       this._featureConfig = JSON.parse(raw)
     } catch (err) {
@@ -65,7 +63,7 @@ class XGBoostPredictionService {
 
     for (const [target, filename] of Object.entries(MODEL_FILES)) {
       try {
-        const filePath = path.join(MODELS_DIR, filename)
+        const filePath = path.join(getModelsDir(), filename)
         const raw = fs.readFileSync(filePath, 'utf-8')
         const modelData = JSON.parse(raw)
 

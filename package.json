@@ -27,7 +27,6 @@
     "@ant-design/plots": "^2.6.8",
     "@reduxjs/toolkit": "^2.0.0",
     "antd": "^5.12.0",
-    "async-mutex": "^0.5.0",
     "axios": "^1.15.2",
     "chokidar": "^3.6.0",
     "docx": "^9.7.1",
@@ -50,13 +49,17 @@
     "sql.js": "^1.14.0",
     "sqlite3": "^6.0.1",
     "uuid": "^14.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "@wlearn/xgboost": "^0.2.0",
+    "effect": "^3.22.0",
+    "effect-search": "^0.2.1"
   },
   "type": "commonjs",
   "build": {
     "appId": "com.concrete.mixdesign",
     "productName": "砼智",
     "copyright": "Copyright © 2026",
+    "publish": null,
     "directories": {
       "output": "dist-0.0.8",
       "buildResources": "public"
@@ -75,16 +78,13 @@
       {
         "from": "resources/officecli/${os}/",
         "to": "officecli/",
-        "filter": [
-          "**/*",
-          "!*.update.partial",
-          "!*.old"
-        ]
+        "filter": ["**/*", "!*.update.partial", "!*.old"]
       }
     ],
     "asarUnpack": [
       "node_modules/sqlite3/**",
-      "resources/models/**"
+      "resources/models/**",
+      "node_modules/@wlearn/xgboost/**"
     ],
     "extraMetadata": {
       "main": "main.js"
@@ -94,22 +94,16 @@
       "target": [
         {
           "target": "nsis",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         },
         {
           "target": "portable",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ],
       "certificateFile": null,
       "certificatePassword": null,
-      "signingHashAlgorithms": [
-        "sha256"
-      ],
+      "signingHashAlgorithms": ["sha256"],
       "sign": null
     },
     "portable": {
