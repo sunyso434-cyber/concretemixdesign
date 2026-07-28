@@ -74,6 +74,7 @@ const AuditLog = require('./models/AuditLog')
 const SessionSummary = require('./models/SessionSummary')
 const PreferenceSuggestion = require('./models/PreferenceSuggestion')
 const MaterialBatch = require('./models/MaterialBatch')
+const TrialTestRecord = require('./models/TrialTestRecord')
 
 // ChatSession 是工厂函数模型（需传入 sequelize），其他模型已自加载 sequelize
 const ChatSessionModel = require('./models/ChatSession')
@@ -212,7 +213,7 @@ async function ensureMemoryFts() {
 
 async function syncModels() {
   // UserPreference 已在阶段 B 迁移中废弃，不在此处注册
-  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion, MaterialBatch]
+  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion, MaterialBatch, TrialTestRecord]
   await runSchemaBaseline({ sequelize, models: allModels, dbPath })
   await ensureArchivedColumn()
   await ensureMemoryFts()
@@ -289,3 +290,4 @@ module.exports.AuditLog = AuditLog
 module.exports.SessionSummary = SessionSummary
 module.exports.PreferenceSuggestion = PreferenceSuggestion
 module.exports.MaterialBatch = MaterialBatch
+module.exports.TrialTestRecord = TrialTestRecord

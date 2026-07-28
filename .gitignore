@@ -80,6 +80,10 @@ build/
 data/
 db/
 
+# 但 src/main/db/ 及其子目录（models/ 等）是代码，需要入仓
+!src/main/db/
+!src/main/db/models/
+
 # AI 工具/记忆配置（个人开发环境，不入仓）
 .superpowers/
 memory/
