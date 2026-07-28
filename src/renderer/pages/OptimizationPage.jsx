@@ -292,12 +292,39 @@ const OptimizationPage = () => {
         tempSettings: form.getFieldValue('tempSettings'),
         fineAggregateBreakdown: result.fineAggregateBreakdown,
         coarseAggregateBreakdown: result.coarseAggregateBreakdown,
-        // 保存选中的粉煤灰和矿渣粉材料信息（名称、单价等）
+        // 保存 8 种材料全量快照（保持一致格式）
         materialDetails: {
+          // 原有的 4 种掺合料（优化器返回的完整对象）
           flyAsh: result.selectedMaterials?.flyAsh || null,
           slag: result.selectedMaterials?.slag || null,
           lithiumSlag: result.selectedMaterials?.lithiumSlag || null,
-          compositePowder: result.selectedMaterials?.compositePowder || null
+          compositePowder: result.selectedMaterials?.compositePowder || null,
+          // 审查 N13：从表单 values 获取 ID，再从 materials 列表中查询完整对象
+          cement: (() => {
+            const v = form.getFieldValue('cement')
+            return v ? (materials.find(m => String(m.id) === String(v)) || null) : null
+          })(),
+          sand: (() => {
+            const v = form.getFieldValue('sand')
+            if (!v) return null
+            return Array.isArray(v)
+              ? materials.filter(m => v.some(sid => String(sid) === String(m.id)))
+              : (materials.find(m => String(m.id) === String(v)) || null)
+          })(),
+          stone: (() => {
+            const v = form.getFieldValue('stone')
+            if (!v) return null
+            return Array.isArray(v)
+              ? materials.filter(m => v.some(sid => String(sid) === String(m.id)))
+              : (materials.find(m => String(m.id) === String(v)) || null)
+          })(),
+          superplasticizer: (() => {
+            const v = form.getFieldValue('superplasticizer')
+            if (!v) return null
+            return Array.isArray(v)
+              ? materials.filter(m => v.some(sid => String(sid) === String(m.id)))
+              : (materials.find(m => String(m.id) === String(v)) || null)
+          })()
         }
       }
 
