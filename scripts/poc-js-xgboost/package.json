@@ -1,0 +1,20 @@
+{
+  "name": "poc-js-xgboost",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@effect/experimental": "^0.61.0",
+    "@effect/platform": "^0.97.0",
+    "@effect/sql": "^0.52.0",
+    "@wlearn/xgboost": "^0.2.0",
+    "effect": "^3.22.0",
+    "effect-search": "^0.2.1"
+  }
+}

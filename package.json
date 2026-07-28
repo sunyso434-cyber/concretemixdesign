@@ -49,7 +49,10 @@
     "sql.js": "^1.14.0",
     "sqlite3": "^6.0.1",
     "uuid": "^14.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "@wlearn/xgboost": "^0.2.0",
+    "effect": "^3.22.0",
+    "effect-search": "^0.2.1"
   },
   "type": "commonjs",
   "build": {
