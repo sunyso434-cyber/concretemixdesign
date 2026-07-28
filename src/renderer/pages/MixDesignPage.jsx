@@ -19,6 +19,13 @@ const MixDesignPage = () => {
   const watchedSandRatio = Form.useWatch ? Form.useWatch('sandRatio', form) : null
   const watchedStrength = Form.useWatch ? Form.useWatch('strength', form) : null
   const watchedCalculationMethod = Form.useWatch ? Form.useWatch('calculationMethod', form) : null
+  const watchedCement = Form.useWatch ? Form.useWatch('cement', form) : null
+  const watchedFlyAsh = Form.useWatch ? Form.useWatch('flyAsh', form) : null
+  const watchedSlag = Form.useWatch ? Form.useWatch('slag', form) : null
+  const watchedLithiumSlag = Form.useWatch ? Form.useWatch('lithiumSlag', form) : null
+  const watchedCompositePowder = Form.useWatch ? Form.useWatch('compositePowder', form) : null
+  const watchedSuperplasticizer = Form.useWatch ? Form.useWatch('superplasticizer', form) : null
+  const watchedStone = Form.useWatch ? Form.useWatch('stone', form) : null
   const [adjustedResult, setAdjustedResult] = useState(null)
   const [seriesResults, setSeriesResults] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -28,6 +35,44 @@ const MixDesignPage = () => {
   const [saveForm] = Form.useForm()
   const [tempSettings, setTempSettings] = useState(null)
   const [cacheRestored, setCacheRestored] = useState(false)
+  const [batchMap, setBatchMap] = useState({}) // { [materialId]: Batch[] }
+
+  // 加载批次列表并自动选中当前批次
+  const handleMaterialChange = async (fieldName, materialId) => {
+    if (!materialId) {
+      form.setFieldsValue({ [`${fieldName}BatchId`]: undefined })
+      return
+    }
+    try {
+      const result = await window.electron.ipcRenderer.invoke('material:getBatches', { materialId })
+      const batches = Array.isArray(result) ? result : []
+      setBatchMap(prev => ({ ...prev, [materialId]: batches }))
+      const currentBatch = batches.find(b => b.status === '在用')
+      form.setFieldsValue({ [`${fieldName}BatchId`]: currentBatch?.id || undefined })
+    } catch (err) {
+      console.error(`加载${fieldName}批次失败:`, err)
+    }
+  }
+
+  // 根据 materialId 和 batchId 获取批次的 batchNumber
+  const getBatchNumber = (materialId, batchId) => {
+    if (!batchId || !materialId) return null
+    const batches = batchMap[materialId]
+    if (!batches) return null
+    const batch = batches.find(b => String(b.id) === String(batchId))
+    return batch?.batchNumber || null
+  }
+
+  // 统一构建带批次信息的材料对象
+  const buildMaterialWithBatch = (material, materialId, batchFieldName) => {
+    if (!material) return material
+    const batchId = batchFieldName ? (form.getFieldValue(batchFieldName) || null) : null
+    return {
+      ...material,
+      batchId,
+      batchNumber: getBatchNumber(materialId, batchId)
+    }
+  }
 
   // 保存表单值到 localStorage
   const saveFormToStorage = (values) => {
@@ -294,19 +339,29 @@ const MixDesignPage = () => {
       const latestMaterials = await loadMaterials()
 
       // 构建材料对象
+      const withBatch = (mat, batchIdField) => {
+        if (!mat) return mat
+        const batchId = batchIdField ? (values[batchIdField] || null) : null
+        return { ...mat, batchId, batchNumber: getBatchNumber(mat.id, batchId) }
+      }
+
       const materialsObj = {
-        cement: latestMaterials.find(m => m.id === values.cement),
-        flyAsh: latestMaterials.find(m => m.id === values.flyAsh),
-        slag: latestMaterials.find(m => m.id === values.slag),
-        lithiumSlag: latestMaterials.find(m => m.id === values.lithiumSlag),
-        compositePowder: latestMaterials.find(m => m.id === values.compositePowder),
-        sand: Array.isArray(values.sand) ? latestMaterials.filter(m => values.sand.some(sid => String(sid) === String(m.id))) : latestMaterials.find(m => m.id === values.sand),
-        stone: Array.isArray(values.stone) ? latestMaterials.filter(m => values.stone.some(sid => String(sid) === String(m.id))) : latestMaterials.find(m => m.id === values.stone),
-        superplasticizer: latestMaterials.find(m => m.id === values.superplasticizer)
+        cement: withBatch(latestMaterials.find(m => m.id === values.cement), 'cementBatchId'),
+        flyAsh: withBatch(latestMaterials.find(m => m.id === values.flyAsh), 'flyAshBatchId'),
+        slag: withBatch(latestMaterials.find(m => m.id === values.slag), 'slagBatchId'),
+        lithiumSlag: withBatch(latestMaterials.find(m => m.id === values.lithiumSlag), 'lithiumSlagBatchId'),
+        compositePowder: withBatch(latestMaterials.find(m => m.id === values.compositePowder), 'compositePowderBatchId'),
+        sand: Array.isArray(values.sand)
+          ? latestMaterials.filter(m => values.sand.some(sid => String(sid) === String(m.id))).map(m => withBatch(m, `sandBatchId_${m.id}`))
+          : withBatch(latestMaterials.find(m => m.id === values.sand), 'sandBatchId'),
+        stone: Array.isArray(values.stone)
+          ? latestMaterials.filter(m => values.stone.some(sid => String(sid) === String(m.id))).map(m => withBatch(m, `stoneBatchId_${m.id}`))
+          : withBatch(latestMaterials.find(m => m.id === values.stone), 'stoneBatchId'),
+        superplasticizer: withBatch(latestMaterials.find(m => m.id === values.superplasticizer), 'superplasticizerBatchId')
       }
 
       console.log('材料对象:', materialsObj)
-      
+
       // 检查材料对象是否都存在
       for (const [key, material] of Object.entries(materialsObj)) {
         if (key === 'sand' || key === 'stone') {
@@ -382,15 +437,21 @@ const MixDesignPage = () => {
       const latestMaterials = await loadMaterials()
 
       // 构建材料对象
+      const withBatch = (mat, batchIdField) => {
+        if (!mat) return mat
+        const batchId = batchIdField ? (values[batchIdField] || null) : null
+        return { ...mat, batchId, batchNumber: getBatchNumber(mat.id, batchId) }
+      }
+
       const materialsObj = {
-        cement: latestMaterials.find(m => m.id === values.cement),
-        flyAsh: latestMaterials.find(m => m.id === values.flyAsh),
-        slag: latestMaterials.find(m => m.id === values.slag),
-        lithiumSlag: latestMaterials.find(m => m.id === values.lithiumSlag),
-        compositePowder: latestMaterials.find(m => m.id === values.compositePowder),
-        sand: Array.isArray(values.sand) ? latestMaterials.filter(m => values.sand.includes(m.id)) : latestMaterials.find(m => m.id === values.sand),
-        stone: Array.isArray(values.stone) ? latestMaterials.filter(m => values.stone.includes(m.id)) : latestMaterials.find(m => m.id === values.stone),
-        superplasticizer: latestMaterials.find(m => m.id === values.superplasticizer)
+        cement: withBatch(latestMaterials.find(m => m.id === values.cement), 'cementBatchId'),
+        flyAsh: withBatch(latestMaterials.find(m => m.id === values.flyAsh), 'flyAshBatchId'),
+        slag: withBatch(latestMaterials.find(m => m.id === values.slag), 'slagBatchId'),
+        lithiumSlag: withBatch(latestMaterials.find(m => m.id === values.lithiumSlag), 'lithiumSlagBatchId'),
+        compositePowder: withBatch(latestMaterials.find(m => m.id === values.compositePowder), 'compositePowderBatchId'),
+        sand: Array.isArray(values.sand) ? latestMaterials.filter(m => values.sand.includes(m.id)).map(m => withBatch(m, `sandBatchId_${m.id}`)) : withBatch(latestMaterials.find(m => m.id === values.sand), 'sandBatchId'),
+        stone: Array.isArray(values.stone) ? latestMaterials.filter(m => values.stone.includes(m.id)).map(m => withBatch(m, `stoneBatchId_${m.id}`)) : withBatch(latestMaterials.find(m => m.id === values.stone), 'stoneBatchId'),
+        superplasticizer: withBatch(latestMaterials.find(m => m.id === values.superplasticizer), 'superplasticizerBatchId')
       }
 
       // 检查材料对象是否都存在
@@ -492,15 +553,21 @@ const MixDesignPage = () => {
       const latestMaterials = await loadMaterials()
 
       // 构建材料对象
+      const withBatch = (mat, batchIdField) => {
+        if (!mat) return mat
+        const batchId = batchIdField ? (values[batchIdField] || null) : null
+        return { ...mat, batchId, batchNumber: getBatchNumber(mat.id, batchId) }
+      }
+
       const materialsObj = {
-        cement: latestMaterials.find(m => m.id === values.cement),
-        flyAsh: latestMaterials.find(m => m.id === values.flyAsh),
-        slag: latestMaterials.find(m => m.id === values.slag),
-        lithiumSlag: latestMaterials.find(m => m.id === values.lithiumSlag),
-        compositePowder: latestMaterials.find(m => m.id === values.compositePowder),
-        sand: Array.isArray(values.sand) ? latestMaterials.filter(m => values.sand.some(sid => String(sid) === String(m.id))) : latestMaterials.find(m => m.id === values.sand),
-        stone: Array.isArray(values.stone) ? latestMaterials.filter(m => values.stone.some(sid => String(sid) === String(m.id))) : latestMaterials.find(m => m.id === values.stone),
-        superplasticizer: latestMaterials.find(m => m.id === values.superplasticizer)
+        cement: withBatch(latestMaterials.find(m => m.id === values.cement), 'cementBatchId'),
+        flyAsh: withBatch(latestMaterials.find(m => m.id === values.flyAsh), 'flyAshBatchId'),
+        slag: withBatch(latestMaterials.find(m => m.id === values.slag), 'slagBatchId'),
+        lithiumSlag: withBatch(latestMaterials.find(m => m.id === values.lithiumSlag), 'lithiumSlagBatchId'),
+        compositePowder: withBatch(latestMaterials.find(m => m.id === values.compositePowder), 'compositePowderBatchId'),
+        sand: Array.isArray(values.sand) ? latestMaterials.filter(m => values.sand.some(sid => String(sid) === String(m.id))).map(m => withBatch(m, `sandBatchId_${m.id}`)) : withBatch(latestMaterials.find(m => m.id === values.sand), 'sandBatchId'),
+        stone: Array.isArray(values.stone) ? latestMaterials.filter(m => values.stone.some(sid => String(sid) === String(m.id))).map(m => withBatch(m, `stoneBatchId_${m.id}`)) : withBatch(latestMaterials.find(m => m.id === values.stone), 'stoneBatchId'),
+        superplasticizer: withBatch(latestMaterials.find(m => m.id === values.superplasticizer), 'superplasticizerBatchId')
       }
 
       // 检查是否保存系列配合比
@@ -742,68 +809,183 @@ const MixDesignPage = () => {
           <Form form={form} layout="vertical" onValuesChange={onFormValuesChange}>
             <div className="grid-2-col">
               <Form.Item name="cement" label="水泥" rules={[{ required: true, message: '请选择水泥' }]}>
-                <Select placeholder="请选择水泥" style={{ width: '100%' }}>
+                <Select placeholder="请选择水泥" style={{ width: '100%' }} onChange={(value) => handleMaterialChange('cement', value)}>
                   {getMaterialsByType('cement').map(material => (
                     <Option key={material.id} value={material.id}>{material.name}</Option>
                   ))}
                 </Select>
               </Form.Item>
-              
+              {watchedCement && (
+                <Form.Item name="cementBatchId" label="水泥批次">
+                  <Select placeholder="选择批次" allowClear>
+                    <Option value={null}>默认批次</Option>
+                    {(batchMap[watchedCement] || []).map(b => (
+                      <Option key={b.id} value={b.id}>{b.batchNumber}{b.status ? ` (${b.status})` : ''}</Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              )}
+
               <Form.Item name="flyAsh" label="粉煤灰">
-                <Select placeholder="请选择粉煤灰" style={{ width: '100%' }}>
+                <Select placeholder="请选择粉煤灰" style={{ width: '100%' }} onChange={(value) => handleMaterialChange('flyAsh', value)}>
                   {getMaterialsByType('flyAsh').map(material => (
                     <Option key={material.id} value={material.id}>{material.name}</Option>
                   ))}
                 </Select>
               </Form.Item>
-              
+              {watchedFlyAsh && (
+                <Form.Item name="flyAshBatchId" label="粉煤灰批次">
+                  <Select placeholder="选择批次" allowClear>
+                    <Option value={null}>默认批次</Option>
+                    {(batchMap[watchedFlyAsh] || []).map(b => (
+                      <Option key={b.id} value={b.id}>{b.batchNumber}{b.status ? ` (${b.status})` : ''}</Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              )}
+
               <Form.Item name="slag" label="矿渣粉">
-                <Select placeholder="请选择矿渣粉" style={{ width: '100%' }}>
+                <Select placeholder="请选择矿渣粉" style={{ width: '100%' }} onChange={(value) => handleMaterialChange('slag', value)}>
                   {getMaterialsByType('slag').map(material => (
                     <Option key={material.id} value={material.id}>{material.name}</Option>
                   ))}
                 </Select>
               </Form.Item>
+              {watchedSlag && (
+                <Form.Item name="slagBatchId" label="矿渣粉批次">
+                  <Select placeholder="选择批次" allowClear>
+                    <Option value={null}>默认批次</Option>
+                    {(batchMap[watchedSlag] || []).map(b => (
+                      <Option key={b.id} value={b.id}>{b.batchNumber}{b.status ? ` (${b.status})` : ''}</Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              )}
 
               <Form.Item name="lithiumSlag" label="锂渣">
-                <Select placeholder="请选择锂渣" style={{ width: '100%' }}>
+                <Select placeholder="请选择锂渣" style={{ width: '100%' }} onChange={(value) => handleMaterialChange('lithiumSlag', value)}>
                   {getMaterialsByType('lithiumSlag').map(material => (
                     <Option key={material.id} value={material.id}>{material.name}</Option>
                   ))}
                 </Select>
               </Form.Item>
+              {watchedLithiumSlag && (
+                <Form.Item name="lithiumSlagBatchId" label="锂渣批次">
+                  <Select placeholder="选择批次" allowClear>
+                    <Option value={null}>默认批次</Option>
+                    {(batchMap[watchedLithiumSlag] || []).map(b => (
+                      <Option key={b.id} value={b.id}>{b.batchNumber}{b.status ? ` (${b.status})` : ''}</Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              )}
 
               <Form.Item name="compositePowder" label="复合粉">
-                <Select placeholder="请选择复合粉" style={{ width: '100%' }}>
+                <Select placeholder="请选择复合粉" style={{ width: '100%' }} onChange={(value) => handleMaterialChange('compositePowder', value)}>
                   {getMaterialsByType('compositePowder').map(material => (
                     <Option key={material.id} value={material.id}>{material.name}</Option>
                   ))}
                 </Select>
               </Form.Item>
+              {watchedCompositePowder && (
+                <Form.Item name="compositePowderBatchId" label="复合粉批次">
+                  <Select placeholder="选择批次" allowClear>
+                    <Option value={null}>默认批次</Option>
+                    {(batchMap[watchedCompositePowder] || []).map(b => (
+                      <Option key={b.id} value={b.id}>{b.batchNumber}{b.status ? ` (${b.status})` : ''}</Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              )}
 
               <Form.Item name="sand" label="细骨料" rules={[{ required: true, message: '请选择细骨料' }]}>
-                <Select placeholder="请选择细骨料" style={{ width: '100%' }} mode="multiple">
+                <Select placeholder="请选择细骨料" style={{ width: '100%' }} mode="multiple" onChange={(values) => {
+                  // 为每个新选中的细骨料加载批次
+                  if (Array.isArray(values)) {
+                    values.forEach(id => {
+                      if (!batchMap[id]) {
+                        window.electron.ipcRenderer.invoke('material:getBatches', { materialId: id })
+                          .then(r => {
+                            const batches = Array.isArray(r) ? r : []
+                            setBatchMap(prev => ({ ...prev, [id]: batches }))
+                          })
+                          .catch(() => {})
+                      }
+                    })
+                  }
+                }}>
                   {getMaterialsByType('sand').map(material => (
                     <Option key={material.id} value={material.id}>{material.name}</Option>
                   ))}
                 </Select>
               </Form.Item>
-              
+              {Array.isArray(watchedSand) && watchedSand.map(sandId => {
+                const sandMat = materials.find(m => String(m.id) === String(sandId))
+                if (!sandMat) return null
+                return (
+                  <Form.Item key={`sandBatch_${sandId}`} name={`sandBatchId_${sandId}`} label={`${sandMat.name} 批次`}>
+                    <Select placeholder="选择批次" allowClear>
+                      <Option value={null}>默认批次</Option>
+                      {(batchMap[sandId] || []).map(b => (
+                        <Option key={b.id} value={b.id}>{b.batchNumber}{b.status ? ` (${b.status})` : ''}</Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                )
+              })}
+
               <Form.Item name="stone" label="粗骨料" rules={[{ required: true, message: '请选择粗骨料' }]}>
-                <Select placeholder="请选择粗骨料" style={{ width: '100%' }} mode="multiple">
+                <Select placeholder="请选择粗骨料" style={{ width: '100%' }} mode="multiple" onChange={(values) => {
+                  if (Array.isArray(values)) {
+                    values.forEach(id => {
+                      if (!batchMap[id]) {
+                        window.electron.ipcRenderer.invoke('material:getBatches', { materialId: id })
+                          .then(r => {
+                            const batches = Array.isArray(r) ? r : []
+                            setBatchMap(prev => ({ ...prev, [id]: batches }))
+                          })
+                          .catch(() => {})
+                      }
+                    })
+                  }
+                }}>
                   {getMaterialsByType('stone').map(material => (
                     <Option key={material.id} value={material.id}>{material.name}</Option>
                   ))}
                 </Select>
               </Form.Item>
-              
+              {Array.isArray(watchedStone) && watchedStone.map(stoneId => {
+                const stoneMat = materials.find(m => String(m.id) === String(stoneId))
+                if (!stoneMat) return null
+                return (
+                  <Form.Item key={`stoneBatch_${stoneId}`} name={`stoneBatchId_${stoneId}`} label={`${stoneMat.name} 批次`}>
+                    <Select placeholder="选择批次" allowClear>
+                      <Option value={null}>默认批次</Option>
+                      {(batchMap[stoneId] || []).map(b => (
+                        <Option key={b.id} value={b.id}>{b.batchNumber}{b.status ? ` (${b.status})` : ''}</Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                )
+              })}
+
               <Form.Item name="superplasticizer" label="外加剂">
-                <Select placeholder="请选择外加剂" style={{ width: '100%' }}>
+                <Select placeholder="请选择外加剂" style={{ width: '100%' }} onChange={(value) => handleMaterialChange('superplasticizer', value)}>
                   {getMaterialsByType('superplasticizer').map(material => (
                     <Option key={material.id} value={material.id}>{material.name}</Option>
                   ))}
                 </Select>
               </Form.Item>
+              {watchedSuperplasticizer && (
+                <Form.Item name="superplasticizerBatchId" label="外加剂批次">
+                  <Select placeholder="选择批次" allowClear>
+                    <Option value={null}>默认批次</Option>
+                    {(batchMap[watchedSuperplasticizer] || []).map(b => (
+                      <Option key={b.id} value={b.id}>{b.batchNumber}{b.status ? ` (${b.status})` : ''}</Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              )}
             </div>
           </Form>
         </Card>

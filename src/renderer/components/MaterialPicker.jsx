@@ -1,7 +1,9 @@
-import React, { useState, useMemo } from 'react'
-import { Card, Button, Checkbox, Tag, Typography } from 'antd'
+import React, { useState, useMemo, useEffect } from 'react'
+import { Card, Button, Checkbox, Tag, Typography, Select, Spin } from 'antd'
+import { getBatches } from '../services/MaterialService'
 
 const { Text } = Typography
+const { Option } = Select
 
 const TYPE_FIELDS = {
   '水泥': ['compressiveStrength28d', 'standardConsistency', 'specificSurfaceArea'],
@@ -47,6 +49,8 @@ const CATEGORY_GROUPS = [
 
 const MaterialPicker = ({ materials, onConfirm }) => {
   const [selected, setSelected] = useState([])
+  const [batchDataMap, setBatchDataMap] = useState({})
+  // { [materialId]: { batches: [], selectedBatchId: null, loading: false } }
 
   const grouped = useMemo(() => {
     if (!materials || materials.length === 0) return []
@@ -64,8 +68,52 @@ const MaterialPicker = ({ materials, onConfirm }) => {
   const toggleAll = () => setSelected(allSelected ? [] : [...allIds])
   const toggleOne = (id) => setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
 
+  // 当材料被选中时加载批次
+  const ensureBatchesLoaded = async (materialId) => {
+    if (batchDataMap[materialId]) return // 已经加载过
+    setBatchDataMap(prev => ({ ...prev, [materialId]: { batches: [], selectedBatchId: null, loading: true } }))
+    try {
+      const batches = await getBatches(materialId)
+      const currentBatch = batches.find(b => b.status === '在用') || batches[0] || null
+      setBatchDataMap(prev => ({
+        ...prev,
+        [materialId]: { batches, selectedBatchId: currentBatch?.id || null, loading: false }
+      }))
+    } catch (err) {
+      console.error('加载批次失败:', err)
+      setBatchDataMap(prev => ({ ...prev, [materialId]: { batches: [], selectedBatchId: null, loading: false } }))
+    }
+  }
+
+  // 当选中列表变化时，为新选中的材料加载批次
+  useEffect(() => {
+    selected.forEach(id => {
+      if (!batchDataMap[id]) {
+        ensureBatchesLoaded(id)
+      }
+    })
+  }, [selected])
+
+  const handleBatchChange = (materialId, batchId) => {
+    setBatchDataMap(prev => ({
+      ...prev,
+      [materialId]: { ...prev[materialId], selectedBatchId: batchId }
+    }))
+  }
+
   const handleConfirm = () => {
-    const selectedMaterials = materials.filter(m => selected.includes(m.id))
+    const selectedMaterials = materials
+      .filter(m => selected.includes(m.id))
+      .map(m => {
+        const batchData = batchDataMap[m.id]
+        const batchId = batchData?.selectedBatchId || null
+        const batch = batchData?.batches?.find(b => String(b.id) === String(batchId))
+        return {
+          ...m,
+          batchId,
+          batchNumber: batch?.batchNumber || null
+        }
+      })
     if (onConfirm) onConfirm(selectedMaterials)
   }
 
@@ -88,33 +136,58 @@ const MaterialPicker = ({ materials, onConfirm }) => {
             const fields = TYPE_FIELDS[mat.type] || []
             const isChecked = selected.includes(mat.id)
             return (
-              <div
-                key={mat.id}
-                style={{
-                  padding: '6px 0',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                }}
-                onClick={() => toggleOne(mat.id)}
-              >
-                <Checkbox
-                  checked={isChecked}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={() => toggleOne(mat.id)}
-                />
-                <Text strong style={{ marginLeft: 8, minWidth: 120 }}>{mat.name}</Text>
-                {mat.specification && <Tag style={{ marginLeft: 4 }}>{mat.specification}</Tag>}
-                <Text type="secondary" style={{ fontSize: 12, marginLeft: 12 }}>
-                  {fields.map(f => {
-                    const val = mat[f]
-                    if (val === undefined || val === null) return null
-                    return <span key={f} style={{ marginRight: 12 }}>{FIELD_LABELS[f] || f}: {formatValue(f, val)}</span>
-                  })}
-                </Text>
-                {mat.price != null && (
-                  <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>¥{mat.price}/吨</Text>
+              <div key={mat.id}>
+                <div
+                  style={{
+                    padding: '6px 0',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                  }}
+                  onClick={() => toggleOne(mat.id)}
+                >
+                  <Checkbox
+                    checked={isChecked}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={() => toggleOne(mat.id)}
+                  />
+                  <Text strong style={{ marginLeft: 8, minWidth: 120 }}>{mat.name}</Text>
+                  {mat.specification && <Tag style={{ marginLeft: 4 }}>{mat.specification}</Tag>}
+                  <Text type="secondary" style={{ fontSize: 12, marginLeft: 12 }}>
+                    {fields.map(f => {
+                      const val = mat[f]
+                      if (val === undefined || val === null) return null
+                      return <span key={f} style={{ marginRight: 12 }}>{FIELD_LABELS[f] || f}: {formatValue(f, val)}</span>
+                    })}
+                  </Text>
+                  {mat.price != null && (
+                    <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>¥{mat.price}/吨</Text>
+                  )}
+                </div>
+                {isChecked && (
+                  <div style={{ paddingLeft: 24, marginBottom: 8 }}>
+                    {batchDataMap[mat.id]?.loading ? (
+                      <Spin size="small" style={{ marginLeft: 8 }} />
+                    ) : (
+                      <Select
+                        size="small"
+                        style={{ width: 220 }}
+                        value={batchDataMap[mat.id]?.selectedBatchId || null}
+                        onChange={(val) => handleBatchChange(mat.id, val)}
+                        placeholder="选择批次"
+                        allowClear
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Option value={null}>默认批次</Option>
+                        {(batchDataMap[mat.id]?.batches || []).map(b => (
+                          <Option key={b.id} value={b.id}>
+                            {b.batchNumber}{b.status ? ` (${b.status})` : ''}
+                          </Option>
+                        ))}
+                      </Select>
+                    )}
+                  </div>
                 )}
               </div>
             )
