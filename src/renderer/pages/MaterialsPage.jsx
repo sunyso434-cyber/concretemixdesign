@@ -3,6 +3,7 @@ import { Table, Button, Modal, Form, Input, InputNumber, Select, Space, message,
 import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, DatabaseOutlined, AppstoreOutlined, HomeOutlined, DollarOutlined } from '@ant-design/icons'
 import { getFieldsForType, calculateFinenessModulus, autoMatchGrading } from '../utils/materialFieldsConfig'
 import extractErrorMessage from '../utils/extractErrorMessage'
+import MaterialBatchPanel from '../components/MaterialBatchPanel'
 
 const MATERIAL_TYPES = ['水泥', '粉煤灰', '矿渣粉', '锂渣', '复合粉', '细骨料', '粗骨料', '减水剂', '其他']
 
@@ -383,6 +384,16 @@ const MaterialsPage = forwardRef((props, ref) => {
           dataSource={filteredMaterials}
           loading={loading}
           rowKey="id"
+          expandable={{
+            expandedRowRender: (record) => (
+              <MaterialBatchPanel
+                materialId={record.id}
+                materialType={record.type}
+                onBatchChange={() => loadMaterials()}
+              />
+            ),
+            rowExpandable: () => true
+          }}
           pagination={{
             pageSize,
             showSizeChanger: true,
