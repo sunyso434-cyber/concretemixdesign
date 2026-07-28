@@ -18,7 +18,10 @@ const SlashCommandMenu = ({
 }) => {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const menuRef = useRef(null)
-  const internalRef = useRef({ moveSelection: () => {}, getSelectedIndex: () => 0 })
+  const internalRef = useRef({ moveSelection: () => {}, getSelectedIndex: () => 0, selectCurrent: () => false })
+  // 用 ref 持有最新的 onSelect/candidates，避免 useEffect 频繁重建 internalRef.current
+  const onSelectRef = useRef(onSelect)
+  onSelectRef.current = onSelect
 
   const beforeCursor = (input || '').slice(0, cursorPos || 0)
   const lastSpaceIdx = beforeCursor.lastIndexOf(' ')
@@ -39,6 +42,13 @@ const SlashCommandMenu = ({
       })
     }
     internalRef.current.getSelectedIndex = () => selectedIndex
+    // 选中当前候选项：调用父组件 onSelect；返回 false 表示无候选可选（让父组件走默认行为）
+    internalRef.current.selectCurrent = () => {
+      if (candidates.length === 0) return false
+      const idx = Math.min(selectedIndex, candidates.length - 1)
+      onSelectRef.current(candidates[idx])
+      return true
+    }
     if (menuApiRef) menuApiRef.current = internalRef.current
   }, [candidates.length, selectedIndex, menuApiRef])
 

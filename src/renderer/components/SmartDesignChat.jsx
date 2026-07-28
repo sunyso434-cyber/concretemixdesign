@@ -29,7 +29,7 @@ import { getContextPercent, DEFAULT_CONTEXT_LIMIT } from '../utils/contextStats'
 import { AnalysisReport } from './AnalysisReport'
 import { getAllMaterials } from '../services/MaterialService'
 import { buildAnalysisData } from '../utils/mixDesignParser'
-import { parseMixedMessage, isInCommandMode, tabComplete, buildAllCommandNames } from '../utils/slashCommandParser'
+import { parseMixedMessage, isInCommandMode, tabComplete, buildAllCommandNames, normalizeCursorPos } from '../utils/slashCommandParser'
 import extractErrorMessage from '../utils/extractErrorMessage'
 import {
   CONTRAST_MATERIAL_LABELS,
@@ -474,12 +474,17 @@ const SmartDesignChat = () => {
   }, [state.session.currentId])
 
   // 监听输入变化，同步光标位置
+  // 注意：必须用 e.target.selectionStart 而非 inputRef.current.selectionStart。
+  // antd Input.TextArea 的 ref 指向组件实例（非原生 DOM），取 .selectionStart 会得到 undefined，
+  // 导致 cursorPos 状态被污染，进而让 Tab 补全的 input.slice(cursorPos) 返回整个字符串（补全结果叠加原文）。
   const handleInputChange = useCallback((e) => {
     const newValue = e.target.value
     dispatch({ type: 'SET_INPUT', payload: newValue })
     setTimeout(() => {
-      if (inputRef.current) {
-        setCursorPos(inputRef.current.selectionStart)
+      if (inputRef.current && inputRef.current.resizableTextArea && inputRef.current.resizableTextArea.textArea) {
+        setCursorPos(inputRef.current.resizableTextArea.textArea.selectionStart)
+      } else if (e.target && typeof e.target.selectionStart === 'number') {
+        setCursorPos(e.target.selectionStart)
       }
     }, 0)
   }, [dispatch])
@@ -760,7 +765,21 @@ const SmartDesignChat = () => {
       return
     }
     if (e.key === 'Enter' && !e.shiftKey) {
+      // B1：中文输入法组词中按 Enter 是"确认候选词"，不应发送消息
+      // 同时兼容 keyCode === 229（部分老浏览器/输入法的 isCompositionState 标志）
+      if (e.nativeEvent && e.nativeEvent.isComposing) return
+      if (e.keyCode === 229) return
+
       e.preventDefault()
+
+      // B2：斜杠菜单打开时，Enter 选中当前候选项补全（不发送）
+      // 仅当菜单确实可见且有候选时才拦截；selectCurrent 返回 false 表示无候选，放行到发送
+      if (showSlashMenu && slashMenuApiRef.current && slashMenuApiRef.current.selectCurrent) {
+        const selected = slashMenuApiRef.current.selectCurrent()
+        if (selected) return
+      }
+
+      // B3：菜单关闭/无候选时，正常发送
       if (isAgentBusy && !state.input.trim()) {
         abortAgent({ dispatch, requestId: state.agent.requestId, sessionId: state.session.currentId })
       } else {
@@ -1794,11 +1813,13 @@ const SmartDesignChat = () => {
           allCommandNames={buildAllCommandNames(availableSkills)}
           menuApiRef={slashMenuApiRef}
           onSelect={(name) => {
-            const beforeCursor = state.input.slice(0, cursorPos)
+            // cursorPos 归一化：防止 undefined/越界导致 slice 行为错乱
+            const pos = normalizeCursorPos(state.input, cursorPos)
+            const beforeCursor = state.input.slice(0, pos)
             const lastSpaceIdx = beforeCursor.lastIndexOf(' ')
             const cmdSegment = lastSpaceIdx === -1 ? beforeCursor : beforeCursor.slice(lastSpaceIdx + 1)
             const newBefore = beforeCursor.slice(0, beforeCursor.length - cmdSegment.length) + `/${name}`
-            dispatch({ type: 'SET_INPUT', payload: newBefore + state.input.slice(cursorPos) })
+            dispatch({ type: 'SET_INPUT', payload: newBefore + state.input.slice(pos) })
             setCursorPos(newBefore.length)
             setTimeout(() => {
               if (inputRef.current) {

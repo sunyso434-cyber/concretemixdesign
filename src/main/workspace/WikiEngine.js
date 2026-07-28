@@ -1136,6 +1136,7 @@ class WikiEngine {
     }
 
     // 决定扫描目录
+    const workspaceRoot = current.path
     const wikiRoot = path.posix.join(current.path, 'wiki')
     const scanDirs = []
     if (scope === 'sources' || scope === 'all') {
@@ -1143,6 +1144,16 @@ class WikiEngine {
     }
     if (scope === 'answers' || scope === 'all') {
       scanDirs.push({ rel: 'answers', abs: path.join(wikiRoot, 'answers') })
+    }
+    if (scope === 'raw') {
+      scanDirs.push({ rel: 'raw', abs: path.join(workspaceRoot, 'raw') })
+    }
+    if (scope === 'root') {
+      // root：整个工作区根目录，扫描所有子目录的文本文件
+      scanDirs.push({ rel: 'sources', abs: path.join(wikiRoot, 'sources') })
+      scanDirs.push({ rel: 'answers', abs: path.join(wikiRoot, 'answers') })
+      scanDirs.push({ rel: 'raw', abs: path.join(workspaceRoot, 'raw') })
+      scanDirs.push({ rel: 'reports', abs: path.join(workspaceRoot, 'reports') })
     }
 
     // 扫描文件
@@ -1193,6 +1204,11 @@ class WikiEngine {
       }
     }
 
+    // scannedFiles=0 预警：搜索范围可能配置错误，避免 AI 静默忽略
+    const warning = scannedFiles === 0
+      ? `⚠️ 未扫描任何文件（scannedFiles=0）。可能原因：path="${scope}" 目录不存在或为空、glob="${globPattern}" 未匹配任何文件。建议改 path 参数为 root（全工作区）或 all（sources+answers）后重试。`
+      : null
+
     // 按 output_mode 返回
     if (outputMode === 'files_with_matches') {
       const files = []
@@ -1207,7 +1223,8 @@ class WikiEngine {
         matches: files.slice(0, headLimit),
         total: files.length,
         truncated: files.length > headLimit,
-        scannedFiles
+        scannedFiles,
+        ...(warning ? { warning } : {})
       }
     }
 
@@ -1221,7 +1238,8 @@ class WikiEngine {
         matches: arr.slice(0, headLimit),
         total: arr.length,
         truncated: arr.length > headLimit,
-        scannedFiles
+        scannedFiles,
+        ...(warning ? { warning } : {})
       }
     }
 
@@ -1232,7 +1250,8 @@ class WikiEngine {
       matches: allMatches.slice(0, headLimit),
       total,
       truncated,
-      scannedFiles
+      scannedFiles,
+      ...(warning ? { warning } : {})
     }
   }
 

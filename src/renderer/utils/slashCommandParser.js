@@ -76,9 +76,21 @@ function parseMixedMessage(input) {
   return parts
 }
 
+// 归一化 cursorPos：undefined/NaN/越界 → input.length
+// 防御 antd Input.TextArea ref 取不到 selectionStart 导致 cursorPos 为 undefined 的场景
+function normalizeCursorPos(input, cursorPos) {
+  const len = (input || '').length
+  if (cursorPos === undefined || cursorPos === null || Number.isNaN(cursorPos)) return len
+  const n = Number(cursorPos)
+  if (n < 0) return 0
+  if (n > len) return len
+  return n
+}
+
 function isInCommandMode(input, cursorPos) {
   if (!input) return false
-  const beforeCursor = input.slice(0, cursorPos)
+  const pos = normalizeCursorPos(input, cursorPos)
+  const beforeCursor = input.slice(0, pos)
   const lastSpaceIdx = beforeCursor.lastIndexOf(' ')
   const lastSegment = lastSpaceIdx === -1
     ? beforeCursor
@@ -99,12 +111,14 @@ function getCommonPrefix(strs) {
 }
 
 function tabComplete(input, cursorPos, allCmdNames) {
-  if (!isInCommandMode(input, cursorPos)) {
-    return { newInput: input, newCursor: cursorPos }
+  if (!input) return { newInput: input, newCursor: cursorPos }
+  const pos = normalizeCursorPos(input, cursorPos)
+  if (!isInCommandMode(input, pos)) {
+    return { newInput: input, newCursor: pos }
   }
 
-  const beforeCursor = input.slice(0, cursorPos)
-  const afterCursor = input.slice(cursorPos)
+  const beforeCursor = input.slice(0, pos)
+  const afterCursor = input.slice(pos)
   const lastSpaceIdx = beforeCursor.lastIndexOf(' ')
   const cmdSegment = lastSpaceIdx === -1 ? beforeCursor : beforeCursor.slice(lastSpaceIdx + 1)
 
@@ -112,7 +126,7 @@ function tabComplete(input, cursorPos, allCmdNames) {
     `/${n}` === cmdSegment || `/${n}`.startsWith(cmdSegment)
   )
   if (matches.length === 0) {
-    return { newInput: input, newCursor: cursorPos }
+    return { newInput: input, newCursor: pos }
   }
 
   if (matches.length === 1) {
@@ -123,7 +137,7 @@ function tabComplete(input, cursorPos, allCmdNames) {
 
   const commonPrefix = getCommonPrefix(matches.map(n => `/${n}`))
   if (commonPrefix === cmdSegment) {
-    return { newInput: input, newCursor: cursorPos }
+    return { newInput: input, newCursor: pos }
   }
   const newBefore = beforeCursor.slice(0, beforeCursor.length - cmdSegment.length) + commonPrefix
   return { newInput: newBefore + afterCursor, newCursor: newBefore.length }
@@ -134,5 +148,6 @@ export {
   buildAllCommandNames,
   parseMixedMessage,
   isInCommandMode,
-  tabComplete
+  tabComplete,
+  normalizeCursorPos
 }
