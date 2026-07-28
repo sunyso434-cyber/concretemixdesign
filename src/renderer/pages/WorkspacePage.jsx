@@ -20,6 +20,7 @@ import LeftButtonBar from '../components/LeftButtonBar'
 const MaterialsPage = lazy(() => import('./MaterialsPage'))
 const SchemesPage = lazy(() => import('./SchemesPage'))
 const SettingsPage = lazy(() => import('./SettingsPage'))
+const TrialRecordsPage = lazy(() => import('./TrialRecordsPage'))
 
 const LoadingFallback = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -254,6 +255,17 @@ function WorkspaceContent() {
             <div className="v9-manage-content">
               <Suspense fallback={<LoadingFallback />}>
                 <SchemesPage ref={schemesRef} />
+              </Suspense>
+            </div>
+          </div>
+        )}
+
+        {/* 试配记录视图：只读查看页 */}
+        {activeView === 'trial-records' && (
+          <div className="v9-manage-body">
+            <div className="v9-manage-content">
+              <Suspense fallback={<LoadingFallback />}>
+                <TrialRecordsPage />
               </Suspense>
             </div>
           </div>
