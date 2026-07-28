@@ -218,6 +218,11 @@ async function syncModels() {
   await ensureArchivedColumn()
   await ensureMemoryFts()
 
+  // v0.0.9 新增表：基线机制仅处理旧模型，新模型需独立 sync
+  // ensureColumn 只能给已有表加列，不能创建全新表
+  await MaterialBatch.sync({ alter: false, force: false })
+  await TrialTestRecord.sync({ alter: false, force: false })
+
   // A3：为 materials 表添加 currentBatchId 字段（幂等）
   await ensureColumn(sequelize, 'materials', 'currentBatchId', 'INTEGER')
 
