@@ -56,6 +56,7 @@
     "appId": "com.concrete.mixdesign",
     "productName": "砼智",
     "copyright": "Copyright © 2026",
+    "publish": null,
     "directories": {
       "output": "dist-0.0.8",
       "buildResources": "public"
