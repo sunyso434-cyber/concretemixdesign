@@ -18,6 +18,18 @@ export const getMaterialsByType = (materials, type) => {
   return materials.filter(m => m.type === type)
 }
 
+// Get batches for a material via IPC
+export const getBatches = async (materialId) => {
+  const result = await window.electron.ipcRenderer.invoke('material:getBatches', { materialId })
+  return Array.isArray(result) ? result : []
+}
+
+// Get current (in-use) batch for a material via IPC
+export const getCurrentBatch = async (materialId) => {
+  const result = await window.electron.ipcRenderer.invoke('material:getCurrentBatch', { materialId })
+  return result || null
+}
+
 // Match material by name (fuzzy match)
 export const matchMaterialByName = (materials, type, name) => {
   if (!name || !type) return null
