@@ -5,6 +5,42 @@
 
 const ErrorCodes = require('../agent/ErrorCodes')
 
+/**
+ * 用批次检测值覆盖材料对象对应字段（仅覆盖批次中非空的检测值字段）
+ * @returns {Promise<{material?: object, error?: string}>}
+ */
+async function applyBatchToMaterial(material, batchId, materialBatchService, detectionFields) {
+  if (!batchId || !material) return { material }
+  const batch = await materialBatchService.getBatchById(batchId)
+  if (!batch) return { error: `批次(ID:${batchId})不存在` }
+  const merged = { ...material }
+  for (const field of detectionFields) {
+    if (batch[field] !== null && batch[field] !== undefined) {
+      merged[field] = batch[field]
+    }
+  }
+  merged._batchId = batchId
+  merged._batchNumber = batch.batchNumber
+  return { material: merged }
+}
+
+/**
+ * 骨料多选：批次ID数组与材料数组一一对应
+ * @returns {Promise<{materials?: object[], error?: string}>}
+ */
+async function applyBatchToArray(materials, batchIds, materialBatchService, detectionFields) {
+  if (!batchIds || !Array.isArray(batchIds) || batchIds.length === 0) return { materials }
+  const result = []
+  for (let i = 0; i < materials.length; i++) {
+    const bid = batchIds[i]
+    if (!bid) { result.push(materials[i]); continue }
+    const r = await applyBatchToMaterial(materials[i], bid, materialBatchService, detectionFields)
+    if (r.error) return { error: r.error }
+    result.push(r.material)
+  }
+  return { materials: result }
+}
+
 module.exports = {
   name: 'calculate_mix_design',
   description: '根据参数计算混凝土配合比，返回各材料用量/水胶比/砂率/容重/成本。**计算成功自动保存为草稿**，返回 draftId（后续用 save_mix_design 转正式）。**与 cost_optimization 的区别**：mix_design 算 1 个方案；cost_optimization 网格搜索找最优。',
@@ -69,6 +105,48 @@ module.exports = {
     superplasticizerId: {
       type: 'integer',
       description: '减水剂材料ID（可选）',
+      required: false
+    },
+    cementBatchId: {
+      type: 'integer',
+      description: '水泥批次ID（可选）。指定后用该批次的检测值计算；不填则用材料主表值(=当前批次同步值)。可通过 manage_material_batches 的 list 查询获取',
+      required: false
+    },
+    sandBatchId: {
+      type: 'array',
+      items: { type: 'integer' },
+      description: '细骨料批次ID列表（可选），与 sandIds 一一对应；指定后用对应批次检测值',
+      required: false
+    },
+    stoneBatchId: {
+      type: 'array',
+      items: { type: 'integer' },
+      description: '粗骨料批次ID列表（可选），与 stoneIds 一一对应；指定后用对应批次检测值',
+      required: false
+    },
+    flyAshBatchId: {
+      type: 'integer',
+      description: '粉煤灰批次ID（可选），指定后用该批次检测值',
+      required: false
+    },
+    slagBatchId: {
+      type: 'integer',
+      description: '矿渣粉批次ID（可选），指定后用该批次检测值',
+      required: false
+    },
+    lithiumSlagBatchId: {
+      type: 'integer',
+      description: '锂渣批次ID（可选），指定后用该批次检测值',
+      required: false
+    },
+    compositePowderBatchId: {
+      type: 'integer',
+      description: '复合粉批次ID（可选），指定后用该批次检测值',
+      required: false
+    },
+    superplasticizerBatchId: {
+      type: 'integer',
+      description: '减水剂批次ID（可选），指定后用该批次检测值',
       required: false
     },
     flyAshDosage: {
@@ -156,10 +234,12 @@ module.exports = {
   },
 
   async execute(args, context) {
-    const { materialService, mixDesignService, logger } = context
+    const { materialService, materialBatchService, mixDesignService, logger } = context
     const {
       strength, slump, cementId, sandIds, stoneIds,
       flyAshId, slagId, lithiumSlagId, compositePowderId, superplasticizerId,
+      cementBatchId, sandBatchId, stoneBatchId,
+      flyAshBatchId, slagBatchId, lithiumSlagBatchId, compositePowderBatchId, superplasticizerBatchId,
       flyAshDosage, slagDosage, lithiumSlagDosage, compositePowderDosage,
       sandRatio, calculationMethod, targetDensity, airContent
     } = args
@@ -197,6 +277,51 @@ module.exports = {
     if (lithiumSlagId) materials.lithiumSlag = findById(lithiumSlagId)
     if (compositePowderId) materials.compositePowder = findById(compositePowderId)
     if (superplasticizerId) materials.superplasticizer = findById(superplasticizerId)
+
+    // 若指定了批次ID，用批次检测值覆盖材料主表值（仅覆盖批次中非空的检测值字段）
+    const DETECTION_FIELDS = materialBatchService?.DETECTION_FIELDS || []
+    if (materialBatchService && DETECTION_FIELDS.length > 0) {
+      if (cementBatchId) {
+        const r = await applyBatchToMaterial(cement, cementBatchId, materialBatchService, DETECTION_FIELDS)
+        if (r.error) return { success: false, error: r.error }
+        materials.cement = r.material
+      }
+      if (sandBatchId) {
+        const r = await applyBatchToArray(sands, sandBatchId, materialBatchService, DETECTION_FIELDS)
+        if (r.error) return { success: false, error: r.error }
+        materials.sand = r.materials.length === 1 ? r.materials[0] : r.materials
+      }
+      if (stoneBatchId) {
+        const r = await applyBatchToArray(stones, stoneBatchId, materialBatchService, DETECTION_FIELDS)
+        if (r.error) return { success: false, error: r.error }
+        materials.stone = r.materials.length === 1 ? r.materials[0] : r.materials
+      }
+      if (flyAshBatchId && materials.flyAsh) {
+        const r = await applyBatchToMaterial(materials.flyAsh, flyAshBatchId, materialBatchService, DETECTION_FIELDS)
+        if (r.error) return { success: false, error: r.error }
+        materials.flyAsh = r.material
+      }
+      if (slagBatchId && materials.slag) {
+        const r = await applyBatchToMaterial(materials.slag, slagBatchId, materialBatchService, DETECTION_FIELDS)
+        if (r.error) return { success: false, error: r.error }
+        materials.slag = r.material
+      }
+      if (lithiumSlagBatchId && materials.lithiumSlag) {
+        const r = await applyBatchToMaterial(materials.lithiumSlag, lithiumSlagBatchId, materialBatchService, DETECTION_FIELDS)
+        if (r.error) return { success: false, error: r.error }
+        materials.lithiumSlag = r.material
+      }
+      if (compositePowderBatchId && materials.compositePowder) {
+        const r = await applyBatchToMaterial(materials.compositePowder, compositePowderBatchId, materialBatchService, DETECTION_FIELDS)
+        if (r.error) return { success: false, error: r.error }
+        materials.compositePowder = r.material
+      }
+      if (superplasticizerBatchId && materials.superplasticizer) {
+        const r = await applyBatchToMaterial(materials.superplasticizer, superplasticizerBatchId, materialBatchService, DETECTION_FIELDS)
+        if (r.error) return { success: false, error: r.error }
+        materials.superplasticizer = r.material
+      }
+    }
 
     // 调用计算服务
     try {
@@ -275,5 +400,5 @@ module.exports = {
     }
   },
 
-  services: ['materialService', 'mixDesignService']
+  services: ['materialService', 'materialBatchService', 'mixDesignService']
 }

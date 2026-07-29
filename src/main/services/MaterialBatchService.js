@@ -152,4 +152,7 @@ class MaterialBatchService {
   }
 }
 
-module.exports = new MaterialBatchService()
+const _instance = new MaterialBatchService()
+// 导出检测值字段清单，供 mix-design 等技能做批次检测值覆盖
+_instance.DETECTION_FIELDS = DETECTION_FIELDS
+module.exports = _instance
