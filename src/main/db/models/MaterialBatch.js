@@ -30,6 +30,8 @@ const MaterialBatch = sequelize.define('MaterialBatch', {
   receiptDate: { type: DataTypes.DATE },  // 审查 N5：骨料库存超期判断
   status: { type: DataTypes.STRING, defaultValue: '在用' },
   price: { type: DataTypes.FLOAT },  // 审查 H4：通用字段（非水专用）
+  supplier: { type: DataTypes.STRING },  // 供应商
+  quantity: { type: DataTypes.FLOAT },  // 库存数量（吨）
   notes: { type: DataTypes.TEXT },
 
   // ===== 通用检测值 =====

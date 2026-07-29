@@ -228,6 +228,10 @@ async function syncModels() {
   // 审查 P7：为 material_batches.materialId 创建索引
   await sequelize.query('CREATE INDEX IF NOT EXISTS idx_material_batches_materialId ON material_batches (materialId)')
 
+  // v0.0.10：material_batches 补 supplier/quantity 字段（模型此前缺失，导致保存丢失）
+  await ensureColumn(sequelize, 'material_batches', 'supplier', 'TEXT')
+  await ensureColumn(sequelize, 'material_batches', 'quantity', 'FLOAT')
+
   // FTS5 表的创建已统一交给 ensureMemoryFts()（覆盖旧库残留的 key_decisions_unfolded 字段）
   // SessionSummary.js 的 afterSync hook 也会幂等重建，两处保持一致
 
