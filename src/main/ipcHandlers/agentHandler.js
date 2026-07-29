@@ -175,6 +175,7 @@ async function initSkillSystem() {
     salesQuoteCalculation: require('../services/SalesQuoteCalculationService'),
     salesQuoteHistory: require('../services/SalesQuoteHistoryService'),
     xgboostPrediction: require('../services/XGBoostPredictionService'),
+    trialTestService: require('../services/TrialTestService'),
     auditLogService: require('../services/AuditLogService'),
 
     // === Task 4：vision 能力注入 ===

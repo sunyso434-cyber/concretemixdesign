@@ -1,7 +1,117 @@
 import React, { useState, useEffect } from 'react'
-import { Table, Button, Modal, Form, Input, InputNumber, DatePicker, Select, Tag, Space, message, Empty } from 'antd'
+import { Table, Button, Modal, Form, Input, InputNumber, DatePicker, Select, Tag, Space, message, Empty, Divider, Typography } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
+
+const { Text } = Typography
+
+// 按材料类型返回检测数据字段组
+const getTestFields = (materialType) => {
+  // 通用字段
+  const common = [
+    { name: 'testDate', label: '检测日期', type: 'date' },
+    { name: 'testReportNo', label: '检测报告编号', type: 'text' },
+    { name: 'density', label: '密度 (g/cm³)', type: 'number' },
+    { name: 'fineness', label: '细度', type: 'number' },
+    { name: 'waterContent', label: '含水率 (%)', type: 'number' },
+    { name: 'price', label: '单价 (元/吨)', type: 'number' },
+  ]
+
+  const cement = [
+    { name: 'specificSurfaceArea', label: '比表面积 (m²/kg)', type: 'number' },
+    { name: 'standardConsistency', label: '标准稠度 (%)', type: 'number' },
+    { name: 'stability', label: '安定性', type: 'text' },
+    { name: 'initialSettingTime', label: '初凝时间 (min)', type: 'number' },
+    { name: 'finalSettingTime', label: '终凝时间 (min)', type: 'number' },
+    { name: 'flexuralStrength3d', label: '3d 抗折强度 (MPa)', type: 'number' },
+    { name: 'flexuralStrength28d', label: '28d 抗折强度 (MPa)', type: 'number' },
+    { name: 'compressiveStrength3d', label: '3d 抗压强度 (MPa)', type: 'number' },
+    { name: 'compressiveStrength28d', label: '28d 抗压强度 (MPa)', type: 'number' },
+    { name: 'cementHeat3d', label: '3d 水化热 (kJ/kg)', type: 'number' },
+    { name: 'cementHeat7d', label: '7d 水化热 (kJ/kg)', type: 'number' },
+  ]
+
+  const admixture = [
+    { name: 'waterDemandRatio', label: '需水量比 (%)', type: 'number' },
+    { name: 'lossOnIgnition', label: '烧失量 (%)', type: 'number' },
+    { name: 'activityIndex7d', label: '7d 活性指数 (%)', type: 'number' },
+    { name: 'activityIndex28d', label: '28d 活性指数 (%)', type: 'number' },
+    { name: 'fluidityRatio', label: '流动度比 (%)', type: 'number' },
+    { name: 'influenceFactor_10', label: '10% 影响因子', type: 'number' },
+    { name: 'influenceFactor_20', label: '20% 影响因子', type: 'number' },
+    { name: 'influenceFactor_30', label: '30% 影响因子', type: 'number' },
+    { name: 'influenceFactor_40', label: '40% 影响因子', type: 'number' },
+    { name: 'influenceFactor_50', label: '50% 影响因子', type: 'number' },
+  ]
+
+  const fineAggregate = [
+    { name: 'mudContent', label: '含泥量 (%)', type: 'number' },
+    { name: 'clayLumpContent', label: '泥块含量 (%)', type: 'number' },
+    { name: 'mbValue', label: 'MB 值', type: 'number' },
+    { name: 'finenessModulus', label: '细度模数', type: 'number' },
+    { name: 'sieve_4_75', label: '4.75mm 筛余 (%)', type: 'number' },
+    { name: 'sieve_2_36', label: '2.36mm 筛余 (%)', type: 'number' },
+    { name: 'sieve_1_18', label: '1.18mm 筛余 (%)', type: 'number' },
+    { name: 'sieve_0_60', label: '0.60mm 筛余 (%)', type: 'number' },
+    { name: 'sieve_0_30', label: '0.30mm 筛余 (%)', type: 'number' },
+    { name: 'sieve_0_15', label: '0.15mm 筛余 (%)', type: 'number' },
+  ]
+
+  const coarseAggregate = [
+    { name: 'needleFlakeContent', label: '针片状含量 (%)', type: 'number' },
+    { name: 'crushingValue', label: '压碎指标 (%)', type: 'number' },
+    { name: 'grading', label: '级配', type: 'text' },
+    { name: 'sieve_37_5', label: '37.5mm 筛余 (%)', type: 'number' },
+    { name: 'sieve_31_5', label: '31.5mm 筛余 (%)', type: 'number' },
+    { name: 'sieve_26_5', label: '26.5mm 筛余 (%)', type: 'number' },
+    { name: 'sieve_19_0', label: '19.0mm 筛余 (%)', type: 'number' },
+    { name: 'sieve_16_0', label: '16.0mm 筛余 (%)', type: 'number' },
+    { name: 'sieve_9_50', label: '9.5mm 筛余 (%)', type: 'number' },
+  ]
+
+  const chemicalAdmixture = [
+    { name: 'solidContent', label: '含固量 (%)', type: 'number' },
+    { name: 'waterReducingRate', label: '减水率 (%)', type: 'number' },
+    { name: 'airContent', label: '含气量 (%)', type: 'number' },
+    { name: 'recommendedDosage', label: '推荐掺量 (%)', type: 'number' },
+    { name: 'waterReducingRatePer01Dosage', label: '每 0.1% 掺量减水率 (%)', type: 'number' },
+  ]
+
+  const water = [
+    { name: 'phValue', label: 'pH 值', type: 'number' },
+    { name: 'insolubleMatter', label: '不溶物 (mg/L)', type: 'number' },
+    { name: 'solubleMatter', label: '可溶物 (mg/L)', type: 'number' },
+  ]
+
+  // 按材料类型组装结果
+  const groups = [{ title: '通用检测', fields: common }]
+
+  switch (materialType) {
+    case '水泥':
+      groups.push({ title: '水泥检测', fields: cement })
+      break
+    case '粉煤灰':
+    case '矿渣粉':
+    case '锂渣':
+    case '复合粉':
+      groups.push({ title: '掺合料检测', fields: admixture })
+      break
+    case '细骨料':
+      groups.push({ title: '细骨料检测', fields: fineAggregate })
+      break
+    case '粗骨料':
+      groups.push({ title: '粗骨料检测', fields: coarseAggregate })
+      break
+    case '减水剂':
+      groups.push({ title: '外加剂检测', fields: chemicalAdmixture })
+      break
+    case '水':
+      groups.push({ title: '水检测', fields: water })
+      break
+  }
+
+  return groups
+}
 
 // 各类材料过期规则，与服务端保持一致
 const EXPIRY_RULES = {
@@ -62,9 +172,9 @@ function MaterialBatchPanel({ materialId, materialType, onBatchChange }) {
     setEditingBatch(batch)
     const formValues = { ...batch }
     // 将日期字符串转为 dayjs 对象供 DatePicker 使用
-    if (batch.productionDate) formValues.productionDate = dayjs(batch.productionDate)
-    if (batch.receiptDate) formValues.receiptDate = dayjs(batch.receiptDate)
-    if (batch.expiryDate) formValues.expiryDate = dayjs(batch.expiryDate)
+    ;['productionDate', 'receiptDate', 'expiryDate', 'testDate'].forEach(key => {
+      if (batch[key]) formValues[key] = dayjs(batch[key])
+    })
     form.setFieldsValue(formValues)
     setModalVisible(true)
   }
@@ -109,6 +219,7 @@ function MaterialBatchPanel({ materialId, materialType, onBatchChange }) {
         productionDate: values.productionDate ? values.productionDate.toISOString() : undefined,
         receiptDate: values.receiptDate ? values.receiptDate.toISOString() : undefined,
         expiryDate: values.expiryDate ? values.expiryDate.toISOString() : undefined,
+        testDate: values.testDate ? values.testDate.toISOString() : undefined,
       }
 
       if (editingBatch) {
@@ -284,6 +395,26 @@ function MaterialBatchPanel({ materialId, materialType, onBatchChange }) {
           <Form.Item name="notes" label="备注">
             <Input.TextArea rows={2} placeholder="备注信息" />
           </Form.Item>
+
+          {/* 检测数据字段 — 按材料类型动态渲染 */}
+          {getTestFields(materialType).map((group, gi) => (
+            <React.Fragment key={group.title}>
+              <Divider plain style={{ margin: '16px 0 8px' }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>{group.title}</Text>
+              </Divider>
+              {group.fields.map((field) => (
+                <Form.Item key={field.name} name={field.name} label={field.label}>
+                  {field.type === 'date' ? (
+                    <DatePicker style={{ width: '100%' }} placeholder={`选择${field.label}`} />
+                  ) : field.type === 'number' ? (
+                    <InputNumber style={{ width: '100%' }} placeholder={field.label} />
+                  ) : (
+                    <Input placeholder={field.label} />
+                  )}
+                </Form.Item>
+              ))}
+            </React.Fragment>
+          ))}
         </Form>
       </Modal>
     </div>
