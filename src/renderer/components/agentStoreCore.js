@@ -236,7 +236,7 @@ export function agentReducer(state, action) {
       const dupKey = `${sessionId}::${requestId}::${classifiedError?.code}`
 
       // 1. 幂等去重：同 (sessionId, requestId, code) 不重复插入错误气泡
-      if (state.messages.some(m => m.type === 'error' && m._dedupKey === dupKey)) {
+      if (Array.isArray(state.messages) && state.messages.some(m => m.type === 'error' && m._dedupKey === dupKey)) {
         return { ...state, agent: { ...state.agent, status: 'error' } }
       }
 
