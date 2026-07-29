@@ -150,10 +150,23 @@ async function runSchemaBaseline({ sequelize, models, dbPath, logger = console }
   return { applied: true, mode, backupPath }
 }
 
+// 幂等添加字段：用 PRAGMA table_info 检查 + ALTER TABLE
+// 审查 P11：列名用双引号转义，columnDef 来自代码常量
+async function ensureColumn(sequelize, tableName, columnName, columnDef) {
+  const [cols] = await sequelize.query(`PRAGMA table_info('${tableName}')`)
+  if (!cols.some(c => c.name === columnName)) {
+    // 审查 L3：ALTER TABLE 前建议备份
+    console.log(`[Migration] 首次执行补丁，建议备份数据库文件`)
+    await sequelize.query(`ALTER TABLE "${tableName}" ADD COLUMN "${columnName}" ${columnDef}`)
+    console.log(`[Migration] 已添加 ${tableName}.${columnName}`)
+  }
+}
+
 module.exports = {
   BASELINE_MIGRATION,
   MIGRATION_TABLE,
   createVerifiedBackup,
+  ensureColumn,
   quarantineLegacyAlterBackups,
   runSchemaBaseline
 }

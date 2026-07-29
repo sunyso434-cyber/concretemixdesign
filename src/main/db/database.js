@@ -1,7 +1,7 @@
 const { Sequelize, DataTypes } = require('sequelize')
 const fs = require('fs')
 const path = require('path')
-const { runSchemaBaseline } = require('./schemaMigrator')
+const { ensureColumn, runSchemaBaseline } = require('./schemaMigrator')
 
 // 在 Electron 环境中使用 app.getPath('userData')，否则回退到项目目录下的 data 子目录
 let userDataPath
@@ -74,6 +74,7 @@ const AuditLog = require('./models/AuditLog')
 const SessionSummary = require('./models/SessionSummary')
 const PreferenceSuggestion = require('./models/PreferenceSuggestion')
 const MaterialBatch = require('./models/MaterialBatch')
+const TrialTestRecord = require('./models/TrialTestRecord')
 
 // ChatSession 是工厂函数模型（需传入 sequelize），其他模型已自加载 sequelize
 const ChatSessionModel = require('./models/ChatSession')
@@ -212,11 +213,18 @@ async function ensureMemoryFts() {
 
 async function syncModels() {
   // UserPreference 已在阶段 B 迁移中废弃，不在此处注册
-  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion, MaterialBatch]
+  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion, MaterialBatch, TrialTestRecord]
   await runSchemaBaseline({ sequelize, models: allModels, dbPath })
   await ensureArchivedColumn()
   await ensureMemoryFts()
 
+  // v0.0.9 新增表：基线机制仅处理旧模型，新模型需独立 sync
+  // ensureColumn 只能给已有表加列，不能创建全新表
+  await MaterialBatch.sync({ alter: false, force: false })
+  await TrialTestRecord.sync({ alter: false, force: false })
+
+  // A3：为 materials 表添加 currentBatchId 字段（幂等）
+  await ensureColumn(sequelize, 'materials', 'currentBatchId', 'INTEGER')
   // 审查 P7：为 material_batches.materialId 创建索引
   await sequelize.query('CREATE INDEX IF NOT EXISTS idx_material_batches_materialId ON material_batches (materialId)')
 
@@ -286,3 +294,4 @@ module.exports.AuditLog = AuditLog
 module.exports.SessionSummary = SessionSummary
 module.exports.PreferenceSuggestion = PreferenceSuggestion
 module.exports.MaterialBatch = MaterialBatch
+module.exports.TrialTestRecord = TrialTestRecord
