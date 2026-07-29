@@ -67,9 +67,9 @@ function WorkspaceContent() {
     const loadTasks = async () => {
       try {
         const result = await window.electron.ipcRenderer.invoke('get-all-tasks')
-        if (result && result.success && Array.isArray(result.data)) {
-          const running = result.data.some(t => t && t.status === 'running')
-          setHasTasks(running)
+        if (result?.success && Array.isArray(result?.data)) {
+          const running = result.data.some(t => t?.status === 'running')
+          setHasTasks(!!running)
         }
       } catch (err) {
         console.error('WorkspacePage: load tasks error:', err)

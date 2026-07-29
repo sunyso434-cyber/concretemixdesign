@@ -152,7 +152,8 @@ module.exports = {
     logger.info(`[record_trial_test] 录入试配: 水胶比=${args.water_binder_ratio}, 水泥=${args.cement_amount}, 实测强度=${args.trialTestedStrength}`)
 
     try {
-      const result = await trialTestService.createRecord(args)
+      const response = await trialTestService.createRecord(args)
+      const result = response?.record
 
       if (result && result.id) {
         const deviationInfo = result.deviationAnalysis

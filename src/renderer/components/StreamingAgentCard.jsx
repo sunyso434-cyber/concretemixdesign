@@ -432,8 +432,8 @@ const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyTe
   // 文本越长越卡，到几万字渲染进程崩 → 白屏。useDeferredValue 让 React 自动降速，
   // 高频更新只在空闲时处理，UI 不再卡死。
   const deferredReplyText = useDeferredValue(agentReplyText)
-  const effectiveTimeline = live && liveTimeline?.length ? liveTimeline : timeline
-  if (!effectiveTimeline || effectiveTimeline.length === 0) {
+  const effectiveTimeline = (live && liveTimeline?.length ? liveTimeline : timeline) || []
+  if (effectiveTimeline.length === 0) {
     // 如果没有 timeline，但 agent 在运行，显示 "AI思考中..."
     if (status === 'running') {
       return (
