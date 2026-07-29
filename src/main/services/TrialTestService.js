@@ -59,10 +59,12 @@ class TrialTestService {
    */
   async listRecords(status) {
     const where = status ? { trialStatus: status } : {}
-    return await TrialTestRecord.findAll({
+    const records = await TrialTestRecord.findAll({
       where,
       order: [['trialTestDate', 'DESC']]
     })
+    // 转 plain object，避免 sequelize 实例经 IPC 传输时字段丢失
+    return records.map(r => r.toJSON())
   }
 
   /**
@@ -70,7 +72,8 @@ class TrialTestService {
    * @param {number} id - 记录ID
    */
   async getRecord(id) {
-    return await TrialTestRecord.findByPk(id)
+    const record = await TrialTestRecord.findByPk(id)
+    return record ? record.toJSON() : null
   }
 }
 

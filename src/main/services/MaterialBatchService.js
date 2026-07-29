@@ -38,17 +38,21 @@ const EXPIRY_RULES = {
 class MaterialBatchService {
   // --- 基础 CRUD ---
   async getBatchesByMaterialId(materialId) {
-    return await MaterialBatch.findAll({ where: { materialId }, order: [['createdAt', 'DESC']] })
+    const batches = await MaterialBatch.findAll({ where: { materialId }, order: [['createdAt', 'DESC']] })
+    // 转 plain object，避免 sequelize 实例经 IPC 传输时字段丢失
+    return batches.map(b => b.toJSON())
   }
 
   async getBatchById(id) {
-    return await MaterialBatch.findByPk(id)
+    const batch = await MaterialBatch.findByPk(id)
+    return batch ? batch.toJSON() : null
   }
 
   async getCurrentBatch(materialId) {
     const material = await Material.findByPk(materialId)
     if (!material || !material.currentBatchId) return null
-    return await MaterialBatch.findByPk(material.currentBatchId)
+    const batch = await MaterialBatch.findByPk(material.currentBatchId)
+    return batch ? batch.toJSON() : null
   }
 
   async createBatch(data) {

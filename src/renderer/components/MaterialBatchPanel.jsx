@@ -148,7 +148,8 @@ function MaterialBatchPanel({ materialId, materialType, onBatchChange }) {
     setLoading(true)
     try {
       const result = await window.electron.ipcRenderer.invoke('material:getBatches', { materialId })
-      setBatches(result || [])
+      // 后端返回 { success, data }，必须取 data 并校验为数组，否则把对象塞给 antd Table 会触发白屏
+      setBatches(result?.success && Array.isArray(result.data) ? result.data : [])
     } catch (err) {
       console.error('加载批次失败:', err)
     } finally {
