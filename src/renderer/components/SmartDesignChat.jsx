@@ -716,7 +716,7 @@ const SmartDesignChat = () => {
     }
 
     const realCommandParts = commandParts.filter(p => p.command !== 'clear')
-    const hasClearInParts = commandParts.some(p => p.command === 'clear')
+    const hasClearInParts = Array.isArray(commandParts) && commandParts.some(p => p.command === 'clear')
 
     if (hasClearInParts) {
       Modal.confirm({
@@ -928,7 +928,7 @@ const SmartDesignChat = () => {
       // P3 commit 2 A段：固化流式消息 + 追加错误气泡 + 幂等去重
       const { error: classifiedError, sessionId, requestId } = payload
       const dupKey = `${sessionId}::${requestId}::${classifiedError.code}`
-      if (state.messages.some(m => m.type === 'error' && m._dedupKey === dupKey)) return
+      if (Array.isArray(state.messages) && state.messages.some(m => m.type === 'error' && m._dedupKey === dupKey)) return
       const next = state.messages.map(m =>
         m.streaming ? { ...m, stopReason: 'error', streaming: false } : m
       )
