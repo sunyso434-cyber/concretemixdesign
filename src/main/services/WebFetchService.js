@@ -109,7 +109,7 @@ class WebFetchService {
 
     const headers = {
       'Accept': accept,
-      'User-Agent': 'ConcreteAgent/0.0.12 (web_fetch; jina reader free tier)'
+      'User-Agent': 'ConcreteAgent/0.0.13 (web_fetch; jina reader free tier)'
     }
     if (format === 'text') {
       headers['X-Return-Format'] = 'text'

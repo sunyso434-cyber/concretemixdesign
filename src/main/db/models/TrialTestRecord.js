@@ -14,6 +14,15 @@ const TrialTestRecord = sequelize.define('TrialTestRecord', {
   sand_ratio: { type: DataTypes.FLOAT },
   water_amount: { type: DataTypes.FLOAT },
   superplasticizer_dosage: { type: DataTypes.FLOAT, comment: '设计掺量（特征 X）' },
+
+  // 各材料用量 (kg/m³) — 用于完整用量表展示
+  fly_ash_amount: { type: DataTypes.FLOAT, comment: '粉煤灰用量' },
+  slag_amount: { type: DataTypes.FLOAT, comment: '矿渣粉用量' },
+  lithium_slag_amount: { type: DataTypes.FLOAT, comment: '锂渣用量' },
+  composite_powder_amount: { type: DataTypes.FLOAT, comment: '复合粉用量' },
+  sand_amount: { type: DataTypes.FLOAT, comment: '砂用量' },
+  stone_amount: { type: DataTypes.FLOAT, comment: '石用量' },
+  superplasticizer_amount: { type: DataTypes.FLOAT, comment: '减水剂用量' },
   slump: { type: DataTypes.FLOAT, comment: '设计坍落度（feature_slump）' },
 
   // 材料批次关联

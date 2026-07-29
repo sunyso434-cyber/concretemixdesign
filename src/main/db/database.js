@@ -232,6 +232,15 @@ async function syncModels() {
   await ensureColumn(sequelize, 'material_batches', 'supplier', 'TEXT')
   await ensureColumn(sequelize, 'material_batches', 'quantity', 'FLOAT')
 
+  // v0.0.13：trial_test_records 补7种材料用量字段（用于完整用量表展示）
+  await ensureColumn(sequelize, 'trial_test_records', 'fly_ash_amount', 'FLOAT')
+  await ensureColumn(sequelize, 'trial_test_records', 'slag_amount', 'FLOAT')
+  await ensureColumn(sequelize, 'trial_test_records', 'lithium_slag_amount', 'FLOAT')
+  await ensureColumn(sequelize, 'trial_test_records', 'composite_powder_amount', 'FLOAT')
+  await ensureColumn(sequelize, 'trial_test_records', 'sand_amount', 'FLOAT')
+  await ensureColumn(sequelize, 'trial_test_records', 'stone_amount', 'FLOAT')
+  await ensureColumn(sequelize, 'trial_test_records', 'superplasticizer_amount', 'FLOAT')
+
   // FTS5 表的创建已统一交给 ensureMemoryFts()（覆盖旧库残留的 key_decisions_unfolded 字段）
   // SessionSummary.js 的 afterSync hook 也会幂等重建，两处保持一致
 

@@ -66,6 +66,41 @@ module.exports = {
       description: '减水剂设计掺量 (%)',
       required: false
     },
+    fly_ash_amount: {
+      type: 'number',
+      description: '粉煤灰用量 (kg/m³)。若有关联方案(mixDesignId)且不传，自动从方案取',
+      required: false
+    },
+    slag_amount: {
+      type: 'number',
+      description: '矿渣粉用量 (kg/m³)。若有关联方案且不传，自动从方案取',
+      required: false
+    },
+    lithium_slag_amount: {
+      type: 'number',
+      description: '锂渣用量 (kg/m³)。若有关联方案且不传，自动从方案取',
+      required: false
+    },
+    composite_powder_amount: {
+      type: 'number',
+      description: '复合粉用量 (kg/m³)。若有关联方案且不传，自动从方案取',
+      required: false
+    },
+    sand_amount: {
+      type: 'number',
+      description: '砂用量 (kg/m³)。若有关联方案且不传，自动从方案取',
+      required: false
+    },
+    stone_amount: {
+      type: 'number',
+      description: '石用量 (kg/m³)。若有关联方案且不传，自动从方案取',
+      required: false
+    },
+    superplasticizer_amount: {
+      type: 'number',
+      description: '减水剂用量 (kg/m³)。若有关联方案且不传，自动从方案取',
+      required: false
+    },
     slump: {
       type: 'number',
       description: '设计坍落度 (mm)',
@@ -151,6 +186,36 @@ module.exports = {
     const { trialTestService, logger } = context
     logger.info(`[record_trial_test] 录入试配: 水胶比=${args.water_binder_ratio}, 水泥=${args.cement_amount}, 实测强度=${args.trialTestedStrength}`)
 
+    // 若有关联方案，自动从方案取各材料用量（AI 传的优先，用于完整用量表展示）
+    if (args.mixDesignId) {
+      try {
+        const design = await mixDesignService.getMixDesignById(args.mixDesignId)
+        if (design) {
+          const designData = typeof design.toJSON === 'function' ? design.toJSON() : design
+          const amounts = designData.materials || {}
+          const mapping = {
+            cement_amount: 'cement',
+            water_amount: 'water',
+            fly_ash_amount: 'flyAsh',
+            slag_amount: 'slag',
+            lithium_slag_amount: 'lithiumSlag',
+            composite_powder_amount: 'compositePowder',
+            sand_amount: 'sand',
+            stone_amount: 'stone',
+            superplasticizer_amount: 'superplasticizer'
+          }
+          for (const [field, key] of Object.entries(mapping)) {
+            if (args[field] === undefined && amounts[key] !== undefined) {
+              args[field] = amounts[key]
+              logger.info(`从方案 ${args.mixDesignId} 取用量: ${field}=${amounts[key]}`)
+            }
+          }
+        }
+      } catch (e) {
+        logger.warn('从关联方案取用量失败（不影响录入）:', e.message)
+      }
+    }
+
     try {
       const response = await trialTestService.createRecord(args)
       const result = response?.record
@@ -179,5 +244,5 @@ module.exports = {
     }
   },
 
-  services: ['trialTestService']
+  services: ['trialTestService', 'mixDesignService']
 }

@@ -13,23 +13,30 @@ const TrialRecordDetail = ({ record }) => {
   const hasDeviation = strengthDevPct !== null && strengthDevPct !== undefined
 
   // 配合比明细数据
-  const mixColumns = [
-    { title: '材料名称', dataIndex: 'name', key: 'name' },
-    { title: '用量', dataIndex: 'amount', key: 'amount', render: (v) => `${v} kg/m³` }
+  // 每种材料用量表 (kg/m³) — 优先方案用量(AI录入自动取)或AI传的
+  const amountColumns = [
+    { title: '材料名称', dataIndex: 'name', key: 'name', width: 120 },
+    { title: '用量 (kg/m³)', dataIndex: 'amount', key: 'amount' }
   ]
-  const mixData = [
-    { key: 'cement', name: '水泥', amount: record.cement_amount ?? '-' },
-    { key: 'flyAsh', name: '粉煤灰', amount: record.fly_ash_dosage ? `${record.fly_ash_dosage}%` : '-' },
-    { key: 'slag', name: '矿渣粉', amount: record.slag_dosage ? `${record.slag_dosage}%` : '-' },
-    { key: 'water', name: '水', amount: record.water_amount ?? '-' },
-    { key: 'superplasticizer', name: '减水剂', amount: record.superplasticizer_dosage ? `${record.superplasticizer_dosage}%` : '-' },
-  ]
+  const amountData = [
+    { key: 'cement', name: '水泥', amount: record.cement_amount != null ? Number(record.cement_amount).toFixed(1) : null },
+    { key: 'flyAsh', name: '粉煤灰', amount: record.fly_ash_amount != null ? Number(record.fly_ash_amount).toFixed(1) : null },
+    { key: 'slag', name: '矿渣粉', amount: record.slag_amount != null ? Number(record.slag_amount).toFixed(1) : null },
+    { key: 'lithiumSlag', name: '锂渣', amount: record.lithium_slag_amount != null ? Number(record.lithium_slag_amount).toFixed(1) : null },
+    { key: 'compositePowder', name: '复合粉', amount: record.composite_powder_amount != null ? Number(record.composite_powder_amount).toFixed(1) : null },
+    { key: 'sand', name: '砂', amount: record.sand_amount != null ? Number(record.sand_amount).toFixed(1) : null },
+    { key: 'stone', name: '石', amount: record.stone_amount != null ? Number(record.stone_amount).toFixed(1) : null },
+    { key: 'water', name: '水', amount: record.water_amount != null ? Number(record.water_amount).toFixed(1) : null },
+    { key: 'superplasticizer', name: '减水剂', amount: record.superplasticizer_amount != null ? Number(record.superplasticizer_amount).toFixed(1) : null },
+  ].filter(d => d.amount != null)
 
   // 批次关联数据
   const batchFields = [
     { label: '水泥批次', value: record.cementBatchId },
     { label: '粉煤灰批次', value: record.flyAshBatchId },
     { label: '矿渣粉批次', value: record.slagBatchId },
+    { label: '锂渣批次', value: record.lithiumSlagBatchId },
+    { label: '复合粉批次', value: record.compositePowderBatchId },
     { label: '砂批次', value: record.sandBatchId },
     { label: '石批次', value: record.stoneBatchId },
     { label: '减水剂批次', value: record.superplasticizerBatchId },
@@ -46,12 +53,32 @@ const TrialRecordDetail = ({ record }) => {
     <div style={{ padding: '12px 0' }}>
       <Descriptions title="配合比设计参数" column={2} size="small" bordered>
         <Descriptions.Item label="水胶比">{record.water_binder_ratio ?? '-'}</Descriptions.Item>
+        <Descriptions.Item label="水泥用量">{record.cement_amount != null ? `${record.cement_amount} kg/m³` : '-'}</Descriptions.Item>
         <Descriptions.Item label="砂率">{record.sand_ratio ? `${record.sand_ratio}%` : '-'}</Descriptions.Item>
-        <Descriptions.Item label="粉煤灰掺量">{record.fly_ash_dosage ? `${record.fly_ash_dosage}%` : '-'}</Descriptions.Item>
-        <Descriptions.Item label="矿渣粉掺量">{record.slag_dosage ? `${record.slag_dosage}%` : '-'}</Descriptions.Item>
+        <Descriptions.Item label="用水量">{record.water_amount != null ? `${record.water_amount} kg/m³` : '-'}</Descriptions.Item>
+        <Descriptions.Item label="粉煤灰掺量">{record.fly_ash_dosage != null ? `${record.fly_ash_dosage}%` : '-'}</Descriptions.Item>
+        <Descriptions.Item label="矿渣粉掺量">{record.slag_dosage != null ? `${record.slag_dosage}%` : '-'}</Descriptions.Item>
+        <Descriptions.Item label="锂渣掺量">{record.lithium_slag_dosage != null ? `${record.lithium_slag_dosage}%` : '-'}</Descriptions.Item>
+        <Descriptions.Item label="复合粉掺量">{record.composite_powder_dosage != null ? `${record.composite_powder_dosage}%` : '-'}</Descriptions.Item>
+        <Descriptions.Item label="减水剂掺量">{record.superplasticizer_dosage != null ? `${record.superplasticizer_dosage}%` : '-'}</Descriptions.Item>
         <Descriptions.Item label="设计坍落度">{record.slump ? `${record.slump}mm` : '-'}</Descriptions.Item>
-        <Descriptions.Item label="减水剂掺量">{record.superplasticizer_dosage ? `${record.superplasticizer_dosage}%` : '-'}</Descriptions.Item>
       </Descriptions>
+
+      {/* 每种材料用量表 (kg/m³) */}
+      {amountData.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <h4 style={{ marginBottom: 8, fontWeight: 600 }}>各材料用量表</h4>
+          <Table columns={amountColumns} dataSource={amountData} size="small" pagination={false} />
+        </div>
+      )}
+
+      {/* 材料批次关联 */}
+      {batchData.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <h4 style={{ marginBottom: 8, fontWeight: 600 }}>材料批次关联</h4>
+          <Table columns={batchColumns} dataSource={batchData} size="small" pagination={false} />
+        </div>
+      )}
 
       <Descriptions title="实测值" column={2} size="small" bordered style={{ marginTop: 16 }}>
         <Descriptions.Item label="实测强度 (28d)">{record.trialTestedStrength ? `${record.trialTestedStrength} MPa` : '-'}</Descriptions.Item>
