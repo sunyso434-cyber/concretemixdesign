@@ -213,28 +213,41 @@ function MaterialBatchPanel({ materialId, materialType, onBatchChange }) {
   const handleSave = async (values) => {
     setSaving(true)
     try {
-      const data = {
-        ...values,
-        // 将 dayjs 对象转为 ISO 字符串
-        productionDate: values.productionDate ? values.productionDate.toISOString() : undefined,
-        receiptDate: values.receiptDate ? values.receiptDate.toISOString() : undefined,
-        expiryDate: values.expiryDate ? values.expiryDate.toISOString() : undefined,
-        testDate: values.testDate ? values.testDate.toISOString() : undefined,
+      // 将 dayjs 对象转为 ISO 字符串
+      const dateFields = ['productionDate', 'receiptDate', 'expiryDate', 'testDate']
+      const data = {}
+      for (const [key, value] of Object.entries(values)) {
+        if (value === null || value === undefined || value === '') continue // 跳过空值，让模型默认值生效
+        if (dateFields.includes(key) && value) {
+          data[key] = value.toISOString()
+        } else {
+          data[key] = value
+        }
       }
 
+      let result
       if (editingBatch) {
-        await window.electron.ipcRenderer.invoke('material:updateBatch', { id: editingBatch.id, ...data })
-        message.success('批次已更新')
+        result = await window.electron.ipcRenderer.invoke('material:updateBatch', { id: editingBatch.id, ...data })
+        if (result && result.success) {
+          message.success('批次已更新')
+        } else {
+          throw new Error(result?.error || '更新失败')
+        }
       } else {
-        await window.electron.ipcRenderer.invoke('material:createBatch', { materialId, materialType, ...data })
-        message.success('批次已添加')
+        result = await window.electron.ipcRenderer.invoke('material:createBatch', { materialId, materialType, ...data })
+        if (result && result.success) {
+          message.success('批次已添加')
+        } else {
+          throw new Error(result?.error || '添加失败')
+        }
       }
       setModalVisible(false)
       form.resetFields()
       loadBatches()
       onBatchChange?.()
     } catch (err) {
-      message.error(editingBatch ? '更新失败' : '添加失败')
+      console.error('批次保存失败:', err)
+      message.error(err.message || (editingBatch ? '更新失败' : '添加失败'))
     } finally {
       setSaving(false)
     }
