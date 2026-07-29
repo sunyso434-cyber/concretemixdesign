@@ -1,4 +1,4 @@
-const { TrialTestRecord } = require('../db/models/TrialTestRecord')
+const TrialTestRecord = require('../db/models/TrialTestRecord')
 const XGBoostPredictionService = require('./XGBoostPredictionService')
 
 class TrialTestService {

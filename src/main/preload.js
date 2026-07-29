@@ -76,7 +76,18 @@ const INVOKE_CHANNELS = new Set([
   'updateMaterial',
   'updateMixDesign',
   'workspace:rename',
-  'workspace:searchGraph'
+  'workspace:searchGraph',
+  // 批次管理
+  'material:getBatches',
+  'material:createBatch',
+  'material:updateBatch',
+  'material:deleteBatch',
+  'material:setCurrentBatch',
+  'material:getExpiringBatches',
+  // 试配记录
+  'trialtest:create',
+  'trialtest:list',
+  'trialtest:get'
 ])
 
 const EVENT_CHANNELS = new Set([
