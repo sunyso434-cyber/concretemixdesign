@@ -241,6 +241,12 @@ async function syncModels() {
   await ensureColumn(sequelize, 'trial_test_records', 'stone_amount', 'FLOAT')
   await ensureColumn(sequelize, 'trial_test_records', 'superplasticizer_amount', 'FLOAT')
 
+  // v0.0.14：trial_test_records 砂/石拆分为砂1/砂2/石1/石2（砂2/石2允许为空）
+  await ensureColumn(sequelize, 'trial_test_records', 'sand1_amount', 'FLOAT')
+  await ensureColumn(sequelize, 'trial_test_records', 'sand2_amount', 'FLOAT')
+  await ensureColumn(sequelize, 'trial_test_records', 'stone1_amount', 'FLOAT')
+  await ensureColumn(sequelize, 'trial_test_records', 'stone2_amount', 'FLOAT')
+
   // FTS5 表的创建已统一交给 ensureMemoryFts()（覆盖旧库残留的 key_decisions_unfolded 字段）
   // SessionSummary.js 的 afterSync hook 也会幂等重建，两处保持一致
 

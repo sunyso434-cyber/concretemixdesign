@@ -10,25 +10,30 @@ import { Tag, Descriptions, Table, Space } from 'antd'
 const TrialRecordDetail = ({ record }) => {
   const deviation = record.deviationAnalysis
   const strengthDevPct = deviation?.strengthDeviationPct
+  const spDosageDevPct = deviation?.superplasticizerDosageDeviationPct
   const hasDeviation = strengthDevPct !== null && strengthDevPct !== undefined
+  const hasSpDosageDeviation = spDosageDevPct !== null && spDosageDevPct !== undefined
 
   // 配合比明细数据
   // 每种材料用量表 (kg/m³) — 优先方案用量(AI录入自动取)或AI传的
   const amountColumns = [
     { title: '材料名称', dataIndex: 'name', key: 'name', width: 120 },
-    { title: '用量 (kg/m³)', dataIndex: 'amount', key: 'amount' }
+    { title: '用量 (kg/m³)', dataIndex: 'amount', key: 'amount', render: (v) => v != null ? v : '-' }
   ]
   const amountData = [
+    { key: 'water', name: '用水量', amount: record.water_amount != null ? Number(record.water_amount).toFixed(1) : null },
     { key: 'cement', name: '水泥', amount: record.cement_amount != null ? Number(record.cement_amount).toFixed(1) : null },
     { key: 'flyAsh', name: '粉煤灰', amount: record.fly_ash_amount != null ? Number(record.fly_ash_amount).toFixed(1) : null },
     { key: 'slag', name: '矿渣粉', amount: record.slag_amount != null ? Number(record.slag_amount).toFixed(1) : null },
     { key: 'lithiumSlag', name: '锂渣', amount: record.lithium_slag_amount != null ? Number(record.lithium_slag_amount).toFixed(1) : null },
     { key: 'compositePowder', name: '复合粉', amount: record.composite_powder_amount != null ? Number(record.composite_powder_amount).toFixed(1) : null },
-    { key: 'sand', name: '砂', amount: record.sand_amount != null ? Number(record.sand_amount).toFixed(1) : null },
-    { key: 'stone', name: '石', amount: record.stone_amount != null ? Number(record.stone_amount).toFixed(1) : null },
-    { key: 'water', name: '水', amount: record.water_amount != null ? Number(record.water_amount).toFixed(1) : null },
+    // 砂/石拆分：老记录只有 sand_amount/stone_amount 时，回退到砂1/石1
+    { key: 'sand1', name: '砂1', amount: record.sand1_amount != null ? Number(record.sand1_amount).toFixed(1) : (record.sand_amount != null ? Number(record.sand_amount).toFixed(1) : null) },
+    { key: 'sand2', name: '砂2', amount: record.sand2_amount != null ? Number(record.sand2_amount).toFixed(1) : null },
+    { key: 'stone1', name: '石1', amount: record.stone1_amount != null ? Number(record.stone1_amount).toFixed(1) : (record.stone_amount != null ? Number(record.stone_amount).toFixed(1) : null) },
+    { key: 'stone2', name: '石2', amount: record.stone2_amount != null ? Number(record.stone2_amount).toFixed(1) : null },
     { key: 'superplasticizer', name: '减水剂', amount: record.superplasticizer_amount != null ? Number(record.superplasticizer_amount).toFixed(1) : null },
-  ].filter(d => d.amount != null)
+  ]
 
   // 批次关联数据
   const batchFields = [
@@ -102,10 +107,17 @@ const TrialRecordDetail = ({ record }) => {
           <Descriptions.Item label="预测容重">
             {deviation.densityPredicted ? `${deviation.densityPredicted.toFixed(1)} kg/m³` : '-'}
           </Descriptions.Item>
-          <Descriptions.Item label="坍落度偏差">
-            {deviation.slumpDeviation !== null && deviation.slumpDeviation !== undefined
-              ? `${deviation.slumpDeviation > 0 ? '+' : ''}${deviation.slumpDeviation}mm`
+          <Descriptions.Item label="预测减水剂掺量">
+            {deviation.superplasticizerDosagePredicted != null
+              ? `${deviation.superplasticizerDosagePredicted.toFixed(2)}%`
               : '-'}
+          </Descriptions.Item>
+          <Descriptions.Item label="减水剂掺量偏差">
+            {hasSpDosageDeviation ? (
+              <Tag color={Math.abs(spDosageDevPct) > 10 ? 'red' : 'green'}>
+                {spDosageDevPct > 0 ? '+' : ''}{spDosageDevPct.toFixed(1)}%
+              </Tag>
+            ) : '-'}
           </Descriptions.Item>
           <Descriptions.Item label="分析时间">{deviation.analyzedAt ? new Date(deviation.analyzedAt).toLocaleString() : '-'}</Descriptions.Item>
         </Descriptions>

@@ -88,12 +88,32 @@ module.exports = {
     },
     sand_amount: {
       type: 'number',
-      description: '砂用量 (kg/m³)。若有关联方案且不传，自动从方案取',
+      description: '砂总用量 (kg/m³)。若有关联方案且不传，自动从方案取；也可由 sand1_amount + sand2_amount 自动计算',
+      required: false
+    },
+    sand1_amount: {
+      type: 'number',
+      description: '砂1用量 (kg/m³)，第一种细骨料的用量',
+      required: false
+    },
+    sand2_amount: {
+      type: 'number',
+      description: '砂2用量 (kg/m³)，第二种细骨料的用量，允许为空',
       required: false
     },
     stone_amount: {
       type: 'number',
-      description: '石用量 (kg/m³)。若有关联方案且不传，自动从方案取',
+      description: '石总用量 (kg/m³)。若有关联方案且不传，自动从方案取；也可由 stone1_amount + stone2_amount 自动计算',
+      required: false
+    },
+    stone1_amount: {
+      type: 'number',
+      description: '石1用量 (kg/m³)，第一种粗骨料的用量',
+      required: false
+    },
+    stone2_amount: {
+      type: 'number',
+      description: '石2用量 (kg/m³)，第二种粗骨料的用量，允许为空',
       required: false
     },
     superplasticizer_amount: {
@@ -185,6 +205,16 @@ module.exports = {
   async execute(args, context) {
     const { trialTestService, logger } = context
     logger.info(`[record_trial_test] 录入试配: 水胶比=${args.water_binder_ratio}, 水泥=${args.cement_amount}, 实测强度=${args.trialTestedStrength}`)
+
+    // 砂/石拆分字段自动汇总为总用量（AI 传了 sand1/sand2 但未传 sand_amount 时自动计算）
+    if (args.sand_amount === undefined && (args.sand1_amount !== undefined || args.sand2_amount !== undefined)) {
+      args.sand_amount = (args.sand1_amount || 0) + (args.sand2_amount || 0)
+      logger.info(`[record_trial_test] 由 sand1_amount=${args.sand1_amount}, sand2_amount=${args.sand2_amount} 自动计算 sand_amount=${args.sand_amount}`)
+    }
+    if (args.stone_amount === undefined && (args.stone1_amount !== undefined || args.stone2_amount !== undefined)) {
+      args.stone_amount = (args.stone1_amount || 0) + (args.stone2_amount || 0)
+      logger.info(`[record_trial_test] 由 stone1_amount=${args.stone1_amount}, stone2_amount=${args.stone2_amount} 自动计算 stone_amount=${args.stone_amount}`)
+    }
 
     // 若有关联方案，自动从方案取各材料用量（AI 传的优先，用于完整用量表展示）
     if (args.mixDesignId) {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Table, Button, Modal, Form, Input, InputNumber, DatePicker, Select, Tag, Space, message, Empty, Divider, Typography } from 'antd'
+import { Table, Button, Modal, Form, Input, InputNumber, DatePicker, Select, Tag, Space, message, Empty, Divider, Typography, Tooltip } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 
@@ -310,17 +310,18 @@ function MaterialBatchPanel({ materialId, materialType, onBatchChange }) {
     {
       title: '操作',
       key: 'action',
-      width: 210,
+      width: 140,
       render: (_, record) => (
         <Space size="small">
-          <Button
-            type="primary"
-            size="small"
-            icon={<CheckCircleOutlined />}
-            onClick={() => handleSetCurrent(record.id)}
-          >
-            设为当前
-          </Button>
+          <Tooltip title="设为当前批次">
+            <Button
+              type="primary"
+              size="small"
+              shape="circle"
+              icon={<CheckCircleOutlined />}
+              onClick={() => handleSetCurrent(record.id)}
+            />
+          </Tooltip>
           <Button
             size="small"
             icon={<EditOutlined />}
@@ -341,9 +342,9 @@ function MaterialBatchPanel({ materialId, materialType, onBatchChange }) {
     <div style={{ padding: '12px 16px 4px' }}>
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 500 }}>批次管理</span>
-        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={openAddModal}>
-          新增批次
-        </Button>
+        <Tooltip title="新增批次">
+          <Button type="primary" size="small" shape="circle" icon={<PlusOutlined />} onClick={openAddModal} />
+        </Tooltip>
       </div>
 
       <Table

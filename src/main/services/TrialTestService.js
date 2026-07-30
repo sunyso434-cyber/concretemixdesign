@@ -24,20 +24,24 @@ class TrialTestService {
       if (predicted.success && predicted.predictions) {
         const strengthPred = predicted.predictions.strength28d?.value
         const densityPred = predicted.predictions.density?.value
+        const spDosagePred = predicted.predictions.superplasticizer_dosage?.value
 
         deviation = {
-          version: '1.1',
+          version: '1.2',
           strengthPredicted: strengthPred,
           strengthActual: data.trialTestedStrength,
           strengthDeviation: data.trialTestedStrength - strengthPred,
           strengthDeviationPct: strengthPred
             ? ((data.trialTestedStrength - strengthPred) / strengthPred * 100)
             : null,
-          slumpDesigned: data.slump,
-          slumpActual: data.trialTestedSlump,
-          slumpDeviation: data.trialTestedSlump - (data.slump || 0),
           densityPredicted: densityPred,
           densityActual: data.trialTestedDensity,
+          superplasticizerDosagePredicted: spDosagePred,
+          superplasticizerDosageActual: data.trialTestedDosage,
+          superplasticizerDosageDeviation: data.trialTestedDosage - spDosagePred,
+          superplasticizerDosageDeviationPct: spDosagePred
+            ? ((data.trialTestedDosage - spDosagePred) / spDosagePred * 100)
+            : null,
           analyzedAt: new Date().toISOString()
         }
       }
