@@ -66,7 +66,7 @@ function WorkspaceContent() {
   useEffect(() => {
     const loadTasks = async () => {
       try {
-        const result = await window.electron.ipcRenderer.invoke('get-all-tasks')
+        const result = await window.electronAPI.invoke('get-all-tasks')
         if (result?.success && Array.isArray(result?.data)) {
           const running = result.data.some(t => t?.status === 'running')
           setHasTasks(!!running)
@@ -91,9 +91,9 @@ function WorkspaceContent() {
       }
     }
 
-    const listenerId = window.electron.ipcRenderer.on('background-task-progress', handler)
+    const listenerId = window.electronAPI.on('background-task-progress', handler)
     return () => {
-      window.electron.ipcRenderer.removeListener(listenerId)
+      window.electronAPI.removeListener(listenerId)
     }
   }, [])
 
@@ -150,7 +150,7 @@ function WorkspaceContent() {
 
         <div className="topbar-right">
           {hasTasks && <span className="topbar-task-dot has-tasks" />}
-          <span className="topbar-version">v0.0.14</span>
+          <span className="topbar-version">v0.1.0</span>
 
           {/* 自定义窗口控制按钮（无原生标题栏时使用） */}
           <div className="topbar-window-controls">
@@ -277,7 +277,7 @@ function WorkspaceContent() {
             <div className="v9-manage-nav">
               <div className="v9-mat-nav-label">设置分类</div>
               <div className="v9-mat-nav">
-                {['JGJ55标准', '备份设置', 'LLM管理', '技能管理', '销售报价', '系统设置'].map(t => (
+                {['JGJ55标准', '备份设置', 'LLM管理', '模型管理', '技能管理', '销售报价', '系统设置'].map(t => (
                   <div key={t} className={`v9-mat-nav-item ${setNavType === t ? 'active' : ''}`} onClick={() => { setSetNavType(t); settingsRef.current?.switchTab(t) }}>{t}</div>
                 ))}
               </div>

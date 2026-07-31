@@ -42,7 +42,7 @@ const SchemesPage = forwardRef((props, ref) => {
     setLoading(true)
     try {
       console.log('开始加载方案列表...', options)
-      const result = await window.electron.ipcRenderer.invoke('getAllMixDesigns', options)
+      const result = await window.electronAPI.invoke('getAllMixDesigns', options)
       console.log('加载方案列表结果:', result)
       if (result.success) {
         console.log('获取到方案数量:', result.data.length)
@@ -70,16 +70,16 @@ const SchemesPage = forwardRef((props, ref) => {
         console.error('SchemesPage data refresh failed:', err)
       }
     }
-    const listenerId = window.electron.ipcRenderer.on('data-refresh', handleDataRefresh)
+    const listenerId = window.electronAPI.on('data-refresh', handleDataRefresh)
     return () => {
-      window.electron.ipcRenderer.removeListener(listenerId)
+      window.electronAPI.removeListener(listenerId)
     }
   }, [showDrafts])
 
   // 查看方案详情
   const viewScheme = async (id) => {
     try {
-      const result = await window.electron.ipcRenderer.invoke('getMixDesignById', id)
+      const result = await window.electronAPI.invoke('getMixDesignById', id)
       if (result.success) {
         console.log('方案详情数据:', result.data)
         console.log('细骨料分配:', result.data.fineAggregateBreakdown)
@@ -98,7 +98,7 @@ const SchemesPage = forwardRef((props, ref) => {
   // 编辑方案
   const editScheme = async (id) => {
     try {
-      const result = await window.electron.ipcRenderer.invoke('getMixDesignById', id)
+      const result = await window.electronAPI.invoke('getMixDesignById', id)
       if (result.success) {
         setCurrentScheme(result.data)
         editForm.setFieldsValue(result.data)
@@ -114,7 +114,7 @@ const SchemesPage = forwardRef((props, ref) => {
   // 删除方案
   const deleteScheme = async (id) => {
     try {
-      const result = await window.electron.ipcRenderer.invoke('deleteMixDesign', id)
+      const result = await window.electronAPI.invoke('deleteMixDesign', id)
       if (result.success) {
         message.success('删除成功')
         loadSchemes(showDrafts ? {} : { excludeDrafts: true })
@@ -129,7 +129,7 @@ const SchemesPage = forwardRef((props, ref) => {
   // 复制方案
   const copyScheme = async (id) => {
     try {
-      const result = await window.electron.ipcRenderer.invoke('getMixDesignById', id)
+      const result = await window.electronAPI.invoke('getMixDesignById', id)
       if (result.success) {
         const scheme = result.data
         const copyData = {
@@ -139,7 +139,7 @@ const SchemesPage = forwardRef((props, ref) => {
           createdAt: undefined,
           updatedAt: undefined
         }
-        const createResult = await window.electron.ipcRenderer.invoke('createMixDesign', copyData)
+        const createResult = await window.electronAPI.invoke('createMixDesign', copyData)
         if (createResult.success) {
           message.success('复制成功')
           loadSchemes(showDrafts ? {} : { excludeDrafts: true })
@@ -157,7 +157,7 @@ const SchemesPage = forwardRef((props, ref) => {
   // 确认草稿方案
   const confirmScheme = async (id) => {
     try {
-      const result = await window.electron.ipcRenderer.invoke('updateMixDesign', { id, data: { status: '已确认' } })
+      const result = await window.electronAPI.invoke('updateMixDesign', { id, data: { status: '已确认' } })
       if (result.success) {
         message.success('方案已确认')
         loadSchemes(showDrafts ? {} : { excludeDrafts: true })
@@ -178,7 +178,7 @@ const SchemesPage = forwardRef((props, ref) => {
   const saveEdit = async () => {
     try {
       const values = await editForm.validateFields()
-      const result = await window.electron.ipcRenderer.invoke('updateMixDesign', {
+      const result = await window.electronAPI.invoke('updateMixDesign', {
         id: currentScheme.id,
         data: values
       })

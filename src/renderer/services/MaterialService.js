@@ -3,7 +3,7 @@ const WATER_REDUCER_TYPES = ['外加剂', '减水剂']
 
 // Get all materials from main process via IPC
 export const getAllMaterials = async () => {
-  const result = await window.electron.ipcRenderer.invoke('getAllMaterials')
+  const result = await window.electronAPI.invoke('getAllMaterials')
   return result?.success ? (result.data || []) : []
 }
 
@@ -20,13 +20,13 @@ export const getMaterialsByType = (materials, type) => {
 
 // Get batches for a material via IPC
 export const getBatches = async (materialId) => {
-  const result = await window.electron.ipcRenderer.invoke('material:getBatches', { materialId })
+  const result = await window.electronAPI.invoke('material:getBatches', { materialId })
   return Array.isArray(result) ? result : []
 }
 
 // Get current (in-use) batch for a material via IPC
 export const getCurrentBatch = async (materialId) => {
-  const result = await window.electron.ipcRenderer.invoke('material:getCurrentBatch', { materialId })
+  const result = await window.electronAPI.invoke('material:getCurrentBatch', { materialId })
   return result || null
 }
 

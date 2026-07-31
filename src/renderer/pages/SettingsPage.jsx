@@ -39,7 +39,7 @@ const SettingsPage = forwardRef((props, ref) => {
     const loadParams = async () => {
       setLoading(true)
       try {
-        const result = await window.electron.ipcRenderer.invoke('get-all-params')
+        const result = await window.electronAPI.invoke('get-all-params')
         if (result.success) {
           setParams(result.data)
         }
@@ -61,9 +61,9 @@ const SettingsPage = forwardRef((props, ref) => {
         message.error('数据刷新失败')
       }
     }
-    const listenerId = window.electron.ipcRenderer.on('data-refresh', handleDataRefresh)
+    const listenerId = window.electronAPI.on('data-refresh', handleDataRefresh)
     return () => {
-      window.electron.ipcRenderer.removeListener(listenerId)
+      window.electronAPI.removeListener(listenerId)
     }
   }, [])
 
@@ -97,7 +97,7 @@ const SettingsPage = forwardRef((props, ref) => {
     try {
       for (const name of toSave) {
         const param = params.find(p => p.name === name)
-        await window.electron.ipcRenderer.invoke('set-param', {
+        await window.electronAPI.invoke('set-param', {
           name,
           value: modifiedParams[name],
           type: param?.type || 'system',
@@ -110,7 +110,7 @@ const SettingsPage = forwardRef((props, ref) => {
         toSave.forEach(n => delete next[n])
         return next
       })
-      const result = await window.electron.ipcRenderer.invoke('get-all-params')
+      const result = await window.electronAPI.invoke('get-all-params')
       if (result.success) setParams(result.data)
     } catch (e) {
       message.error('保存失败')
@@ -131,13 +131,13 @@ const SettingsPage = forwardRef((props, ref) => {
 
   const handleBackup = async () => {
     try {
-      const dialogResult = await window.electron.ipcRenderer.invoke('show-save-dialog', {
+      const dialogResult = await window.electronAPI.invoke('show-save-dialog', {
         title: '选择备份保存位置',
         defaultPath: `backup-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.sqlite`,
         filters: [{ name: 'SQLite Database', extensions: ['sqlite', 'db'] }],
       })
       if (dialogResult.data.canceled || !dialogResult.data.filePath) return
-      window.electron.ipcRenderer.invoke('start-backup-task', dialogResult.data.filePath)
+      window.electronAPI.invoke('start-backup-task', dialogResult.data.filePath)
     } catch (e) {
       message.error('备份失败')
     }
@@ -145,7 +145,7 @@ const SettingsPage = forwardRef((props, ref) => {
 
   const handleRestore = async () => {
     try {
-      const dialogResult = await window.electron.ipcRenderer.invoke('show-open-dialog', {
+      const dialogResult = await window.electronAPI.invoke('show-open-dialog', {
         title: '选择备份文件',
         filters: [{ name: 'SQLite Database', extensions: ['sqlite', 'db'] }],
         properties: ['openFile'],
@@ -160,7 +160,7 @@ const SettingsPage = forwardRef((props, ref) => {
 
   const handleConfirmRestore = async () => {
     setRestoreModalVisible(false)
-    window.electron.ipcRenderer.invoke('start-restore-task', selectedBackupPath)
+    window.electronAPI.invoke('start-restore-task', selectedBackupPath)
   }
 
   const renderParamCards = () => {
@@ -595,7 +595,7 @@ const LlmManager = () => {
 const AppVersionInfo = () => {
   const [version, setVersion] = useState('1.0.0')
   useEffect(() => {
-    window.electron.ipcRenderer.invoke('get-app-version').then(result => {
+    window.electronAPI.invoke('get-app-version').then(result => {
       if (result.success) setVersion(result.data)
     })
   }, [])

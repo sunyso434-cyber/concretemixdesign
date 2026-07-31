@@ -16,7 +16,8 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
 }
 
 // 为浏览器环境添加模拟的electron API，方便开发测试
-if (!window.electron) {
+// 判断 electronAPI 而非 electron：真实环境 preload 只暴露 electronAPI（问题 14）
+if (!window.electronAPI) {
   // 模拟材料数据
   // 模拟方案数据
   let mockSchemes = [

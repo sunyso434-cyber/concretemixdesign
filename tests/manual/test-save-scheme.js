@@ -75,7 +75,7 @@ function createTestWindow() {
           
           console.log('测试方案数据:', testScheme)
           
-          const result = await window.electron.ipcRenderer.invoke('createMixDesign', testScheme)
+          const result = await window.electronAPI.invoke('createMixDesign', testScheme)
           console.log('保存结果:', result)
           document.getElementById('result').innerHTML = JSON.stringify(result, null, 2)
         } catch (error) {

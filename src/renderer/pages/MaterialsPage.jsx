@@ -23,7 +23,7 @@ const MaterialsPage = forwardRef((props, ref) => {
   const loadMaterials = async () => {
     setLoading(true)
     try {
-      const result = await window.electron.ipcRenderer.invoke('getAllMaterials')
+      const result = await window.electronAPI.invoke('getAllMaterials')
       if (result && result.success) {
         setMaterials(result.data || [])
       } else {
@@ -46,9 +46,9 @@ const MaterialsPage = forwardRef((props, ref) => {
         console.error('MaterialsPage data refresh failed:', err)
       }
     }
-    const listenerId = window.electron.ipcRenderer.on('data-refresh', handleDataRefresh)
+    const listenerId = window.electronAPI.on('data-refresh', handleDataRefresh)
     return () => {
-      window.electron.ipcRenderer.removeListener(listenerId)
+      window.electronAPI.removeListener(listenerId)
     }
   }, [])
 
@@ -93,7 +93,7 @@ const MaterialsPage = forwardRef((props, ref) => {
       cancelText: '取消',
       onOk: async () => {
         try {
-          const result = await window.electron.ipcRenderer.invoke('deleteMaterial', id)
+          const result = await window.electronAPI.invoke('deleteMaterial', id)
           if (result.success) {
             message.success('材料已删除')
             loadMaterials()
@@ -139,12 +139,12 @@ const MaterialsPage = forwardRef((props, ref) => {
     try {
       let result
       if (editingId) {
-        result = await window.electron.ipcRenderer.invoke('updateMaterial', {
+        result = await window.electronAPI.invoke('updateMaterial', {
           id: editingId,
           data: values
         })
       } else {
-        result = await window.electron.ipcRenderer.invoke('createMaterial', values)
+        result = await window.electronAPI.invoke('createMaterial', values)
       }
 
       if (result.success) {

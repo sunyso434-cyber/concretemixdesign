@@ -58,7 +58,7 @@ function createTestWindow() {
     <script>
       async function testGetAllMixDesigns() {
         try {
-          const result = await window.electron.ipcRenderer.invoke('getAllMixDesigns')
+          const result = await window.electronAPI.invoke('getAllMixDesigns')
           document.getElementById('result').innerHTML = JSON.stringify(result, null, 2)
           console.log('测试结果:', result)
         } catch (error) {

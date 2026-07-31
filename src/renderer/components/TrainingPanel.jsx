@@ -28,8 +28,8 @@ const { Text, Title, Paragraph } = Typography
 
 // ============ IPC 工具 ============
 
-// 用 window.electron.ipcRenderer 调用（兼容旧 API）
-const ipc = window.electron?.ipcRenderer || window.electronAPI
+// 统一走 electronAPI（旧 window.electron 兼容对象已移除，问题 14）
+const ipc = window.electronAPI
 
 /**
  * 安全调用 invoke，失败返回兜底
@@ -84,10 +84,14 @@ const TrainingPanel = () => {
       progressListenerId = ipc.on('training:progress', (data) => {
         if (data && data.message) {
           setProgressMsg(data.message)
-          // 从消息中解析进度百分比
-          const percent = extractProgressPercent(data.message)
-          if (percent !== null) {
-            setProgressPercent(percent)
+          // 优先读结构化 percent（问题 9：不再依赖字符串匹配）；旧字符串消息降级解析
+          if (typeof data.percent === 'number') {
+            setProgressPercent(data.percent)
+          } else {
+            const percent = extractProgressPercent(data.message)
+            if (percent !== null) {
+              setProgressPercent(percent)
+            }
           }
         }
       })
@@ -306,7 +310,7 @@ const TrainingPanel = () => {
         style={{ marginBottom: 16 }}
       >
         <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
-          基于试配记录数据重新训练模型。训练期间 UI 保持可用，不会卡死。
+          基于基座数据 + 试配记录重新训练模型。训练期间 UI 保持可用，不会卡死。
           {trialRecordCount === 0 && (
             <span style={{ color: '#faad14', marginLeft: 8 }}>
               <WarningOutlined /> 当前无试配记录，训练将仅使用基座数据。

@@ -48,11 +48,29 @@ const getRecord = async (event, { id }) => {
   }
 }
 
+/**
+ * 重新预测偏差分析
+ */
+const repredictRecord = async (event, { id }) => {
+  try {
+    const record = await TrialTestService.repredict(id)
+    if (!record) return { success: false, error: '记录不存在' }
+    return { success: true, record }
+  } catch (error) {
+    console.error('[TrialTest] 重新预测失败:', error)
+    return {
+      success: false,
+      error: `重新预测失败: ${error.message}`
+    }
+  }
+}
+
 const registerHandlers = (ipcMain) => {
   ipcMain.handle('trialtest:create', createRecord)
   ipcMain.handle('trialtest:list', listRecords)
   ipcMain.handle('trialtest:get', getRecord)
+  ipcMain.handle('trialtest:repredict', repredictRecord)
   console.log('TrialTest IPC handlers registered')
 }
 
-module.exports = { registerHandlers, createRecord, listRecords, getRecord }
+module.exports = { registerHandlers, createRecord, listRecords, getRecord, repredictRecord }

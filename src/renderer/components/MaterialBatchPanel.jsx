@@ -147,7 +147,7 @@ function MaterialBatchPanel({ materialId, materialType, onBatchChange }) {
   const loadBatches = async () => {
     setLoading(true)
     try {
-      const result = await window.electron.ipcRenderer.invoke('material:getBatches', { materialId })
+      const result = await window.electronAPI.invoke('material:getBatches', { materialId })
       // 后端返回 { success, data }，必须取 data 并校验为数组，否则把对象塞给 antd Table 会触发白屏
       setBatches(result?.success && Array.isArray(result.data) ? result.data : [])
     } catch (err) {
@@ -189,7 +189,7 @@ function MaterialBatchPanel({ materialId, materialType, onBatchChange }) {
       cancelText: '取消',
       onOk: async () => {
         try {
-          await window.electron.ipcRenderer.invoke('material:deleteBatch', { id })
+          await window.electronAPI.invoke('material:deleteBatch', { id })
           message.success('批次已删除')
           loadBatches()
           onBatchChange?.()
@@ -202,7 +202,7 @@ function MaterialBatchPanel({ materialId, materialType, onBatchChange }) {
 
   const handleSetCurrent = async (batchId) => {
     try {
-      await window.electron.ipcRenderer.invoke('material:setCurrentBatch', { materialId, batchId })
+      await window.electronAPI.invoke('material:setCurrentBatch', { materialId, batchId })
       message.success('已设为当前批次')
       loadBatches()
       onBatchChange?.()
@@ -228,14 +228,14 @@ function MaterialBatchPanel({ materialId, materialType, onBatchChange }) {
 
       let result
       if (editingBatch) {
-        result = await window.electron.ipcRenderer.invoke('material:updateBatch', { id: editingBatch.id, ...data })
+        result = await window.electronAPI.invoke('material:updateBatch', { id: editingBatch.id, ...data })
         if (result && result.success) {
           message.success('批次已更新')
         } else {
           throw new Error(result?.error || '更新失败')
         }
       } else {
-        result = await window.electron.ipcRenderer.invoke('material:createBatch', { materialId, materialType, ...data })
+        result = await window.electronAPI.invoke('material:createBatch', { materialId, materialType, ...data })
         if (result && result.success) {
           message.success('批次已添加')
         } else {

@@ -16,7 +16,7 @@ const BackgroundTaskBar = () => {
     // 初始加载所有任务
     const loadTasks = async () => {
       try {
-        const result = await window.electron.ipcRenderer.invoke('get-all-tasks')
+        const result = await window.electronAPI.invoke('get-all-tasks')
         if (result && result.success && Array.isArray(result.data)) {
           setTasks(result.data.filter(t => t && (t.status === 'running' || t.status === 'completed')))
         }
@@ -43,7 +43,7 @@ const BackgroundTaskBar = () => {
             if (task.status === 'completed') {
               setTimeout(() => {
                 setTasks(curr => curr.filter(t => t && t.id !== task.id))
-                window.electron.ipcRenderer.invoke('clear-task', task.id)
+                window.electronAPI.invoke('clear-task', task.id)
               }, 5000)
             }
             return updated
@@ -56,14 +56,14 @@ const BackgroundTaskBar = () => {
       }
     }
 
-    const listenerId = window.electron.ipcRenderer.on('background-task-progress', handler)
+    const listenerId = window.electronAPI.on('background-task-progress', handler)
     return () => {
-      window.electron.ipcRenderer.removeListener(listenerId)
+      window.electronAPI.removeListener(listenerId)
     }
   }, [])
 
   const handleCancel = async (taskId) => {
-    await window.electron.ipcRenderer.invoke('cancel-task', taskId)
+    await window.electronAPI.invoke('cancel-task', taskId)
   }
 
   if (tasks.length === 0) return null

@@ -26,6 +26,24 @@ const { convertXGBoostModel, validateConvertedModel } = require('./modelFormatCo
 
 // ============ 常量定义 ============
 
+// 进度阶段百分比锚点（单目标占 30% 区间；总进度 = 目标下标 * 30 + 阶段值）
+const STAGES = {
+  LOAD_WASM: 2,       // 加载 XGBoost WASM
+  WASM_READY: 5,      // WASM 就绪
+  LOAD_DATA: 8,       // 加载训练数据
+  DATA_READY: 10,     // 数据就绪
+  BUILD_FEATURES: 3,  // 构建特征矩阵（目标内）
+  SAMPLES_INFO: 5,    // 样本信息
+  TPE_START: 8,       // TPE 开始
+  TPE_END: 28,        // TPE 完成
+  TRAIN_FINAL: 32,    // 训练最终模型
+  TRAIN_DONE: 36,     // 模型训练完成
+  CV: 38,             // 计算 5 折 CV
+  CONVERT: 40,        // 转换模型格式
+  SAVE: 42,           // 模型已保存
+  TARGET_DONE: 45     // 目标完成
+}
+
 // 8 列材料指标：当值为 -1（未使用的材料）时转为 NaN
 // 避免 XGBoost 把 -1 当作真实值学习
 const MATERIAL_INDICATOR_COLS = [
@@ -305,8 +323,8 @@ function trainAndEvaluateCV(params, dataCache) {
 /**
  * TPE 超参调优（基于 effect-search）
  */
-async function runTpeTuning(dataCache, targetName, nTrials) {
-  sendProgress(`TPE 调参开始: ${targetName} (n_trials=${nTrials})`)
+async function runTpeTuning(dataCache, targetName, nTrials, basePercent) {
+  sendProgress(`TPE 调参开始: ${targetName} (n_trials=${nTrials})`, basePercent + STAGES.TPE_START)
 
   const program = Effect.gen(function* () {
     // 搜索空间（对标 Python Optuna train.py 的 tune_hyperparameters）
@@ -332,7 +350,9 @@ async function runTpeTuning(dataCache, targetName, nTrials) {
         const foldRmse = trainAndEvaluateCV(config, dataCache)
         if (!Number.isFinite(foldRmse)) return 1e9
         if (trialCount % 10 === 0 || trialCount === 1) {
-          sendProgress(`TPE trial ${trialCount}/${nTrials} (${targetName}): RMSE=${foldRmse.toFixed(4)}`)
+          const span = STAGES.TPE_END - STAGES.TPE_START
+          const trialPct = STAGES.TPE_START + (nTrials > 0 ? Math.round((trialCount / nTrials) * span) : span)
+          sendProgress(`TPE trial ${trialCount}/${nTrials} (${targetName}): RMSE=${foldRmse.toFixed(4)}`, basePercent + trialPct)
         }
         return foldRmse
       }),
@@ -409,9 +429,9 @@ function computeFeatureStats(XData, nSamples, nFeatures, featureNames) {
 
 // ============ 进度消息 ============
 
-function sendProgress(message) {
+function sendProgress(message, percent) {
   if (parentPort) {
-    parentPort.postMessage({ type: 'progress', payload: message })
+    parentPort.postMessage({ type: 'progress', payload: { message, percent: percent ?? null } })
   }
 }
 
@@ -422,9 +442,9 @@ async function main() {
   const nTrials = options?.nTrials ?? 50
   const outputDir = options?.outputDir || null
 
-  sendProgress('加载 XGBoost WASM 模块...')
+  sendProgress('加载 XGBoost WASM 模块...', STAGES.LOAD_WASM)
   await loadXGB()
-  sendProgress('WASM 模块加载完成')
+  sendProgress('WASM 模块加载完成', STAGES.WASM_READY)
 
   // 1. 加载训练数据
   if (!csvPath) {
@@ -434,43 +454,45 @@ async function main() {
     throw new Error(`训练数据文件不存在: ${csvPath}`)
   }
 
-  sendProgress(`加载训练数据: ${csvPath}`)
+  sendProgress(`加载训练数据: ${csvPath}`, STAGES.LOAD_DATA)
   const { rows } = parseCSV(csvPath)
-  sendProgress(`数据加载完成: ${rows.length} 行`)
+  sendProgress(`数据加载完成: ${rows.length} 行`, STAGES.DATA_READY)
 
   // 2. 按 3 个目标分别训练
   const targets = ['strength_28d', 'density', 'superplasticizer_dosage']
   const models = {}
   const reports = {}
 
-  for (const targetName of targets) {
-    sendProgress(`[${targetName}] 构建特征矩阵...`)
+  for (let targetIdx = 0; targetIdx < targets.length; targetIdx++) {
+    const targetName = targets[targetIdx]
+    const basePercent = targetIdx * 30 // 每个目标占 30% 区间
+    sendProgress(`[${targetName}] 构建特征矩阵...`, basePercent + STAGES.BUILD_FEATURES)
 
     const dataCache = buildTrainingData(rows, targetName)
     const nSamples = dataCache.nSamples
     const nFeatures = dataCache.nFeatures
 
     if (nSamples < 10) {
-      sendProgress(`[${targetName}] 有效样本不足 (${nSamples})，跳过`)
+      sendProgress(`[${targetName}] 有效样本不足 (${nSamples})，跳过`, basePercent + STAGES.TARGET_DONE)
       continue
     }
 
-    sendProgress(`[${targetName}] ${nSamples} 样本 × ${nFeatures} 特征`)
+    sendProgress(`[${targetName}] ${nSamples} 样本 × ${nFeatures} 特征`, basePercent + STAGES.SAMPLES_INFO)
 
     // TPE 调参
     const tpeStartTime = Date.now()
     let bestParams, bestRmse
 
     try {
-      const tpeResult = await runTpeTuning(dataCache, targetName, nTrials)
+      const tpeResult = await runTpeTuning(dataCache, targetName, nTrials, basePercent)
       const bestTrial = tpeResult.bestTrial
       if (bestTrial) {
         bestRmse = bestTrial.state?.value
         bestParams = bestTrial.state?.config || bestTrial.config || {}
-        sendProgress(`[${targetName}] TPE 完成: RMSE=${Number(bestRmse).toFixed(4)}, 耗时=${((Date.now() - tpeStartTime) / 1000).toFixed(1)}s`)
+        sendProgress(`[${targetName}] TPE 完成: RMSE=${Number(bestRmse).toFixed(4)}, 耗时=${((Date.now() - tpeStartTime) / 1000).toFixed(1)}s`, basePercent + STAGES.TPE_END)
       } else {
         // TPE 失败回退到默认参数
-        sendProgress(`[${targetName}] TPE 未返回最佳结果，使用默认参数`)
+        sendProgress(`[${targetName}] TPE 未返回最佳结果，使用默认参数`, basePercent + STAGES.TPE_END)
         bestParams = {
           n_estimators: 200,
           max_depth: 6,
@@ -486,7 +508,7 @@ async function main() {
         bestRmse = null
       }
     } catch (tpeErr) {
-      sendProgress(`[${targetName}] TPE 失败: ${tpeErr.message}，使用默认参数`)
+      sendProgress(`[${targetName}] TPE 失败: ${tpeErr.message}，使用默认参数`, basePercent + STAGES.TPE_END)
       bestParams = {
         n_estimators: 200,
         max_depth: 6,
@@ -503,13 +525,13 @@ async function main() {
     }
 
     // 训练最终模型（全量数据）
-    sendProgress(`[${targetName}] 训练最终模型 (n_estimators=${bestParams.n_estimators})...`)
+    sendProgress(`[${targetName}] 训练最终模型 (n_estimators=${bestParams.n_estimators})...`, basePercent + STAGES.TRAIN_FINAL)
     const trainStartTime = Date.now()
     const nativeJson = await trainFinalModel(dataCache, bestParams)
-    sendProgress(`[${targetName}] 模型训练完成 (${((Date.now() - trainStartTime) / 1000).toFixed(1)}s)`)
+    sendProgress(`[${targetName}] 模型训练完成 (${((Date.now() - trainStartTime) / 1000).toFixed(1)}s)`, basePercent + STAGES.TRAIN_DONE)
 
     // 计算 5 折 CV 评估（用于报告）
-    sendProgress(`[${targetName}] 计算 5 折 CV...`)
+    sendProgress(`[${targetName}] 计算 5 折 CV...`, basePercent + STAGES.CV)
     const cvRmse = trainAndEvaluateCV(bestParams, dataCache)
     const cvR2 = 0 // 简化：仅记录 RMSE，全量评估在后续优化
 
@@ -520,7 +542,7 @@ async function main() {
     featureStats._total_samples = nSamples
 
     // 格式转换
-    sendProgress(`[${targetName}] 转换模型格式...`)
+    sendProgress(`[${targetName}] 转换模型格式...`, basePercent + STAGES.CONVERT)
     const convertedModel = convertXGBoostModel(nativeJson, {
       target: targetName,
       feature_names: dataCache.feature_names,
@@ -542,7 +564,7 @@ async function main() {
     // 验证
     const validation = validateConvertedModel(convertedModel)
     if (!validation.valid) {
-      sendProgress(`[${targetName}] 模型验证失败: ${validation.errors.join('; ')}`)
+      sendProgress(`[${targetName}] 模型验证失败: ${validation.errors.join('; ')}`, basePercent + STAGES.TARGET_DONE)
       continue
     }
 
@@ -551,7 +573,7 @@ async function main() {
       const fileName = targetName.replace(/_/g, '') + '.json'
       const filePath = path.join(outputDir, fileName)
       fs.writeFileSync(filePath, JSON.stringify(convertedModel, null, 2))
-      sendProgress(`[${targetName}] 模型已保存: ${filePath}`)
+      sendProgress(`[${targetName}] 模型已保存: ${filePath}`, basePercent + STAGES.SAVE)
     }
 
     models[targetName] = convertedModel
@@ -563,7 +585,7 @@ async function main() {
       best_params: bestParams
     }
 
-    sendProgress(`[${targetName}] 完成`)
+    sendProgress(`[${targetName}] 完成`, basePercent + STAGES.TARGET_DONE)
   }
 
   // 发送完成消息

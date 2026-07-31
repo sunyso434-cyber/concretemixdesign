@@ -26,7 +26,7 @@ const ExportWizard = ({ onClose }) => {
   const handleExport = async () => {
     setExporting(true)
     try {
-      const dialogResult = await window.electron.ipcRenderer.invoke('show-save-dialog', {
+      const dialogResult = await window.electronAPI.invoke('show-save-dialog', {
         title: '选择导出文件保存位置',
         defaultPath: `export-${new Date().toISOString().slice(0, 10)}.${selectedFormat}`,
         filters: [
@@ -35,7 +35,7 @@ const ExportWizard = ({ onClose }) => {
       })
       if (dialogResult.data.canceled || !dialogResult.data.filePath) return
 
-      await window.electron.ipcRenderer.invoke('start-export-task', {
+      await window.electronAPI.invoke('start-export-task', {
         types: selectedTypes,
         format: selectedFormat,
         filePath: dialogResult.data.filePath,

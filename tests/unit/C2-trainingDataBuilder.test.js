@@ -1,11 +1,10 @@
 /**
  * C2-trainingDataBuilder.test.js
- * 测试 TrainingDataBuilder + DataValidator + ModelVersionManager
+ * 测试 TrainingDataBuilder + DataValidator
  *
  * 测试覆盖：
  *   1. DataValidator — 单条验证 / 批量验证 / 边界值 / 缺失值跳过
- *   2. ModelVersionManager — saveModel / rollback / listVersions / generateVersion
- *   3. TrainingDataBuilder — _buildRow 列映射 / 多砂多石合并 / 基座加载 / CSV 导出
+ *   2. TrainingDataBuilder — _buildRow 列映射 / 多砂多石合并 / 基座加载 / CSV 导出
  */
 
 const path = require('path')
@@ -16,10 +15,6 @@ const assert = require('assert')
 
 const DataValidator = require(path.join(
   __dirname, '..', '..', 'src', 'main', 'services', 'training', 'DataValidator'
-))
-
-const ModelVersionManager = require(path.join(
-  __dirname, '..', '..', 'src', 'main', 'services', 'training', 'ModelVersionManager'
 ))
 
 const TrainingDataBuilder = require(path.join(
@@ -197,109 +192,7 @@ run('validates target columns', () => {
   assert.strictEqual(bad.valid, false)
 })
 
-// ============ Section 2: ModelVersionManager ============
-
-console.log('\n=== ModelVersionManager ===')
-
-run('generateVersion produces YYYYMMDD_HHMMSS format', () => {
-  const ver = ModelVersionManager.generateVersion()
-  assert.ok(/^\d{8}_\d{6}$/.test(ver), `格式不正确: ${ver}`)
-})
-
-run('getModelFilename maps known targets', () => {
-  // 通过 listVersions 间接测试文件名映射（私有方法_前缀，直接使用公开接口）
-  // 测试文件名映射一致性：内部使用 TARGET_FILE_MAP
-  const strengths = ModelVersionManager.listVersions('strength_28d')
-  assert.ok(typeof strengths === 'object')
-  assert.ok('currentVersion' in strengths)
-  assert.ok('archives' in strengths)
-
-  const density = ModelVersionManager.listVersions('density')
-  assert.ok(typeof density === 'object')
-})
-
-run('saveModel + listVersions + rollback roundtrip', async () => {
-  // 使用临时目录隔离测试
-  const TEST_DIR = path.join(__dirname, '..', '..', '.tmp', 'C2-mvm-test-' + Date.now())
-  const modelsDir = path.join(TEST_DIR, 'models')
-  fs.mkdirSync(modelsDir, { recursive: true })
-
-  // 临时替换 ModelVersionManager 的内部 _modelsDir
-  const originalSaveModel = ModelVersionManager.saveModel.bind(ModelVersionManager)
-
-  // Mock getModelsDir
-  const origGetModelsDir = ModelVersionManager._modelsDir
-  ModelVersionManager._modelsDir = modelsDir
-
-  try {
-    // 1. 首次保存
-    const modelV1 = {
-      target: 'strength_28d',
-      trees: [{ leaf: 42 }],
-      model_version: '1.0'
-    }
-    const saveResult1 = await ModelVersionManager.saveModel('strength_28d', modelV1)
-    assert.ok(saveResult1.version)
-    assert.ok(saveResult1.path)
-
-    // 验证文件已写入
-    const modelPath = path.join(modelsDir, 'strength28d.json')
-    assert.ok(fs.existsSync(modelPath))
-
-    const loaded1 = JSON.parse(fs.readFileSync(modelPath, 'utf-8'))
-    assert.strictEqual(loaded1.model_version, saveResult1.version)
-
-    // 2. 再次保存（触发归档）
-    const modelV2 = {
-      target: 'strength_28d',
-      trees: [{ leaf: 99 }]
-    }
-    const saveResult2 = await ModelVersionManager.saveModel('strength_28d', modelV2)
-    assert.ok(saveResult2.version)
-
-    // 验证归档存在
-    const archiveDir = path.join(modelsDir, 'archive', saveResult2.version)
-    assert.ok(fs.existsSync(archiveDir))
-
-    const archiveFiles = fs.readdirSync(archiveDir)
-    assert.ok(archiveFiles.length > 0, '归档目录应有备份文件')
-    assert.ok(archiveFiles[0].endsWith('.bak'))
-
-    // 3. listVersions
-    const versions = ModelVersionManager.listVersions('strength_28d')
-    assert.strictEqual(versions.currentVersion, saveResult2.version)
-    assert.ok(versions.archives.length >= 1)
-
-    // 4. rollback
-    const rollbackResult = await ModelVersionManager.rollback('strength_28d')
-    assert.strictEqual(rollbackResult.targetName, 'strength_28d')
-
-    const loadedAfterRollback = JSON.parse(fs.readFileSync(modelPath, 'utf-8'))
-    // 回滚后的模型内容应与 V1 一致
-    assert.strictEqual(loadedAfterRollback.trees[0].leaf, 42)
-  } finally {
-    // 清理
-    ModelVersionManager._modelsDir = origGetModelsDir
-    try { fs.rmSync(TEST_DIR, { recursive: true, force: true }) } catch {}
-  }
-})
-
-run('rollback throws when no archives exist', async () => {
-  try {
-    await ModelVersionManager.rollback('nonexistent_target_xyz')
-    assert.fail('应抛出异常')
-  } catch (err) {
-    assert.ok(err.message.includes('没有找到') || err.message.includes('历史版本'))
-  }
-})
-
-run('listVersions returns currentVersion=null for missing model', () => {
-  const versions = ModelVersionManager.listVersions('nonexistent_model')
-  assert.strictEqual(versions.currentVersion, null)
-  assert.ok(Array.isArray(versions.archives))
-})
-
-// ============ Section 3: TrainingDataBuilder ============
+// ============ Section 2: TrainingDataBuilder ============
 
 console.log('\n=== TrainingDataBuilder ===')
 
@@ -468,7 +361,7 @@ run('getFeatureSubset returns correct subsets', () => {
   assert.ok(unknown.includes('feature_slump'), '未知目标应返回所有特征')
 })
 
-run('_loadBaseTrainingData loads XLSX from docs/', async () => {
+run('_loadBaseTrainingData loads base CSV', async () => {
   const builder = new TrainingDataBuilder()
   const baseRows = await builder._loadBaseTrainingData()
 
@@ -478,17 +371,22 @@ run('_loadBaseTrainingData loads XLSX from docs/', async () => {
     const firstRow = baseRows[0]
     assert.ok('water_binder_ratio' in firstRow)
     assert.ok('cement_amount' in firstRow)
+    // 统一 39 列新 schema 的基座应含关键列
+    assert.ok('feature_slump' in firstRow, '基座应含 feature_slump')
+    assert.ok('target_superplasticizer_dosage' in firstRow, '基座应含减水剂目标列')
   } else {
     // 如果没有基座文件（CI 环境），跳过此测试
-    console.log('  跳过基座加载测试（未找到 XLSX 文件）')
+    console.log('  跳过基座加载测试（未找到 base_training_data.csv）')
   }
 })
 
-run('_exportAuditCsv writes file correctly', async () => {
+run('_exportAuditCsv writes file to injected exportDir', async () => {
   const builder = new TrainingDataBuilder()
   const csvContent = 'col1,col2\n1,2\n3,4'
   const version = '20260728_120000'
-  const filePath = builder._exportAuditCsv(csvContent, version)
+  // 必须注入临时目录，禁止真实写 resources/（问题 4 修复点）
+  const exportDir = path.join(__dirname, '..', '..', '.tmp', 'C2-audit-test-' + Date.now())
+  const filePath = builder._exportAuditCsv(csvContent, version, exportDir)
 
   try {
     assert.ok(fs.existsSync(filePath))

@@ -30,7 +30,7 @@ const TrialRecordsPage = () => {
     try {
       const params = status ? { status } : {}
       console.log('[TrialRecordsPage] 查询试配记录:', params)
-      const result = await window.electron.ipcRenderer.invoke('trialtest:list', params)
+      const result = await window.electronAPI.invoke('trialtest:list', params)
       console.log('[TrialRecordsPage] 查询结果:', result)
       if (result.success) {
         setRecords(result.records || [])

@@ -49,6 +49,9 @@ class XGBoostTrainingService {
       options.outputDir = dir
     }
 
+    // 超时保护（问题 6）：Worker 挂死时不至于永久卡死训练锁
+    const timeoutMs = options.timeoutMs ?? 15 * 60 * 1000
+
     const workerId = ++this._workerIdCounter
 
     return new Promise((resolve, reject) => {
@@ -67,24 +70,35 @@ class XGBoostTrainingService {
 
       this._activeWorkers.set(workerId, worker)
 
+      // 超时：终止 Worker 并同步清理活跃列表，异常经调用方 finally 释放训练锁
+      const timeout = setTimeout(() => {
+        this._activeWorkers.delete(workerId)
+        worker.terminate()
+        reject(new Error(`训练超时（${Math.round(timeoutMs / 1000)} 秒），已终止`))
+      }, timeoutMs)
+
       worker.on('message', (msg) => {
         if (msg.type === 'progress') {
           onProgress?.(msg.payload)
         } else if (msg.type === 'done') {
+          clearTimeout(timeout)
           this._activeWorkers.delete(workerId)
           resolve(msg.payload)
         } else if (msg.type === 'error') {
+          clearTimeout(timeout)
           this._activeWorkers.delete(workerId)
           reject(new Error(msg.message))
         }
       })
 
       worker.on('error', (err) => {
+        clearTimeout(timeout)
         this._activeWorkers.delete(workerId)
         reject(err)
       })
 
       worker.on('exit', (code) => {
+        clearTimeout(timeout)
         this._activeWorkers.delete(workerId)
         if (code !== 0) {
           reject(new Error(`Worker 异常退出，退出码: ${code}`))

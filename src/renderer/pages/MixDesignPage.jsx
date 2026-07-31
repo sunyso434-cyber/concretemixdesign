@@ -44,7 +44,7 @@ const MixDesignPage = () => {
       return
     }
     try {
-      const result = await window.electron.ipcRenderer.invoke('material:getBatches', { materialId })
+      const result = await window.electronAPI.invoke('material:getBatches', { materialId })
       const batches = Array.isArray(result) ? result : []
       setBatchMap(prev => ({ ...prev, [materialId]: batches }))
       const currentBatch = batches.find(b => b.status === '在用')
@@ -249,7 +249,7 @@ const MixDesignPage = () => {
   const loadMaterials = async () => {
     try {
       console.log('开始加载原材料...')
-      const result = await window.electron.ipcRenderer.invoke('getAllMaterials')
+      const result = await window.electronAPI.invoke('getAllMaterials')
       console.log('getAllMaterials返回结果:', result)
       if (result.success) {
         setMaterials(result.data)
@@ -304,7 +304,7 @@ const MixDesignPage = () => {
       console.log('测试参数:', testParams)
       
       console.log('调用calculateMixDesign...')
-      const result = await window.electron.ipcRenderer.invoke('calculateMixDesign', testParams)
+      const result = await window.electronAPI.invoke('calculateMixDesign', testParams)
       console.log('calculateMixDesign返回结果:', result)
       
       if (result.success) {
@@ -396,7 +396,7 @@ const MixDesignPage = () => {
       }
       
       console.log('调用calculateMixDesign...')
-      const result = await window.electron.ipcRenderer.invoke('calculateMixDesign', params)
+      const result = await window.electronAPI.invoke('calculateMixDesign', params)
       console.log('calculateMixDesign返回结果:', result)
       
       if (result.success) {
@@ -489,7 +489,7 @@ const MixDesignPage = () => {
       }
 
       console.log('调用批量计算接口...')
-      const result = await window.electron.ipcRenderer.invoke('calculateSeriesMixDesign', {
+      const result = await window.electronAPI.invoke('calculateSeriesMixDesign', {
         baseParams,
         strengthRange: ['C15', 'C20', 'C25', 'C30', 'C35', 'C40', 'C45', 'C50', 'C55', 'C60']
       })
@@ -583,7 +583,7 @@ const MixDesignPage = () => {
           }
         })
 
-        const result = await window.electron.ipcRenderer.invoke('batchSaveSeriesMixDesigns', {
+        const result = await window.electronAPI.invoke('batchSaveSeriesMixDesigns', {
           designs: designsToSave,
           saveValues: {
             ...saveValues,
@@ -627,7 +627,7 @@ const MixDesignPage = () => {
         totalCost: mixDesignData.totalCost
       })
 
-      const result = await window.electron.ipcRenderer.invoke('createMixDesign', mixDesignData)
+      const result = await window.electronAPI.invoke('createMixDesign', mixDesignData)
       if (result.success) {
         message.success('保存成功')
         closeSaveModal()
@@ -904,7 +904,7 @@ const MixDesignPage = () => {
                   if (Array.isArray(values)) {
                     values.forEach(id => {
                       if (!batchMap[id]) {
-                        window.electron.ipcRenderer.invoke('material:getBatches', { materialId: id })
+                        window.electronAPI.invoke('material:getBatches', { materialId: id })
                           .then(r => {
                             const batches = Array.isArray(r) ? r : []
                             setBatchMap(prev => ({ ...prev, [id]: batches }))
@@ -939,7 +939,7 @@ const MixDesignPage = () => {
                   if (Array.isArray(values)) {
                     values.forEach(id => {
                       if (!batchMap[id]) {
-                        window.electron.ipcRenderer.invoke('material:getBatches', { materialId: id })
+                        window.electronAPI.invoke('material:getBatches', { materialId: id })
                           .then(r => {
                             const batches = Array.isArray(r) ? r : []
                             setBatchMap(prev => ({ ...prev, [id]: batches }))

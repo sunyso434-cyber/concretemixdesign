@@ -26,7 +26,7 @@ const ImportWizard = ({ onClose }) => {
     const file = e.target.files[0]
     if (!file) return
 
-    const dialogResult = await window.electron.ipcRenderer.invoke('show-open-dialog', {
+    const dialogResult = await window.electronAPI.invoke('show-open-dialog', {
       title: '选择要导入的文件',
       filters: [
         { name: 'Excel/CSV', extensions: ['xlsx', 'csv'] },
@@ -39,7 +39,7 @@ const ImportWizard = ({ onClose }) => {
     setFilePath(selectedPath)
 
     try {
-      const result = await window.electron.ipcRenderer.invoke('parse-import-file', selectedPath)
+      const result = await window.electronAPI.invoke('parse-import-file', selectedPath)
       if (result && result.success) {
         setPreviewData(result.data.rows.slice(0, 10))
         setPreviewColumns(result.data.columns)
@@ -59,7 +59,7 @@ const ImportWizard = ({ onClose }) => {
   const handleConfirmImport = async () => {
     setImporting(true)
     try {
-      await window.electron.ipcRenderer.invoke('start-import-task', {
+      await window.electronAPI.invoke('start-import-task', {
         type: importType,
         filePath,
       })

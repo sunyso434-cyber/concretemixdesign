@@ -22,7 +22,7 @@
 
 const fs = require('fs')
 const path = require('path')
-const XLSX = require('xlsx')
+const { Op } = require('sequelize')
 const DataValidator = require('./DataValidator')
 
 // ============ 列映射表定义 ============
@@ -112,7 +112,7 @@ const FEATURE_SUBSETS = {
   superplasticizer_dosage:  ALL_FEATURES,                                      // 32 维（含 feature_slump）
 }
 
-// ============ 基座 XLSX 搜索路径 ============
+// ============ 基座搜索路径 ============
 
 function getResourcesDir() {
   const isPackaged = __dirname.includes('app.asar')
@@ -123,8 +123,20 @@ function getResourcesDir() {
   return path.join(__dirname, '..', '..', '..', '..', 'resources')
 }
 
-function getDocsDir() {
-  return path.join(getResourcesDir(), '..', 'docs')
+/**
+ * 用户数据目录（userData）
+ * 非 Electron 环境兜底：复刻 db/database.js 的 lazy require + 回退模式，
+ * 保证 tests/unit 用 node 直跑时不崩。
+ */
+function getUserDataDir() {
+  try {
+    const { app } = require('electron')
+    if (app && app.getPath) return app.getPath('userData')
+  } catch (e) {
+    // 非 Electron 环境
+  }
+  const basePath = process.env.USER_DATA_PATH || process.env.APPDATA || path.join(process.cwd(), 'data')
+  return path.join(basePath, 'concrete-mixdesign')
 }
 
 // ============ TrainingDataBuilder ============
@@ -149,7 +161,7 @@ class TrainingDataBuilder {
       return this._models.TrialTestRecord
     }
     // lazy require（避免模块加载时依赖 database）
-    const { TrialTestRecord } = require('../../db/models/TrialTestRecord')
+    const TrialTestRecord = require('../../db/models/TrialTestRecord')
     return TrialTestRecord
   }
 
@@ -183,7 +195,10 @@ class TrainingDataBuilder {
    */
   async buildFromTrialRecords(opts = {}) {
     const model = this._getTrialTestModel()
-    const where = opts.status ? { trialStatus: opts.status } : {}
+    // 默认白名单『已试配/已复核』（排除『驳回』）；传入 opts.status 时按等值覆盖
+    const where = opts.status
+      ? { trialStatus: opts.status }
+      : { trialStatus: { [Op.in]: ['已试配', '已复核'] } }
     const records = await model.findAll({
       where,
       order: [['createdAt', 'ASC']]
@@ -224,7 +239,7 @@ class TrainingDataBuilder {
     const csv = this._rowsToCsv(CSV_HEADER, allRows)
     let exportPath = null
     if (opts.exportCsv !== false) {
-      exportPath = this._exportAuditCsv(csv, version)
+      exportPath = this._exportAuditCsv(csv, version, opts.exportDir)
     }
 
     return {
@@ -385,19 +400,15 @@ class TrainingDataBuilder {
    * @returns {Promise<Object[]>}
    */
   async _loadBaseTrainingData() {
+    // 统一 CSV 单源：userData 优先，回退内置 resources/models
     const candidates = [
-      path.join(getResourcesDir(), 'training_base.xlsx'),
-      path.join(getResourcesDir(), '..', 'docs', 'newtemplate_training_data_processed.xlsx'),
-      path.join(getResourcesDir(), '..', 'docs', 'newtemplate_training_data.xlsx'),
-      path.join(getResourcesDir(), '..', 'docs', 'template_training_data.xlsx'),
-      path.join(getDocsDir(), 'newtemplate_training_data_processed.xlsx'),
-      path.join(getDocsDir(), 'newtemplate_training_data.xlsx'),
-      path.join(getDocsDir(), 'template_training_data.xlsx')
+      path.join(getUserDataDir(), 'models', 'base_training_data.csv'),
+      path.join(getResourcesDir(), 'models', 'base_training_data.csv')
     ]
 
     for (const filePath of candidates) {
       if (fs.existsSync(filePath)) {
-        return this._parseXlsxRows(filePath)
+        return this._parseCsvRows(filePath)
       }
     }
 
@@ -412,35 +423,28 @@ class TrainingDataBuilder {
    * @param {string} filePath
    * @returns {Object[]}
    */
-  _parseXlsxRows(filePath) {
-    const wb = XLSX.readFile(filePath)
-    const ws = wb.Sheets[wb.SheetNames[0]]
-    const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 })
+  _parseCsvRows(filePath) {
+    const text = fs.readFileSync(filePath, 'utf-8')
+    const lines = text.trim().split(/\r?\n/)
+    if (lines.length < 2) return []
 
-    if (rawData.length < 2) return []
-
-    const xlsxHeader = rawData[0]
+    const header = lines[0].split(',')
     const rows = []
 
-    for (let i = 1; i < rawData.length; i++) {
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (!line) continue
+
+      const vals = line.split(',')
       const row = {}
-      const rawRow = rawData[i]
-      if (!rawRow || rawRow.length === 0) continue
-
-      // 跳过全空行
-      const hasValue = rawRow.some(v => v !== undefined && v !== null && v !== '')
-      if (!hasValue) continue
-
-      for (let j = 0; j < xlsxHeader.length; j++) {
-        const colName = xlsxHeader[j]
+      for (let j = 0; j < header.length; j++) {
+        const colName = header[j]
         // 只取 CSV_HEADER 中存在的列
-        if (CSV_HEADER.includes(colName)) {
-          const rawVal = rawRow[j]
-          row[colName] = (rawVal !== undefined && rawVal !== null && rawVal !== '')
-            ? Number(rawVal) : -1
-        }
+        if (!CSV_HEADER.includes(colName)) continue
+        const rawVal = vals[j]
+        row[colName] = (rawVal !== undefined && rawVal !== null && rawVal !== '')
+          ? Number(rawVal) : -1
       }
-
       rows.push(row)
     }
 
@@ -464,8 +468,9 @@ class TrainingDataBuilder {
    * @param {string} version
    * @returns {string} 导出文件路径
    */
-  _exportAuditCsv(csvContent, version) {
-    const modelsDir = getResourcesDir() + '/models'
+  _exportAuditCsv(csvContent, version, exportDir = null) {
+    // 默认写 userData/models（避免写 resources/ 安装目录）；可注入 exportDir（测试用临时目录）
+    const modelsDir = exportDir || path.join(getUserDataDir(), 'models')
     const archiveDir = path.join(modelsDir, 'archive', version)
     fs.mkdirSync(archiveDir, { recursive: true })
 
@@ -503,7 +508,7 @@ class TrainingDataBuilder {
 
     // 否则使用 Sequelize 批量查询
     try {
-      const { MaterialBatch } = require('../../db/models/MaterialBatch')
+      const MaterialBatch = require('../../db/models/MaterialBatch')
       const batches = await MaterialBatch.findAll({
         where: { id: Array.from(batchIds) }
       })

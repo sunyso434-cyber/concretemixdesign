@@ -87,7 +87,8 @@ const INVOKE_CHANNELS = new Set([
   // 试配记录
   'trialtest:create',
   'trialtest:list',
-  'trialtest:get'
+  'trialtest:get',
+  'trialtest:repredict'
 ])
 
 const EVENT_CHANNELS = new Set([
@@ -273,43 +274,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
   }
 })
 
-// 兼容旧的 electron 对象
-contextBridge.exposeInMainWorld('electron', {
-  ipcRenderer: {
-    invoke: invokeAllowed,
-    on: onAllowed,
-    removeListener: (id) => {
-      const entry = listenerCache.get(id)
-      if (entry) {
-        ipcRenderer.removeListener(entry.channel, entry.wrapper)
-        listenerCache.delete(id)
-      }
-    }
-  },
-  // Skill 管理
-  skill: {
-    listAll: () => ipcRenderer.invoke('skill:listAll'),
-    getUserDir: () => ipcRenderer.invoke('skill:getUserDir'),
-    getUserSkills: () => ipcRenderer.invoke('skill:getUserSkills'),
-    openUserDir: () => ipcRenderer.invoke('skill:openUserDir'),
-    reload: () => ipcRenderer.invoke('skill:reload')
-  },
-  // Todo 计划面板（兼容旧的 electron 对象访问点）
-  todo: {
-    list: (sessionId) => ipcRenderer.invoke('todo:list', { sessionId }),
-    onUpdate: (func) => {
-      const id = generateListenerId()
-      const wrapper = (event, ...args) => func(...args)
-      listenerCache.set(id, { channel: 'todo:updated', wrapper })
-      ipcRenderer.on('todo:updated', wrapper)
-      return id
-    },
-    removeUpdateListener: (id) => {
-      const entry = listenerCache.get(id)
-      if (entry) {
-        ipcRenderer.removeListener(entry.channel, entry.wrapper)
-        listenerCache.delete(id)
-      }
-    }
-  }
-})
+// 旧的 window.electron 兼容对象已移除（问题 14：全工程统一走 window.electronAPI）
