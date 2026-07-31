@@ -142,6 +142,8 @@
     }
   },
   "devDependencies": {
+    "@babel/preset-env": "^7.29.7",
+    "@babel/preset-react": "^7.29.7",
     "@vitejs/plugin-react": "^4.7.0",
     "cross-env": "^10.1.0",
     "electron": "^35.7.5",

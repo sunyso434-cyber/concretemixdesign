@@ -272,13 +272,14 @@ function buildBoosterParams(params) {
 }
 
 /**
- * 训练并评估 5 折 CV RMSE（用于 TPE 调参的目标函数）
- * @returns {number} 平均 RMSE
+ * 训练并评估 5 折 CV（用于 TPE 调参的目标函数 + 最终模型报告）
+ * @returns {{ rmse: number, r2: number }} 平均 RMSE 与平均 R²
  */
 function trainAndEvaluateCV(params, dataCache) {
   const { X: XData, y: yData, nSamples, nFeatures } = dataCache
   const folds = kFold(nSamples, 5, 42)
   const rmseList = []
+  const r2List = []
   const boosterParams = buildBoosterParams(params)
 
   for (const { train: trainIdx, test: testIdx } of folds) {
@@ -310,6 +311,7 @@ function trainAndEvaluateCV(params, dataCache) {
     const dtest = new DMatrix(XTest, { nrow: nTest, ncol: nFeatures })
     const yPred = Array.from(booster.predict(dtest))
     rmseList.push(rmse(yTest, yPred))
+    r2List.push(r2Score(yTest, yPred))
 
     booster.dispose()
     dtrain.dispose()
@@ -317,7 +319,8 @@ function trainAndEvaluateCV(params, dataCache) {
   }
 
   const avgRmse = rmseList.reduce((a, b) => a + b, 0) / rmseList.length
-  return avgRmse
+  const avgR2 = r2List.reduce((a, b) => a + b, 0) / r2List.length
+  return { rmse: avgRmse, r2: avgR2 }
 }
 
 /**
@@ -347,7 +350,7 @@ async function runTpeTuning(dataCache, targetName, nTrials, basePercent) {
       sampler: Sampler.tpe({ seed: 42 }),
       objective: (config) => Effect.sync(() => {
         trialCount++
-        const foldRmse = trainAndEvaluateCV(config, dataCache)
+        const { rmse: foldRmse } = trainAndEvaluateCV(config, dataCache)
         if (!Number.isFinite(foldRmse)) return 1e9
         if (trialCount % 10 === 0 || trialCount === 1) {
           const span = STAGES.TPE_END - STAGES.TPE_START
@@ -530,10 +533,9 @@ async function main() {
     const nativeJson = await trainFinalModel(dataCache, bestParams)
     sendProgress(`[${targetName}] 模型训练完成 (${((Date.now() - trainStartTime) / 1000).toFixed(1)}s)`, basePercent + STAGES.TRAIN_DONE)
 
-    // 计算 5 折 CV 评估（用于报告）
+    // 计算 5 折 CV 评估（用于报告：RMSE + R²）
     sendProgress(`[${targetName}] 计算 5 折 CV...`, basePercent + STAGES.CV)
-    const cvRmse = trainAndEvaluateCV(bestParams, dataCache)
-    const cvR2 = 0 // 简化：仅记录 RMSE，全量评估在后续优化
+    const { rmse: cvRmse, r2: cvR2 } = trainAndEvaluateCV(bestParams, dataCache)
 
     // 计算特征统计
     const featureStats = computeFeatureStats(
@@ -554,7 +556,7 @@ async function main() {
         n_estimators: bestParams.n_estimators,
         max_depth: bestParams.max_depth,
         rmse: Math.round(cvRmse * 10000) / 10000,
-        r_squared: 0, // 完整 R² 在后续 CV 中计算
+        r_squared: Math.round(cvR2 * 10000) / 10000,
         best_params: bestParams,
         tuned: true,
         n_trials: nTrials
@@ -582,6 +584,7 @@ async function main() {
       features: nFeatures,
       trees: convertedModel.trees.length,
       rmse: Math.round(cvRmse * 10000) / 10000,
+      rSquared: Math.round(cvR2 * 10000) / 10000,
       best_params: bestParams
     }
 

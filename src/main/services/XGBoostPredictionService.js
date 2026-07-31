@@ -2,18 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const MaterialService = require('./MaterialService')
 const MixFormatConverter = require('./MixFormatConverter')
-
-// 模型目录 - 兼容开发模式和打包模式
-function getModelsDir() {
-  const isPackaged = __dirname.includes('app.asar')
-
-  if (isPackaged) {
-    const asarPath = __dirname.split('app.asar')[0]
-    return path.join(asarPath, 'app.asar.unpacked', 'resources', 'models')
-  }
-
-  return path.join(__dirname, '..', '..', '..', 'resources', 'models')
-}
+const { getUserModelsDir, getBuiltinModelsDir, readModelFile } = require('./training/modelPaths')
 
 // 老板 2026-07-10: 去除坍落度作为目标，减水剂掺量作为新目标
 // 文件名去掉下划线以匹配 train.py 第145行的 replace("_", "")
@@ -51,9 +40,10 @@ class XGBoostPredictionService {
   async _doLoad() {
     const models = {}
 
+    // 特征配置：仅内置提供，用户训练不生成 feature_config.json
     let featureConfigPath
     try {
-      featureConfigPath = path.join(getModelsDir(), 'feature_config.json')
+      featureConfigPath = path.join(getBuiltinModelsDir(), 'feature_config.json')
       const raw = fs.readFileSync(featureConfigPath, 'utf-8')
       this._featureConfig = JSON.parse(raw)
     } catch (err) {
@@ -63,9 +53,13 @@ class XGBoostPredictionService {
 
     for (const [target, filename] of Object.entries(MODEL_FILES)) {
       try {
-        const filePath = path.join(getModelsDir(), filename)
-        const raw = fs.readFileSync(filePath, 'utf-8')
-        const modelData = JSON.parse(raw)
+        // 优先用户训练模型，回退内置模型（修复：训练后预测不变）
+        const info = readModelFile(target)
+        if (!info) {
+          console.log(`模型 ${filename} 不存在（用户目录与内置目录均无）`)
+          continue
+        }
+        const modelData = info.data
 
         if (
           modelData.model_version === '0.0-placeholder' ||

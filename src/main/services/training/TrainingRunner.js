@@ -21,6 +21,7 @@ const path = require('path')
 const XGBoostTrainingService = require('../XGBoostTrainingService')
 const XGBoostPredictionService = require('../XGBoostPredictionService')
 const TrainingDataBuilder = require('./TrainingDataBuilder')
+const { getUserModelsDir, getBuiltinModelsDir, readModelFile } = require('./modelPaths')
 
 // ============ 常量 ============
 
@@ -40,33 +41,7 @@ const TARGET_NAMES = [
 const BASE_TRAINING_CSV_NAME = 'base_training_data.csv'
 
 // ============ 目录管理 ============
-
-/**
- * 获取用户模型目录（userData/models/）
- * 非 Electron 环境兜底（复刻 db/database.js 模式），jest / node 直跑不崩
- */
-function getUserModelsDir() {
-  try {
-    const { app } = require('electron')
-    if (app && app.getPath) return path.join(app.getPath('userData'), 'models')
-  } catch (e) {
-    // 非 Electron 环境
-  }
-  const basePath = process.env.USER_DATA_PATH || process.env.APPDATA || path.join(process.cwd(), 'data')
-  return path.join(basePath, 'concrete-mixdesign', 'models')
-}
-
-/**
- * 获取内置模型目录（resources/models/）
- */
-function getBuiltinModelsDir() {
-  const isPackaged = __dirname.includes('app.asar')
-  if (isPackaged) {
-    const asarPath = __dirname.split('app.asar')[0]
-    return path.join(asarPath, 'app.asar.unpacked', 'resources', 'models')
-  }
-  return path.join(__dirname, '..', '..', '..', '..', 'resources', 'models')
-}
+// getUserModelsDir / getBuiltinModelsDir / readModelFile 已统一到 ./modelPaths（训练与预测共用）
 
 /**
  * 获取基座训练数据 CSV 路径（新格式 base_training_data.csv）
@@ -78,22 +53,6 @@ function getBaseTrainingCsvPath() {
   ]
   for (const p of candidates) {
     if (fs.existsSync(p)) return p
-  }
-  return null
-}
-
-/**
- * 读取模型文件（优先 userData，回退内置）
- */
-function readModelFile(targetKey) {
-  const fileName = targetKey.replace(/_/g, '') + '.json'
-  const userPath = path.join(getUserModelsDir(), fileName)
-  if (fs.existsSync(userPath)) {
-    return { path: userPath, data: JSON.parse(fs.readFileSync(userPath, 'utf-8')), source: 'user' }
-  }
-  const builtinPath = path.join(getBuiltinModelsDir(), fileName)
-  if (fs.existsSync(builtinPath)) {
-    return { path: builtinPath, data: JSON.parse(fs.readFileSync(builtinPath, 'utf-8')), source: 'builtin' }
   }
   return null
 }
