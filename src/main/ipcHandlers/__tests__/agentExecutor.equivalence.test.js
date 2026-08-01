@@ -114,6 +114,8 @@ describe('agent:run 行为等价（走 executor.runAgentSession，sink 双角色
       attachments: [],
       webContents: sender, // sink 双角色：传给 Orchestrator 的就是 event.sender
     }))
+    // 负向断言：persistUserMessage=false 路径下用户消息不落库（渲染端已先 saveMessage，「恰好一次」约束）
+    expect(AgentMemoryService.saveMessage).not.toHaveBeenCalled()
   })
 
   test('失败：classifyError 结构化 code/title/hint，agent:progress error 事件含 requestId', async () => {
