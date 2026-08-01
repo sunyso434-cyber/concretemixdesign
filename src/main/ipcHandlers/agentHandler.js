@@ -22,7 +22,6 @@ const SkillDebugger = require('../agent/SkillDebugger')
 const { buildWorkspaceSkills } = require('../agent/workspaceTools')
 const agentMemoryService = require('../services/AgentMemoryService')
 const SystemService = require('../services/SystemService')
-const { classifyError } = require('../agent/errorClassifier')
 // v9.0.0 补充21：会话业务封装（ensureSession / discardSessionIfEmpty / listRecentSessionsWithMeta）
 const SessionService = require('../db/services/SessionService')
 const { applyArchive } = require('./archiveSessionCore')
@@ -33,10 +32,13 @@ let skillExecutor = null
 let skillDebugger = null
 let cachedActiveConfigId = null
 
-// 每会话独立的 Orchestrator 实例（多会话并行）
-// key: sessionId, value: { orchestrator, running: bool, startedAt: number, requestId: string }
-const sessionAgents = new Map()
-const AGENT_LOCK_TIMEOUT = 120000 // 2 分钟超时自动释放（spec 8.2）
+// M0-2：会话锁 / Orchestrator / 控制逻辑委托给共享执行模块 agentExecutor（行为等价，桌面零变化）。
+// 每会话独立的 Orchestrator 实例（多会话并行）与 2 分钟锁超时（spec 8.2）已移至 executor 内部。
+const { createAgentExecutor } = require('../agent/agentExecutor')
+const executor = createAgentExecutor({ getOrchestratorForSession, getOrchestrator })
+// M0-2：R11 将把 executor 的默认 sink 切换为共享 FanoutSink；M0 阶段不接线，仍走 event.sender
+let executorDefaultSink = null
+function setFanout(fanout) { executorDefaultSink = fanout }
 
 // 兼容旧代码引用的全局 orchestrator（取最近一次创建的实例，仅供 getOrchestrator 内部使用）
 let orchestrator = null
@@ -255,6 +257,8 @@ async function getOrchestrator() {
       agentMemoryService,
       systemService: SystemService
     })
+    // M0-2：全局 orchestrator 更新时同步 executor 的全局 fallback（confirm/abort 无 sessionId 路径）
+    executor.setGlobalFallback(orchestrator)
 
     const { registerSlashCommandHandler } = require('./slashCommandHandler')
     registerSlashCommandHandler({
@@ -284,9 +288,10 @@ async function getOrchestratorForSession(sessionId) {
 
   const ds = global.deepseekService
 
-  const existing = sessionAgents.get(sessionId)
-  if (existing && existing.orchestrator && cachedActiveConfigId === activeConfig.id) {
-    return existing.orchestrator
+  // M0-2：只读复用当前运行中的会话 Orchestrator（不写 Map；写入只发生在 runAgentSession，与原行为一致）
+  const existing = executor.getSessionOrchestrator(sessionId)
+  if (existing && cachedActiveConfigId === activeConfig.id) {
+    return existing
   }
 
   const ag = Orchestrator.create('unified', {
@@ -310,97 +315,38 @@ function registerAgentHandlers() {
   ipcMain.handle('agent:run', async (event, { requestId, sessionId, message, mode, attachments }) => {
     // 生成 requestId（如渲染端未传）
     const reqId = requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
-    // [DEBUG] 记录请求到达和锁状态（每会话独立锁）
-    const lockState = sessionAgents.get(sessionId)
-    _log(`[AgentHandler] 🔵 agent:run 收到请求 sessionId=${sessionId} requestId=${reqId} 该会话锁=${lockState?.running ? Math.round((Date.now() - lockState.startedAt) / 1000) + 's' : '无'} 图片数=${Array.isArray(attachments) ? attachments.length : 0}`)
+    _log(`[AgentHandler] 🔵 agent:run 收到请求 sessionId=${sessionId} requestId=${reqId} 图片数=${Array.isArray(attachments) ? attachments.length : 0}`)
 
-    if (lockState && lockState.running) {
-      if (Date.now() - lockState.startedAt > AGENT_LOCK_TIMEOUT) {
-        _log(`[AgentHandler] ⚠️ agent:run 锁超时自动释放 sessionId=${sessionId} requestId=${reqId} (held ${Math.round((Date.now() - lockState.startedAt) / 1000)}s)`)
-        lockState.running = false
-      } else {
-        _log(`[AgentHandler] 🚫 agent:run 被锁拒绝（同一会话已有任务在跑）sessionId=${sessionId} requestId=${reqId}`)
-        return { success: false, error: '该会话已有任务在执行，请稍等' }
-      }
-    }
-
-    try {
-      const ag = await getOrchestratorForSession(sessionId)
-      if (!ag) {
-        _log(`[AgentHandler] ❌ agent:run Orchestrator 未初始化 requestId=${reqId}`)
-        return { success: false, error: 'DeepSeek API未配置，请在系统设置中配置API密钥' }
-      }
-
-      // 注册会话锁
-      sessionAgents.set(sessionId, { orchestrator: ag, running: true, startedAt: Date.now(), requestId: reqId })
-      _log(`[AgentHandler] 🔒 agent:run 获取锁 sessionId=${sessionId} requestId=${reqId}`)
-
-      // v9.1.0 修复：透传 attachments（图片附件）到 Orchestrator
-      // - 渲染端 sendMessage 时把 chatState.attachments 通过 IPC 传进来
-      // - 旧实现解构时丢掉了 attachments 字段，Agent 永远看不到图片
-      // - 现在 attachments 进入 UnifiedStrategy.execute，由 strategy 决定如何用（调 analyze_concrete_image 技能）
-      _log(`[AgentHandler] 🚀 agent:run 开始执行 requestId=${reqId} message="${message.slice(0, 50)}" mode=${mode} attachments=${attachments?.length || 0}`)
-      const result = await ag.run({ sessionId, message, mode: mode || 'auto', webContents: event.sender, attachments: Array.isArray(attachments) ? attachments : [] })
-      _log(`[AgentHandler] ✅ agent:run 执行完成 requestId=${reqId}: ${JSON.stringify({ success: result?.success, hasContent: !!result?.content, contentLen: result?.content?.length || 0, error: result?.error })}`)
-
-      // UnifiedStrategy 已通过流式事件发送 type: 'done' / type: 'error'，这里不再重复发送
-
-      return { success: true, result }
-    } catch (error) {
-      _log(`[AgentHandler] 💥 agent:run 异常 requestId=${reqId}: ${error.message}`)
-      // 异常情况（Orchestrator 层面崩溃）：分类错误并发送标准化错误事件
-      const classified = classifyError(error, {
-        callSite: 'agentHandler.agent:run',
-        sessionId,
-        requestId: reqId,
-      })
-      try {
-        if (!event.sender.isDestroyed()) {
-          event.sender.send('agent:progress', {
-            type: 'error',
-            error: classified,
-            sessionId,
-            requestId: reqId,
-          })
-        }
-      } catch (_) {}
-
-      return { success: false, error: classified }
-    } finally {
-      // 释放该会话锁 + 释放 Orchestrator 实例（避免内存累积，下次重新创建）
-      const s = sessionAgents.get(sessionId)
-      if (s) {
-        s.orchestrator = null
-        s.running = false
-        s.startedAt = 0
-      }
-      // _cleanupSession 已挪到 deleteSession 时执行（有未完成 todo 时保留）
-      // 不再每次 run 结束时清空，让 todo 跨 run 持久存在
-      _log(`[AgentHandler] 🔓 agent:run 释放锁 sessionId=${sessionId} requestId=${reqId}`)
-    }
+    // M0-2：锁检查 / Orchestrator 获取 / 执行 / 错误分类 / 锁释放 全部委托给 executor.runAgentSession
+    // - sink 双角色：event.sender 既是事件发射器（.send），也是传给 Orchestrator 的 webContents
+    // - persistUserMessage=false：渲染端已先 saveMessage，run 不再落库用户消息
+    const result = await executor.runAgentSession({
+      sessionId,
+      requestId: reqId,
+      message,
+      mode,
+      attachments,
+      sink: event.sender,
+      persistUserMessage: false
+    })
+    const errSummary = result?.error
+      ? (typeof result.error === 'object' ? (result.error.code || '') : result.error)
+      : ''
+    _log(`[AgentHandler] 🚀 agent:run 完成 requestId=${reqId} success=${result?.success} error=${errSummary}`)
+    return result
   })
 
   ipcMain.handle('agent:pause', async (_event, { requestId, sessionId }) => {
-    const s = sessionId ? sessionAgents.get(sessionId) : null
-    if (s?.orchestrator) s.orchestrator.pause()
-    return { success: true }
+    return executor.pause({ sessionId })
   })
 
   ipcMain.handle('agent:resume', async (_event, { requestId, sessionId }) => {
-    const s = sessionId ? sessionAgents.get(sessionId) : null
-    if (s?.orchestrator) s.orchestrator.resume()
-    return { success: true }
+    return executor.resume({ sessionId })
   })
 
   ipcMain.handle('agent:abort', async (_event, { requestId, sessionId }) => {
-    // 优先按 sessionId 定位（新协议）；fallback 到旧的单例 orchestrator
-    if (sessionId) {
-      const s = sessionAgents.get(sessionId)
-      if (s?.orchestrator) s.orchestrator.abort()
-    } else if (orchestrator) {
-      orchestrator.abort()
-    }
-    return { success: true }
+    // M0-2：委托 executor.abort（sessionId 优先，无 sessionId / 非运行会话走全局 fallback，与 M0-1 评审一致）
+    return executor.abort({ sessionId })
   })
 
   // === Todo 计划面板（2026-07-08）：前端 mount 时拉取当前会话最新清单 ===
@@ -422,120 +368,25 @@ function registerAgentHandlers() {
   })
 
   ipcMain.handle('agent:saveMessage', async (_event, { sessionId, role, content, metadata, stopReason }) => {
-    if (!sessionId) {
-      return { success: false, error: 'sessionId is required' }
-    }
-    if (role && !['user', 'assistant', 'system', 'tool'].includes(role)) {
-      return { success: false, error: `invalid role: ${role}` }
-    }
-    try {
-      await agentMemoryService.saveMessage({ sessionId, role, content, metadata, stopReason })
-
-      // v9.0.0 补充21：首条消息触达时通过 SessionService.ensureSession 创建 ChatSession 记录
-      // 之前的 createSession IPC 已在渲染端移除（未发送消息的会话不再写库）
-      if (role === 'user' && content && sessionId) {
-        // 异步 IIFE：fire-and-forget，saveMessage 立即返回
-        ;(async () => {
-          try {
-            const currentWorkspacePath = global.workspaceManager ? global.workspaceManager.current()?.path : null
-            const { created, session } = await SessionService.ensureSession({
-              sessionId,
-              sessionName: null,
-              workspacePath: currentWorkspacePath
-            })
-
-            // 检查 sessionName 是否是默认名（兼容历史遗留：空 / 新会话- / 新对话 / 对话 YYYY-MM-DD HH:mm）
-            const currentName = session?.sessionName || ''
-            const isDefaultName = (name) =>
-              !name ||
-              name.startsWith('新会话-') ||
-              name.startsWith('新对话 ') ||
-              /^对话 \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(name) ||
-              /^对话 \d{2}-\d{2} \d{2}:\d{2}$/.test(name)
-            const isFirstMessage = created || isDefaultName(currentName)
-
-            let sessionName
-            if (isFirstMessage) {
-              // 尝试使用 AI 生成摘要
-              try {
-                const ag = await getOrchestrator()
-                if (ag && ag.deepseekService) {
-                  const prompt = `请从以下用户消息中提取关键信息，生成一个简短的会话标题（不超过20个字符）。
-要求：
-1. 保留核心意图
-2. 去除语气词和无关信息
-3. 如果包含具体参数（如强度等级、材料名称），优先保留
-4. 只返回标题文本，不要添加引号或其他格式
-
-用户消息：${content.trim()}`
-                  sessionName = await ag.deepseekService.invoke(prompt)
-                  sessionName = sessionName.trim().substring(0, 20)
-                  _log(`[AgentHandler] AI摘要生成成功: "${sessionName}"`)
-                }
-              } catch (err) {
-                _log(`[AgentHandler] AI摘要生成失败，使用截取方式: ${err.message}`)
-              }
-            }
-
-            // 后续消息（已有非默认标题）：只更新 lastActivity，不动 sessionName
-            // 这样历史会话的标题保持为用户第一条消息生成的摘要，不会被最近消息覆盖
-            if (!isFirstMessage) {
-              _log(`[AgentHandler] 后续消息，仅更新 lastActivity（标题保持不变）`)
-              return
-            }
-
-            // 第一条消息：AI 摘要失败时使用消息内容前 15 字（grapheme-safe），不再 fallback 到时间格式
-            if (!sessionName) {
-              const trimmed = content.trim()
-              sessionName = trimmed ? [...trimmed].slice(0, 15).join('') : '新会话'
-            }
-
-            await SessionService.ensureSession({
-              sessionId,
-              sessionName,
-              workspacePath: currentWorkspacePath
-            })
-            _log(`[AgentHandler] 会话标题已更新: "${sessionName}"`)
-
-            // 标题变更后立即失效 listSessionsGrouped 缓存，确保前端刷新拿到最新标题
-            if (global.chatHistorySync?.invalidateGroupedCache) {
-              global.chatHistorySync.invalidateGroupedCache()
-            }
-
-            // 通知前端刷新会话列表（解决异步 AI 摘要晚于 loadSessionList 完成的时序问题）
-            try {
-              if (_event && _event.sender && !_event.sender.isDestroyed()) {
-                _event.sender.send('agent:sessionUpdated', { sessionId, sessionName })
-              }
-            } catch (_) {}
-          } catch (err) {
-            _log(`[AgentHandler] 异步更新会话标题失败: ${err.message}`)
-          }
-        })()
-      }
-
-      return { success: true }
-    } catch (e) {
-      return { success: false, error: e.message }
-    }
+    // M0-2：整体委托 executor.saveUserMessage
+    // - 内部先 await saveMessage 落库，再 fire-and-forget ensureSession（建会话 + AI 标题 + 缓存失效 + 广播）
+    // - workspacePath 用当前工作区路径（与原逻辑一致）
+    // - sink 双角色：_event.sender 既是事件发射器，也是 webContents
+    return executor.saveUserMessage({
+      sessionId,
+      role,
+      content,
+      metadata,
+      stopReason,
+      workspacePath: global.workspaceManager?.current()?.path ?? null,
+      sink: _event.sender
+    })
   })
 
   // v9.1.0 ask_user：按 sessionId 路由到对应会话的 Orchestrator.resolveConfirmation
-  // 旧实现用全局 orchestrator，多会话并行时会路由错误（A 会话的问题被 B 会话回答）
+  // M0-2：委托 executor.confirm（sessionId 优先，无 sessionId / 非运行会话走全局 fallback，与原行为一致）
   ipcMain.handle('agent:confirm', async (_event, { sessionId, confirmed, args }) => {
-    // 优先按 sessionId 路由（每会话独立 Orchestrator）
-    if (sessionId) {
-      const s = sessionAgents.get(sessionId)
-      if (s?.orchestrator && typeof s.orchestrator.resolveConfirmation === 'function') {
-        s.orchestrator.resolveConfirmation(confirmed, args)
-        return { success: true }
-      }
-    }
-    // 兼容旧路径：无 sessionId 时退回全局 orchestrator
-    if (orchestrator && typeof orchestrator.resolveConfirmation === 'function') {
-      orchestrator.resolveConfirmation(confirmed, args)
-    }
-    return { success: true }
+    return executor.confirm({ sessionId, confirmed, args })
   })
 
   ipcMain.handle('agent:listSessions', async () => {
@@ -606,7 +457,8 @@ function registerAgentHandlers() {
 
   ipcMain.handle('agent:archiveSession', async (_event, { sessionIds, archived }) => {
     const { ChatSession } = require('../db/database')
-    const isRunning = (sid) => !!sessionAgents.get(sid)?.running
+    // M0-2：isRunning 走 executor.isSessionRunning（会话运行状态由 executor 的 sessionAgents 维护）
+    const isRunning = (sid) => executor.isSessionRunning(sid)
     const result = await applyArchive({ sessionIds, archived, isRunning, ChatSession })
     if (global.chatHistorySync?.invalidateGroupedCache) global.chatHistorySync.invalidateGroupedCache()
     try {
@@ -1210,5 +1062,8 @@ module.exports = {
   registerAgentHandlers,
   getSkillRegistry: () => skillRegistry,
   getSkillExecutor: () => skillExecutor,
-  registerWorkspacePseudoSkills
+  registerWorkspacePseudoSkills,
+  // M0-2：暴露共享执行模块单例（R11 需把 executor 传给桌面 FanoutSink）与 setFanout（P1-2/R11 接线，M0 阶段仅定义不调用）
+  getExecutor: () => executor,
+  setFanout
 }
