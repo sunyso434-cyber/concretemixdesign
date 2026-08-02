@@ -75,6 +75,7 @@ const SessionSummary = require('./models/SessionSummary')
 const PreferenceSuggestion = require('./models/PreferenceSuggestion')
 const MaterialBatch = require('./models/MaterialBatch')
 const TrialTestRecord = require('./models/TrialTestRecord')
+const SecurityLog = require('./models/SecurityLog')
 
 // ChatSession 是工厂函数模型（需传入 sequelize），其他模型已自加载 sequelize
 const ChatSessionModel = require('./models/ChatSession')
@@ -213,7 +214,7 @@ async function ensureMemoryFts() {
 
 async function syncModels() {
   // UserPreference 已在阶段 B 迁移中废弃，不在此处注册
-  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion, MaterialBatch, TrialTestRecord]
+  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion, MaterialBatch, TrialTestRecord, SecurityLog]
   await runSchemaBaseline({ sequelize, models: allModels, dbPath })
   await ensureArchivedColumn()
   await ensureMemoryFts()
@@ -222,6 +223,7 @@ async function syncModels() {
   // ensureColumn 只能给已有表加列，不能创建全新表
   await MaterialBatch.sync({ alter: false, force: false })
   await TrialTestRecord.sync({ alter: false, force: false })
+  await SecurityLog.sync({ alter: false, force: false })
 
   // A3：为 materials 表添加 currentBatchId 字段（幂等）
   await ensureColumn(sequelize, 'materials', 'currentBatchId', 'INTEGER')
@@ -314,3 +316,4 @@ module.exports.SessionSummary = SessionSummary
 module.exports.PreferenceSuggestion = PreferenceSuggestion
 module.exports.MaterialBatch = MaterialBatch
 module.exports.TrialTestRecord = TrialTestRecord
+module.exports.SecurityLog = SecurityLog
