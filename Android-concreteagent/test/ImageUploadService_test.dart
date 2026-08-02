@@ -43,7 +43,7 @@ void main() {
         return http.Response(
           jsonEncode({
             'ok': true,
-            'path': '/workspace/photos/photo_1.jpg',
+            'path': '/workspace/raw/images/photo_1.jpg',
             'name': 'photo_1.jpg',
           }),
           200,
@@ -65,7 +65,7 @@ void main() {
       expect(captured!.bodyBytes, bytes);
 
       expect(result.ok, isTrue);
-      expect(result.path, '/workspace/photos/photo_1.jpg');
+      expect(result.path, '/workspace/raw/images/photo_1.jpg');
       expect(result.name, 'photo_1.jpg');
     });
 

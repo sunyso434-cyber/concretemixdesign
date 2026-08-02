@@ -4,7 +4,7 @@
 //   - 鉴权：token 无效/缺失 → { ok:false, error:'UNAUTHORIZED', status:401 }（不写文件）
 //   - 大小限制：body > 10MB → { ok:false, error:'IMAGE_TOO_LARGE', status:413 }
 //   - 扩展名白名单：jpg/jpeg/png/webp 通过；其他类型拒绝
-//   - 保存：写入 当前工作区/photos/<name>（复用 visionHandler.saveImageToWorkspace），返回 { ok:true, path, name }
+//   - 保存：写入 当前工作区/raw/images/<name>（复用 visionHandler.saveImageToWorkspace），返回 { ok:true, path, name }
 //   - 重名：已存在 → 时间戳后缀
 //   - 路径安全：文件名中的目录成分被剥离（basename 防路径穿越）
 //   - 无工作区 → { ok:false, error:'NO_WORKSPACE' }
@@ -116,8 +116,8 @@ describe('RemoteImageApi', () => {
 
       expect(r.ok).toBe(true)
       expect(r.name).toBe(name)
-      expect(r.path).toBe(path.join('/ws', 'photos', name))
-      expect(fs.promises.writeFile).toHaveBeenCalledWith(path.join('/ws', 'photos', name), expect.any(Buffer))
+      expect(r.path).toBe(path.join('/ws', 'raw', 'images', name))
+      expect(fs.promises.writeFile).toHaveBeenCalledWith(path.join('/ws', 'raw', 'images', name), expect.any(Buffer))
     })
 
     test.each(['a.gif', 'a.txt', 'a', 'a.JPG.'])('非法扩展名 %s → UNSUPPORTED_TYPE', async (name) => {
@@ -131,17 +131,17 @@ describe('RemoteImageApi', () => {
   })
 
   describe('保存路径与返回', () => {
-    test('成功：写入 工作区/photos/<name>，返回 { ok:true, path, name }', async () => {
+    test('成功：写入 工作区/raw/images/<name>，返回 { ok:true, path, name }', async () => {
       const api = new RemoteImageApi({ auth, workspaceManager: manager })
       const r = await api.handleUpload(makeReq({ url: '/api/image?name=photo.jpg' }), { token: 'ok-token' })
 
       expect(r).toEqual({
         ok: true,
-        path: path.join('/ws', 'photos', 'photo.jpg'),
+        path: path.join('/ws', 'raw', 'images', 'photo.jpg'),
         name: 'photo.jpg'
       })
-      expect(fs.promises.mkdir).toHaveBeenCalledWith(path.join('/ws', 'photos'), { recursive: true })
-      expect(fs.promises.writeFile).toHaveBeenCalledWith(path.join('/ws', 'photos', 'photo.jpg'), expect.any(Buffer))
+      expect(fs.promises.mkdir).toHaveBeenCalledWith(path.join('/ws', 'raw', 'images'), { recursive: true })
+      expect(fs.promises.writeFile).toHaveBeenCalledWith(path.join('/ws', 'raw', 'images', 'photo.jpg'), expect.any(Buffer))
     })
 
     test('重名：同名文件已存在 → 加时间戳后缀', async () => {
@@ -151,7 +151,7 @@ describe('RemoteImageApi', () => {
 
       expect(r.ok).toBe(true)
       expect(r.name).toMatch(/^a_\d{13}\.jpg$/)
-      expect(fs.promises.writeFile).toHaveBeenCalledWith(path.join('/ws', 'photos', r.name), expect.any(Buffer))
+      expect(fs.promises.writeFile).toHaveBeenCalledWith(path.join('/ws', 'raw', 'images', r.name), expect.any(Buffer))
     })
 
     test('路径安全：文件名含目录成分被剥离（防路径穿越）', async () => {
@@ -161,7 +161,7 @@ describe('RemoteImageApi', () => {
 
       expect(r.ok).toBe(true)
       expect(r.name).toBe('evil.jpg')
-      expect(fs.promises.writeFile).toHaveBeenCalledWith(path.join('/ws', 'photos', 'evil.jpg'), expect.any(Buffer))
+      expect(fs.promises.writeFile).toHaveBeenCalledWith(path.join('/ws', 'raw', 'images', 'evil.jpg'), expect.any(Buffer))
     })
 
     test('无 query name 时回退 X-Filename 头', async () => {

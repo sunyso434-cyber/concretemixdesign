@@ -7,7 +7,7 @@
 //   - 大小限制：≤10MB（流式读取超出即拒 → 413）
 //   - 扩展名白名单：jpg/jpeg/png/webp
 //   - 文件名来源：query ?name=（URL 编码）或 X-Filename 头；basename 剥离目录成分防路径穿越
-//   - 保存：当前工作区 photos/（workspaceManager.current().path；构造注入，缺省回退 global.workspaceManager）
+//   - 保存：当前工作区 raw/images/（workspaceManager.current().path；构造注入，缺省回退 global.workspaceManager）
 //   - 复用 visionHandler 抽出的 saveImageToWorkspace（buffer 写入 + 重名时间戳 + 确保目录）
 //
 // 响应对象可带数字 status 字段覆盖 HTTP 状态码（R5 骨架已留此接口）。
@@ -78,7 +78,7 @@ class RemoteImageApi {
       return { ok: false, error: 'NO_WORKSPACE', status: 400 }
     }
 
-    // 5. 保存到 <工作区>/photos/（复用 visionHandler.saveImageToWorkspace）
+    // 5. 保存到 <工作区>/raw/images/（复用 visionHandler.saveImageToWorkspace）
     try {
       const saved = await saveImageToWorkspace({ sourceBuffer: buffer, name, workspacePath })
       return { ok: true, path: saved.path, name: saved.name }

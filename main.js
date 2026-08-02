@@ -528,6 +528,10 @@ app.whenReady().then(async () => {
     if (global.chatHistorySync?.flush) {
       await global.chatHistorySync.flush()
     }
+    // 内置隧道（R12）：退出时停 frpc + 停远程监听，避免 frpc 孤儿进程残留
+    await remoteService.stop().catch((err) => {
+      console.warn('[main] 退出时远程服务清理失败:', err.message)
+    })
   })
 }).catch(error => {
   console.error('[main] 启动失败:', error)

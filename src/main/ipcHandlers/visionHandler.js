@@ -4,43 +4,46 @@ const path = require('path')
 
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
 
+// 上传图片统一存到工作区 raw/images/（老板 2026-08-02 决策：图片作为工作区原始素材，AI 知识库可索引）
+const IMAGES_DIR_REL = path.join('raw', 'images')
+
 function isImageFile(filename) {
   if (!filename) return false
   const ext = path.extname(filename).toLowerCase()
   return IMAGE_EXTENSIONS.has(ext)
 }
 
-function getPhotosDir() {
+function getImagesDir() {
   const current = global.workspaceManager?.current()
   if (!current || !current.path) {
     return null
   }
-  return path.join(current.path, 'photos')
+  return path.join(current.path, IMAGES_DIR_REL)
 }
 
 /**
- * 确保 photos/ 目录存在，并处理重名（同名已存在 → 加时间戳后缀）。
+ * 确保图片目录存在，并处理重名（同名已存在 → 加时间戳后缀）。
  * 桌面 vision:upload 与远程 saveImageToWorkspace 共用，行为与抽取前一致。
- * @param {string} photosDir photos 目录绝对路径
- * @param {string} name      目标文件名
+ * @param {string} dir  图片目录绝对路径（<工作区>/raw/images）
+ * @param {string} name 目标文件名
  * @returns {Promise<{ destName: string, destPath: string }>}
  */
-async function preparePhotosDest(photosDir, name) {
-  await fs.promises.mkdir(photosDir, { recursive: true })
+async function prepareImagesDest(dir, name) {
+  await fs.promises.mkdir(dir, { recursive: true })
   let destName = name
-  let destPath = path.join(photosDir, destName)
+  let destPath = path.join(dir, destName)
   if (await fs.promises.access(destPath).then(() => true).catch(() => false)) {
     const ext = path.extname(name)
     const base = path.basename(name, ext)
     const ts = Date.now()
     destName = `${base}_${ts}${ext}`
-    destPath = path.join(photosDir, destName)
+    destPath = path.join(dir, destName)
   }
   return { destName, destPath }
 }
 
 /**
- * 把图片 buffer 保存到工作区 photos/ 目录（远程图片上传 R9 复用）。
+ * 把图片 buffer 保存到工作区 raw/images/ 目录（远程图片上传 R9 复用）。
  * 与桌面 vision:upload 共用重名/目录逻辑，仅写入方式不同（buffer 写文件 vs 源文件 copy）。
  * @param {{ sourceBuffer: Buffer, name: string, workspacePath: string }} param
  * @returns {Promise<{ path: string, name: string }>} 保存后的绝对路径与文件名
@@ -49,8 +52,8 @@ async function saveImageToWorkspace({ sourceBuffer, name, workspacePath }) {
   if (!sourceBuffer || !Buffer.isBuffer(sourceBuffer)) throw new Error('图片数据为空')
   if (!name || typeof name !== 'string') throw new Error('缺少文件名')
   if (!workspacePath) throw new Error('缺少工作区路径')
-  const photosDir = path.join(workspacePath, 'photos')
-  const { destName, destPath } = await preparePhotosDest(photosDir, name)
+  const dir = path.join(workspacePath, IMAGES_DIR_REL)
+  const { destName, destPath } = await prepareImagesDest(dir, name)
   await fs.promises.writeFile(destPath, sourceBuffer)
   return { path: destPath, name: destName }
 }
@@ -61,15 +64,15 @@ class VisionHandler {
   }
 
   registerHandlers() {
-    // 上传图片到工作区 photos/ 目录
+    // 上传图片到工作区 raw/images/ 目录（老板 2026-08-02 决策：图片进原始素材区）
     ipcMain.handle('vision:upload', async (_event, { sourcePath, name }) => {
       try {
         if (!sourcePath) {
           return { success: false, error: '文件路径为空' }
         }
 
-        const photosDir = getPhotosDir()
-        if (!photosDir) {
+        const imagesDir = getImagesDir()
+        if (!imagesDir) {
           return { success: false, error: '请先打开工作区' }
         }
 
@@ -79,8 +82,8 @@ class VisionHandler {
           return { success: false, error: `不支持的文件类型：${path.extname(displayName)}（仅支持 jpg/jpeg/png/webp）` }
         }
 
-        // 确保 photos 目录存在 + 处理重名（复用共享 helper，行为与抽取前一致）
-        const { destName, destPath } = await preparePhotosDest(photosDir, displayName)
+        // 确保图片目录存在 + 处理重名（复用共享 helper，行为与抽取前一致）
+        const { destName, destPath } = await prepareImagesDest(imagesDir, displayName)
 
         await fs.promises.copyFile(sourcePath, destPath)
         console.log('[vision:upload] 图片已保存:', destPath)
@@ -92,23 +95,23 @@ class VisionHandler {
       }
     })
 
-    // 列出工作区 photos/ 目录下的图片文件
+    // 列出工作区 raw/images/ 目录下的图片文件
     ipcMain.handle('vision:list', async () => {
       try {
-        const photosDir = getPhotosDir()
-        if (!photosDir) {
+        const imagesDir = getImagesDir()
+        if (!imagesDir) {
           return { success: false, error: '请先打开工作区' }
         }
 
-        // 确保 photos 目录存在
-        await fs.promises.mkdir(photosDir, { recursive: true })
+        // 确保图片目录存在
+        await fs.promises.mkdir(imagesDir, { recursive: true })
 
-        const entries = await fs.promises.readdir(photosDir, { withFileTypes: true })
+        const entries = await fs.promises.readdir(imagesDir, { withFileTypes: true })
         const images = entries
           .filter(e => e.isFile() && isImageFile(e.name))
           .map(e => ({
             name: e.name,
-            path: path.join(photosDir, e.name).replace(/\\/g, '/'),
+            path: path.join(imagesDir, e.name).replace(/\\/g, '/'),
             size: null  // size 可在后续按需补充
           }))
 
