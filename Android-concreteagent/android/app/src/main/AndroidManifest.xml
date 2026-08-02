@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
     <application
-        android:label="concrete_agent"
+        android:label="砼智移动版"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
