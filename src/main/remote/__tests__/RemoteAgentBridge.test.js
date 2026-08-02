@@ -128,10 +128,10 @@ describe('RemoteAgentBridge', () => {
   })
 
   describe('imageRefs → base64 attachments', () => {
-    test('jpg/jpeg/png/webp 按扩展名映射 mimeType 并含 base64', async () => {
+    test('jpg/jpeg/png/webp 按扩展名映射 mimeType，base64 带 data: 前缀（与桌面端 readAsDataURL 格式一致）', async () => {
       mockExecutor.runAgentSession.mockResolvedValue({ success: true, result: {} })
       fs.readFileSync.mockReturnValue(Buffer.from('img-bytes'))
-      const expectedBase64 = Buffer.from('img-bytes').toString('base64')
+      const raw = Buffer.from('img-bytes').toString('base64')
 
       await bridge.handleMessage(ws, {
         type: 'agent:run',
@@ -148,10 +148,10 @@ describe('RemoteAgentBridge', () => {
 
       expect(mockExecutor.runAgentSession).toHaveBeenCalledWith(expect.objectContaining({
         attachments: [
-          { type: 'image', base64: expectedBase64, mimeType: 'image/jpeg', originalName: 'a.jpg' },
-          { type: 'image', base64: expectedBase64, mimeType: 'image/jpeg', originalName: 'b.jpeg' },
-          { type: 'image', base64: expectedBase64, mimeType: 'image/png', originalName: 'c.png' },
-          { type: 'image', base64: expectedBase64, mimeType: 'image/webp', originalName: 'd.webp' }
+          { type: 'image', base64: `data:image/jpeg;base64,${raw}`, mimeType: 'image/jpeg', originalName: 'a.jpg' },
+          { type: 'image', base64: `data:image/jpeg;base64,${raw}`, mimeType: 'image/jpeg', originalName: 'b.jpeg' },
+          { type: 'image', base64: `data:image/png;base64,${raw}`, mimeType: 'image/png', originalName: 'c.png' },
+          { type: 'image', base64: `data:image/webp;base64,${raw}`, mimeType: 'image/webp', originalName: 'd.webp' }
         ]
       }))
     })
@@ -173,7 +173,7 @@ describe('RemoteAgentBridge', () => {
 
       expect(mockExecutor.runAgentSession).toHaveBeenCalledWith(expect.objectContaining({
         attachments: [
-          { type: 'image', base64: Buffer.from('ok').toString('base64'), mimeType: 'image/jpeg', originalName: 'good.jpg' }
+          { type: 'image', base64: `data:image/jpeg;base64,${Buffer.from('ok').toString('base64')}`, mimeType: 'image/jpeg', originalName: 'good.jpg' }
         ]
       }))
     })

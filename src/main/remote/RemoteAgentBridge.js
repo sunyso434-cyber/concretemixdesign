@@ -43,6 +43,8 @@ function genRequestId() {
 
 // 把 imageRefs（[{ path }] 或字符串路径）读成 base64 attachments（含 mimeType 扩展名映射）。
 // 附件必须含 base64 + type:'image'，否则被 UnifiedStrategy filter 丢弃。
+// base64 必须带 data:<mime>;base64, 前缀（与桌面端 readAsDataURL 格式一致）——
+// 模型要求 http(s):// 或 data: 前缀，裸 base64 会报 "image url must be http(s):// or data:...;base64"。
 // 读失败 / 缺 path 的条目跳过，不阻塞主流程。
 function buildAttachments(imageRefs) {
   if (!Array.isArray(imageRefs) || imageRefs.length === 0) return []
@@ -53,10 +55,11 @@ function buildAttachments(imageRefs) {
     try {
       const buf = fs.readFileSync(filePath)
       const ext = path.extname(filePath).toLowerCase()
+      const mimeType = EXT_MIME[ext] || 'image/jpeg'
       attachments.push({
         type: 'image',
-        base64: buf.toString('base64'),
-        mimeType: EXT_MIME[ext] || 'image/jpeg',
+        base64: `data:${mimeType};base64,${buf.toString('base64')}`,
+        mimeType,
         originalName: path.basename(filePath)
       })
     } catch (_) {
