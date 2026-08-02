@@ -2,13 +2,13 @@
 
 // RemoteSessionApi：远程会话管理（R7）。
 //
-// 薄封装现有会话逻辑，复用 SessionService / ChatSession / ChatHistory 模型，
+// 薄封装现有会话逻辑，复用 SessionService / ChatSession / ChatHistory / AgentMemoryService，
 // 行为与桌面端 agentHandler 会话 handler 一致：
 //   - agent:listSessions        → 最近 50 个会话（lastActivity 按最后消息时间，sessionName 批量补）
-//   - agent:getSessionMessages  → 按时间倒序取最新 20 条、反转正序、剥离 metadata.timeline
+//   - agent:getSessionMessages  → 复用 AgentMemoryService.getHistory（剥离 metadata.timeline，limit 上限 50）
 //   - agent:createSession       → 复用 SessionService.ensureSession（sessionName 缺省给「新对话」兜底）
-//   - agent:deleteSession       → 清理 ChatSession + ChatHistory + L1 SessionSummary + ToolResultStore 缓存
-//   - agent:archiveSession      → 复用 archiveSessionCore.applyArchive（批量、跳过运行中会话）
+//   - agent:deleteSession       → 复用 AgentMemoryService.deleteSession（清会话/消息/L1 记忆/工作区归档）+ ToolResultStore 缓存
+//   - agent:archiveSession      → 复用 archiveSessionCore.applyArchive（批量、跳过运行中会话）+ fanout 广播 sessionUpdated
 //   - agent:renameSession       → ChatSession.update 改名
 //
 // 响应约定（R6 一致）：请求的同一通道回 { requestId, success, ...payload }；
@@ -23,18 +23,19 @@ function genRequestId() {
 
 class RemoteSessionApi {
   /**
-   * WS 请求处理器（R5 约定签名，RemoteServer 分发：handleMessage(ws, msg)）。
-   * @param {object} ws  请求方目标（wrapWs 包装，具备 send(channel, payload)）
-   * @param {object} msg 请求消息 { type: '<通道>', ...payload }
+   * WS 请求处理器（R5 约定签名，RemoteServer 分发：handleMessage(ws, msg, fanout)）。
+   * @param {object} ws     请求方目标（wrapWs 包装，具备 send(channel, payload)）
+   * @param {object} msg    请求消息 { type: '<通道>', ...payload }
+   * @param {object} fanout FanoutSink 实例（archiveSession 归档后广播 agent:sessionUpdated）
    */
-  async handleMessage(ws, msg) {
+  async handleMessage(ws, msg, fanout) {
     const channel = msg && msg.type
     switch (channel) {
       case 'agent:listSessions': return this._handleListSessions(ws, msg)
       case 'agent:getSessionMessages': return this._handleGetSessionMessages(ws, msg)
       case 'agent:createSession': return this._handleCreateSession(ws, msg)
       case 'agent:deleteSession': return this._handleDeleteSession(ws, msg)
-      case 'agent:archiveSession': return this._handleArchiveSession(ws, msg)
+      case 'agent:archiveSession': return this._handleArchiveSession(ws, msg, fanout)
       case 'agent:renameSession': return this._handleRenameSession(ws, msg)
       default:
         // 正常流程不会到这（R5 白名单已过滤）；兜底，不抛错
@@ -100,8 +101,8 @@ class RemoteSessionApi {
 
   /**
    * agent:getSessionMessages — 取会话消息（最新 20 条，时间正序；可选 before 分页）。
-   * 与 agentMemoryService.getHistory + agentHandler 同名 handler 相同：倒序取 N 条后反转，
-   * 并剥离 metadata.timeline（不回放思考过程）。
+   * 复用 AgentMemoryService.getHistory（倒序取 N 条后反转正序 + before 分页），
+   * 再剥离 metadata.timeline（不回放思考过程，与 agentHandler 同名 handler 一致）；limit 上限 50。
    */
   async _handleGetSessionMessages(ws, msg) {
     const { sessionId, before, limit, requestId } = msg || {}
@@ -111,25 +112,10 @@ class RemoteSessionApi {
       return { success: false, error: '缺少 sessionId' }
     }
     try {
-      const { ChatHistory } = require('../db/database')
-      const { Op } = require('sequelize')
-      const where = { sessionId }
-      if (before) where.createdAt = { [Op.lt]: new Date(before) }
-      const rows = await ChatHistory.findAll({
-        where,
-        order: [['createdAt', 'DESC']],
-        limit: limit || 20
-      })
-      rows.reverse() // DESC 取最新 N 条后反转回时间正序
-      const messages = rows.map(m => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        toolCallId: m.toolCallId,
-        toolCalls: m.toolCalls,
-        metadata: m.metadata,
-        createdAt: m.createdAt
-      })).map(m => {
+      const AgentMemoryService = require('../services/AgentMemoryService')
+      const maxLimit = Math.min(limit || 20, 50) // M1: 单次取消息条数上限 50
+      const rows = await AgentMemoryService.getHistory(sessionId, { limit: maxLimit, before })
+      const messages = rows.map(m => {
         if (!m.metadata) return m
         const { timeline, ...restMetadata } = m.metadata
         return { ...m, metadata: restMetadata }
@@ -177,8 +163,9 @@ class RemoteSessionApi {
 
   /**
    * agent:deleteSession — 清理会话及其消息。
-   * 与桌面端行为一致：删 ChatSession + ChatHistory + L1 归档记忆（SessionSummary 按 session 隔离）+ ToolResultStore 缓存。
-   * （工作区 chat-history 归档目录的删除依赖 electron 侧 global.chatHistorySync，远程薄封装不在此处理。）
+   * 复用 AgentMemoryService.deleteSession（内部清 ChatSession + ChatHistory + L1 SessionSummary，
+   * 并顺带经 global.chatHistorySync?.removeSessionArchive 清理工作区归档，可选调用），
+   * 再清 ToolResultStore 工具结果缓存，与桌面端 agentHandler 行为一致。
    */
   async _handleDeleteSession(ws, msg) {
     const { sessionId, requestId } = msg || {}
@@ -188,12 +175,9 @@ class RemoteSessionApi {
       return { success: false, error: '缺少 sessionId' }
     }
     try {
-      const { ChatSession, ChatHistory, SessionSummary } = require('../db/database')
-      await ChatSession.destroy({ where: { sessionId } })
-      await ChatHistory.destroy({ where: { sessionId } })
-      // L1 归档记忆按 session 隔离，必须同步删（与 agentMemoryService.deleteSession 一致）
-      try { await SessionSummary.destroy({ where: { sessionId } }) } catch (_) {}
-      // 清理工具结果缓存（与 agentHandler agent:deleteSession 一致）
+      const AgentMemoryService = require('../services/AgentMemoryService')
+      await AgentMemoryService.deleteSession(sessionId)
+      // 清理工具结果缓存（AgentMemoryService 不负责该缓存；与 agentHandler agent:deleteSession 一致）
       try {
         const ToolResultStore = require('../agent/ToolResultStore')
         new ToolResultStore().clear(sessionId)
@@ -209,9 +193,10 @@ class RemoteSessionApi {
 
   /**
    * agent:archiveSession — 批量归档/恢复，复用 archiveSessionCore.applyArchive。
-   * 与桌面端一致：归档（archived=true）时跳过正在运行的会话（executor.isSessionRunning），恢复不受限。
+   * 与桌面端一致：归档（archived=true）时跳过正在运行的会话（executor.isSessionRunning），恢复不受限；
+   * 成功后经 fanout 广播 agent:sessionUpdated 通知桌面+手机刷新会话列表。
    */
-  async _handleArchiveSession(ws, msg) {
+  async _handleArchiveSession(ws, msg, fanout) {
     const { sessionIds, archived, requestId } = msg || {}
     const reqId = requestId || genRequestId()
     if (!Array.isArray(sessionIds) || sessionIds.length === 0) {
@@ -227,6 +212,10 @@ class RemoteSessionApi {
       this._invalidateCache()
       const resp = { requestId: reqId, success: true, ...result }
       ws.send('agent:archiveSession', resp)
+      // 广播通知桌面+手机刷新会话列表（I2）
+      if (fanout && typeof fanout.send === 'function') {
+        try { fanout.send('agent:sessionUpdated', { archived: !!archived, sessionIds }) } catch (_) {}
+      }
       return resp
     } catch (err) {
       ws.send('agent:archiveSession', { requestId: reqId, success: false, error: err.message })

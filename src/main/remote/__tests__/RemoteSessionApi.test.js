@@ -2,12 +2,13 @@
 
 // RemoteSessionApi 测试（R7）：
 //   - 6 个会话通道：agent:listSessions / getSessionMessages / createSession / deleteSession / archiveSession / renameSession
-//   - 复用现有逻辑：mock db/database（ChatSession/ChatHistory/SessionSummary）+ SessionService；
-//     archiveSessionCore 用真实实现验证批量语义（跳过运行中）；ToolResultStore mock 掉避免碰用户主目录
+//   - 复用现有逻辑：getSessionMessages/deleteSession 调 AgentMemoryService（mock）；listSessions/archiveSession/renameSession
+//     走 db/database 模型 + SessionService；archiveSessionCore 用真实实现验证批量语义（跳过运行中）；
+//     ToolResultStore mock 掉避免碰用户主目录
 //   - 响应约定与 R6 一致：同通道回 { requestId, success, ... }；requestId 缺省时自动生成
+//   - I2：archiveSession 归档后 fanout.send('agent:sessionUpdated', { archived, sessionIds }) 广播
+//   - M1：getSessionMessages limit 上限 50；M4：getHistory/deleteSession 抛错路径回 { success:false, error }
 // ws 用 { send: jest.fn() } 替身。
-
-const { Op } = require('sequelize')
 
 const mockExecutor = { isSessionRunning: jest.fn() }
 let mockExecutorResult = mockExecutor
@@ -22,14 +23,17 @@ jest.mock('../../db/database', () => ({
   ChatHistory: {
     findAll: jest.fn(),
     destroy: jest.fn()
-  },
-  SessionSummary: {
-    destroy: jest.fn()
   }
 }))
 
 jest.mock('../../db/services/SessionService', () => ({
   ensureSession: jest.fn()
+}))
+
+// getSessionMessages / deleteSession 复用的服务单例（评审 I1/I3）
+jest.mock('../../services/AgentMemoryService', () => ({
+  getHistory: jest.fn(),
+  deleteSession: jest.fn()
 }))
 
 // getExecutor 返回共享 executor（供 archiveSession 的 isSessionRunning）；缺省可整体替换
@@ -42,17 +46,22 @@ jest.mock('../../agent/ToolResultStore', () => {
   }
 })
 
-const { ChatSession, ChatHistory, SessionSummary } = require('../../db/database')
+const { ChatSession, ChatHistory } = require('../../db/database')
 const SessionService = require('../../db/services/SessionService')
+const AgentMemoryService = require('../../services/AgentMemoryService')
 const RemoteSessionApi = require('../RemoteSessionApi')
 
 function createWs() {
+  return { send: jest.fn() }
+}
+function createFanout() {
   return { send: jest.fn() }
 }
 
 describe('RemoteSessionApi', () => {
   let api
   let ws
+  let fanout
 
   beforeEach(() => {
     ChatSession.findAll.mockReset()
@@ -61,13 +70,15 @@ describe('RemoteSessionApi', () => {
     ChatSession.destroy.mockReset()
     ChatHistory.findAll.mockReset()
     ChatHistory.destroy.mockReset()
-    SessionSummary.destroy.mockReset()
     SessionService.ensureSession.mockReset()
+    AgentMemoryService.getHistory.mockReset()
+    AgentMemoryService.deleteSession.mockReset()
     mockExecutor.isSessionRunning.mockReset()
 
     mockExecutorResult = mockExecutor
     api = new RemoteSessionApi()
     ws = createWs()
+    fanout = createFanout()
   })
 
   describe('agent:listSessions', () => {
@@ -111,17 +122,17 @@ describe('RemoteSessionApi', () => {
   })
 
   describe('agent:getSessionMessages', () => {
-    test('缺 sessionId → 回 { success:false } 且不查 ChatHistory', async () => {
+    test('缺 sessionId → 回 { success:false } 且不调 AgentMemoryService', async () => {
       await api.handleMessage(ws, { type: 'agent:getSessionMessages', requestId: 'req-m' })
 
-      expect(ChatHistory.findAll).not.toHaveBeenCalled()
+      expect(AgentMemoryService.getHistory).not.toHaveBeenCalled()
       expect(ws.send).toHaveBeenCalledWith('agent:getSessionMessages', expect.objectContaining({
         requestId: 'req-m',
         success: false
       }))
     })
 
-    test('返回消息（倒序取最新、反转正序、剥离 metadata.timeline）', async () => {
+    test('复用 AgentMemoryService.getHistory 并剥离 metadata.timeline', async () => {
       const msgNew = {
         id: 2, role: 'assistant', content: '回答', toolCallId: null, toolCalls: null,
         metadata: { timeline: { steps: [] }, tags: ['x'] },
@@ -132,15 +143,12 @@ describe('RemoteSessionApi', () => {
         metadata: null,
         createdAt: '2026-01-01T00:00:00.000Z'
       }
-      ChatHistory.findAll.mockResolvedValue([msgNew, msgOld])
+      // getHistory 内部已反转正序（DESC 取最新后 reverse），mock 直接给时间正序结果
+      AgentMemoryService.getHistory.mockResolvedValue([msgOld, msgNew])
 
       await api.handleMessage(ws, { type: 'agent:getSessionMessages', requestId: 'req-m', sessionId: 's1' })
 
-      expect(ChatHistory.findAll).toHaveBeenCalledWith({
-        where: { sessionId: 's1' },
-        order: [['createdAt', 'DESC']],
-        limit: 20
-      })
+      expect(AgentMemoryService.getHistory).toHaveBeenCalledWith('s1', { limit: 20, before: undefined })
       const sent = ws.send.mock.calls.find(c => c[0] === 'agent:getSessionMessages')[1]
       expect(sent.success).toBe(true)
       expect(sent.messages).toEqual([
@@ -149,8 +157,8 @@ describe('RemoteSessionApi', () => {
       ])
     })
 
-    test('before 参数 → where.createdAt = Op.lt 过滤', async () => {
-      ChatHistory.findAll.mockResolvedValue([])
+    test('before 参数透传给 AgentMemoryService.getHistory', async () => {
+      AgentMemoryService.getHistory.mockResolvedValue([])
 
       await api.handleMessage(ws, {
         type: 'agent:getSessionMessages',
@@ -159,9 +167,35 @@ describe('RemoteSessionApi', () => {
         before: '2026-01-02T00:00:00.000Z'
       })
 
-      const call = ChatHistory.findAll.mock.calls[0][0]
-      expect(call.where.sessionId).toBe('s1')
-      expect(call.where.createdAt[Op.lt]).toEqual(new Date('2026-01-02T00:00:00.000Z'))
+      expect(AgentMemoryService.getHistory).toHaveBeenCalledWith(
+        's1',
+        { limit: 20, before: '2026-01-02T00:00:00.000Z' }
+      )
+    })
+
+    test('M1: limit 超过 50 时截断为 50', async () => {
+      AgentMemoryService.getHistory.mockResolvedValue([])
+
+      await api.handleMessage(ws, {
+        type: 'agent:getSessionMessages',
+        requestId: 'req-l50',
+        sessionId: 's1',
+        limit: 100
+      })
+
+      expect(AgentMemoryService.getHistory).toHaveBeenCalledWith('s1', { limit: 50, before: undefined })
+    })
+
+    test('M4: AgentMemoryService.getHistory 抛错 → 回 { success:false, error }', async () => {
+      AgentMemoryService.getHistory.mockRejectedValue(new Error('DB_FAIL'))
+
+      await api.handleMessage(ws, { type: 'agent:getSessionMessages', requestId: 'req-me', sessionId: 's1' })
+
+      expect(ws.send).toHaveBeenCalledWith('agent:getSessionMessages', expect.objectContaining({
+        requestId: 'req-me',
+        success: false,
+        error: 'DB_FAIL'
+      }))
     })
   })
 
@@ -198,28 +232,32 @@ describe('RemoteSessionApi', () => {
   })
 
   describe('agent:deleteSession', () => {
-    test('清理 ChatSession + ChatHistory + SessionSummary', async () => {
+    test('复用 AgentMemoryService.deleteSession 清理并回 { success:true }', async () => {
+      AgentMemoryService.deleteSession.mockResolvedValue()
+
       await api.handleMessage(ws, { type: 'agent:deleteSession', requestId: 'req-d', sessionId: 's1' })
 
-      expect(ChatSession.destroy).toHaveBeenCalledWith({ where: { sessionId: 's1' } })
-      expect(ChatHistory.destroy).toHaveBeenCalledWith({ where: { sessionId: 's1' } })
-      expect(SessionSummary.destroy).toHaveBeenCalledWith({ where: { sessionId: 's1' } })
+      expect(AgentMemoryService.deleteSession).toHaveBeenCalledWith('s1')
       expect(ws.send).toHaveBeenCalledWith('agent:deleteSession', { requestId: 'req-d', success: true })
     })
 
     test('缺 sessionId → 回 { success:false }，不清理', async () => {
       await api.handleMessage(ws, { type: 'agent:deleteSession', requestId: 'req-d2' })
 
-      expect(ChatSession.destroy).not.toHaveBeenCalled()
+      expect(AgentMemoryService.deleteSession).not.toHaveBeenCalled()
       expect(ws.send).toHaveBeenCalledWith('agent:deleteSession', expect.objectContaining({ success: false }))
     })
 
-    test('模型抛错 → 回 { success:false, error }', async () => {
-      ChatSession.destroy.mockRejectedValue(new Error('DB_FAIL'))
+    test('M4: AgentMemoryService.deleteSession 抛错 → 回 { success:false, error }', async () => {
+      AgentMemoryService.deleteSession.mockRejectedValue(new Error('DB_FAIL'))
 
       await api.handleMessage(ws, { type: 'agent:deleteSession', requestId: 'req-d3', sessionId: 's1' })
 
-      expect(ws.send).toHaveBeenCalledWith('agent:deleteSession', expect.objectContaining({ success: false, error: 'DB_FAIL' }))
+      expect(ws.send).toHaveBeenCalledWith('agent:deleteSession', expect.objectContaining({
+        requestId: 'req-d3',
+        success: false,
+        error: 'DB_FAIL'
+      }))
     })
   })
 
@@ -231,7 +269,7 @@ describe('RemoteSessionApi', () => {
       await api.handleMessage(ws, {
         type: 'agent:archiveSession', requestId: 'req-a',
         sessionIds: ['s1', 's2', 's3'], archived: true
-      })
+      }, fanout)
 
       expect(mockExecutor.isSessionRunning).toHaveBeenCalledWith('s1')
       expect(ChatSession.update).toHaveBeenCalledWith(
@@ -250,7 +288,7 @@ describe('RemoteSessionApi', () => {
       await api.handleMessage(ws, {
         type: 'agent:archiveSession', requestId: 'req-a2',
         sessionIds: ['s1', 's2', 's3'], archived: false
-      })
+      }, fanout)
 
       expect(ChatSession.update).toHaveBeenCalledWith(
         { archived: false },
@@ -259,6 +297,17 @@ describe('RemoteSessionApi', () => {
       expect(ws.send).toHaveBeenCalledWith('agent:archiveSession', {
         requestId: 'req-a2', success: true, updated: 3, skipped: []
       })
+    })
+
+    test('I2: 归档后 fanout.send(agent:sessionUpdated, { archived, sessionIds }) 广播', async () => {
+      ChatSession.update.mockResolvedValue([2])
+
+      await api.handleMessage(ws, {
+        type: 'agent:archiveSession', requestId: 'req-a4',
+        sessionIds: ['s1', 's2'], archived: true
+      }, fanout)
+
+      expect(fanout.send).toHaveBeenCalledWith('agent:sessionUpdated', { archived: true, sessionIds: ['s1', 's2'] })
     })
 
     test('缺 sessionIds → 回 { success:false }', async () => {
