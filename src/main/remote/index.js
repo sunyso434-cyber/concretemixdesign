@@ -24,9 +24,20 @@ const RemoteAgentBridge = require('./RemoteAgentBridge')
 const RemoteSessionApi = require('./RemoteSessionApi')
 const RemoteWorkspaceApi = require('./RemoteWorkspaceApi')
 const RemoteImageApi = require('./RemoteImageApi')
+const { FrpcManager } = require('./FrpcManager')
 
 // 本地监听端口（本机调试 ws://127.0.0.1:<port>；生产由 frp 隧道转发到本端口，R12）
 const DEFAULT_PORT = 46351
+
+// 隧道内置默认连接配置（老板 2026-08-02 决策：写死默认值，应用启动即全自动连隧道；
+// 云端 frps token 沿用现有值，与 /etc/frp/frps.toml 一致）
+const DEFAULT_FRPC_CONFIG = {
+  serverAddr: '43.153.116.131',
+  serverPort: 7000,
+  token: '1ad988de1bcc00ca5f7f5c77fcc803b2',
+  localPort: DEFAULT_PORT,
+  domain: 'www.concreteagent.cloud'
+}
 
 let _state = null // { userDataDir, auth, fanout, server, bridge, sessionApi, workspaceApi, imageApi, port, listening }
 
@@ -57,6 +68,14 @@ function ensureWired({ userDataDir }) {
   }
 
   const server = new RemoteServer()
+  const frpcManager = new FrpcManager({
+    userDataDir,
+    onLog: (kind, msg) => {
+      if (kind === 'error' || kind === 'restart' || kind === 'exit') {
+        console.warn(`[remote-frpc] ${msg}`)
+      }
+    }
+  })
   const state = {
     userDataDir,
     auth,
@@ -66,6 +85,7 @@ function ensureWired({ userDataDir }) {
     sessionApi,
     workspaceApi,
     imageApi,
+    frpcManager,
     port: null,
     listening: false
   }
@@ -85,16 +105,88 @@ function buildApis(state) {
 
 /**
  * 启动远程服务（app ready 时调一次）。
- * 默认不启用：未启用时不监听端口，仅面板可用；启动失败由调用方 catch（不阻塞桌面启动）。
- * @param {{ userDataDir: string }} param
- * @returns {Promise<{ enabled: boolean, listening: boolean, port?: number }>}
+ * 老板 2026-08-02 决策：隧道内置、全自动就绪——应用打开即可被手机连接：
+ *   1) 远程认证自动启用；首次无密码时生成随机密码（面板可重置查看）
+ *   2) 本地监听（RemoteServer，默认 46351）
+ *   3) frpc 隧道自动连云端（默认配置写死，其他用户零配置）
+ * 各步骤失败仅告警，不阻塞桌面启动；frpc 内部指数退避自动重连。
+ * @param {{ userDataDir: string, port?: number }} param port 缺省用 DEFAULT_PORT；传 0 由系统分配随机端口
+ * @returns {Promise<{ enabled: boolean, listening: boolean, port?: number, error?: string }>}
  */
-async function start({ userDataDir }) {
+async function start({ userDataDir, port = DEFAULT_PORT } = {}) {
   const state = ensureWired({ userDataDir })
-  if (!state.auth.isEnabled()) {
-    return { enabled: false, listening: false }
+  try {
+    // 1) 远程认证自动启用；首次无密码生成随机密码并保存（面板「重置密码」可查看/更换）
+    if (!state.auth.isEnabled()) {
+      state.auth.setEnabled(true)
+      if (!state.auth.hasPassword()) {
+        const pw = state.auth.generateRandomPassword()
+        state.auth.setPassword(pw)
+        console.warn('[remote] 首次启用已生成远程密码（远程连接面板可重置查看）')
+      }
+    }
+    // 2) 本地监听（失败仅告警）
+    await startListening({ port }).catch((err) => {
+      console.warn('[remote] 远程监听启动失败（不影响桌面使用）:', err.message)
+    })
+    // 3) frpc 隧道（失败仅告警；内部退避重连）
+    await startFrpc().catch((err) => {
+      console.warn('[remote] frpc 隧道启动失败（不影响桌面使用）:', err.message)
+    })
+    return { enabled: true, listening: state.listening, port: state.port }
+  } catch (err) {
+    return { enabled: state.auth.isEnabled(), listening: false, error: err.message }
   }
-  return startListening()
+}
+
+/** 启动 frpc 隧道（用默认配置 + 实际监听端口；已在运行则幂等跳过）。 */
+async function startFrpc() {
+  const state = _state
+  if (!state) throw new Error('RemoteService 未 start')
+  if (state.frpcManager.isRunning()) return { started: true }
+  return state.frpcManager.start({ ...DEFAULT_FRPC_CONFIG, localPort: state.port || DEFAULT_PORT })
+}
+
+/** 停止 frpc 隧道（幂等）。 */
+async function stopFrpc() {
+  const state = _state
+  if (!state || !state.frpcManager) return { stopped: true }
+  return state.frpcManager.stop()
+}
+
+/**
+ * 面板开关联动：启用 → 认证开启 + 监听 + 隧道；停用 → 全部关闭。
+ * 启用失败（如端口占用）回滚认证开关并返回 error（面板看到开关回弹 + 原因）。
+ * @param {boolean} v
+ * @param {{ port?: number }} [options] 指定监听端口（缺省用停用前的端口或 DEFAULT_PORT；测试注入随机端口）
+ * @returns {Promise<{ enabled: boolean, listening: boolean, tempPassword?: string|null, error?: string }>}
+ */
+async function applyEnabled(v, options = {}) {
+  const state = _state
+  if (!state) throw new Error('RemoteService 未 start')
+  const auth = state.auth
+  let tempPassword = null
+  let error = null
+  try {
+    if (v) {
+      if (!auth.hasPassword()) {
+        tempPassword = auth.generateRandomPassword()
+        auth.setPassword(tempPassword)
+      }
+      auth.setEnabled(true)
+      await startListening({ port: options.port || state.port || DEFAULT_PORT })
+      await startFrpc()
+    } else {
+      auth.setEnabled(false)
+      await stopListening()
+      await stopFrpc()
+    }
+  } catch (err) {
+    error = err && err.message ? err.message : String(err)
+    if (v) auth.setEnabled(false) // 启用失败：回滚持久化开关，避免"假启用"
+    console.warn('[remote] 启用远程失败:', error)
+  }
+  return { enabled: auth.isEnabled(), listening: state.listening, tempPassword, error }
 }
 
 /**
@@ -128,9 +220,10 @@ async function stopListening() {
   return { enabled: false, listening: false }
 }
 
-/** 停止远程服务（应用退出时可选调用）。 */
+/** 停止远程服务（应用退出时可选调用）：停隧道 + 停监听。 */
 async function stop() {
-  await stopListening()
+  await stopFrpc().catch(() => {})
+  await stopListening().catch(() => {})
 }
 
 /** 远程认证开关是否启用。 */
@@ -153,6 +246,11 @@ function getAuth() {
   return _state ? _state.auth : null
 }
 
+/** FrpcManager 共享实例（remotePanelHandler 面板隧道状态用）。 */
+function getFrpc() {
+  return _state ? _state.frpcManager : null
+}
+
 // 测试专用：重置模块级单例（jest 单进程共享模块缓存）
 function _resetForTest() {
   _state = null
@@ -163,10 +261,13 @@ module.exports = {
   stop,
   startListening,
   stopListening,
+  applyEnabled,
   isEnabled,
   getFanout,
   getServer,
   getAuth,
+  getFrpc,
   DEFAULT_PORT,
+  DEFAULT_FRPC_CONFIG,
   _resetForTest
 }

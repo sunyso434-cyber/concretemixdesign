@@ -113,46 +113,68 @@ describe('FrpcManager（R12 frpc 子进程管理）', () => {
     expect(normalizeDomain('')).toBe('')
   })
 
-  // ---------- 路径解析 ----------
-  test('binaryPath / configPath 正确（注入 resourcePath / userDataDir）', () => {
+  // ---------- 路径解析 / 部署副本 ----------
+  test('binaryPath / configPath 正确（运行副本在 <userData>/frpc/frpc.exe）', () => {
     const mgr = makeManager({ tmpDir, resourcePath, spawn })
-    expect(mgr.binaryPath()).toBe(path.join(resourcePath, 'frpc.exe'))
+    expect(mgr.binaryPath()).toBe(path.join(tmpDir, 'frpc', 'frpc.exe'))
     expect(mgr.configPath()).toBe(path.join(tmpDir, 'frpc.toml'))
   })
 
-  test('ensureBinary：二进制缺失抛中文错误', () => {
-    fs.rmSync(path.join(resourcePath, 'frpc.exe'))
+  test('deployBinary：把资源 frpc.exe 复制到 <userData>/frpc/（每次覆盖）', () => {
     const mgr = makeManager({ tmpDir, resourcePath, spawn })
-    expect(() => mgr.ensureBinary()).toThrow(/未找到 frpc\.exe/)
+    const deployed = mgr.deployBinary()
+    expect(deployed).toBe(path.join(tmpDir, 'frpc', 'frpc.exe'))
+    expect(fs.readFileSync(deployed, 'utf8')).toBe('placeholder')
+
+    // 源更新后再次部署：副本被覆盖（升级自动替换新版本）
+    fs.writeFileSync(path.join(resourcePath, 'frpc.exe'), 'placeholder-v2')
+    mgr.deployBinary()
+    expect(fs.readFileSync(deployed, 'utf8')).toBe('placeholder-v2')
   })
 
-  test('默认二进制目录：dev 环境走项目 resources/frpc/win', () => {
+  test('deployBinary：源缺失抛中文错误（不静默）', () => {
+    fs.rmSync(path.join(resourcePath, 'frpc.exe'))
+    const mgr = makeManager({ tmpDir, resourcePath, spawn })
+    expect(() => mgr.deployBinary()).toThrow(/未找到 frpc\.exe/)
+  })
+
+  test('ensureBinary：运行副本缺失抛中文错误', () => {
+    const mgr = makeManager({ tmpDir, resourcePath, spawn })
+    expect(() => mgr.ensureBinary()).toThrow(/未找到 frpc\.exe/) // 未部署时副本不存在
+    mgr.deployBinary()
+    expect(mgr.ensureBinary()).toBe(path.join(tmpDir, 'frpc', 'frpc.exe'))
+  })
+
+  test('资源二进制源目录：dev 环境走项目 resources/frpc/win', () => {
     const prev = process.env.NODE_ENV
     process.env.NODE_ENV = 'development'
     try {
-      const { defaultBinaryDir } = require('../FrpcManager')
-      expect(defaultBinaryDir()).toContain(path.join('resources', 'frpc', 'win'))
+      const { sourceBinaryDir } = require('../FrpcManager')
+      expect(sourceBinaryDir()).toContain(path.join('resources', 'frpc', 'win'))
     } finally {
       process.env.NODE_ENV = prev
     }
   })
 
   // ---------- start / spawn ----------
-  test('start：写 frpc.toml 到 userDataDir，以 ["-c", tomlPath] spawn frpc.exe', async () => {
+  test('start：先部署副本到 <userData>/frpc/，写 frpc.toml，以 ["-c", tomlPath] spawn 运行副本', async () => {
     const mgr = makeManager({ tmpDir, resourcePath, spawn })
     const r = await mgr.start(CFG)
     expect(r.started).toBe(true)
     expect(r.pid).toBe(proc.pid)
+
+    // 运行副本已部署
+    expect(fs.readFileSync(path.join(tmpDir, 'frpc', 'frpc.exe'), 'utf8')).toBe('placeholder')
 
     // toml 已落盘
     const written = fs.readFileSync(path.join(tmpDir, 'frpc.toml'), 'utf8')
     expect(written).toContain('serverAddr = "43.153.116.131"')
     expect(written).toContain('customDomains = ["www.concreteagent.cloud"]')
 
-    // spawn 参数与选项
+    // spawn 参数与选项：从 userData 副本运行
     expect(spawn).toHaveBeenCalledTimes(1)
     const [bin, args, opts] = spawn.mock.calls[0]
-    expect(bin).toBe(path.join(resourcePath, 'frpc.exe'))
+    expect(bin).toBe(path.join(tmpDir, 'frpc', 'frpc.exe'))
     expect(args).toEqual(['-c', path.join(tmpDir, 'frpc.toml')])
     expect(opts.windowsHide).toBe(true)
     expect(mgr.isRunning()).toBe(true)

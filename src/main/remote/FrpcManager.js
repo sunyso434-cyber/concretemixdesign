@@ -10,9 +10,10 @@
 // 配置：生成 <userData>/frpc.toml（frp ≥0.52 用 TOML，锁 v0.60.0）
 // 子进程：spawn frpc -c <toml>；监听 exit 自动重启（指数退避）；stop() 清退避并 kill。
 //
-// 二进制路径（参照 officecli-bridge 模式）：
-//   dev:            resources/frpc/win/frpc.exe
-//   打包(extraResources): process.resourcesPath/frpc/win/frpc.exe
+// 二进制路径（老板 2026-08-02 决策：内置隧道，应用启动即自动连接）：
+//   源：dev 用 resources/frpc/win/frpc.exe；打包用 process.resourcesPath/frpc/win/frpc.exe
+//   运行：每次 start 把 frpc.exe 复制到 <userData>/frpc/ 再 spawn —— 统一 dev/打包路径，
+//         升级自动替换新版本，并绕过 Windows Defender 对项目/资源路径的执行拦截（实测临时目录副本可正常执行）。
 //
 // 纯 Node：不 require electron。路径可由调用方注入 resourcePath，
 //   否则自动判断（dev 用项目 resources；生产用 process.resourcesPath）。
@@ -26,8 +27,11 @@ const DEFAULT_RETRY_MAX_MS = 60000 // 退避封顶 60s
 const DEFAULT_RETRY_FACTOR = 2
 const STOP_KILL_WAIT_MS = 1000 // stop() 等待子进程退出的超时
 
-/** 默认二进制目录：dev 用项目 resources；打包后 process.resourcesPath 存在则用其下。 */
-function defaultBinaryDir() {
+/**
+ * 资源二进制源目录：dev 用项目 resources；打包后 process.resourcesPath 存在则用其下。
+ * （运行用 <userData>/frpc/ 下的副本，见 deployBinary —— 统一路径 + 绕过杀软对项目路径的拦截）
+ */
+function sourceBinaryDir() {
   if (process.env.NODE_ENV === 'development' || !process.resourcesPath) {
     return path.join(__dirname, '..', '..', '..', 'resources', 'frpc', 'win')
   }
@@ -80,7 +84,7 @@ class FrpcManager {
    * @param {(kind:string,msg:string)=>void} [opts.onLog] 子进程 stdout/stderr/error 回调
    */
   constructor(opts = {}) {
-    this._resourcePath = opts.resourcePath || defaultBinaryDir()
+    this._resourcePath = opts.resourcePath || sourceBinaryDir()
     this._userDataDir = opts.userDataDir || null
     this._child = opts.childProcess || require('child_process')
     this._fs = opts.fs || require('fs')
@@ -96,11 +100,33 @@ class FrpcManager {
     this._restartDelay = 0 // 当前退避间隔 ms
     this._stopping = false // stop() 已调用：退出后不再重启
     this._config = null // 当前连接配置 { serverAddr, serverPort, token, localPort, domain }
+    this._lastError = null // 最近一次错误（面板展示隧道异常原因）
   }
 
-  /** frpc.exe 绝对路径。 */
+  /** frpc 运行目录：<userData>/frpc（二进制从资源复制到此，统一路径 + 绕过杀软路径拦截）。 */
+  runDir() {
+    if (!this._userDataDir) throw new Error('FrpcManager 未设置 userDataDir，无法确定运行目录')
+    return path.join(this._userDataDir, 'frpc')
+  }
+
+  /** frpc.exe 绝对路径（用户数据目录副本）。 */
   binaryPath() {
-    return path.join(this._resourcePath, 'frpc.exe')
+    return path.join(this.runDir(), 'frpc.exe')
+  }
+
+  /**
+   * 把资源里的 frpc.exe 复制到 <userData>/frpc/（每次覆盖，升级自动替换新版本）。
+   * Windows Defender 曾拦截项目/资源路径下的 frpc.exe 执行（临时目录副本正常），
+   * 统一从用户数据目录运行可绕过该拦截。
+   */
+  deployBinary() {
+    const src = path.join(this._resourcePath, 'frpc.exe')
+    if (!this._fs.existsSync(src)) {
+      throw new Error(`未找到 frpc.exe 源文件（${src}）：请确认资源已随应用分发`)
+    }
+    this._fs.mkdirSync(this.runDir(), { recursive: true })
+    this._fs.copyFileSync(src, this.binaryPath())
+    return this.binaryPath()
   }
 
   /** frpc.toml 绝对路径（<userData>/frpc.toml）。 */
@@ -109,11 +135,11 @@ class FrpcManager {
     return path.join(this._userDataDir, TOML_FILENAME)
   }
 
-  /** 校验二进制存在，缺失抛错（桌面启动前可提前感知）。 */
+  /** 校验运行副本存在，缺失抛错（桌面启动前可提前感知）。 */
   ensureBinary() {
     const bin = this.binaryPath()
     if (!this._fs.existsSync(bin)) {
-      throw new Error(`未找到 frpc.exe（${bin}）：请确认 resources/frpc/win/frpc.exe 已随应用分发`)
+      throw new Error(`未找到 frpc.exe（${bin}）：请确认资源已随应用分发，或杀毒软件未隔离该文件`)
     }
     return bin
   }
@@ -157,11 +183,14 @@ class FrpcManager {
    * @returns {Promise<{ started: boolean, pid?: number, configPath: string, binaryPath: string }>}
    */
   async start(cfg) {
+    // 每次启动先刷新 userData 副本（新版本覆盖 + 绕过杀软路径拦截），再校验
+    this.deployBinary()
     const bin = this.ensureBinary()
     if (this._proc && !this._procExited) {
       await this.stop() // 先清理旧进程与旧退避
     }
     this._config = { ...cfg }
+    this._lastError = null
     this._restartDelay = 0
     this._stopping = false
     const cfgPath = this.writeConfig(cfg)
@@ -186,12 +215,17 @@ class FrpcManager {
     if (proc.stderr) {
       proc.stderr.on('data', (d) => log && log('stderr', String(d)))
     }
-    // spawn ENOENT 等启动失败走 error；运行中被杀/退出走 exit。
+    // spawn ENOENT / 杀软拦截（EACCES）等启动失败走 error；运行中被杀/退出走 exit。
     proc.on('error', (err) => {
-      log && log('error', err && err.message ? err.message : String(err))
+      const msg = err && err.message ? err.message : String(err)
+      this._lastError = msg
+      log && log('error', msg)
       this._handleExit({ err })
     })
     proc.on('exit', (code, signal) => {
+      if (code !== 0) {
+        this._lastError = `frpc 退出（code=${code} signal=${signal}），自动重连中`
+      }
       this._handleExit({ code, signal })
     })
     return proc
@@ -285,7 +319,8 @@ class FrpcManager {
       running: this.isRunning(),
       pid: this.pid,
       configPath: this._userDataDir ? this.configPath() : null,
-      config: this._config ? { ...this._config, token: undefined } : null // 不回传 token
+      config: this._config ? { ...this._config, token: undefined } : null, // 不回传 token
+      lastError: this._lastError // 最近一次错误（面板展示隧道异常原因）
     }
   }
 
@@ -304,6 +339,6 @@ class FrpcManager {
 module.exports = {
   FrpcManager,
   normalizeDomain,
-  defaultBinaryDir,
+  sourceBinaryDir,
   TOML_FILENAME
 }

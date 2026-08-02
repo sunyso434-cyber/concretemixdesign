@@ -197,17 +197,26 @@ export default function RemotePanel() {
             }
           >
             <Row gutter={16}>
-              <Col span={8}>
+              <Col span={6}>
                 <div data-testid="stat-paired">
                   <Statistic title="已配对设备" value={status ? status.pairedDevices : 0} />
                 </div>
               </Col>
-              <Col span={8}>
+              <Col span={6}>
                 <div data-testid="stat-clients">
                   <Statistic title="在线客户端" value={status ? status.connectedClients : 0} />
                 </div>
               </Col>
-              <Col span={8}>
+              <Col span={6}>
+                <div data-testid="stat-tunnel">
+                  <Statistic
+                    title="隧道连接"
+                    value={status == null ? '-' : status.frpcRunning ? '已连接' : '未连接'}
+                    valueStyle={{ color: status && status.frpcRunning ? '#52c41a' : '#faad14' }}
+                  />
+                </div>
+              </Col>
+              <Col span={6}>
                 <div style={{ marginBottom: 8 }}>远程认证</div>
                 <Switch
                   checked={status ? status.enabled : false}
@@ -218,6 +227,15 @@ export default function RemotePanel() {
                 />
               </Col>
             </Row>
+            {status && status.frpcError && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginTop: 12 }}
+                message="隧道异常"
+                description={status.frpcError}
+              />
+            )}
           </Card>
 
           <Card
@@ -231,6 +249,14 @@ export default function RemotePanel() {
           >
             <Space direction="vertical" style={{ width: '100%' }}>
               <Alert type="info" showIcon message="登录密码仅在此处一次性展示，请立即保存；重置后旧密码立即失效。" />
+              {status && status.hasPassword != null && (
+                <Alert
+                  type={status.hasPassword ? 'success' : 'warning'}
+                  showIcon
+                  data-testid="pwd-status"
+                  message={status.hasPassword ? '远程密码：已设置（需要查看/更换请点下方重置）' : '远程密码：未设置'}
+                />
+              )}
               {tempPassword && (
                 <Alert
                   type="warning"

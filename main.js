@@ -488,7 +488,8 @@ app.whenReady().then(async () => {
 
   console.log('workspace IPC 已注册（9 个 handler，含 workspace:ingest/migrateSession/exportSession）')
 
-  // R11：启动远程服务（默认不启用；未启用不监听端口，仅面板可用；启动失败仅告警，不阻塞桌面启动）
+  // R11+R12：启动远程服务（老板 2026-08-02 决策：隧道内置、全自动就绪——认证+监听+frpc 隧道随应用启动；
+  // 失败仅告警，不阻塞桌面启动；frpc 内部指数退避自动重连）
   await remoteService.start({ userDataDir: app.getPath('userData') }).catch((err) => {
     console.warn('[main] 远程服务启动失败（应用继续运行）:', err.message)
   })
@@ -504,12 +505,13 @@ app.whenReady().then(async () => {
     openAtLogin: applyAutostart(!!(payload && payload.openAtLogin))
   }))
 
-  // R10/R11：注册桌面「远程连接」面板 IPC（注入共享 auth/server/remoteService；
+  // R10/R11：注册桌面「远程连接」面板 IPC（注入共享 auth/server/remoteService/frpcManager；
   // register 幂等，重复调用仅合并 refs，不重复注册 handle）
   remotePanelHandler.register({
     auth: remoteService.getAuth(),
     remoteServer: remoteService.getServer(),
-    remoteService
+    remoteService,
+    frpcManager: remoteService.getFrpc()
   })
   console.log('remote 远程连接面板 IPC 已注册（getPairCode/getStatus/setEnabled/resetPassword/setDomain + autostart）')
 

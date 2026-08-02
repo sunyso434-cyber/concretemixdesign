@@ -26,7 +26,7 @@ const CONFIG_FILE = 'remote-config.json'
 const DEFAULT_DOMAIN = 'www.concreteagent.cloud'
 const WS_PATH = '/concrete/ws'
 
-let _refs = { auth: null, remoteServer: null, remoteService: null }
+let _refs = { auth: null, remoteServer: null, remoteService: null, frpcManager: null }
 let _registered = false
 
 // auth 懒初始化：R10 单独跑时也能自举；R11 注入共享实例后不再重复创建。
@@ -75,7 +75,8 @@ function buildAddr(domain) {
  * 仅首次调用时执行 ipcMain.handle；此后再次调用只合并更新 _refs，不重复注册
  * （避免 Electron 对同通道二次 handle 抛 "Attempted to register a second handler"）。
  * R11 注入共享 RemoteServer/FanoutSink 时再次调用 register 即可。
- * @param {{ auth?: object, remoteServer?: object }} [refs] R11 注入共享实例；缺省时 auth 懒创建
+ * @param {{ auth?: object, remoteServer?: object, remoteService?: object, frpcManager?: object }} [refs]
+ *   R11 注入共享实例；缺省时 auth 懒创建。frpcManager 用于面板显示隧道状态。
  */
 function register(refs = {}) {
   _refs = { ..._refs, ...refs }
@@ -98,10 +99,22 @@ function register(refs = {}) {
       // R11 评审 I1：只统计已认证的手机 ws，桌面 webContents（fanout target）不计入
       connectedClients = server.getRemoteClientCount()
     }
+    // 隧道状态（R12 内置后：已连/未连 + 最近错误）
+    let frpcRunning = false
+    let frpcError = null
+    const frpc = _refs.frpcManager
+    if (frpc && typeof frpc.getStatus === 'function') {
+      const s = frpc.getStatus()
+      frpcRunning = !!s.running
+      frpcError = s.lastError || null
+    }
     return {
       enabled: auth.isEnabled(),
+      hasPassword: auth.hasPassword(),
       pairedDevices: auth.getDeviceCount(),
       connectedClients,
+      frpcRunning,
+      frpcError,
       domain: cfg.domain || ''
     }
   })
@@ -109,33 +122,20 @@ function register(refs = {}) {
   ipcMain.handle('remote:setEnabled', async (_e, payload = {}) => {
     const auth = ensureAuth()
     const v = !!payload.enabled
+    // 内置隧道（老板 2026-08-02 决策）：开关联动 认证 + 监听 + 隧道
+    // 注入 remoteService 时走 applyEnabled（启用→监听+隧道；停用→全关）；
+    // 未注入时兜底只改 auth（R10 单跑行为）
+    const svc = _refs.remoteService
+    if (svc && typeof svc.applyEnabled === 'function') {
+      return svc.applyEnabled(v)
+    }
     auth.setEnabled(v)
     let tempPassword = null
     if (v && !auth.hasPassword()) {
-      // 首次启用且从未设置密码：生成随机密码一次性展示（此后 setPassword 持久化 hash）
       tempPassword = auth.generateRandomPassword()
       auth.setPassword(tempPassword)
     }
-    // R11：联动远程服务监听——启用→启动本地端口监听；停用→停止（注入 remoteService 时）
-    // R11 评审 I2：联动失败（如端口被占用）不静默——回滚 enabled 并返回 error，面板看到开关回弹 + 错误原因
-    let listening = false
-    let error = null
-    const svc = _refs.remoteService
-    if (svc) {
-      try {
-        if (v) {
-          const r = await svc.startListening()
-          listening = !!(r && r.listening)
-        } else {
-          await svc.stopListening()
-        }
-      } catch (err) {
-        error = err && err.message ? err.message : String(err)
-        if (v) auth.setEnabled(false) // 启用失败：回滚持久化开关，避免"假启用"
-        console.warn('[remotePanel] 联动远程服务失败:', error)
-      }
-    }
-    return { enabled: auth.isEnabled(), tempPassword, listening, error }
+    return { enabled: auth.isEnabled(), tempPassword }
   })
 
   ipcMain.handle('remote:resetPassword', () => {
