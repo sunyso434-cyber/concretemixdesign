@@ -50,8 +50,9 @@ class RemoteServer {
     this._fanout = null
     this._apis = {}
     this._publicAddr = null
-    this._connections = new Set() // 当前 ws 连接状态：{ ws, wrapped, authenticated }
+    this._connections = new Set() // 当前 ws 连接状态：{ ws, wrapped, authenticated, epoch }
     this._remoteClients = 0       // R11 评审 I1：已认证的手机 ws 连接数（桌面 webContents 不计入）
+    this._startEpoch = 0          // start 会话代际：跨 start/stop 复用单例时，旧连接 close 不递减新会话计数
     this._started = false
   }
 
@@ -64,6 +65,10 @@ class RemoteServer {
     if (this._started) throw new Error('RemoteServer 已启动')
     if (!auth) throw new Error('RemoteServer.start 需要 auth（RemoteAuth 实例）')
     if (!fanout) throw new Error('RemoteServer.start 需要 fanout（FanoutSink 实例）')
+    // R11 评审 follow-up：单例跨 start/stop 复用，start 时重置计数 + 推进会话代际
+    // （stop 归零后旧连接 close 异步触发不能递减新会话计数）
+    this._remoteClients = 0
+    this._startEpoch++
 
     this._auth = auth
     this._fanout = fanout
@@ -213,7 +218,7 @@ class RemoteServer {
   // ---------- WebSocket ----------
 
   _handleWsConnection(ws) {
-    const conn = { ws, wrapped: null, authenticated: false }
+    const conn = { ws, wrapped: null, authenticated: false, epoch: this._startEpoch }
     this._connections.add(conn)
 
     ws.on('message', (data) => {
@@ -232,7 +237,10 @@ class RemoteServer {
     })
 
     ws.on('close', () => {
-      if (conn.authenticated) this._remoteClients-- // R11 评审 I1：断开递减
+      // R11 评审 follow-up 双重守卫：
+      //   - 代际检查 conn.epoch === this._startEpoch：stop 后旧连接的 close 异步触发，不能递减新会话的计数
+      //   - >0 守卫：stop() 已归零后，close 不能把计数减成负数
+      if (conn.authenticated && conn.epoch === this._startEpoch && this._remoteClients > 0) this._remoteClients--
       this._connections.delete(conn)
       // wrapped 目标已通过 wrapWs 的 onClose 从 fanout 自动移除
     })

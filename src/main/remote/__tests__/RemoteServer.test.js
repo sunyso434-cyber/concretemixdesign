@@ -360,4 +360,35 @@ describe('RemoteServer（HTTP + WebSocket，127.0.0.1）', () => {
   test('getFanoutSink 返回注入的 fanout', () => {
     expect(server.getFanoutSink()).toBe(fanout)
   })
+
+  test('stop 后 close 异步触发不把计数减成负数；同实例再 start 后重连计数正确（I1 负漂移）', async () => {
+    // 手机连入认证 → 计数 1
+    const { token } = await makePairedDevice()
+    const ws1 = await connectWs(port)
+    ws1.send(JSON.stringify({ type: 'auth', token, version: 1 }))
+    await onceMessage(ws1) // auth_ok
+    await new Promise(r => setTimeout(r, 30))
+    expect(server.getRemoteClientCount()).toBe(1)
+
+    // stop：计数归零；close 事件异步触发递减被 >0 守卫挡住，不为负
+    await server.stop()
+    await new Promise(r => setTimeout(r, 50))
+    expect(server.getRemoteClientCount()).toBe(0)
+
+    // 复用同一实例再 start（单例跨 start/stop）：start 重置计数，从 0 重新开始
+    const r2 = await server.start({ port: 0, auth, fanout, apis, publicAddr: 'wss://example.cloud/concrete/ws' })
+    port = r2.port
+
+    // 手机重连认证 → 计数 1
+    const paired2 = await makePairedDevice()
+    const ws2 = await connectWs(port)
+    ws2.send(JSON.stringify({ type: 'auth', token: paired2.token, version: 1 }))
+    const msg2 = await onceMessage(ws2)
+    expect(msg2).toEqual({ type: 'auth_ok' })
+    await new Promise(r => setTimeout(r, 30))
+    expect(server.getRemoteClientCount()).toBe(1)
+
+    ws2.close()
+    await new Promise(r => setTimeout(r, 50))
+  })
 })
