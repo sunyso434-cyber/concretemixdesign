@@ -36,7 +36,7 @@ let cachedActiveConfigId = null
 // 每会话独立的 Orchestrator 实例（多会话并行）与 2 分钟锁超时（spec 8.2）已移至 executor 内部。
 const { createAgentExecutor } = require('../agent/agentExecutor')
 const executor = createAgentExecutor({ getOrchestratorForSession, getOrchestrator })
-// M0-2：R11 将把 executor 的默认 sink 切换为共享 FanoutSink；M0 阶段不接线，仍走 event.sender
+// M0-2 + R11(P1-1)：executor 的默认 sink 可切到共享 FanoutSink（agentHandler 未调用 setFanout 时仍走 event.sender）
 let executorDefaultSink = null
 function setFanout(fanout) { executorDefaultSink = fanout }
 
@@ -326,7 +326,9 @@ function registerAgentHandlers() {
       message,
       mode,
       attachments,
-      sink: event.sender,
+      // R11(P1-1)：已接线共享 FanoutSink 时 sink 走 fanout（桌面 webContents 是目标 → 自扇出仍收到 + 手机也收到）；
+      // 未接线（executorDefaultSink 为 null）时回退 event.sender，桌面行为与 M0 一致
+      sink: executorDefaultSink || event.sender,
       persistUserMessage: false
     })
     const errSummary = result?.error

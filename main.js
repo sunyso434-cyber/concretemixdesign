@@ -69,6 +69,40 @@ require('./src/main/ipcHandlers/agentHandler').registerAgentHandlers() // AI Age
 const { registerLlmHandlers } = require('./src/main/ipcHandlers/llmHandler')
 registerLlmHandlers()
 const remotePanelHandler = require('./src/main/ipcHandlers/remotePanelHandler') // R10：桌面「远程连接」面板 IPC
+// R11：远程服务组装层 + FanoutSink 的 webContents 包装（顶层纯 Node，不拉 electron）
+const remoteService = require('./src/main/remote')
+const { wrapWebContents } = require('./src/main/remote/FanoutSink')
+
+// ============================================================
+// R11：开机自启（app.setLoginItemSettings + 持久化，默认关）
+// 配置存储：<userData>/remote-autostart.json → { openAtLogin: bool }
+// ============================================================
+const AUTOSTART_FILE = 'remote-autostart.json'
+function autostartFilePath() {
+  return path.join(app.getPath('userData'), AUTOSTART_FILE)
+}
+function getAutostartSetting() {
+  try {
+    const data = JSON.parse(fs.readFileSync(autostartFilePath(), 'utf8'))
+    return !!(data && data.openAtLogin)
+  } catch {
+    return false
+  }
+}
+function applyAutostart(v) {
+  const on = !!v
+  try {
+    app.setLoginItemSettings({ openAtLogin: on })
+  } catch (err) {
+    console.warn('[main] 设置开机自启失败:', err.message)
+  }
+  try {
+    fs.writeFileSync(autostartFilePath(), JSON.stringify({ openAtLogin: on }))
+  } catch (err) {
+    console.warn('[main] 保存开机自启配置失败:', err.message)
+  }
+  return on
+}
 
 // agent.md 用户自定义规则服务（单例，启动时初始化）
 // Task 6：setWorkspacePath 跟随 WorkspaceManager 切换工作区，触发老 v1 自动迁移
@@ -182,6 +216,15 @@ async function createWindow() {
       contextIsolation: true
     }
   })
+
+  // R11：桌面 webContents 注册进共享 FanoutSink（多窗口各一目标）。
+  // 手机切工作区/任务事件经 fanout 广播 → 桌面也刷新；桌面发起任务自扇出 → 手机也收到。
+  const fanout = remoteService.getFanout()
+  if (fanout) {
+    const deskTarget = wrapWebContents(mainWindow.webContents)
+    fanout.addTarget(deskTarget)
+    mainWindow.on('closed', () => fanout.removeTarget(deskTarget))
+  }
 
   mainWindow.setMenuBarVisibility(false)
 
@@ -445,9 +488,30 @@ app.whenReady().then(async () => {
 
   console.log('workspace IPC 已注册（9 个 handler，含 workspace:ingest/migrateSession/exportSession）')
 
-  // R10：注册桌面「远程连接」面板 IPC（refs 缺省 → auth 懒创建；R11 会注入共享 RemoteServer/FanoutSink）
-  remotePanelHandler.register({})
-  console.log('remote 远程连接面板 IPC 已注册（getPairCode/getStatus/setEnabled/resetPassword/setDomain）')
+  // R11：启动远程服务（默认不启用；未启用不监听端口，仅面板可用；启动失败仅告警，不阻塞桌面启动）
+  await remoteService.start({ userDataDir: app.getPath('userData') }).catch((err) => {
+    console.warn('[main] 远程服务启动失败（应用继续运行）:', err.message)
+  })
+
+  // R11：开机自启——把已保存的开关应用到系统（默认关）
+  if (getAutostartSetting()) {
+    applyAutostart(true)
+  }
+
+  // R11：开机自启 IPC（设置页开关；持久化 <userData>/remote-autostart.json）
+  ipcMain.handle('remote:getAutostart', () => ({ openAtLogin: getAutostartSetting() }))
+  ipcMain.handle('remote:setAutostart', (_e, payload = {}) => ({
+    openAtLogin: applyAutostart(!!(payload && payload.openAtLogin))
+  }))
+
+  // R10/R11：注册桌面「远程连接」面板 IPC（注入共享 auth/server/remoteService；
+  // register 幂等，重复调用仅合并 refs，不重复注册 handle）
+  remotePanelHandler.register({
+    auth: remoteService.getAuth(),
+    remoteServer: remoteService.getServer(),
+    remoteService
+  })
+  console.log('remote 远程连接面板 IPC 已注册（getPairCode/getStatus/setEnabled/resetPassword/setDomain + autostart）')
 
   console.log('开始创建窗口...')
   await createWindow()

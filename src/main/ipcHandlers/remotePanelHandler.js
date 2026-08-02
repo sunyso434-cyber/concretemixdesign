@@ -9,10 +9,11 @@
 //   remote:resetPassword → 生成新随机密码（面板一次性展示）
 //   remote:setDomain     → 保存域名到 <userData>/remote-config.json（R12 FrpcManager 读取）
 //
-// 依赖注入：register(refs)，refs 可选 { auth, remoteServer }。
+// 依赖注入：register(refs)，refs 可选 { auth, remoteServer, remoteService }。
 //   - R10 阶段 auth 可能未由 R11 接线，这里按需懒创建（绑定 app.getPath('userData')）；
-//     R11 接好共享实例后注入 refs 即可覆盖。
+//     R11 接好共享实例后注入 refs 即可覆盖（auth 必须注入共享实例，避免懒创建不同步）。
 //   - remoteServer 未注入时 connectedClients 返回 0。
+//   - remoteService 未注入时 setEnabled 只改 auth 不联动端口监听（R10 单跑行为）。
 //
 // 配置存储：<userData>/remote-config.json → { domain }（frp customDomains；证书由腾讯云持有，本地无证书）
 
@@ -25,7 +26,7 @@ const CONFIG_FILE = 'remote-config.json'
 const DEFAULT_DOMAIN = 'www.concreteagent.cloud'
 const WS_PATH = '/concrete/ws'
 
-let _refs = { auth: null, remoteServer: null }
+let _refs = { auth: null, remoteServer: null, remoteService: null }
 let _registered = false
 
 // auth 懒初始化：R10 单独跑时也能自举；R11 注入共享实例后不再重复创建
@@ -106,7 +107,7 @@ function register(refs = {}) {
     }
   })
 
-  ipcMain.handle('remote:setEnabled', (_e, payload = {}) => {
+  ipcMain.handle('remote:setEnabled', async (_e, payload = {}) => {
     const auth = ensureAuth()
     const v = !!payload.enabled
     auth.setEnabled(v)
@@ -115,6 +116,17 @@ function register(refs = {}) {
       // 首次启用且从未设置密码：生成随机密码一次性展示（此后 setPassword 持久化 hash）
       tempPassword = auth.generateRandomPassword()
       auth.setPassword(tempPassword)
+    }
+    // R11：联动远程服务监听——启用→启动本地端口监听；停用→停止（注入 remoteService 时）
+    const svc = _refs.remoteService
+    if (svc) {
+      try {
+        if (v) await svc.startListening()
+        else await svc.stopListening()
+      } catch (err) {
+        // 联动失败（如端口占用）仅告警，不阻断开关状态与密码返回
+        console.warn('[remotePanel] 联动远程服务失败:', err && err.message ? err.message : err)
+      }
     }
     return { enabled: auth.isEnabled(), tempPassword }
   })

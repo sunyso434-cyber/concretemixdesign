@@ -94,7 +94,10 @@ const INVOKE_CHANNELS = new Set([
   'remote:getStatus',
   'remote:setEnabled',
   'remote:resetPassword',
-  'remote:setDomain'
+  'remote:setDomain',
+  // R11：开机自启开关
+  'remote:getAutostart',
+  'remote:setAutostart'
 ])
 
 const EVENT_CHANNELS = new Set([
@@ -286,7 +289,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getStatus: () => ipcRenderer.invoke('remote:getStatus'),
     setEnabled: (enabled) => ipcRenderer.invoke('remote:setEnabled', { enabled }),
     resetPassword: () => ipcRenderer.invoke('remote:resetPassword'),
-    setDomain: (domain) => ipcRenderer.invoke('remote:setDomain', { domain })
+    setDomain: (domain) => ipcRenderer.invoke('remote:setDomain', { domain }),
+    // R11：开机自启开关
+    getAutostart: () => ipcRenderer.invoke('remote:getAutostart'),
+    setAutostart: (openAtLogin) => ipcRenderer.invoke('remote:setAutostart', { openAtLogin })
   }
 })
 
