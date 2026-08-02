@@ -79,6 +79,16 @@ class RemoteAuth {
     return this._enabled
   }
 
+  /** 当前已配对设备数量（R10 面板状态展示用）。 */
+  getDeviceCount() {
+    return this._devices.size
+  }
+
+  /** 是否已设置远程登录密码（R10 首次启用时判断是否需生成随机密码）。 */
+  hasPassword() {
+    return !!this._passwordHash
+  }
+
   /** 启用/停用远程认证，持久化到 remote-auth.json。 */
   setEnabled(v) {
     this._enabled = !!v

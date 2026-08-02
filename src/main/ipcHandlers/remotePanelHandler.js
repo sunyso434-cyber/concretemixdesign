@@ -1,0 +1,131 @@
+'use strict'
+
+// remotePanelHandler：桌面「远程连接」面板的 IPC 处理器（R10）
+//
+// 通道：
+//   remote:getPairCode   → 生成配对码并注入 addr（wss://<domain>/concrete/ws）
+//   remote:getStatus     → { enabled, pairedDevices, connectedClients, domain }
+//   remote:setEnabled    → auth.setEnabled(v)；首次启用且未设密码时生成随机密码一次性返回
+//   remote:resetPassword → 生成新随机密码（面板一次性展示）
+//   remote:setDomain     → 保存域名到 <userData>/remote-config.json（R12 FrpcManager 读取）
+//
+// 依赖注入：register(refs)，refs 可选 { auth, remoteServer }。
+//   - R10 阶段 auth 可能未由 R11 接线，这里按需懒创建（绑定 app.getPath('userData')）；
+//     R11 接好共享实例后注入 refs 即可覆盖。
+//   - remoteServer 未注入时 connectedClients 返回 0。
+//
+// 配置存储：<userData>/remote-config.json → { domain }（frp customDomains；证书由腾讯云持有，本地无证书）
+
+const { app, ipcMain } = require('electron')
+const fs = require('fs')
+const path = require('path')
+const RemoteAuth = require('../remote/RemoteAuth')
+
+const CONFIG_FILE = 'remote-config.json'
+const DEFAULT_DOMAIN = 'www.concreteagent.cloud'
+const WS_PATH = '/concrete/ws'
+
+let _refs = { auth: null, remoteServer: null }
+
+// auth 懒初始化：R10 单独跑时也能自举；R11 注入共享实例后不再重复创建
+function ensureAuth() {
+  if (!_refs.auth) {
+    const auth = new RemoteAuth()
+    auth.init({ userDataDir: app.getPath('userData') })
+    _refs.auth = auth
+  }
+  return _refs.auth
+}
+
+function configFilePath() {
+  return path.join(app.getPath('userData'), CONFIG_FILE)
+}
+
+function loadConfig() {
+  try {
+    const data = JSON.parse(fs.readFileSync(configFilePath(), 'utf8'))
+    return data && typeof data === 'object' ? data : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveConfig(cfg) {
+  try {
+    fs.writeFileSync(configFilePath(), JSON.stringify(cfg, null, 2))
+  } catch (err) {
+    throw new Error(`保存远程配置失败: ${err && err.message ? err.message : err}`)
+  }
+}
+
+// 拼接手机端连接地址：域名归一化后加 wss 前缀与 /concrete/ws 路径
+function buildAddr(domain) {
+  const d = String(domain || '')
+    .trim()
+    .replace(/^wss?:\/\//, '')
+    .replace(/\/+$/, '')
+  return d ? `wss://${d}${WS_PATH}` : null
+}
+
+/**
+ * 注册远程连接面板 IPC handlers。
+ * @param {{ auth?: object, remoteServer?: object }} [refs] R11 注入共享实例；缺省时 auth 懒创建
+ */
+function register(refs = {}) {
+  _refs = { ..._refs, ...refs }
+
+  ipcMain.handle('remote:getPairCode', () => {
+    const auth = ensureAuth()
+    const cfg = loadConfig()
+    const pc = auth.generatePairCode()
+    return { code: pc.code, expiresAt: pc.expiresAt, addr: buildAddr(cfg.domain) }
+  })
+
+  ipcMain.handle('remote:getStatus', () => {
+    const auth = ensureAuth()
+    const cfg = loadConfig()
+    let connectedClients = 0
+    const server = _refs.remoteServer
+    if (server && typeof server.getFanoutSink === 'function') {
+      const fanout = server.getFanoutSink()
+      if (fanout && typeof fanout.getTargetCount === 'function') {
+        connectedClients = fanout.getTargetCount()
+      }
+    }
+    return {
+      enabled: auth.isEnabled(),
+      pairedDevices: auth.getDeviceCount(),
+      connectedClients,
+      domain: cfg.domain || ''
+    }
+  })
+
+  ipcMain.handle('remote:setEnabled', (_e, { enabled }) => {
+    const auth = ensureAuth()
+    const v = !!enabled
+    auth.setEnabled(v)
+    let tempPassword = null
+    if (v && !auth.hasPassword()) {
+      // 首次启用且从未设置密码：生成随机密码一次性展示（此后 setPassword 持久化 hash）
+      tempPassword = auth.generateRandomPassword()
+      auth.setPassword(tempPassword)
+    }
+    return { enabled: auth.isEnabled(), tempPassword }
+  })
+
+  ipcMain.handle('remote:resetPassword', () => {
+    const auth = ensureAuth()
+    const pw = auth.generateRandomPassword()
+    auth.setPassword(pw)
+    return { password: pw }
+  })
+
+  ipcMain.handle('remote:setDomain', (_e, { domain }) => {
+    const cfg = loadConfig()
+    cfg.domain = String(domain == null ? '' : domain).trim()
+    saveConfig(cfg)
+    return { domain: cfg.domain }
+  })
+}
+
+module.exports = { register }

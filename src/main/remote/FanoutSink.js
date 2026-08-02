@@ -30,6 +30,11 @@ class FanoutSink {
     this._targets.delete(t)
   }
 
+  /** 当前目标数量（R10 面板"在线客户端"状态用）。 */
+  getTargetCount() {
+    return this._targets.size
+  }
+
   /**
    * 广播事件到所有目标。逐个 try/catch，单个目标抛错不影响其他目标。
    */

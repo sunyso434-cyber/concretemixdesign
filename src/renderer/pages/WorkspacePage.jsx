@@ -21,6 +21,7 @@ const MaterialsPage = lazy(() => import('./MaterialsPage'))
 const SchemesPage = lazy(() => import('./SchemesPage'))
 const SettingsPage = lazy(() => import('./SettingsPage'))
 const TrialRecordsPage = lazy(() => import('./TrialRecordsPage'))
+const RemotePanelPage = lazy(() => import('./RemotePanelPage'))
 
 const LoadingFallback = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -266,6 +267,17 @@ function WorkspaceContent() {
             <div className="v9-manage-content">
               <Suspense fallback={<LoadingFallback />}>
                 <TrialRecordsPage />
+              </Suspense>
+            </div>
+          </div>
+        )}
+
+        {/* 远程连接视图：桌面「远程连接」面板（R10） */}
+        {activeView === 'remote' && (
+          <div className="v9-manage-body">
+            <div className="v9-manage-content">
+              <Suspense fallback={<LoadingFallback />}>
+                <RemotePanelPage />
               </Suspense>
             </div>
           </div>

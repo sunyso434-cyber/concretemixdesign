@@ -3,10 +3,12 @@ module.exports = {
   testEnvironment: 'node',
   testMatch: [
     '**/__tests__/**/*.test.js',
+    '**/__tests__/**/*.test.jsx',  // R10：渲染端组件测试（jsdom，如 RemotePanel.test.jsx）
     '<rootDir>/tests/**/*.test.js'  // Task 1：让 tests/ 顶层 *.test.js 也被 jest 默认发现
   ],
   testPathIgnorePatterns: [
     '/node_modules/',
+    '<rootDir>/dist-.*',       // 打包产物目录（含 asar 解包副本），不跑测试
     '<rootDir>/.worktrees/',
     '<rootDir>/.claude/worktrees/',
     '<rootDir>/tests/e2e/',         // 端到端测试走 npm run test:e2e，不进 npm test

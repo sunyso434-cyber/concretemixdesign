@@ -88,7 +88,13 @@ const INVOKE_CHANNELS = new Set([
   'trialtest:create',
   'trialtest:list',
   'trialtest:get',
-  'trialtest:repredict'
+  'trialtest:repredict',
+  // R10：桌面「远程连接」面板
+  'remote:getPairCode',
+  'remote:getStatus',
+  'remote:setEnabled',
+  'remote:resetPassword',
+  'remote:setDomain'
 ])
 
 const EVENT_CHANNELS = new Set([
@@ -273,6 +279,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getActiveFull: () => ipcRenderer.invoke('llm:getActiveFull'),
     getFull: (id) => ipcRenderer.invoke('llm:getFull', { id }),
     test: (config) => ipcRenderer.invoke('llm:test', { config })
+  },
+  // R10：桌面「远程连接」面板
+  remote: {
+    getPairCode: () => ipcRenderer.invoke('remote:getPairCode'),
+    getStatus: () => ipcRenderer.invoke('remote:getStatus'),
+    setEnabled: (enabled) => ipcRenderer.invoke('remote:setEnabled', { enabled }),
+    resetPassword: () => ipcRenderer.invoke('remote:resetPassword'),
+    setDomain: (domain) => ipcRenderer.invoke('remote:setDomain', { domain })
   }
 })
 

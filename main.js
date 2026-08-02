@@ -68,6 +68,7 @@ require('./src/main/ipcHandlers/trainingHandler').registerHandlers(ipcMain) // �
 require('./src/main/ipcHandlers/agentHandler').registerAgentHandlers() // AI Agent IPC 处理器
 const { registerLlmHandlers } = require('./src/main/ipcHandlers/llmHandler')
 registerLlmHandlers()
+const remotePanelHandler = require('./src/main/ipcHandlers/remotePanelHandler') // R10：桌面「远程连接」面板 IPC
 
 // agent.md 用户自定义规则服务（单例，启动时初始化）
 // Task 6：setWorkspacePath 跟随 WorkspaceManager 切换工作区，触发老 v1 自动迁移
@@ -443,6 +444,10 @@ app.whenReady().then(async () => {
   }
 
   console.log('workspace IPC 已注册（9 个 handler，含 workspace:ingest/migrateSession/exportSession）')
+
+  // R10：注册桌面「远程连接」面板 IPC（refs 缺省 → auth 懒创建；R11 会注入共享 RemoteServer/FanoutSink）
+  remotePanelHandler.register({})
+  console.log('remote 远程连接面板 IPC 已注册（getPairCode/getStatus/setEnabled/resetPassword/setDomain）')
 
   console.log('开始创建窗口...')
   await createWindow()
