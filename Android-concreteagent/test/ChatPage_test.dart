@@ -328,4 +328,81 @@ void main() {
       expect(lists.first['sessionId'], 's1');
     });
   });
+
+  group('ChatPage - 历史消息预载', () {
+    testWidgets('注入已连接客户端时自动拉一次历史消息', (tester) async {
+      final fake = FakeRemoteClient();
+      await pumpChat(tester, fake);
+
+      final loads = fake.sentOf('agent:getSessionMessages');
+      expect(loads, hasLength(1));
+      expect(loads.first['sessionId'], 's1');
+    });
+
+    testWidgets('agent:getSessionMessages 响应渲染历史消息', (tester) async {
+      final fake = FakeRemoteClient();
+      await pumpChat(tester, fake);
+
+      fake.emit({
+        'channel': 'agent:getSessionMessages',
+        'payload': {
+          'requestId': 'req-0',
+          'success': true,
+          'messages': [
+            {'role': 'user', 'content': '设计C30'},
+            {'role': 'assistant', 'content': '好的，马上设计'},
+          ],
+        },
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.text('设计C30'), findsOneWidget);
+      expect(find.text('好的，马上设计'), findsOneWidget);
+    });
+
+    testWidgets('工具/系统消息与空内容被跳过', (tester) async {
+      final fake = FakeRemoteClient();
+      await pumpChat(tester, fake);
+
+      fake.emit({
+        'channel': 'agent:getSessionMessages',
+        'payload': {
+          'requestId': 'req-0',
+          'success': true,
+          'messages': [
+            {'role': 'user', 'content': ''},
+            {'role': 'tool', 'content': '工具结果'},
+            {'role': 'system', 'content': '系统提示'},
+          ],
+        },
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MessageBubble), findsNothing);
+    });
+
+    testWidgets('断线重连 auth_ok 后仅预载一次', (tester) async {
+      final fake = FakeRemoteClient(connected: false);
+      await pumpChat(tester, fake);
+
+      fake.emit({'type': 'auth_ok'});
+      await tester.pump();
+      expect(fake.sentOf('agent:getSessionMessages'), hasLength(1));
+
+      // 响应回来后再次 auth_ok（模拟重连）不再重复预载
+      fake.emit({
+        'channel': 'agent:getSessionMessages',
+        'payload': {
+          'requestId': 'req-0',
+          'success': true,
+          'messages': [],
+        },
+      });
+      await tester.pump();
+      fake.emit({'type': 'auth_ok'});
+      await tester.pump();
+
+      expect(fake.sentOf('agent:getSessionMessages'), hasLength(1));
+    });
+  });
 }

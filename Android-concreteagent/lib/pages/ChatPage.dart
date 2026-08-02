@@ -75,6 +75,8 @@ class _ChatPageState extends State<ChatPage> {
   bool _connected = false;
   bool _sending = false;
   String? _fatalError; // 未配对/未登录等致命提示
+  bool _historyRequested = false; // 已发出过 getSessionMessages（防重复请求）
+  bool _historyApplied = false; // 已应用过历史消息（防跨页污染）
 
   @override
   void initState() {
@@ -89,7 +91,10 @@ class _ChatPageState extends State<ChatPage> {
       _client = injected;
       _sub = injected.events.listen(_onEvent);
       _connected = injected.isConnected;
-      if (_connected) _syncTodos();
+      if (_connected) {
+        _syncTodos();
+        _loadHistory();
+      }
       _startPoll();
       return;
     }
@@ -139,6 +144,7 @@ class _ChatPageState extends State<ChatPage> {
     if (type == 'auth_ok') {
       if (mounted) setState(() => _connected = true);
       _syncTodos(); // 认证成功（含重连）→ 拉 todo 重同步
+      _loadHistory(); // 认证成功 → 预载历史消息
       return;
     }
     if (type == 'auth_error' ||
@@ -174,6 +180,9 @@ class _ChatPageState extends State<ChatPage> {
         break;
       case 'todo:list':
         _onTodo(data);
+        break;
+      case 'agent:getSessionMessages':
+        _onHistoryLoaded(data);
         break;
     }
   }
@@ -295,6 +304,53 @@ class _ChatPageState extends State<ChatPage> {
     } catch (_) {
       // 未连接时忽略，等重连后 auth_ok 再拉。
     }
+  }
+
+  // ---------- 历史消息预载 ----------
+
+  /// 预载历史消息：`agent:getSessionMessages { sessionId }`。
+  ///
+  /// [_historyRequested] 防止重复发送（同一页只拉一次，重连后 auth_ok 不再重拉）。
+  void _loadHistory() {
+    if (_historyRequested) return;
+    _historyRequested = true;
+    try {
+      _client?.send('agent:getSessionMessages', {
+        'sessionId': widget.sessionId,
+      });
+    } catch (_) {
+      // 未连接时忽略，等 auth_ok 再拉。
+    }
+  }
+
+  /// 渲染 `agent:getSessionMessages` 同通道响应（服务端按时间正序返回）。
+  ///
+  /// 只取 user/assistant 且有文本内容的消息；tool/system 等角色跳过。
+  /// [_historyApplied] 防止跨页污染：本页已应用过历史时，其他会话（共享同一
+  /// RemoteClient 的叠加页面）的响应不能覆盖本页消息。
+  void _onHistoryLoaded(Map<String, dynamic> data) {
+    if (_historyApplied) return;
+    if (data['success'] != true) return;
+    final msgs = data['messages'];
+    if (msgs is! List) return;
+
+    final loaded = <_ChatMessage>[];
+    for (final m in msgs) {
+      if (m is! Map) continue;
+      final role = m['role'];
+      final content = m['content'];
+      if (role != 'user' && role != 'assistant') continue;
+      if (content is! String || content.isEmpty) continue;
+      loaded.add(_ChatMessage(role: role as String, text: content));
+    }
+    if (loaded.isEmpty) return;
+    _historyApplied = true;
+    if (!mounted) return;
+    setState(() {
+      _messages
+        ..clear()
+        ..addAll(loaded);
+    });
   }
 
   // ---------- agent:run 同通道响应 ----------
