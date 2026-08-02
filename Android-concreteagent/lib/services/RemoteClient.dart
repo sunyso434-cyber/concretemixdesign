@@ -218,6 +218,9 @@ class RemoteClient {
 
   void _scheduleReconnect() {
     if (_closeRequested) return;
+    // 幂等：断线可能被多个回调触发（握手失败 + stream 报错），只调度一次，
+    // 避免 _backoffAttempt 重复累加导致退避跳级（1s→2s→4s 变 1s→4s→16s）。
+    if (_reconnectTimer?.isActive ?? false) return;
     final delay = _nextBackoff();
     _backoffAttempt++;
     _reconnectTimer = Timer(delay, () {

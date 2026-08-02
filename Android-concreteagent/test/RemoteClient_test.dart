@@ -42,9 +42,12 @@ class _FakeWebSocketSink implements WebSocketSink {
 /// - [serverClose]：模拟服务端断开连接
 /// - [sent]：收集客户端发出的所有消息（原始字符串）
 class FakeWebSocketChannel implements WebSocketChannel {
-  FakeWebSocketChannel() {
+  FakeWebSocketChannel({this.failReady = false}) {
     outgoing.stream.listen(sent.add);
   }
+
+  /// 为 true 时 [ready] 以错误完成，模拟握手失败。
+  final bool failReady;
 
   /// 服务端 → 客户端 的流。
   final StreamController<dynamic> incoming =
@@ -67,7 +70,9 @@ class FakeWebSocketChannel implements WebSocketChannel {
   WebSocketSink get sink => _sink;
 
   @override
-  Future<void> get ready => Future<void>.value();
+  Future<void> get ready => failReady
+      ? Future<void>.error(RemoteClientException('握手失败'))
+      : Future<void>.value();
 
   @override
   String? get protocol => null;
@@ -94,6 +99,8 @@ class FakeWebSocketChannel implements WebSocketChannel {
       incoming.add(jsonEncode(message));
 
   void serverClose() => incoming.close();
+
+  void serverError(Object error) => incoming.addError(error);
 }
 
 /// 记录每次连接的工厂。
@@ -101,9 +108,12 @@ class FakeChannelFactory {
   final List<FakeWebSocketChannel> channels = [];
   final List<String> urls = [];
 
+  /// 为 true 时新创建的 channel 握手失败（模拟服务端不可达）。
+  bool failReady = false;
+
   WebSocketChannel create(String url) {
     urls.add(url);
-    final channel = FakeWebSocketChannel();
+    final channel = FakeWebSocketChannel(failReady: failReady);
     channels.add(channel);
     return channel;
   }
@@ -160,7 +170,7 @@ void main() {
       await client.close();
     });
 
-    test('auth_error 被拒绝时 connect 抛 RemoteClientException 且不重连', () async {
+    test('auth_error 被拒绝时 connect 抛 RemoteClientException', () async {
       final factory = FakeChannelFactory();
       final client = RemoteClient(channelFactory: factory.create);
 
@@ -172,11 +182,31 @@ void main() {
       await expectLater(connectFuture, throwsA(isA<RemoteClientException>()));
       expect(client.isConnected, isFalse);
 
-      // 认证被拒不自动重连：稍等后仍只有 1 个连接
-      await Future<void>.delayed(const Duration(milliseconds: 60));
-      expect(factory.channels, hasLength(1));
-
       await client.close();
+    });
+
+    test('auth_error 后不自动重连（退避时间过后仍只有 1 个连接）', () {
+      fakeAsync((async) {
+        final factory = FakeChannelFactory();
+        final client = RemoteClient(channelFactory: factory.create);
+
+        // 挂 error handler：fakeAsync 不推进 sub.cancel，rethrow 会延迟；
+        // 但 handler 存在即可避免认证被拒的 error 被误判为未捕获。
+        unawaited(client.connect(url, token).catchError((Object _) {}));
+        async.flushMicrotasks();
+        final channel = factory.channels.first;
+        channel.serverSend({'type': 'auth_error'});
+        async.flushMicrotasks();
+
+        // 认证被拒不触发重连：远超首退避（1s）后仍无新连接，
+        // 可区分「没调度」与「调度了但没到点」两种情况。
+        async.elapse(const Duration(seconds: 5));
+        async.flushMicrotasks();
+        expect(factory.channels, hasLength(1));
+
+        client.close();
+        async.flushMicrotasks();
+      });
     });
   });
 
@@ -338,6 +368,46 @@ void main() {
         async.elapse(const Duration(seconds: 1));
         async.flushMicrotasks();
         expect(factory.channels, hasLength(3), reason: '2s 时第二次重连完成');
+
+        // 清理，避免 pending timer
+        client.close();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('握手失败双回调只调度一次重连，退避保持 1s→2s→4s', () {
+      fakeAsync((async) {
+        final factory = FakeChannelFactory()..failReady = true;
+        final client = RemoteClient(channelFactory: factory.create);
+
+        unawaited(client.connect(url, token));
+        async.flushMicrotasks();
+
+        // 真实 IOWebSocketChannel 握手失败时 ready 与 stream 都会报错 → 双回调。
+        // 若 _scheduleReconnect 非幂等，第二个回调会把 1s 的 timer 覆盖成 2s，
+        // 退避序列会从 1s→2s→4s 跳级成 1s→4s→16s。
+        final ch1 = factory.channels.first;
+        ch1.serverError(Exception('握手失败'));
+        async.flushMicrotasks();
+        expect(factory.channels, hasLength(1));
+
+        // 第一次退避 1s 后重连
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+        expect(factory.channels, hasLength(2), reason: '第一次退避为 1s');
+
+        // 第二次握手同样失败，退避应翻倍到 2s
+        final ch2 = factory.channels[1];
+        ch2.serverError(Exception('握手失败'));
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 1)); // 累计 2s
+        async.flushMicrotasks();
+        expect(factory.channels, hasLength(2), reason: '1s 后第二次尚未重连');
+
+        async.elapse(const Duration(seconds: 1)); // 累计 3s
+        async.flushMicrotasks();
+        expect(factory.channels, hasLength(3), reason: '2s 后第二次重连完成');
 
         // 清理，避免 pending timer
         client.close();
