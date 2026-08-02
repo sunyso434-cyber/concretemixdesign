@@ -67,6 +67,22 @@ ConnectionService loginOkService() => ConnectionService(
           )),
     );
 
+/// 配对接口成功的 ConnectionService（MockClient 对 /api/pair 回服务端签发 deviceId）。
+ConnectionService pairOkService() => ConnectionService(
+      httpClient: MockClient((request) async {
+        if (request.url.path.endsWith('/api/pair')) {
+          return http.Response(
+            jsonEncode({'ok': true, 'deviceId': 'dev_1234567890abcdef'}),
+            200,
+          );
+        }
+        return http.Response(
+          jsonEncode({'ok': false, 'error': 'NOT_IMPLEMENTED'}),
+          501,
+        );
+      }),
+    );
+
 /// 挂载 ConcreteApp（注入 fake 客户端 + fake 扫码器，模拟扫码返回 [qrText]），
 /// 测试结束后卸载以清理轮询 Timer。
 Future<void> pumpApp(
@@ -185,20 +201,23 @@ void main() {
   });
 
   group('配对流程', () {
-    testWidgets('扫码配对成功 → 进入 LoginPage', (tester) async {
+    testWidgets('扫码配对成功 → 保存服务端 deviceId 并进入 LoginPage', (tester) async {
       final fake = FakeRemoteClient();
-      await pumpApp(tester, fake);
+      final svc = pairOkService();
+      await pumpApp(tester, fake, svc: svc);
       expect(find.byType(PairPage), findsOneWidget);
 
       await tester.tap(find.text('模拟扫码'));
       await tester.pumpAndSettle();
 
       expect(find.byType(LoginPage), findsOneWidget);
+      // 配对注册：服务端签发 deviceId 已落本地（C1）
+      expect(await svc.getDeviceId(), 'dev_1234567890abcdef');
     });
 
     testWidgets('扫码配对失败 → 显示错误并停留 PairPage', (tester) async {
       final fake = FakeRemoteClient();
-      await pumpApp(tester, fake, qrText: 'not-a-json{{');
+      await pumpApp(tester, fake, svc: pairOkService(), qrText: 'not-a-json{{');
       expect(find.byType(PairPage), findsOneWidget);
 
       await tester.tap(find.text('模拟扫码'));
@@ -246,6 +265,20 @@ void main() {
 
       expect(find.byType(LoginPage), findsOneWidget);
       expect(find.text('密码错误，剩余 3 次机会'), findsOneWidget);
+    });
+  });
+
+  group('登录恢复路径（I1）', () {
+    testWidgets('登录页「重新扫码配对」→ 回 PairPage', (tester) async {
+      SharedPreferences.setMockInitialValues({'connection.addr': addr});
+      final fake = FakeRemoteClient();
+      await pumpApp(tester, fake, svc: loginOkService());
+      expect(find.byType(LoginPage), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('repair-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PairPage), findsOneWidget);
     });
   });
 

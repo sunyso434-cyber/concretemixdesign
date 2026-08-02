@@ -9,7 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// 扫码配对的结果。
 ///
-/// `ok` 为 false 时仅 `error` 有效；成功时 `addr/code/domain` 有效。
+/// `ok` 为 false 时仅 `error` 有效；成功时 `addr/code/domain/deviceId` 有效。
 class PairResult {
   const PairResult({
     required this.ok,
@@ -17,6 +17,7 @@ class PairResult {
     this.addr,
     this.code,
     this.domain,
+    this.deviceId,
   });
 
   final bool ok;
@@ -24,6 +25,7 @@ class PairResult {
   final String? addr; // wss 地址（原样保存，供后续 WebSocket 连接）
   final String? code; // 8 位配对码
   final String? domain; // 从 addr 解析出的域名
+  final String? deviceId; // 服务端配对接口签发（格式 dev_<hex>），成功时已写入 secure storage
 }
 
 /// 登录的结果，与服务端 `/api/login` 响应对齐。
@@ -67,10 +69,14 @@ class ConnectionService {
   /// 8 位字母数字配对码（服务端字符集为去混淆的大写字母 + 数字 2-9）。
   static final RegExp _codePattern = RegExp(r'^[A-Za-z0-9]{8}$');
 
-  /// 解析二维码 JSON 并保存 wss 地址到本地。
+  /// 扫码配对：解析二维码 + 服务端注册设备。
   ///
   /// 二维码格式与电脑端 R10 统一：
   /// `{"addr":"wss://www.concreteagent.cloud/concrete/ws","code":"<8位>"}`
+  /// 解析出 code 后 POST `/concrete/api/pair`（body `{code}`）注册设备，
+  /// 取回服务端签发的 deviceId 并保存到 secure storage；全部成功后保存
+  /// addr 到 shared_preferences。服务端配对失败（INVALID_CODE/CODE_EXPIRED）
+  /// 或网络失败时返回 ok=false，不落本地。
   Future<PairResult> pair(String qrData) async {
     final Map<String, dynamic> json;
     try {
@@ -97,10 +103,62 @@ class ConnectionService {
       return const PairResult(ok: false, error: 'INVALID_ADDR');
     }
 
+    // 用配对码在服务端注册设备，取回服务端签发的 deviceId（格式 dev_<hex>）。
+    // 服务端 POST /api/pair {code} → { ok, deviceId }（RemoteAuth.pair）；
+    // 未注册设备即使密码正确也会被 login 拒绝（DEVICE_NOT_PAIRED）。
+    // wss → https，ws → http；正式环境使用腾讯云正规域名证书，系统自动信任。
+    final scheme = uri.scheme == 'wss' ? 'https' : 'http';
+    final pairUrl = Uri.parse('$scheme://${uri.host}/concrete/api/pair');
+
+    final http.Response resp;
+    try {
+      resp = await _http.post(
+        pairUrl,
+        headers: {'Content-Type': 'application/json; charset=utf-8'},
+        body: jsonEncode({'code': code}),
+      );
+    } catch (_) {
+      return const PairResult(ok: false, error: 'NETWORK_ERROR');
+    }
+
+    final Map<String, dynamic> body;
+    try {
+      final decoded = jsonDecode(resp.body);
+      if (decoded is! Map<String, dynamic>) {
+        return const PairResult(ok: false, error: 'BAD_RESPONSE');
+      }
+      body = decoded;
+    } catch (_) {
+      return const PairResult(ok: false, error: 'BAD_RESPONSE');
+    }
+
+    if (body['ok'] != true) {
+      return PairResult(
+        ok: false,
+        error: body['error'] as String? ?? 'PAIR_FAILED',
+        addr: addr,
+        code: code,
+        domain: uri.host,
+      );
+    }
+
+    final deviceId = body['deviceId'] as String?;
+    if (deviceId == null || deviceId.isEmpty) {
+      return const PairResult(ok: false, error: 'MISSING_DEVICE_ID');
+    }
+
+    // 全部成功后才落本地：addr（shared_preferences）+ 服务端 deviceId（secure storage）。
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(addrKey, addr);
+    await saveDeviceId(deviceId);
 
-    return PairResult(ok: true, addr: addr, code: code, domain: uri.host);
+    return PairResult(
+      ok: true,
+      addr: addr,
+      code: code,
+      domain: uri.host,
+      deviceId: deviceId,
+    );
   }
 
   /// 用密码 + 设备 ID 登录，token 写入 secure storage。

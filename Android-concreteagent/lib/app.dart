@@ -114,8 +114,12 @@ class _ConcreteAppState extends State<ConcreteApp> {
         _handleAuthRejected();
         return;
       }
-    } catch (_) {
-      // 网络层失败：后台重连，UI 显示「连接中」。
+      // 网络层失败（authRejected=false）：RemoteClient 后台按指数退避自动重连，
+      // UI 显示「连接中」。记日志便于排查，不吞掉。
+      debugPrint('ConcreteApp._enterHome: 连接失败（后台重连中）: ${e.message}');
+    } catch (e, st) {
+      // 非 RemoteClientException 的未知错误：记日志避免静默吞掉。
+      debugPrint('ConcreteApp._enterHome: 未知连接错误: $e\n$st');
     }
     if (!mounted) return;
     if (_authRejected) return; // 事件监听已切到登录页，勿覆盖
@@ -173,6 +177,12 @@ class _ConcreteAppState extends State<ConcreteApp> {
     if (mounted) setState(() => _state = _AppScreen.pair);
   }
 
+  /// 登录页「重新扫码配对」：回配对页（不主动清 token，配对成功后重新登录）。
+  void _onRepair() {
+    _authRejected = false;
+    if (mounted) setState(() => _state = _AppScreen.pair);
+  }
+
   // ---------- UI ----------
 
   Widget _buildScreen() {
@@ -189,6 +199,7 @@ class _ConcreteAppState extends State<ConcreteApp> {
         return LoginPage(
           connectionService: _svc,
           onLoggedIn: _onLoggedIn,
+          onRepair: _onRepair,
         );
       case _AppScreen.home:
         return _HomePage(

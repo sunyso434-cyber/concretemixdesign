@@ -1,22 +1,22 @@
 // ignore_for_file: file_names
 // 文件名 LoginPage 为任务简报指定的 PascalCase 命名，保持原样。
 
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 
 import '../services/ConnectionService.dart';
 
 /// 登录页：访问密码 + 记住密码开关 → [ConnectionService.login] → 进主页。
 ///
-/// - deviceId：配对时由服务端签发并本地保存；首次登录本地无 deviceId 时
-///   生成一个稳定的设备标识并保存，后续复用（登录成功会写回 secure storage）。
+/// - deviceId：配对时服务端签发并已由 [ConnectionService.pair] 保存；
+///   登录直接用该 deviceId，本地不再生成（格式必须与服务端 `dev_<hex>` 一致）。
 /// - 记住密码：开启时密码入 secure storage，下次冷启动自动填充；默认关闭。
+/// - [onRepair]：重新扫码配对入口，返回 App 层回配对页（设备未配对时恢复路径）。
 class LoginPage extends StatefulWidget {
   const LoginPage({
     super.key,
     this.connectionService,
     this.onLoggedIn,
+    this.onRepair,
   });
 
   /// 连接配置服务（生产为 null 时自动创建；测试可注入）。
@@ -24,6 +24,9 @@ class LoginPage extends StatefulWidget {
 
   /// 登录成功回调（App 层进入主页）。
   final VoidCallback? onLoggedIn;
+
+  /// 重新扫码配对回调（App 层回到配对页）。
+  final VoidCallback? onRepair;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -54,15 +57,12 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  /// 设备标识：优先用配对/登录时保存的；没有则生成稳定标识并保存。
-  Future<String> _deviceId() async {
-    final existing = await _svc.getDeviceId();
-    if (existing != null && existing.isNotEmpty) return existing;
-    final rand = Random().nextInt(0xFFFFFF).toRadixString(16);
-    final id = 'dev-${DateTime.now().millisecondsSinceEpoch}-$rand';
-    await _svc.saveDeviceId(id);
-    return id;
-  }
+  /// 设备标识：配对时服务端签发并已由 [ConnectionService.pair] 保存。
+  ///
+  /// 本地不再生成（服务端格式 `dev_<hex>` 与本地拼的 `dev-<时间>-<hex>` 永不匹配，
+  /// 会因未注册被拒）。无 deviceId（未配对/存储被清）时传空串，服务端回
+  /// DEVICE_NOT_PAIRED，配合「重新扫码配对」按钮恢复。
+  Future<String> _deviceId() async => await _svc.getDeviceId() ?? '';
 
   Future<void> _login() async {
     final pw = _passwordCtrl.text.trim();
@@ -175,6 +175,12 @@ class _LoginPageState extends State<LoginPage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Text('登录'),
+              ),
+              // 设备未配对/重新配对时的恢复入口（I1：登录不再死胡同）。
+              TextButton(
+                key: const Key('repair-button'),
+                onPressed: widget.onRepair,
+                child: const Text('重新扫码配对'),
               ),
             ],
           ),
