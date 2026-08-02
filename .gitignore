@@ -65,6 +65,9 @@ resources/officecli/*/*.update.partial
 # OfficeCLI 自动更新下载的临时分片文件
 *.update.partial
 
+# frp 二进制（frpc.exe 通过 R12 手动放置，打包时 electron-builder 自动包含，不入仓）
+resources/frpc/*/frpc.exe
+
 # 一次性恢复/抢救脚本（一次性使用，跑完可删）
 scripts/recover-*.js
 

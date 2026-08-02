@@ -94,6 +94,10 @@
           "!*.update.partial",
           "!*.old"
         ]
+      },
+      {
+        "from": "resources/frpc/**",
+        "to": "frpc/"
       }
     ],
     "asarUnpack": [
