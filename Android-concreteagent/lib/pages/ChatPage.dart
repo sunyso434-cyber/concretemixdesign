@@ -4,9 +4,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/ConnectionService.dart';
+import '../services/ImageUploadService.dart';
 import '../services/RemoteClient.dart';
 import '../widgets/ConfirmationDialog.dart';
 import '../widgets/MessageBubble.dart';
@@ -42,6 +44,7 @@ class ChatPage extends StatefulWidget {
     required this.sessionId,
     this.client,
     this.connectionService,
+    this.imageUploadService,
   });
 
   /// 会话 ID（本地生成时间戳；`agent:run` 首条会自动建会话）。
@@ -52,6 +55,9 @@ class ChatPage extends StatefulWidget {
 
   /// 连接配置服务（生产读取 token；测试可注入）。
   final ConnectionService? connectionService;
+
+  /// 图片上传服务（测试可注入；生产为 null 时自动创建）。
+  final ImageUploadService? imageUploadService;
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -372,6 +378,103 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  // ---------- 发图 ----------
+
+  /// 选图 → 上传 → 成功后带 imageRefs 发 `agent:run`。
+  Future<void> _onPickImage() async {
+    if (_sending || _client == null || !_connected) return;
+
+    final XFile? picked;
+    try {
+      picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('无法打开相册，请检查系统相册权限')),
+        );
+      }
+      return;
+    }
+    if (picked == null) return; // 用户取消
+
+    if (!mounted) return;
+    setState(() => _sending = true);
+
+    final token =
+        await (widget.connectionService ?? ConnectionService()).getToken();
+    if (token == null || token.isEmpty) {
+      if (mounted) {
+        setState(() => _sending = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('未登录，无法上传图片')),
+        );
+      }
+      return;
+    }
+
+    final service = widget.imageUploadService ?? ImageUploadService();
+    final result = await service.uploadImage(picked.path, token);
+
+    if (!mounted) return;
+    if (!result.ok) {
+      setState(() => _sending = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_imageErrorText(result.error))),
+      );
+      return;
+    }
+
+    // 上传成功：追加用户气泡 + AI 占位，带 imageRefs 发 agent:run
+    final name = result.name ?? picked.name;
+    setState(() {
+      _messages.add(_ChatMessage(role: 'user', text: '🖼️ $name'));
+      _messages.add(
+        _ChatMessage(role: 'assistant', text: '', streaming: true),
+      );
+    });
+    _scrollToBottom();
+    try {
+      _client!.send('agent:run', {
+        'sessionId': widget.sessionId,
+        'message': '我上传了一张图片（$name），请分析这张图片。',
+        'imageRefs': [
+          {'path': result.path},
+        ],
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          final current = _messages.last;
+          current.streaming = false;
+          current.error = '发送失败：${e is StateError ? e.message : e}';
+          _sending = false;
+        });
+      }
+    }
+  }
+
+  /// 把上传错误码转成用户能看懂的中文提示。
+  String _imageErrorText(String? error) {
+    switch (error) {
+      case 'IMAGE_TOO_LARGE':
+        return '图片超过 10MB 大小限制，请换一张';
+      case 'FILE_NOT_FOUND':
+        return '图片文件不存在';
+      case 'FILE_READ_ERROR':
+        return '读取图片失败';
+      case 'NOT_PAIRED':
+        return '未配对，请先扫码配对';
+      case 'INVALID_ADDR':
+        return '配对地址无效';
+      case 'NETWORK_ERROR':
+        return '上传失败：网络异常';
+      case 'UPLOAD_FAILED':
+        return '上传失败，请重试';
+      default:
+        return '图片上传失败：${error ?? '未知错误'}';
+    }
+  }
+
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollCtrl.hasClients) return;
@@ -456,6 +559,7 @@ class _ChatPageState extends State<ChatPage> {
                 _InputBar(
                   controller: _inputCtrl,
                   onSend: _sendMessage,
+                  onPickImage: _onPickImage,
                   enabled: _client != null && _connected && !_sending,
                 ),
               ],
@@ -464,16 +568,18 @@ class _ChatPageState extends State<ChatPage> {
   }
 }
 
-/// 底部输入栏：文本输入 + 发送按钮。
+/// 底部输入栏：发图按钮 + 文本输入 + 发送按钮。
 class _InputBar extends StatelessWidget {
   const _InputBar({
     required this.controller,
     required this.onSend,
+    required this.onPickImage,
     required this.enabled,
   });
 
   final TextEditingController controller;
   final VoidCallback onSend;
+  final VoidCallback onPickImage;
   final bool enabled;
 
   @override
@@ -483,6 +589,12 @@ class _InputBar extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
         child: Row(
           children: [
+            IconButton(
+              onPressed: enabled ? onPickImage : null,
+              icon: const Icon(Icons.add_photo_alternate_outlined),
+              tooltip: '发图',
+            ),
+            const SizedBox(width: 2),
             Expanded(
               child: TextField(
                 controller: controller,
