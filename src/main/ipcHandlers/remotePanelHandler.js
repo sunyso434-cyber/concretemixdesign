@@ -26,6 +26,7 @@ const DEFAULT_DOMAIN = 'www.concreteagent.cloud'
 const WS_PATH = '/concrete/ws'
 
 let _refs = { auth: null, remoteServer: null }
+let _registered = false
 
 // auth 懒初始化：R10 单独跑时也能自举；R11 注入共享实例后不再重复创建
 function ensureAuth() {
@@ -68,11 +69,16 @@ function buildAddr(domain) {
 }
 
 /**
- * 注册远程连接面板 IPC handlers。
+ * 注册远程连接面板 IPC handlers（幂等）。
+ * 仅首次调用时执行 ipcMain.handle；此后再次调用只合并更新 _refs，不重复注册
+ * （避免 Electron 对同通道二次 handle 抛 "Attempted to register a second handler"）。
+ * R11 注入共享 RemoteServer/FanoutSink 时再次调用 register 即可。
  * @param {{ auth?: object, remoteServer?: object }} [refs] R11 注入共享实例；缺省时 auth 懒创建
  */
 function register(refs = {}) {
   _refs = { ..._refs, ...refs }
+  if (_registered) return
+  _registered = true
 
   ipcMain.handle('remote:getPairCode', () => {
     const auth = ensureAuth()
@@ -100,9 +106,9 @@ function register(refs = {}) {
     }
   })
 
-  ipcMain.handle('remote:setEnabled', (_e, { enabled }) => {
+  ipcMain.handle('remote:setEnabled', (_e, payload = {}) => {
     const auth = ensureAuth()
-    const v = !!enabled
+    const v = !!payload.enabled
     auth.setEnabled(v)
     let tempPassword = null
     if (v && !auth.hasPassword()) {
@@ -120,9 +126,9 @@ function register(refs = {}) {
     return { password: pw }
   })
 
-  ipcMain.handle('remote:setDomain', (_e, { domain }) => {
+  ipcMain.handle('remote:setDomain', (_e, payload = {}) => {
     const cfg = loadConfig()
-    cfg.domain = String(domain == null ? '' : domain).trim()
+    cfg.domain = String(payload.domain == null ? '' : payload.domain).trim()
     saveConfig(cfg)
     return { domain: cfg.domain }
   })
