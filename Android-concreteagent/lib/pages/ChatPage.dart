@@ -326,8 +326,8 @@ class _ChatPageState extends State<ChatPage> {
   /// 渲染 `agent:getSessionMessages` 同通道响应（服务端按时间正序返回）。
   ///
   /// 只取 user/assistant 且有文本内容的消息；tool/system 等角色跳过。
-  /// [_historyApplied] 防止跨页污染：本页已应用过历史时，其他会话（共享同一
-  /// RemoteClient 的叠加页面）的响应不能覆盖本页消息。
+  /// [_historyApplied] 防止跨页污染：无论载入与否（含空历史），本页只应用一次
+  /// 历史响应，其他会话（共享同一 RemoteClient 的叠加页面）的响应不能覆盖本页。
   void _onHistoryLoaded(Map<String, dynamic> data) {
     if (_historyApplied) return;
     if (data['success'] != true) return;
@@ -343,8 +343,10 @@ class _ChatPageState extends State<ChatPage> {
       if (content is! String || content.isEmpty) continue;
       loaded.add(_ChatMessage(role: role as String, text: content));
     }
-    if (loaded.isEmpty) return;
+    // 空历史也标记已应用：无论是否载入消息，本页都不再接受其他会话的
+    // getSessionMessages 响应（防跨页污染，评审 I2）。
     _historyApplied = true;
+    if (loaded.isEmpty) return;
     if (!mounted) return;
     setState(() {
       _messages

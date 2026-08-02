@@ -119,6 +119,31 @@ describe('RemoteSessionApi', () => {
       const sent = ws.send.mock.calls.find(c => c[0] === 'agent:listSessions')[1]
       expect(sent.requestId).toMatch(/^req_\d+_[a-z0-9]+$/)
     })
+
+    test('归档会话不在列表返回（ChatSession 批量查询带 archived:false 过滤）', async () => {
+      ChatHistory.findAll.mockResolvedValue([
+        { sessionId: 's1', lastActivity: '2026-01-01T00:00:00.000Z' },
+        { sessionId: 's2', lastActivity: '2026-01-02T00:00:00.000Z' }
+      ])
+      // s2 已归档 → ChatSession.findAll（archived:false）只返回 s1
+      ChatSession.findAll.mockResolvedValue([
+        { sessionId: 's1', sessionName: '会话A' }
+      ])
+
+      await api.handleMessage(ws, { type: 'agent:listSessions', requestId: 'req-ar' })
+
+      expect(ChatSession.findAll).toHaveBeenCalledWith({
+        where: { sessionId: ['s1', 's2'], archived: false },
+        raw: true
+      })
+      expect(ws.send).toHaveBeenCalledWith('agent:listSessions', {
+        requestId: 'req-ar',
+        success: true,
+        sessions: [
+          { sessionId: 's1', lastActivity: '2026-01-01T00:00:00.000Z', sessionName: '会话A' }
+        ]
+      })
+    })
   })
 
   describe('agent:getSessionMessages', () => {

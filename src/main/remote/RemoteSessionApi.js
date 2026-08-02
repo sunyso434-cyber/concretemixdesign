@@ -81,16 +81,21 @@ class RemoteSessionApi {
         raw: true
       })
       const sessionIds = rows.map(r => r.sessionId)
+      // archived 列在 ChatSession 表（ChatHistory 无此列）；批量查活跃会话并过滤归档
+      // 语义与 SessionService.listRecentSessionsWithMeta 的 where:{archived:false} 一致。
       const sessions = await ChatSession.findAll({
-        where: { sessionId: sessionIds },
+        where: { sessionId: sessionIds, archived: false },
         raw: true
       })
+      const activeIds = new Set(sessions.map(s => s.sessionId))
       const nameMap = Object.fromEntries(sessions.map(s => [s.sessionId, s.sessionName]))
-      const list = rows.map(r => ({
-        sessionId: r.sessionId,
-        lastActivity: r.lastActivity,
-        sessionName: nameMap[r.sessionId] || null
-      }))
+      const list = rows
+        .filter(r => activeIds.has(r.sessionId))
+        .map(r => ({
+          sessionId: r.sessionId,
+          lastActivity: r.lastActivity,
+          sessionName: nameMap[r.sessionId] || null
+        }))
       ws.send('agent:listSessions', { requestId: reqId, success: true, sessions: list })
       return { success: true, sessions: list }
     } catch (err) {

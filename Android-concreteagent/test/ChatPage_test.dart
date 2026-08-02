@@ -404,5 +404,33 @@ void main() {
 
       expect(fake.sentOf('agent:getSessionMessages'), hasLength(1));
     });
+
+    testWidgets('空历史响应后仍忽略后续同通道响应（防跨页污染）', (tester) async {
+      final fake = FakeRemoteClient();
+      await pumpChat(tester, fake);
+
+      // 空历史响应 → 标记已应用
+      fake.emit({
+        'channel': 'agent:getSessionMessages',
+        'payload': {'requestId': 'req-0', 'success': true, 'messages': []},
+      });
+      await tester.pumpAndSettle();
+
+      // 后续其他会话的历史响应不应污染本页（I2 guard）
+      fake.emit({
+        'channel': 'agent:getSessionMessages',
+        'payload': {
+          'requestId': 'req-1',
+          'success': true,
+          'messages': [
+            {'role': 'user', 'content': '不应显示'},
+          ],
+        },
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MessageBubble), findsNothing);
+      expect(find.text('不应显示'), findsNothing);
+    });
   });
 }
