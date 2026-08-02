@@ -52,6 +52,21 @@ function normalizeDomain(domain) {
     .replace(/\/+$/, '')
 }
 
+/**
+ * 校验并返回正整数端口（R12 评审 Minor7：非正整数抛明确错误，
+ * 避免生成 NaN 的 TOML 后 frpc 启动失败进入死循环退避）。
+ * @param {*} v 端口值（数字或可转数字字符串）
+ * @param {string} label 错误信息里的字段名
+ * @returns {number}
+ */
+function toPositiveInt(v, label) {
+  const n = Number(v)
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(`frp 配置 ${label} 必须是正整数（当前: ${v}）`)
+  }
+  return n
+}
+
 class FrpcManager {
   /**
    * @param {Object} [opts]
@@ -109,9 +124,9 @@ class FrpcManager {
     if (!d) throw new Error('frp 配置缺少 domain（customDomains）')
     if (!serverAddr) throw new Error('frp 配置缺少 serverAddr')
     if (!token) throw new Error('frp 配置缺少 token')
-    if (!localPort) throw new Error('frp 配置缺少 localPort')
-    const port = Number(serverPort) || 7000
-    const local = Number(localPort)
+    if (localPort == null) throw new Error('frp 配置缺少 localPort')
+    const port = toPositiveInt(serverPort == null ? 7000 : serverPort, 'serverPort')
+    const local = toPositiveInt(localPort, 'localPort')
     return [
       `serverAddr = ${tomlString(serverAddr)}`,
       `serverPort = ${port}`,

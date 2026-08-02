@@ -93,6 +93,19 @@ describe('FrpcManager（R12 frpc 子进程管理）', () => {
     expect(() => mgr.buildToml({ ...CFG, serverAddr: '' })).toThrow(/serverAddr/)
   })
 
+  test('buildToml：localPort / serverPort 非正整数时抛明确错误（避免 NaN TOML）', () => {
+    const mgr = makeManager({ tmpDir, resourcePath, spawn })
+    for (const bad of [0, -1, 1.5, 'abc', NaN]) {
+      expect(() => mgr.buildToml({ ...CFG, localPort: bad })).toThrow(/localPort.*正整数/)
+    }
+    for (const bad of [0, -1, 1.5, 'abc', NaN]) {
+      expect(() => mgr.buildToml({ ...CFG, serverPort: bad })).toThrow(/serverPort.*正整数/)
+    }
+    // 合法数字字符串仍可用；serverPort 缺省 7000
+    expect(mgr.buildToml({ ...CFG, localPort: '46351', serverPort: '7000' })).toContain('serverPort = 7000')
+    expect(mgr.buildToml({ ...CFG, localPort: '46351', serverPort: undefined })).toContain('serverPort = 7000')
+  })
+
   test('normalizeDomain：剥离协议前缀与尾部斜杠', () => {
     expect(normalizeDomain('wss://www.concreteagent.cloud/')).toBe('www.concreteagent.cloud')
     expect(normalizeDomain('https://a.com///')).toBe('a.com')

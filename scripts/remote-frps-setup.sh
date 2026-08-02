@@ -205,6 +205,8 @@ def bare(line):
 if any('location /concrete/' in l for l in lines):
     print('   location /concrete/ 已存在，跳过'); sys.exit(0)
 
+# 收集所有含 DOMAIN 的 server 块（start 行..end 行），避免错选 80 跳转块
+candidates = []
 for i, line in enumerate(lines):
     if ('server_name' in bare(line)) and (DOMAIN in bare(line)) and ('{' not in bare(line)):
         start = None
@@ -213,20 +215,37 @@ for i, line in enumerate(lines):
             if 'server' in b and '{' in b:
                 start = j; break
         if start is None:
-            print('   !! 找不到 server { 起始行'); sys.exit(2)
+            continue
         depth = 0; end = None
         for j in range(start, len(lines)):
             depth += bare(lines[j]).count('{') - bare(lines[j]).count('}')
             if depth == 0 and j > start:
                 end = j; break
         if end is None:
-            print('   !! server 块括号不配对'); sys.exit(2)
-        indent = lines[end][:len(lines[end]) - len(lines[end].lstrip())]
-        blk = [indent + ln if ln.strip() else ln for ln in block.rstrip().split('\n')]
-        lines = lines[:end] + blk + lines[end:]
-        open(conf, 'w', encoding='utf-8').write('\n'.join(lines))
-        print('   已注入 location /concrete/ 到现有 server 块'); sys.exit(0)
-print('   !! 未定位到 server 块'); sys.exit(3)
+            continue
+        candidates.append((start, end))
+
+if not candidates:
+    print('   !! 未定位到 server 块'); sys.exit(3)
+
+# 优先注入 listen 443 的 server 块（手机 wss 走 443；另一个项目若为「80 跳转块 + 443 块」
+# 分离结构且 80 在前，注入 80 块会导致 443 链路不通）。没有 443 块才退回首个候选块。
+target = None
+for (s, e) in candidates:
+    if 'listen 443' in '\n'.join(lines[s:e + 1]):
+        target = (s, e)
+        break
+if target is None:
+    target = candidates[0]
+is443 = 'listen 443' in '\n'.join(lines[target[0]:target[1] + 1])
+
+start, end = target
+indent = lines[end][:len(lines[end]) - len(lines[end].lstrip())]
+blk = [indent + ln if ln.strip() else ln for ln in block.rstrip().split('\n')]
+lines = lines[:end] + blk + lines[end:]
+open(conf, 'w', encoding='utf-8').write('\n'.join(lines))
+print('   已注入 location /concrete/ 到 ' + ('listen 443 的 server 块' if is443 else '首个含域名的 server 块（未发现 443 块）'))
+sys.exit(0)
 PY
     then
       INJECTED=1
