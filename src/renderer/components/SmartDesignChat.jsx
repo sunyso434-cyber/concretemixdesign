@@ -272,6 +272,25 @@ const SmartDesignChat = () => {
     loadWorkspace()
   }, [])
 
+  // R8：远程（手机）切换工作区后，刷新当前工作区显示（双向 workspace:changed，只加监听不改交互）
+  useEffect(() => {
+    if (!window.electronAPI?.on) return
+    const listenerId = window.electronAPI.on('workspace:changed', () => {
+      window.electronAPI.workspace.current()
+        .then((current) => {
+          if (current && current.path) {
+            setWorkspacePath(current.path)
+          }
+        })
+        .catch(() => {})
+    })
+    return () => {
+      if (window.electronAPI?.removeListener && listenerId) {
+        window.electronAPI.removeListener(listenerId)
+      }
+    }
+  }, [])
+
   // 加载所有已知工作区列表（用于下拉切换）
   const loadWorkspacesList = useCallback(async () => {
     try {

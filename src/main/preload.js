@@ -102,7 +102,9 @@ const EVENT_CHANNELS = new Set([
   'data-refresh',
   'optimization-completed',
   'optimization-failed',
-  'optimization-progress'
+  'optimization-progress',
+  // R8：远程（手机）切换工作区后，通知桌面刷新当前工作区显示
+  'workspace:changed'
 ])
 
 function assertAllowedIpcChannel(type, channel) {
