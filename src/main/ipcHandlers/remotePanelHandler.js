@@ -29,10 +29,11 @@ const WS_PATH = '/concrete/ws'
 let _refs = { auth: null, remoteServer: null, remoteService: null }
 let _registered = false
 
-// auth 懒初始化：R10 单独跑时也能自举；R11 注入共享实例后不再重复创建
+// auth 懒初始化：R10 单独跑时也能自举；R11 注入共享实例后不再重复创建。
+// R11 评审 M1：懒创建时也用 10 次 / 30 分（与 index.js 组装、R5 交接参数一致，别用默认 5 次 / 10 分）
 function ensureAuth() {
   if (!_refs.auth) {
-    const auth = new RemoteAuth()
+    const auth = new RemoteAuth({ maxLoginFailures: 10, lockoutMs: 30 * 60 * 1000 })
     auth.init({ userDataDir: app.getPath('userData') })
     _refs.auth = auth
   }
@@ -93,11 +94,9 @@ function register(refs = {}) {
     const cfg = loadConfig()
     let connectedClients = 0
     const server = _refs.remoteServer
-    if (server && typeof server.getFanoutSink === 'function') {
-      const fanout = server.getFanoutSink()
-      if (fanout && typeof fanout.getTargetCount === 'function') {
-        connectedClients = fanout.getTargetCount()
-      }
+    if (server && typeof server.getRemoteClientCount === 'function') {
+      // R11 评审 I1：只统计已认证的手机 ws，桌面 webContents（fanout target）不计入
+      connectedClients = server.getRemoteClientCount()
     }
     return {
       enabled: auth.isEnabled(),
@@ -118,17 +117,25 @@ function register(refs = {}) {
       auth.setPassword(tempPassword)
     }
     // R11：联动远程服务监听——启用→启动本地端口监听；停用→停止（注入 remoteService 时）
+    // R11 评审 I2：联动失败（如端口被占用）不静默——回滚 enabled 并返回 error，面板看到开关回弹 + 错误原因
+    let listening = false
+    let error = null
     const svc = _refs.remoteService
     if (svc) {
       try {
-        if (v) await svc.startListening()
-        else await svc.stopListening()
+        if (v) {
+          const r = await svc.startListening()
+          listening = !!(r && r.listening)
+        } else {
+          await svc.stopListening()
+        }
       } catch (err) {
-        // 联动失败（如端口占用）仅告警，不阻断开关状态与密码返回
-        console.warn('[remotePanel] 联动远程服务失败:', err && err.message ? err.message : err)
+        error = err && err.message ? err.message : String(err)
+        if (v) auth.setEnabled(false) // 启用失败：回滚持久化开关，避免"假启用"
+        console.warn('[remotePanel] 联动远程服务失败:', error)
       }
     }
-    return { enabled: auth.isEnabled(), tempPassword }
+    return { enabled: auth.isEnabled(), tempPassword, listening, error }
   })
 
   ipcMain.handle('remote:resetPassword', () => {

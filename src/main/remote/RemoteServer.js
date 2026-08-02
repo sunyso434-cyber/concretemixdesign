@@ -51,6 +51,7 @@ class RemoteServer {
     this._apis = {}
     this._publicAddr = null
     this._connections = new Set() // 当前 ws 连接状态：{ ws, wrapped, authenticated }
+    this._remoteClients = 0       // R11 评审 I1：已认证的手机 ws 连接数（桌面 webContents 不计入）
     this._started = false
   }
 
@@ -109,6 +110,7 @@ class RemoteServer {
       try { conn.ws.close(1000, 'server shutdown') } catch { /* 已关闭 */ }
     }
     this._connections.clear()
+    this._remoteClients = 0 // R11 评审 I1：兜底归零
 
     if (this._wss) {
       try { this._wss.close() } catch { /* 已关闭 */ }
@@ -128,6 +130,11 @@ class RemoteServer {
   /** 返回注入的 FanoutSink（R11 接线用）。 */
   getFanoutSink() {
     return this._fanout
+  }
+
+  /** 已认证的手机 ws 连接数（R11 评审 I1：面板"在线客户端"用此口径，桌面 webContents 不计入）。 */
+  getRemoteClientCount() {
+    return this._remoteClients
   }
 
   /** 生成配对码并注入 publicAddr（R4 交接点：RemoteAuth.generatePairCode 的 addr 置空，由本层注入监听地址）。 */
@@ -225,6 +232,7 @@ class RemoteServer {
     })
 
     ws.on('close', () => {
+      if (conn.authenticated) this._remoteClients-- // R11 评审 I1：断开递减
       this._connections.delete(conn)
       // wrapped 目标已通过 wrapWs 的 onClose 从 fanout 自动移除
     })
@@ -256,6 +264,7 @@ class RemoteServer {
 
     conn.authenticated = true
     conn.wrapped = wrapWs(conn.ws)
+    this._remoteClients++ // R11 评审 I1：只统计已认证的手机 ws（桌面 webContents 是另一类 target，不计入）
     this._sendWs(conn.ws, { type: 'auth_ok' })
     this._fanout.addTarget(conn.wrapped)
   }

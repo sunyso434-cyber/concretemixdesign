@@ -21,6 +21,7 @@ const path = require('path')
 const WebSocket = require('ws')
 const remoteService = require('../index')
 const { FanoutSink } = require('../FanoutSink')
+const { SecurityLog: SecurityLogModel, sequelize } = require('../../db/database')
 const agentHandler = require('../../ipcHandlers/agentHandler')
 
 function makeTmpDir() {
@@ -35,8 +36,44 @@ function connectWs(port, pathName = '/ws') {
   })
 }
 
+// 等待下一条可 JSON 解析的消息
+function onceMessage(ws, timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.off('message', onMsg)
+      reject(new Error('等待服务端消息超时'))
+    }, timeoutMs)
+    const onMsg = (data) => {
+      clearTimeout(timer)
+      ws.off('message', onMsg)
+      resolve(JSON.parse(data.toString()))
+    }
+    ws.on('message', onMsg)
+  })
+}
+
+// HTTP POST JSON
+async function postJson(url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  const data = await res.json().catch(() => null)
+  return { status: res.status, body: data }
+}
+
 describe('RemoteService（R11 组装）', () => {
   let tmpDir
+
+  beforeAll(async () => {
+    // pair/login 会写 SecurityLog；建表避免写库噪音（与 RemoteAuth.test 同款）
+    await SecurityLogModel.sync()
+  })
+
+  afterAll(async () => {
+    await sequelize.close()
+  })
 
   beforeEach(() => {
     tmpDir = makeTmpDir()
@@ -137,5 +174,43 @@ describe('RemoteService（R11 组装）', () => {
     await remoteService.stopListening()
     expect(remoteService.getServer()._server).toBeNull()
     expect(remoteService.getServer()._started).toBe(false)
+  })
+
+  test('在线客户端口径：只算已认证的手机 ws，桌面 webContents（fanout target）不计入（I1）', async () => {
+    await remoteService.start({ userDataDir: tmpDir }) // 先 wire
+    const auth = remoteService.getAuth()
+    auth.setPassword('pw123')
+    auth.setEnabled(true)
+    const r = await remoteService.startListening({ port: 0 })
+    const port = r.port
+    const server = remoteService.getServer()
+
+    // 模拟桌面 webContents 注册进共享 fanout：不应计入在线客户端
+    const fanout = remoteService.getFanout()
+    const deskTarget = { send: jest.fn(), isDestroyed: () => false }
+    fanout.addTarget(deskTarget)
+    expect(server.getRemoteClientCount()).toBe(0)
+
+    // 真实手机 ws：pair + login + auth 握手后计入 1
+    const { code } = auth.generatePairCode()
+    const pairRes = await postJson(`http://127.0.0.1:${port}/api/pair`, { code })
+    expect(pairRes.body.ok).toBe(true)
+    const deviceId = pairRes.body.deviceId
+    const loginRes = await postJson(`http://127.0.0.1:${port}/api/login`, { password: 'pw123', deviceId })
+    expect(loginRes.body.ok).toBe(true)
+    const token = loginRes.body.token
+
+    const ws = await connectWs(port)
+    ws.send(JSON.stringify({ type: 'auth', token, version: 1 }))
+    await onceMessage(ws) // auth_ok
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(server.getRemoteClientCount()).toBe(1)
+
+    // 断开后递减回 0
+    ws.close()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(server.getRemoteClientCount()).toBe(0)
+
+    fanout.removeTarget(deskTarget)
   })
 })
