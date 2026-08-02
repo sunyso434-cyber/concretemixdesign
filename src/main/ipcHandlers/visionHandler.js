@@ -18,6 +18,43 @@ function getPhotosDir() {
   return path.join(current.path, 'photos')
 }
 
+/**
+ * 确保 photos/ 目录存在，并处理重名（同名已存在 → 加时间戳后缀）。
+ * 桌面 vision:upload 与远程 saveImageToWorkspace 共用，行为与抽取前一致。
+ * @param {string} photosDir photos 目录绝对路径
+ * @param {string} name      目标文件名
+ * @returns {Promise<{ destName: string, destPath: string }>}
+ */
+async function preparePhotosDest(photosDir, name) {
+  await fs.promises.mkdir(photosDir, { recursive: true })
+  let destName = name
+  let destPath = path.join(photosDir, destName)
+  if (await fs.promises.access(destPath).then(() => true).catch(() => false)) {
+    const ext = path.extname(name)
+    const base = path.basename(name, ext)
+    const ts = Date.now()
+    destName = `${base}_${ts}${ext}`
+    destPath = path.join(photosDir, destName)
+  }
+  return { destName, destPath }
+}
+
+/**
+ * 把图片 buffer 保存到工作区 photos/ 目录（远程图片上传 R9 复用）。
+ * 与桌面 vision:upload 共用重名/目录逻辑，仅写入方式不同（buffer 写文件 vs 源文件 copy）。
+ * @param {{ sourceBuffer: Buffer, name: string, workspacePath: string }} param
+ * @returns {Promise<{ path: string, name: string }>} 保存后的绝对路径与文件名
+ */
+async function saveImageToWorkspace({ sourceBuffer, name, workspacePath }) {
+  if (!sourceBuffer || !Buffer.isBuffer(sourceBuffer)) throw new Error('图片数据为空')
+  if (!name || typeof name !== 'string') throw new Error('缺少文件名')
+  if (!workspacePath) throw new Error('缺少工作区路径')
+  const photosDir = path.join(workspacePath, 'photos')
+  const { destName, destPath } = await preparePhotosDest(photosDir, name)
+  await fs.promises.writeFile(destPath, sourceBuffer)
+  return { path: destPath, name: destName }
+}
+
 class VisionHandler {
   constructor() {
     this.registerHandlers()
@@ -42,19 +79,8 @@ class VisionHandler {
           return { success: false, error: `不支持的文件类型：${path.extname(displayName)}（仅支持 jpg/jpeg/png/webp）` }
         }
 
-        // 确保 photos 目录存在
-        await fs.promises.mkdir(photosDir, { recursive: true })
-
-        // 处理重名：若同名文件已存在，加时间戳后缀
-        let destName = displayName
-        let destPath = path.join(photosDir, destName)
-        if (await fs.promises.access(destPath).then(() => true).catch(() => false)) {
-          const ext = path.extname(displayName)
-          const base = path.basename(displayName, ext)
-          const ts = Date.now()
-          destName = `${base}_${ts}${ext}`
-          destPath = path.join(photosDir, destName)
-        }
+        // 确保 photos 目录存在 + 处理重名（复用共享 helper，行为与抽取前一致）
+        const { destName, destPath } = await preparePhotosDest(photosDir, displayName)
 
         await fs.promises.copyFile(sourcePath, destPath)
         console.log('[vision:upload] 图片已保存:', destPath)
@@ -106,4 +132,7 @@ class VisionHandler {
   }
 }
 
-module.exports = new VisionHandler()
+const visionHandler = new VisionHandler()
+// 共享保存函数：供桌面 vision:upload 与远程 RemoteImageApi 复用（R9 抽取）
+visionHandler.saveImageToWorkspace = saveImageToWorkspace
+module.exports = visionHandler
