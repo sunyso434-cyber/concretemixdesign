@@ -172,6 +172,11 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           type: 'object',
           description: '报告样式覆盖（可选）。结构：{ page: { paperSize, orientation, margins }, typography: { titleFont, bodyFont, titleSize, bodySize, lineSpacing }, color: { primary, tableBorder } }。未传字段使用默认公文样式。',
           required: false
+        },
+        folder: {
+          type: 'string',
+          description: '可选归档文件夹（如 "XX项目" 或 "XX项目/2026"，创建在 reports/ 下）。指定后报告写入 reports/<folder>/（自动建目录）；不传则写入 reports/ 根目录',
+          required: false
         }
       },
       (args, context) => {
@@ -184,17 +189,101 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           filename: args.filename,
           payload: args.payload,
           patches: args.patches,
-          style: mergedStyle
+          style: mergedStyle,
+          folder: args.folder
         })
       }
     ),
-    skill('workspace_listFiles', '列出工作区指定子目录下的条目。返回 [{ name, path, size, type: "file"|"dir", ingested?, wikiPage?, lastIngestAt?, quality? }]。**关键：当 subdir="root" 且 withIngestStatus=true 时，每条记录带 ingested:true/false — 用这个字段判断文件是否已摄入到 wiki**，避免凭空猜测。v2026-07-03：新增 raw 及其类型子目录（raw/pdf raw/docx raw/xlsx raw/md raw/txt raw/images 等），用于查看原始文件。',
+    skill('workspace_mkdir', '在工作区 reports/ 下创建归档文件夹（文件夹名称由用户自定义，用于按文件夹归档报告）。用户说"建一个 XX 文件夹放报告"/"创建归档文件夹"时调用。重复创建返回已存在，不报错。',
+      {
+        folder: {
+          type: 'string',
+          description: '文件夹名称（如 "XX项目" 或 "XX项目/2026"），将创建在工作区 reports/ 下',
+          required: true
+        }
+      },
+      async (args) => {
+        const { normalizeReportFolder } = writeHandler
+        const folderRel = normalizeReportFolder(args.folder)
+        if (folderRel === null || folderRel === '') {
+          throw new WorkspaceError('E-PARAM-INVALID', `文件夹名称非法：${args.folder}（不允许 ..、绝对路径、\\ 等）`, false)
+        }
+        const current = getWM().current()
+        if (!current || !current.path) {
+          throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
+        }
+        const dir = path.posix.join(current.path, 'reports', folderRel)
+        await fs.promises.mkdir(dir, { recursive: true })
+        return { ok: true, folder: folderRel, path: dir }
+      }
+    ),
+    skill('workspace_archiveReports', '把 reports/ 根目录下的报告移动到指定的归档文件夹（reports/<folder>/），用于整理散落的旧报告。用户说"把报告归档到 XX"/"整理 reports"时调用。',
+      {
+        folder: {
+          type: 'string',
+          description: '目标归档文件夹名（如 "XX项目"），将创建在工作区 reports/ 下',
+          required: true
+        },
+        files: {
+          type: 'array',
+          description: '要移动的报告文件名列表（不含路径，只支持 reports/ 根目录下的文件，如 ["报告A.md","报告B.docx"]）。不传则移动根目录下全部报告',
+          required: false,
+          items: { type: 'string' }
+        }
+      },
+      async (args) => {
+        const { normalizeReportFolder } = writeHandler
+        const folderRel = normalizeReportFolder(args.folder)
+        if (folderRel === null || folderRel === '') {
+          throw new WorkspaceError('E-PARAM-INVALID', `文件夹名称非法：${args.folder}（不允许 ..、绝对路径、\\ 等）`, false)
+        }
+        const current = getWM().current()
+        if (!current || !current.path) {
+          throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
+        }
+        const reportsDir = path.posix.join(current.path, 'reports')
+        const targetDir = path.posix.join(reportsDir, folderRel)
+        await fs.promises.mkdir(targetDir, { recursive: true })
+
+        // 收集根目录文件（文件 + 去重；忽略目录、备份文件 .bak.）
+        const entries = await fs.promises.readdir(reportsDir, { withFileTypes: true })
+        const rootFiles = entries
+          .filter(e => e.isFile() && !e.name.includes('.bak.'))
+          .map(e => e.name)
+        const wanted = Array.isArray(args.files) && args.files.length > 0
+          ? args.files.filter(f => rootFiles.includes(f))
+          : rootFiles
+
+        const moved = []
+        const skipped = []
+        for (const name of wanted) {
+          const src = path.posix.join(reportsDir, name)
+          // 防重名：目标已存在 → 加 _1 _2 后缀（与 workspace_organize 一致）
+          let destName = name
+          let dest = path.posix.join(targetDir, destName)
+          let n = 1
+          while (fs.existsSync(dest)) {
+            const ext = path.extname(name)
+            destName = `${path.basename(name, ext)}_${n}${ext}`
+            dest = path.posix.join(targetDir, destName)
+            n++
+          }
+          try {
+            await fs.promises.rename(src, dest)
+            moved.push({ name, dest: destName, path: dest })
+          } catch (err) {
+            skipped.push({ name, error: err.message })
+          }
+        }
+        return { ok: true, folder: folderRel, moved, skipped, total: wanted.length }
+      }
+    ),
+    skill('workspace_listFiles', '列出工作区指定子目录下的条目。返回 [{ name, path, size, type: "file"|"dir", ingested?, wikiPage?, lastIngestAt?, quality? }]。**关键：当 subdir="root" 且 withIngestStatus=true 时，每条记录带 ingested:true/false — 用这个字段判断文件是否已摄入到 wiki**，避免凭空猜测。v2026-07-03：新增 raw 及其类型子目录（raw/pdf raw/docx raw/xlsx raw/md raw/txt raw/images 等），用于查看原始文件。**v2026-08-03：reports 支持归档子文件夹——subdir 可传 "reports/<文件夹名>"（如 "reports/XX项目"，由 workspace_mkdir 创建），查看文件夹内报告**。',
       {
         subdir: {
           type: 'string',
-          description: '子目录',
-          required: true,
-          enum: ['root', 'wiki', 'wiki/sources', 'wiki/reports', 'wiki/kg/sources', 'wiki/chat-history', 'reports', 'raw', 'raw/pdf', 'raw/docx', 'raw/xlsx', 'raw/md', 'raw/txt', 'raw/images', 'raw/json', 'raw/js', 'raw/others']
+          description: '子目录（支持 root / wiki / wiki/sources / wiki/reports / wiki/kg/sources / wiki/chat-history / reports / raw / raw/pdf / raw/docx / raw/xlsx / raw/md / raw/txt / raw/images / raw/json / raw/js / raw/others，以及 reports/<归档文件夹名> 如 "reports/XX项目"）',
+          required: true
         },
         recursive: { type: 'boolean', description: '是否递归列出子目录（默认 false）', required: false, default: false },
         includeDirs: { type: 'boolean', description: '是否包含目录条目（默认 false 仅文件）', required: false, default: false },

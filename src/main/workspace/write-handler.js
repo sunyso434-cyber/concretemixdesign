@@ -20,6 +20,26 @@ const writers = require('./writers')
 const { WorkspaceError } = require('./WorkspaceError')
 
 /**
+ * 校验并规范化 reports/ 下的归档文件夹相对路径（老板 2026-08-03：按自定义文件夹归档报告）。
+ * - 支持多级（如 "项目A/2026"）；空/未传 → ''（reports 根目录）
+ * - 拒绝：`.`/`..`/绝对路径/盘符/反斜杠/非法字符（<>:"|?*）
+ * @param {*} folder 用户提供的文件夹名
+ * @returns {string|null} 规范化 posix 相对路径；非法返回 null
+ */
+function normalizeReportFolder(folder) {
+  if (folder == null || folder === '') return ''
+  const f = String(folder).trim()
+  if (!f || f === '.' || f === '..') return null
+  if (f.includes('\\')) return null
+  if (f.startsWith('/') || /^[a-zA-Z]:/.test(f)) return null
+  const parts = f.split('/')
+  for (const p of parts) {
+    if (!p || p === '.' || p === '..' || /[<>:"|?*]/.test(p)) return null
+  }
+  return parts.join('/')
+}
+
+/**
  * 把 payload 生成 Buffer 并写到 <workspacePath>/reports/
  *
  * v10.2.0 方案 8：新增 patches 模式（仅 .md/.markdown 支持），局部修改已存在的报告
@@ -33,9 +53,15 @@ const { WorkspaceError } = require('./WorkspaceError')
  * @param {Array} [args.patches] - v10.2.0 局部 patch 模式：[{ find, replace, replaceAll? }]。仅 .md/.markdown 支持。
  * @param {Object} [args.style] - 报告样式（已合并好的最终 style 对象，由调用方 mergeStyle 后传入）。
  *   仅 md writer 使用（docx/xlsx 已迁移到 officecli）。
+ * @param {string} [args.folder] - 可选归档文件夹（如 "项目A" 或 "项目A/2026"，写入 reports/<folder>/；不传写 reports/ 根目录）。
  * @returns {Promise<{path: string, size: number, savedAt: string, wikiPage?: string, backupPath?: string, patchResults?: Array}>}
  */
-async function writeFile({ workspaceManager, wikiEngine = null, type, filename, payload, patches, style = null }) {
+async function writeFile({ workspaceManager, wikiEngine = null, type, filename, payload, patches, style = null, folder = null }) {
+  // 归档文件夹校验（payload / patches 模式共用；非法路径直接拒绝）
+  const folderRel = normalizeReportFolder(folder)
+  if (folderRel === null) {
+    throw new WorkspaceError('E-PARAM-INVALID', `归档文件夹名称非法：${folder}（不允许 ..、绝对路径、\\ 等）`, false)
+  }
   // 1) 工作区未开 → NOT_OPEN
   const current = workspaceManager.current()
   if (!current || !current.path) {
@@ -62,7 +88,7 @@ async function writeFile({ workspaceManager, wikiEngine = null, type, filename, 
 
   // v10.2.0 方案 8：patches 模式分流
   if (patches !== undefined) {
-    return await _writePatches({ current, type, filename, patches, wikiEngine })
+    return await _writePatches({ current, type, filename, patches, wikiEngine, folderRel })
   }
 
   // ---- Payload 模式（原逻辑）----
@@ -92,9 +118,10 @@ async function writeFile({ workspaceManager, wikiEngine = null, type, filename, 
     throw new WorkspaceError('WRITE_FAIL', `生成 ${type} 失败：${err.message}`, true, err)
   }
 
-  // 3) 写盘到 <workspacePath>/reports/
+  // 3) 写盘到 <workspacePath>/reports[/<folder>]
   // v9.1.0 防御：mkdir -p reports/ 兜底（工作区 reports/ 被误删时不报错）
-  const reportsDir = path.posix.join(current.path, 'reports')
+  // v2026-08-03：folder 归档子文件夹（自动建目录）
+  const reportsDir = path.posix.join(current.path, 'reports', folderRel)
   try {
     await fs.mkdir(reportsDir, { recursive: true })
   } catch (err) {
@@ -111,7 +138,7 @@ async function writeFile({ workspaceManager, wikiEngine = null, type, filename, 
   let wikiPage = null
   if (wikiEngine) {
     try {
-      const ingestResult = await wikiEngine.ingest({ filename: `reports/${filename}` })
+      const ingestResult = await wikiEngine.ingest({ filename: folderRel ? `reports/${folderRel}/${filename}` : `reports/${filename}` })
       wikiPage = ingestResult.pagesCreated?.[0] || null
     } catch (err) {
       console.warn('[write-handler] 同步 wiki 版本失败:', err.message)
@@ -137,7 +164,7 @@ async function writeFile({ workspaceManager, wikiEngine = null, type, filename, 
  *   5. 写新内容
  *   6. 重新 wiki ingest
  */
-async function _writePatches({ current, type, filename, patches, wikiEngine }) {
+async function _writePatches({ current, type, filename, patches, wikiEngine, folderRel = '' }) {
   // 仅 md/markdown 支持 patch
   if (type !== 'md' && type !== 'markdown') {
     throw new WorkspaceError(
@@ -151,7 +178,7 @@ async function _writePatches({ current, type, filename, patches, wikiEngine }) {
     throw new WorkspaceError('E-PARAM-INVALID-TYPE', 'patches 必须是非空数组', false)
   }
 
-  const reportsDir = path.posix.join(current.path, 'reports')
+  const reportsDir = path.posix.join(current.path, 'reports', folderRel)
   const targetPath = path.posix.join(reportsDir, filename)
 
   // 1) 文件必须已存在
@@ -227,7 +254,7 @@ async function _writePatches({ current, type, filename, patches, wikiEngine }) {
   let wikiPage = null
   if (wikiEngine) {
     try {
-      const ingestResult = await wikiEngine.ingest({ filename: `reports/${filename}` })
+      const ingestResult = await wikiEngine.ingest({ filename: folderRel ? `reports/${folderRel}/${filename}` : `reports/${filename}` })
       wikiPage = ingestResult.pagesCreated?.[0] || null
     } catch (err) {
       console.warn('[write-handler:patch] 同步 wiki 版本失败:', err.message)
@@ -245,4 +272,4 @@ async function _writePatches({ current, type, filename, patches, wikiEngine }) {
   }
 }
 
-module.exports = { writeFile }
+module.exports = { writeFile, normalizeReportFolder }
