@@ -154,24 +154,38 @@ export default function useAgentMode() {
       }
     }
 
-    const onConfirmation = (data) => {
-      dispatch({ type: 'SET_CONFIRMATION', payload: data })
-    }
-
     let progressId = null
-    let confirmId = null
     try {
       progressId = window.electronAPI?.on?.('agent:progress', onProgress)
-      confirmId = window.electronAPI?.on?.('agent:confirmation-request', onConfirmation)
     } catch (_) {}
 
     return () => {
       try {
         if (progressId) window.electronAPI?.removeListener?.(progressId)
-        if (confirmId) window.electronAPI?.removeListener?.(confirmId)
       } catch (_) {}
     }
   }, [dispatch, state.agent.requestId, state.session.currentId])
+
+  // v2026-08-03：确认弹窗监听独立挂载（不随 requestId 重建，避免空窗期丢 ask_user 弹窗事件）
+  useEffect(() => {
+    let confirmId = null
+    let closeId = null
+    try {
+      confirmId = window.electronAPI?.on?.('agent:confirmation-request', (data) => {
+        dispatch({ type: 'SET_CONFIRMATION', payload: data })
+      })
+      closeId = window.electronAPI?.on?.('agent:confirmation-close', () => {
+        // 主进程超时/结束时通知收起弹窗（防残留卡住后续提问）
+        dispatch({ type: 'SET_CONFIRMATION', payload: null })
+      })
+    } catch (_) {}
+    return () => {
+      try {
+        if (confirmId) window.electronAPI?.removeListener?.(confirmId)
+        if (closeId) window.electronAPI?.removeListener?.(closeId)
+      } catch (_) {}
+    }
+  }, [dispatch])
 
   return { state, dispatch, agentRequestIdRef }
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Card, Button, Space, Typography, Form, InputNumber, Tag, Input, Select, Switch } from 'antd'
 import { CheckOutlined, CloseOutlined } from '@ant-design/icons'
 
@@ -77,8 +77,15 @@ const DecisionGate = ({ confirmation, onConfirm, onReject }) => {
   const [otherInput, setOtherInput] = useState('')
   const [form] = Form.useForm()
 
+  // v2026-08-03：前端超时兜底——主动收起（正常流程后端 90s 先发 confirmation-close；
+  // 这里只防极端情况：后端事件丢失时弹窗不残留）。onReject 经 ref 取最新引用，避免父组件重渲染重置 timer。
+  const onRejectRef = useRef(onReject)
+  useEffect(() => { onRejectRef.current = onReject })
   useEffect(() => {
-    const timer = setTimeout(() => setExpired(true), TIMEOUT_MS)
+    const timer = setTimeout(() => {
+      setExpired(true)
+      try { onRejectRef.current() } catch (_) {}
+    }, TIMEOUT_MS)
     return () => clearTimeout(timer)
   }, [])
 

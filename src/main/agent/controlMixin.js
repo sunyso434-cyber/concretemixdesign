@@ -130,12 +130,17 @@ function requestConfirmation(payload) {
     return Promise.reject(new Error('已有进行中的确认请求，不支持嵌套'))
   }
   return new Promise((resolve, reject) => {
-    this._pendingConfirmation = { resolve, reject, payload }
+    // v2026-08-03：confirmationId 用于两个目的：
+    //   1) resolveConfirmation 校验回答归属（旧弹窗残留回答不污染新提问）
+    //   2) 超时后发 agent:confirmation-close 让前端按 ID 收起（避免弹窗残留卡住后续提问）
+    const confirmationId = `cf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    this._pendingConfirmation = { resolve, reject, payload, confirmationId }
     // 发事件给前端，前端 DecisionGate 弹窗
     if (this.webContents && !this.webContents.isDestroyed?.()) {
       try {
         this.webContents.send('agent:confirmation-request', {
           sessionId: this.sessionId,
+          confirmationId,
           ...payload
         })
       } catch (e) {
@@ -155,6 +160,15 @@ function requestConfirmation(payload) {
       if (this._pendingConfirmation) {
         const p = this._pendingConfirmation
         this._pendingConfirmation = null
+        // v2026-08-03：超时后通知前端收起弹窗（否则弹窗残留 → 挡住/卡住后续提问）
+        try {
+          if (this.webContents && !this.webContents.isDestroyed?.()) {
+            this.webContents.send('agent:confirmation-close', {
+              sessionId: this.sessionId,
+              confirmationId: p.confirmationId
+            })
+          }
+        } catch (_) { /* 前端收不到也不影响超时收尾 */ }
         p.reject(new Error('USER_CONFIRMATION_TIMEOUT'))
       }
     }, 90 * 1000)
@@ -170,6 +184,12 @@ function requestConfirmation(payload) {
 function resolveConfirmation(confirmed, args) {
   if (!this._pendingConfirmation) {
     // 无 pending 请求（可能是过时事件或重复调用），静默返回
+    return
+  }
+  // v2026-08-03：校验 confirmationId 归属——旧弹窗残留的回答（已超时/已被新提问替换）
+  // 不得 resolve 当前 pending；不带 id 的旧调用方（如存量测试/旧前端）保持放行
+  const reqId = args && args.confirmationId
+  if (reqId && this._pendingConfirmation.confirmationId && reqId !== this._pendingConfirmation.confirmationId) {
     return
   }
   clearTimeout(this._confirmationTimer)

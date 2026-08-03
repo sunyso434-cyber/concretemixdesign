@@ -1796,8 +1796,15 @@ const SmartDesignChat = () => {
         {state.confirmation && (
           <DecisionGate
             confirmation={state.confirmation}
-            onConfirm={(args) => { window.electronAPI.invoke('agent:confirm', { sessionId: state.session.currentId, confirmed: true, args }); dispatch({ type: 'SET_CONFIRMATION', payload: null }) }}
-            onReject={() => { window.electronAPI.invoke('agent:confirm', { sessionId: state.session.currentId, confirmed: false }); dispatch({ type: 'SET_CONFIRMATION', payload: null }) }}
+            onConfirm={(args) => {
+              // v2026-08-03：回答带 confirmationId，主进程校验归属（旧弹窗残留回答不污染新提问）
+              window.electronAPI.invoke('agent:confirm', { sessionId: state.session.currentId, confirmed: true, args: { ...args, confirmationId: state.confirmation?.confirmationId } })
+              dispatch({ type: 'SET_CONFIRMATION', payload: null })
+            }}
+            onReject={() => {
+              window.electronAPI.invoke('agent:confirm', { sessionId: state.session.currentId, confirmed: false, args: { confirmationId: state.confirmation?.confirmationId } })
+              dispatch({ type: 'SET_CONFIRMATION', payload: null })
+            }}
           />
         )}
         {chatState.pendingMaterialPicker && (() => {

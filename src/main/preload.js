@@ -103,6 +103,8 @@ const INVOKE_CHANNELS = new Set([
 const EVENT_CHANNELS = new Set([
   'training:progress',
   'agent:confirmation-request',
+  // v2026-08-03：ask_user 超时/结束时主进程通知前端收起弹窗（防残留卡住后续提问）
+  'agent:confirmation-close',
   'agent:progress',
   'agent:sessionUpdated',
   'agent:suggestions:new',
