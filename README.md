@@ -2,7 +2,7 @@
 
 基于 Electron + React 的混凝土配合比智能设计软件，集成 AI Agent 辅助设计与知识库管理。
 
-**当前版本：v0.1.0**
+**当前版本：v0.2.0**
 
 ## 核心功能
 
@@ -36,6 +36,14 @@
 - **历史消息自动加载**：滚动到顶自动加载更多历史
 - **批量管理模式**：材料/方案的批量操作
 
+### 手机远程版（Android App）
+- **砼智移动版**：Flutter 独立 App，通过腾讯云中转**端到端连回电脑端**，随时随地用手机指挥 AI
+- **功能**：Agent 对话（流式输出）、发图上传、确认弹窗、历史会话、工作区切换，电脑与手机**双向实时同步**
+- **零配置**：电脑端应用**启动即自动启用远程 + 自动连隧道**（frpc 内置，失败自动重连）；服务器地址/连接密钥写死默认值，其他用户装上即可用
+- **连接链路**：手机 `wss://www.concreteagent.cloud/concrete/ws` → 腾讯云（Caddy 终结 TLS + frps 隧道服务）→ frp 隧道 → 电脑端
+- **连接方式**：手机 App 扫码（电脑端「远程连接」面板二维码）配对 → 输入密码登录（密码在面板可重置查看）
+- **安全**：配对（扫码）+ 密码双认证；电脑端远程服务仅监听本机 127.0.0.1，公网暴露只经加密隧道与正规域名证书
+
 ## 快速开始
 
 ```bash
@@ -56,9 +64,12 @@ npm run build
 
 # 构建 Windows 安装包和便携版
 npm run electron:build
+
+# （手机端）构建 Android APK
+cd Android-concreteagent && flutter build apk --release
 ```
 
-打包产物输出到 `dist-<版本号>/`，包含 NSIS 安装包、便携版和解压版。
+打包产物输出到 `dist-<版本号>/`，包含 NSIS 安装包、便携版和解压版；手机 APK 输出到 `Android-concreteagent/build/app/outputs/flutter-apk/app-release.apk`。
 
 ## 技术栈
 
@@ -68,7 +79,9 @@ npm run electron:build
 - **数据库**：SQLite（Sequelize ORM）
 - **机器学习**：XGBoost 强度预测（模型序列化为 JSON，纯 JS 推理）
 - **文档处理**：OfficeCLI（docx/xlsx/pptx 读写）
-- **测试**：Jest
+- **手机端**：Flutter（Android App，`Android-concreteagent/`）
+- **远程隧道**：frp（frpc 内置随应用分发，云端 frps + Caddy 终结 TLS）
+- **测试**：Jest（桌面）/ Flutter test（手机）
 
 ## 项目结构
 
@@ -90,7 +103,9 @@ src/
 └── ...
 resources/
 ├── models/                  # XGBoost 模型文件
-└── officecli/               # OfficeCLI 二进制（按平台分目录）
+├── officecli/               # OfficeCLI 二进制（按平台分目录）
+└── frpc/                    # frp 客户端二进制（远程隧道，随应用分发）
+Android-concreteagent/       # 手机端 Flutter App（砼智移动版）
 ```
 
 ## 技能系统说明
