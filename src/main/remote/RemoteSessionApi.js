@@ -89,12 +89,14 @@ class RemoteSessionApi {
       })
       const activeIds = new Set(sessions.map(s => s.sessionId))
       const nameMap = Object.fromEntries(sessions.map(s => [s.sessionId, s.sessionName]))
+      const wsMap = Object.fromEntries(sessions.map(s => [s.sessionId, s.workspacePath]))
       const list = rows
         .filter(r => activeIds.has(r.sessionId))
         .map(r => ({
           sessionId: r.sessionId,
           lastActivity: r.lastActivity,
-          sessionName: nameMap[r.sessionId] || null
+          sessionName: nameMap[r.sessionId] || null,
+          workspacePath: wsMap[r.sessionId] || null
         }))
       ws.send('agent:listSessions', { requestId: reqId, success: true, sessions: list })
       return { success: true, sessions: list }

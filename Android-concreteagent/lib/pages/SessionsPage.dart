@@ -49,6 +49,7 @@ class _SessionsPageState extends State<SessionsPage> {
   bool _loading = true;
   String? _error; // 列表加载失败
   String? _fatalError; // 未配对/未登录等致命提示
+  final Map<String, bool> _expandedGroups = {}; // 各工作区分组的展开状态
 
   @override
   void initState() {
@@ -170,6 +171,7 @@ class _SessionsPageState extends State<SessionsPage> {
           sessionId: session['sessionId'] as String,
           client: _chatClient,
           connectionService: widget.connectionService,
+          workspacePath: session['workspacePath'] as String?,
         ),
       ),
     );
@@ -293,6 +295,37 @@ class _SessionsPageState extends State<SessionsPage> {
     return name is String && name.isNotEmpty ? name : '新对话';
   }
 
+  /// 工作区分组 key：workspacePath 为空时归到「未分组」。
+  String _groupKey(Map<String, dynamic> session) {
+    final path = session['workspacePath'];
+    return path is String && path.isNotEmpty ? path : '__no_workspace__';
+  }
+
+  /// 工作区显示名：取路径最后一段作为简称；无路径时显示「未分组」。
+  String _groupLabel(String groupKey) {
+    if (groupKey == '__no_workspace__') return '未分组';
+    final sep = groupKey.contains('/') ? '/' : r'\';
+    final parts = groupKey.split(sep).where((p) => p.isNotEmpty).toList();
+    return parts.isEmpty ? groupKey : parts.last;
+  }
+
+  /// 切换某个工作区分组的展开/折叠状态。
+  void _toggleGroup(String groupKey) {
+    setState(() {
+      _expandedGroups[groupKey] = !(_expandedGroups[groupKey] ?? false);
+    });
+  }
+
+  /// 按工作区分组，保持原列表顺序（lastActivity 降序）。
+  Map<String, List<Map<String, dynamic>>> _groupByWorkspace() {
+    final groups = <String, List<Map<String, dynamic>>>{};
+    for (final s in _sessions) {
+      final key = _groupKey(s);
+      groups.putIfAbsent(key, () => []).add(s);
+    }
+    return groups;
+  }
+
   @override
   void dispose() {
     _sub?.cancel();
@@ -364,12 +397,61 @@ class _SessionsPageState extends State<SessionsPage> {
         ),
       );
     }
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      itemCount: _sessions.length,
-      itemBuilder: (context, index) {
-        final session = _sessions[index];
-        return ListTile(
+    return _buildGroupedList();
+  }
+
+  /// 按工作区分组渲染会话列表，每组超过 3 条折叠隐藏。
+  Widget _buildGroupedList() {
+    final groups = _groupByWorkspace();
+    final widgets = <Widget>[];
+
+    for (final entry in groups.entries) {
+      final groupKey = entry.key;
+      final sessions = entry.value;
+      final expanded = _expandedGroups[groupKey] ?? false;
+      final showCount = expanded ? sessions.length : (sessions.length > 3 ? 3 : sessions.length);
+
+      // 分组标题
+      widgets.add(
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: Row(
+            children: [
+              Icon(
+                Icons.folder_outlined,
+                size: 16,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  _groupLabel(groupKey),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              Text(
+                '${sessions.length}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      // 会话条目
+      for (var i = 0; i < showCount; i++) {
+        final session = sessions[i];
+        widgets.add(ListTile(
           title: Text(
             _sessionTitle(session),
             maxLines: 1,
@@ -379,8 +461,43 @@ class _SessionsPageState extends State<SessionsPage> {
           trailing: const Icon(Icons.more_vert, size: 20),
           onTap: () => _openSession(session),
           onLongPress: () => _showActions(session),
+        ));
+      }
+
+      // 折叠/展开按钮
+      if (sessions.length > 3) {
+        widgets.add(
+          InkWell(
+            onTap: () => _toggleGroup(groupKey),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    expanded ? '收起' : '展开全部 ${sessions.length} 条',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 18,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ],
+              ),
+            ),
+          ),
         );
-      },
+      }
+    }
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      children: widgets,
     );
   }
 }

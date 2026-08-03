@@ -45,6 +45,7 @@ class ChatPage extends StatefulWidget {
     this.client,
     this.connectionService,
     this.imageUploadService,
+    this.workspacePath,
   });
 
   /// 会话 ID（本地生成时间戳；`agent:run` 首条会自动建会话）。
@@ -58,6 +59,9 @@ class ChatPage extends StatefulWidget {
 
   /// 图片上传服务（测试可注入；生产为 null 时自动创建）。
   final ImageUploadService? imageUploadService;
+
+  /// 会话所属工作区路径（从历史会话点开时传入，优先于 workspace:current）。
+  final String? workspacePath;
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -77,12 +81,14 @@ class _ChatPageState extends State<ChatPage> {
   String? _fatalError; // 未配对/未登录等致命提示
   bool _historyRequested = false; // 已发出过 getSessionMessages（防重复请求）
   bool _historyApplied = false; // 已应用过历史消息（防跨页污染）
-  String? _workspacePath; // 当前工作区路径（workspace:current / workspace:changed）
+  String? _workspacePath; // 当前工作区路径（优先用传入值，其次 workspace:current / workspace:changed）
   bool _workspaceRequested = false; // 是否已请求过当前工作区（防重复）
 
   @override
   void initState() {
     super.initState();
+    // 优先用从历史会话传入的工作区路径
+    _workspacePath = widget.workspacePath;
     _init();
   }
 
