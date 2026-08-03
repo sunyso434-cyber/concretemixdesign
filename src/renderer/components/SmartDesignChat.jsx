@@ -24,6 +24,24 @@ import { AgentStoreProvider, useAgentStore } from './AgentStore'
 import useAgentMode from './AgentMode'
 import { sendMessage, abortAgent, createSession, loadSessionList, switchSession, loadMoreSessionMessages, useAssistantPersistence } from './agentActions'
 import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, processImageAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
+
+// 对话发图后同步保存到工作区 raw/images（老板 2026-08-02 决策：图片进原始素材区，AI 可索引）。
+// best effort：保存失败仅告警，不影响对话流程。
+// - 选文件/拖拽：file 有磁盘路径 → 保存原图（sourcePath 拷贝）
+// - 剪贴板粘贴：file 无路径 → 保存压缩后的 dataUrl（base64 写入）
+function saveChatImageToWorkspace(file, result) {
+  try {
+    if (file && file.path) {
+      return window.electronAPI.vision.upload({ sourcePath: file.path, name: file.name })
+    }
+    if (result && result.base64) {
+      return window.electronAPI.vision.upload({ dataUrl: result.base64, name: result.originalName })
+    }
+  } catch (err) {
+    console.warn('[chat] 图片保存到工作区失败:', err && err.message)
+  }
+  return Promise.resolve()
+}
 import ContextIndicator from './ContextIndicator'
 import { getContextPercent, DEFAULT_CONTEXT_LIMIT } from '../utils/contextStats'
 import { AnalysisReport } from './AnalysisReport'
@@ -454,6 +472,11 @@ const SmartDesignChat = () => {
           try {
             const result = await processImageAttachment(file)
             chatState.setAttachments(prev => [...prev, { type: 'image', key: `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, ...result }])
+            // 同步保存到工作区 raw/images（剪贴板图无磁盘路径，走 dataUrl）
+            saveChatImageToWorkspace(file, result).then(r => {
+              if (r && r.success) console.log('[chat] 粘贴图片已保存到 raw/images:', r.path)
+              else console.warn('[chat] 粘贴图片保存失败:', r && r.error)
+            }).catch(e => console.warn('[chat] 粘贴图片保存异常:', e && e.message))
             message.success(`已粘贴图片：${result.originalName}`)
           } catch (err) {
             message.error(err.message)
@@ -1923,6 +1946,11 @@ const SmartDesignChat = () => {
                   try {
                     const result = await processImageAttachment(file)
                     chatState.setAttachments(prev => [...prev, { type: 'image', key: `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, ...result }])
+                    // 同步保存到工作区 raw/images（选文件有磁盘路径 → 存原图）
+                    saveChatImageToWorkspace(file, result).then(r => {
+                      if (r && r.success) console.log('[chat] 图片已保存到 raw/images:', r.path)
+                      else console.warn('[chat] 图片保存失败:', r && r.error)
+                    }).catch(e => console.warn('[chat] 图片保存异常:', e && e.message))
                   } catch (err) {
                     message.error(err.message)
                   }

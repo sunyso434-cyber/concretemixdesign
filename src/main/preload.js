@@ -245,10 +245,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 后续 task 加：search / searchGraph
   },
   // === Task 8：vision 模块（图片上传 + 缩略图列）===
-  // file 来自拖拽的 File 对象，Electron 下 File 有 .path 属性（绝对路径）
-  // 但 contextBridge 序列化会丢失 .path，所以预先拆成纯对象
+  // 兼容两种入参：
+  //   1. File 对象（选文件/拖拽）：Electron 下 File 有 .path，但 contextBridge 序列化会丢失，预先拆成纯对象
+  //   2. 纯对象 { sourcePath|dataUrl, name }（对话框发图同步保存：粘贴图无磁盘路径，走 dataUrl base64）
   vision: {
-    upload: (file) => ipcRenderer.invoke('vision:upload', { sourcePath: file.path, name: file.name }),
+    upload: (payload) => {
+      if (payload && typeof payload === 'object' && !(payload instanceof File) && (payload.sourcePath !== undefined || payload.dataUrl !== undefined)) {
+        return ipcRenderer.invoke('vision:upload', { sourcePath: payload.sourcePath, dataUrl: payload.dataUrl, name: payload.name })
+      }
+      return ipcRenderer.invoke('vision:upload', { sourcePath: payload && payload.path, name: payload && payload.name })
+    },
     list: () => ipcRenderer.invoke('vision:list')
   },
   // === Todo 计划面板（2026-07-08）：实时订阅 LLM 任务清单 ===

@@ -65,19 +65,16 @@ class VisionHandler {
 
   registerHandlers() {
     // 上传图片到工作区 raw/images/ 目录（老板 2026-08-02 决策：图片进原始素材区）
-    ipcMain.handle('vision:upload', async (_event, { sourcePath, name }) => {
+    // 支持两种数据来源：sourcePath（磁盘文件拷贝：选文件/拖拽）或 dataUrl（base64：剪贴板粘贴图）
+    ipcMain.handle('vision:upload', async (_event, { sourcePath, name, dataUrl }) => {
       try {
-        if (!sourcePath) {
-          return { success: false, error: '文件路径为空' }
-        }
-
         const imagesDir = getImagesDir()
         if (!imagesDir) {
           return { success: false, error: '请先打开工作区' }
         }
 
         // 校验文件类型
-        const displayName = name || path.basename(sourcePath)
+        const displayName = name || (sourcePath ? path.basename(sourcePath) : 'image.png')
         if (!isImageFile(displayName)) {
           return { success: false, error: `不支持的文件类型：${path.extname(displayName)}（仅支持 jpg/jpeg/png/webp）` }
         }
@@ -85,7 +82,18 @@ class VisionHandler {
         // 确保图片目录存在 + 处理重名（复用共享 helper，行为与抽取前一致）
         const { destName, destPath } = await prepareImagesDest(imagesDir, displayName)
 
-        await fs.promises.copyFile(sourcePath, destPath)
+        if (dataUrl) {
+          // 剪贴板粘贴图：解析 data:image/<type>;base64,<bytes> 前缀后写 buffer
+          const m = /^data:[^;]+;base64,(.+)$/.exec(String(dataUrl))
+          if (!m) {
+            return { success: false, error: '图片数据格式错误' }
+          }
+          await fs.promises.writeFile(destPath, Buffer.from(m[1], 'base64'))
+        } else if (sourcePath) {
+          await fs.promises.copyFile(sourcePath, destPath)
+        } else {
+          return { success: false, error: '缺少图片数据（sourcePath 或 dataUrl）' }
+        }
         console.log('[vision:upload] 图片已保存:', destPath)
 
         return { success: true, path: destPath, name: destName }
