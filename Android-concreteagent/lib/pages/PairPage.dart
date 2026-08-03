@@ -46,6 +46,7 @@ class _PairPageState extends State<PairPage> {
   MobileScannerController? _controller;
   String? _error;
   bool _pairing = false; // 防扫码回调连续触发重复配对
+  bool _scanning = false; // 是否已点击开始扫码（控制摄像头开启）
 
   ConnectionService get _svc => widget.connectionService ?? ConnectionService();
 
@@ -53,6 +54,14 @@ class _PairPageState extends State<PairPage> {
   void dispose() {
     _controller?.dispose();
     super.dispose();
+  }
+
+  /// 点击「开始扫码」按钮后开启摄像头。
+  void _startScan() {
+    setState(() {
+      _scanning = true;
+      _error = null;
+    });
   }
 
   Future<void> _onDetect(String raw) async {
@@ -65,6 +74,10 @@ class _PairPageState extends State<PairPage> {
         _error = _pairErrorText(result.error);
         _pairing = false; // 失败可重扫
       });
+      // 失败后停止摄像头，回到初始「点击扫码」状态
+      _controller?.dispose();
+      _controller = null;
+      if (mounted) setState(() => _scanning = false);
       return;
     }
     // 配对成功：addr 已保存，通知 App 进入登录页。
@@ -73,17 +86,63 @@ class _PairPageState extends State<PairPage> {
 
   Widget _buildScanner() {
     final builder = widget.scannerBuilder;
-    if (builder != null) return builder(context, _onDetect);
-    // 生产：真实摄像头扫码。
+    if (builder != null) {
+      // 测试注入分支：仍按原逻辑直接构建。
+      return builder(context, _onDetect);
+    }
+
+    // 未点击扫码时：显示白色占位 + 中心方框引导。
+    if (!_scanning) {
+      return _buildIdlePlaceholder();
+    }
+
+    // 已点击扫码：开启摄像头，裁剪到中心方框内显示。
     _controller ??= MobileScannerController();
-    return MobileScanner(
-      controller: _controller,
-      onDetect: (capture) {
-        final raw = capture.barcodes.isEmpty
-            ? null
-            : capture.barcodes.first.rawValue;
-        if (raw != null && raw.isNotEmpty) _onDetect(raw);
-      },
+    return Center(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: SizedBox(
+          width: 240,
+          height: 240,
+          child: MobileScanner(
+            controller: _controller,
+            onDetect: (capture) {
+              final raw = capture.barcodes.isEmpty
+                  ? null
+                  : capture.barcodes.first.rawValue;
+              if (raw != null && raw.isNotEmpty) _onDetect(raw);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 未扫码时的占位：白色背景 + 中心方框引导。
+  Widget _buildIdlePlaceholder() {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      color: Colors.white,
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 240,
+            height: 240,
+            decoration: BoxDecoration(
+              border: Border.all(color: scheme.primary, width: 2),
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: _startScan,
+            icon: const Icon(Icons.qr_code_scanner),
+            label: const Text('开始扫码'),
+          ),
+        ],
+      ),
     );
   }
 

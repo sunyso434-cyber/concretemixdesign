@@ -77,6 +77,8 @@ class _ChatPageState extends State<ChatPage> {
   String? _fatalError; // 未配对/未登录等致命提示
   bool _historyRequested = false; // 已发出过 getSessionMessages（防重复请求）
   bool _historyApplied = false; // 已应用过历史消息（防跨页污染）
+  String? _workspacePath; // 当前工作区路径（workspace:current / workspace:changed）
+  bool _workspaceRequested = false; // 是否已请求过当前工作区（防重复）
 
   @override
   void initState() {
@@ -145,6 +147,7 @@ class _ChatPageState extends State<ChatPage> {
       if (mounted) setState(() => _connected = true);
       _syncTodos(); // 认证成功（含重连）→ 拉 todo 重同步
       _loadHistory(); // 认证成功 → 预载历史消息
+      _loadWorkspace(); // 认证成功 → 拉当前工作区
       return;
     }
     if (type == 'auth_error' ||
@@ -183,6 +186,12 @@ class _ChatPageState extends State<ChatPage> {
         break;
       case 'agent:getSessionMessages':
         _onHistoryLoaded(data);
+        break;
+      case 'workspace:current':
+        _onWorkspaceCurrent(data);
+        break;
+      case 'workspace:changed':
+        _onWorkspaceChanged(data);
         break;
     }
   }
@@ -353,6 +362,48 @@ class _ChatPageState extends State<ChatPage> {
         ..clear()
         ..addAll(loaded);
     });
+  }
+
+  // ---------- 工作区 ----------
+
+  /// 拉取当前工作区：`workspace:current {}`（防重复）。
+  void _loadWorkspace() {
+    if (_workspaceRequested) return;
+    _workspaceRequested = true;
+    try {
+      _client?.send('workspace:current', {});
+    } catch (_) {
+      // 未连接时忽略，等 auth_ok 再拉。
+    }
+  }
+
+  /// `workspace:current` 响应：更新当前工作区路径。
+  void _onWorkspaceCurrent(Map<String, dynamic> data) {
+    if (data['success'] != true || !mounted) return;
+    setState(() {
+      _workspacePath = data['path'] as String?;
+    });
+  }
+
+  /// 服务端广播 `workspace:changed`：工作区已切换，立即更新。
+  void _onWorkspaceChanged(Map<String, dynamic> data) {
+    final path = data['path'];
+    if (!mounted) return;
+    setState(() {
+      _workspacePath = path is String ? path : null;
+    });
+  }
+
+  /// 从第一条用户消息提取会话标题（前 20 字，超出加省略号）。
+  String _deriveSessionTitle() {
+    for (final m in _messages) {
+      if (m.role == 'user' && m.text.isNotEmpty) {
+        final text = m.text.trim();
+        if (text.length > 20) return '${text.substring(0, 20)}…';
+        return text;
+      }
+    }
+    return '新会话';
   }
 
   // ---------- agent:run 同通道响应 ----------
@@ -560,7 +611,13 @@ class _ChatPageState extends State<ChatPage> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Agent 对话'),
+            // 会话标题：从第一条用户消息自动生成
+            Text(
+              _deriveSessionTitle(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+            ),
             const SizedBox(height: 2),
             Row(
               children: [
@@ -575,6 +632,28 @@ class _ChatPageState extends State<ChatPage> {
                       ? '已连接'
                       : (_fatalError != null ? '未配对' : '连接中…'),
                   style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+            // 当前工作区显示
+            Row(
+              children: [
+                Icon(
+                  Icons.folder_outlined,
+                  size: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    _workspacePath ?? '未选择',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
               ],
             ),

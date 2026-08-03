@@ -36,6 +36,7 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _passwordCtrl = TextEditingController();
   bool _remember = false;
   bool _loading = false;
+  bool _obscure = true; // 密码默认隐藏，点击眼睛切换可见
   String? _error;
 
   ConnectionService get _svc => widget.connectionService ?? ConnectionService();
@@ -135,12 +136,21 @@ class _LoginPageState extends State<LoginPage> {
               const SizedBox(height: 24),
               TextField(
                 controller: _passwordCtrl,
-                obscureText: true,
+                obscureText: _obscure,
                 enabled: !_loading,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: '访问密码',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock_outline),
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.lock_outline),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscure ? Icons.visibility_off : Icons.visibility,
+                    ),
+                    onPressed: _loading
+                        ? null
+                        : () => setState(() => _obscure = !_obscure),
+                    tooltip: _obscure ? '显示密码' : '隐藏密码',
+                  ),
                 ),
                 onSubmitted: (_) => _login(),
               ),

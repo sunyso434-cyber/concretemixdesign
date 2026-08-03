@@ -70,8 +70,14 @@ void main() {
       await tester.tap(find.byIcon(Icons.send));
       await tester.pump();
 
-      // 用户气泡渲染
-      expect(find.text('设计一个C30配比'), findsOneWidget);
+      // 用户气泡渲染（标题也会显示同样文本，故限定到消息气泡内查找）
+      expect(
+        find.descendant(
+          of: find.byType(MessageBubble),
+          matching: find.text('设计一个C30配比'),
+        ),
+        findsOneWidget,
+      );
       // 两条消息（用户 + AI 流式占位）
       expect(find.byType(MessageBubble), findsNWidgets(2));
       // 发出 agent:run，带 sessionId 与 message
@@ -356,7 +362,13 @@ void main() {
       });
       await tester.pumpAndSettle();
 
-      expect(find.text('设计C30'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(MessageBubble),
+          matching: find.text('设计C30'),
+        ),
+        findsOneWidget,
+      );
       expect(find.text('好的，马上设计'), findsOneWidget);
     });
 

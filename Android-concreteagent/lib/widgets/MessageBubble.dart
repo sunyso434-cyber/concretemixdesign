@@ -2,8 +2,12 @@
 // 文件名 MessageBubble 为任务简报指定的 PascalCase 命名，保持原样。
 
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 /// 单条对话气泡：用户消息右蓝、AI 消息左灰；流式时显示光标；错误时红底提示。
+///
+/// AI 消息按 Markdown 格式渲染（加粗、代码块、列表、表格等）；
+/// 用户消息仍按纯文本显示。
 class MessageBubble extends StatelessWidget {
   const MessageBubble({
     super.key,
@@ -37,6 +41,9 @@ class MessageBubble extends StatelessWidget {
         ? scheme.onErrorContainer
         : (isUser ? scheme.onPrimaryContainer : scheme.onSurface);
 
+    // 展示文本：流式时追加光标。
+    final displayText = streaming ? '$text▍' : text;
+
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -56,10 +63,36 @@ class MessageBubble extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              streaming ? '$text▍' : text,
-              style: TextStyle(color: fg),
-            ),
+            // AI 消息用 Markdown 渲染；用户消息和错误用纯文本。
+            if (!isUser && error == null)
+              MarkdownBody(
+                data: displayText,
+                styleSheet: MarkdownStyleSheet(
+                  p: TextStyle(color: fg, fontSize: 14, height: 1.5),
+                  h1: TextStyle(color: fg, fontSize: 15, fontWeight: FontWeight.bold),
+                  h2: TextStyle(color: fg, fontSize: 15, fontWeight: FontWeight.bold),
+                  h3: TextStyle(color: fg, fontSize: 15, fontWeight: FontWeight.bold),
+                  code: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 13,
+                    backgroundColor: fg.withValues(alpha: 0.06),
+                  ),
+                  codeblockDecoration: BoxDecoration(
+                    color: fg.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  blockquoteDecoration: BoxDecoration(
+                    border: Border(
+                      left: BorderSide(color: scheme.primary, width: 3),
+                    ),
+                  ),
+                ),
+              )
+            else
+              Text(
+                displayText,
+                style: TextStyle(color: fg),
+              ),
             if (error != null)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
