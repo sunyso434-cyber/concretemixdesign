@@ -524,9 +524,13 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
     // OfficeCLI 工具（v11.6.0 新增）
     // ════════════════════════════════════════════
     skill('read_office_file',
-      '读取 docx/xlsx 文件的内容。三种模式：outline（结构化大纲，含段落/表格/标题层级，推荐用于概览）、text（纯文本，无格式标记）、annotated（文本+路径标注+样式信息）。' +
-      '只读操作不修改文件。支持格式：.docx / .xlsx。' +
-      '使用示例：先 outline 了解文档结构，再 text 读正文。',
+      '读取 docx/xlsx/pptx 文件的内容。五种模式：\n' +
+      '- outline（默认，结构化大纲JSON，含段落/表格/标题层级，推荐用于概览）\n' +
+      '- text（纯文本，无格式标记）\n' +
+      '- annotated（文本+路径标注+样式信息，JSON包裹，用于精确定位元素路径）\n' +
+      '- stats（统计信息JSON：单元格数/公式数/错误数/数据类型分布，v0.3.2新增）\n' +
+      '- html（渲染为HTML，前端可预览，v0.3.2新增）\n' +
+      '只读操作不修改文件。支持格式：.docx / .xlsx / .pptx。',
       {
         filePath: {
           type: 'string',
@@ -536,8 +540,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         mode: {
           type: 'string',
           required: false,
-          description: '读取模式：outline（结构化大纲JSON，默认，含段落数/表格数/标题层级）、text（纯文本）、annotated（带路径标注和样式的文本，JSON包裹）',
-          enum: ['outline', 'text', 'annotated'],
+          description: '读取模式：outline/text/annotated/stats/html',
+          enum: ['outline', 'text', 'annotated', 'stats', 'html'],
           default: 'outline'
         }
       },
@@ -569,10 +573,10 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
 
         // 检查后缀
         const ext = path.extname(fullPath).toLowerCase()
-        if (ext !== '.docx' && ext !== '.xlsx') {
+        if (ext !== '.docx' && ext !== '.xlsx' && ext !== '.pptx') {
           return ErrorCodes.createError('UNSUPPORTED_FORMAT',
-            `不支持的文件格式: ${ext}（仅支持 .docx / .xlsx）`,
-            '确认文件是 Word 或 Excel 格式', { retryable: false })
+            `不支持的文件格式: ${ext}（仅支持 .docx / .xlsx / .pptx）`,
+            '确认文件是 Word/Excel/PowerPoint 格式', { retryable: false })
         }
 
         try {
@@ -584,6 +588,14 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
             return { success: true, data: { filePath: args.filePath, mode, content } }
           } else if (mode === 'annotated') {
             content = officecli.readFileAsAnnotated(fullPath)
+            return { success: true, data: { filePath: args.filePath, mode, content } }
+          } else if (mode === 'stats') {
+            // v0.3.2：统计信息（单元格数/公式数/错误数/数据类型分布）
+            content = officecli.readFileStats(fullPath)
+            return { success: true, data: { filePath: args.filePath, mode, content } }
+          } else if (mode === 'html') {
+            // v0.3.2：渲染为 HTML，前端可预览
+            content = officecli.renderAsHtml(fullPath)
             return { success: true, data: { filePath: args.filePath, mode, content } }
           } else {
             // outline（默认）：结构化大纲 JSON
@@ -809,6 +821,179 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
             `编辑文件失败: ${err.message}`,
             '确认文件不是被其他程序锁定，或者路径表达式正确（先用 read_office_file 查看结构）',
             { retryable: true })
+        }
+      }
+    ),
+    // ════════════════════════════════════════════
+    // officecli 补充技能（v0.3.2 新增）
+    // ════════════════════════════════════════════
+    skill('batch_office_edit',
+      '【推荐】原子事务批量编辑 Office 文档，任一操作失败则整批回滚（不会产生半成品文件）。\n' +
+      '比 edit_office_file 的 operations[] 更安全：edit_office_file 是逐个顺序调用，中途失败前序已落盘；batch_office_edit 走 officecli 原生 batch 命令，单次调用内部原子执行。\n\n' +
+      '**commands 数组**：每项是一个对象，command 字段是裸动词（add/set/remove/move/swap/get/query），其他字段是动词的参数：\n' +
+      '- add: { command:"add", parent:"/body", type:"paragraph", props:{text:"Hi"} }\n' +
+      '- set: { command:"set", path:"/body/p[1]", props:{bold:"true"} }\n' +
+      '- remove: { command:"remove", path:"/body/p[2]" }\n' +
+      '- move: { command:"move", path:"/body/p[1]", after:"/body/p[3]" }\n' +
+      '- swap: { command:"swap", path:"/body/p[1]", path2:"/body/p[2]" }\n' +
+      '- get: { command:"get", path:"/body/p[1]" }\n' +
+      '- query: { command:"query", selector:"paragraph[style=Normal]" }\n\n' +
+      '**原子性模式**（mode 参数）：\n' +
+      '- atomic（默认）：任一失败 → 整批回滚，什么都不应用\n' +
+      '- best-effort：成功的留下，失败的跳过\n' +
+      '- stop-on-error：遇错立即中止（配合 best-effort 时已应用的保留）',
+      {
+        filePath: { type: 'string', required: true, description: '工作区相对路径，如 "报告.docx"' },
+        commands: {
+          type: 'array', required: true,
+          description: '批量操作数组，每项 {command, parent/path/selector, type, props, to/after/before, path2}'
+        },
+        mode: {
+          type: 'string', required: false,
+          description: '原子性模式：atomic（默认，失败全回滚）/ best-effort（成功留下）/ stop-on-error（遇错中止）',
+          enum: ['atomic', 'best-effort', 'stop-on-error']
+        }
+      },
+      (args) => {
+        const wm = getWM()
+        const current = wm.current ? wm.current() : null
+        if (!current || !current.path) {
+          return ErrorCodes.createError('NOT_OPEN', '工作区未打开', '请先打开工作区', { retryable: false })
+        }
+        const fullPath = path.posix.join(current.path, args.filePath)
+        const officecli = require('../officecli/officecli-bridge')
+        const avail = officecli.checkAvailability()
+        if (!avail.available) {
+          return ErrorCodes.createError('OFFICECLI_UNAVAILABLE', avail.error || 'officecli 不可用', '请确认 officecli 已安装', { retryable: false })
+        }
+        try {
+          const options = {}
+          if (args.mode === 'best-effort') options.bestEffort = true
+          if (args.mode === 'stop-on-error') options.stopOnError = true
+          // batchExecute 默认走 --commands（< 50KB）或 stdin，officecli 默认原子模式
+          const cliArgs = ['batch', fullPath]
+          if (args.mode === 'best-effort') cliArgs.push('--best-effort')
+          if (args.mode === 'stop-on-error') cliArgs.push('--stop-on-error')
+          const json = JSON.stringify(args.commands)
+          let result
+          if (json.length < 50000) {
+            cliArgs.push('--commands', json)
+            result = officecli.execOfficeCliSync(cliArgs)
+          } else {
+            result = officecli.execOfficeCliSync(cliArgs, { input: json })
+          }
+          // 解析输出
+          let parsed
+          try { parsed = JSON.parse(result.stdout) } catch { parsed = { success: true, message: result.stdout } }
+          return {
+            success: true,
+            data: {
+              filePath: args.filePath,
+              commandsCount: args.commands.length,
+              mode: args.mode || 'atomic',
+              result: parsed
+            }
+          }
+        } catch (err) {
+          return ErrorCodes.createError('BATCH_FAILED',
+            `批量操作失败: ${err.message}`,
+            '检查 commands 数组格式是否正确（参考 officecli help batch）',
+            { retryable: false })
+        }
+      }
+    ),
+    skill('query_office_elements',
+      '用 CSS 选择器查询 Office 文档元素，精准定位要操作的元素。\n' +
+      '**比 read_office_file annotated 更强大**：annotated 只能列出所有元素，query 能按属性筛选。\n\n' +
+      '**选择器语法**（类 CSS）：\n' +
+      '- 元素名：paragraph / run / table / slide / shape / cell / picture / chart\n' +
+      '- 属性过滤：paragraph[style=Normal] / run[font!=Arial] / cell[value>100]\n' +
+      '- 后代：body paragraph（空格）\n' +
+      '- 子代：table > table-row（>）\n' +
+      '- 组合：paragraph[style=Normal] > run[bold=true]\n\n' +
+      '**输出模式**：\n' +
+      '- 默认（json）：返回完整 JSON，含 matches 数组（path/text/属性）\n' +
+      '- compact：每元素一行 path<TAB>[label]<TAB>"text"，末行 total: N of M，适合快速浏览\n\n' +
+      '**限制**：仅 docx/pptx 支持 query，xlsx 不支持（用 read_office_file mode=text 配合 --range）',
+      {
+        filePath: { type: 'string', required: true, description: '工作区相对路径，如 "报告.docx"' },
+        selector: {
+          type: 'string', required: true,
+          description: 'CSS 选择器，如 "paragraph[style=Normal]" 或 "shape > paragraph[bold=true]"'
+        },
+        find: { type: 'string', required: false, description: '按文本大小写不敏感子串过滤' },
+        compact: { type: 'boolean', required: false, description: '紧凑模式：每元素一行（默认 false）' },
+        fields: { type: 'string', required: false, description: '追加额外列，如 "x,y,width"（仅 compact 模式）' }
+      },
+      (args) => {
+        const wm = getWM()
+        const current = wm.current ? wm.current() : null
+        if (!current || !current.path) {
+          return ErrorCodes.createError('NOT_OPEN', '工作区未打开', '请先打开工作区', { retryable: false })
+        }
+        const fullPath = path.posix.join(current.path, args.filePath)
+        const officecli = require('../officecli/officecli-bridge')
+        const avail = officecli.checkAvailability()
+        if (!avail.available) {
+          return ErrorCodes.createError('OFFICECLI_UNAVAILABLE', avail.error || 'officecli 不可用', '请确认 officecli 已安装', { retryable: false })
+        }
+        try {
+          const opts = {}
+          if (args.find) opts.find = args.find
+          if (args.compact) opts.compact = true
+          if (args.fields) opts.fields = args.fields
+          const result = officecli.queryElements(fullPath, args.selector, opts)
+          return {
+            success: true,
+            data: {
+              filePath: args.filePath,
+              selector: args.selector,
+              compact: !!args.compact,
+              result
+            }
+          }
+        } catch (err) {
+          return ErrorCodes.createError('QUERY_FAILED',
+            `查询失败: ${err.message}`,
+            '检查选择器语法（参考 officecli help query）。注意 xlsx 不支持 query',
+            { retryable: false })
+        }
+      }
+    ),
+    skill('refresh_office_doc',
+      '重算 Word 文档的派生字段：TOC 页码、PAGE/NUMPAGES 域、交叉引用。\n' +
+      '**使用场景**：edit_office_file 修改文档后，目录页码可能不准，refresh 让 Word 重算。\n\n' +
+      '**限制**：仅 .docx + Windows + Word 环境可用（需要 Word 引擎重算）',
+      {
+        filePath: { type: 'string', required: true, description: '工作区相对路径，仅 .docx' }
+      },
+      (args) => {
+        const wm = getWM()
+        const current = wm.current ? wm.current() : null
+        if (!current || !current.path) {
+          return ErrorCodes.createError('NOT_OPEN', '工作区未打开', '请先打开工作区', { retryable: false })
+        }
+        const fullPath = path.posix.join(current.path, args.filePath)
+        const officecli = require('../officecli/officecli-bridge')
+        const avail = officecli.checkAvailability()
+        if (!avail.available) {
+          return ErrorCodes.createError('OFFICECLI_UNAVAILABLE', avail.error || 'officecli 不可用', '请确认 officecli 已安装', { retryable: false })
+        }
+        try {
+          const result = officecli.refreshDocument(fullPath)
+          return {
+            success: true,
+            data: {
+              filePath: args.filePath,
+              refreshed: true,
+              result
+            }
+          }
+        } catch (err) {
+          return ErrorCodes.createError('REFRESH_FAILED',
+            `刷新失败: ${err.message}`,
+            'refresh 需要 Windows + Word 环境。非 Windows 或未装 Word 无法重算',
+            { retryable: false })
         }
       }
     ),

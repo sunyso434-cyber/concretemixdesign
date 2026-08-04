@@ -327,15 +327,31 @@ function swapElements(filePath, path1, path2) {
 }
 
 /**
- * 用 CSS-like selector 查询文档元素（v11.7.0 新增）
- * 对应 CLI: query <file> <selector>
+ * 用 CSS-like selector 查询文档元素（v11.7.0 新增；v0.3.2 修 bug+加 options）
+ * 对应 CLI: query <file> <selector> [--json] [--find <text>] [--compact] [--fields x,y]
  * @param {string} filePath
- * @param {Object|string} selector - 如 {element:'p'} 或 'paragraph'
- * @returns {Object} 查询结果 JSON
+ * @param {Object|string} selector - 如 {element:'p'} 或 'paragraph[style=Normal] > run[font!=Arial]'
+ * @param {Object} [opts]
+ * @param {string} [opts.find] - 按文本大小写不敏感子串过滤
+ * @param {boolean} [opts.compact] - 紧凑模式：每元素一行 path<TAB>[label]<TAB>"text"
+ * @param {string} [opts.fields] - 追加额外列，如 'x,y,width'
+ * @returns {Object|string} 默认返回 JSON 对象；compact 模式返回文本
  */
-function queryElements(filePath, selector) {
+function queryElements(filePath, selector, opts = {}) {
   const selStr = typeof selector === 'string' ? selector : JSON.stringify(selector)
-  const result = module.exports.execOfficeCliSync(['query', filePath, selStr])
+  const args = ['query', filePath, selStr]
+  if (opts.compact) {
+    // compact 模式输出文本表格，不加 --json
+    if (opts.find) args.push('--find', opts.find)
+    args.push('--compact')
+    if (opts.fields) args.push('--fields', opts.fields)
+    const result = module.exports.execOfficeCliSync(args)
+    return result.stdout
+  }
+  args.push('--json')
+  if (opts.find) args.push('--find', opts.find)
+  if (opts.fields) args.push('--fields', opts.fields)
+  const result = module.exports.execOfficeCliSync(args)
   return JSON.parse(result.stdout)
 }
 
@@ -350,13 +366,21 @@ function validateDocument(filePath) {
 }
 
 /**
- * 刷新目录/页码/交叉引用（v11.7.0 新增，需 Word + Windows）
- * 对应 CLI: refresh <file>
+ * 刷新目录/页码/交叉引用（v11.7.0 新增；v0.3.2 加 --json）
+ * 对应 CLI: refresh <file> [--json]
+ * 重算范围：TOC 页码、PAGE/NUMPAGES 域、交叉引用
+ * 限制：仅 .docx + Windows + Word 环境可用
  * @param {string} filePath
- * @returns {{ stdout: string }}
+ * @returns {Object} 刷新结果 JSON
  */
 function refreshDocument(filePath) {
-  return module.exports.execOfficeCliSync(['refresh', filePath])
+  const result = module.exports.execOfficeCliSync(['refresh', filePath, '--json'])
+  try {
+    return JSON.parse(result.stdout)
+  } catch {
+    // 某些环境下 refresh 可能不支持 --json，回退原始输出
+    return { success: true, message: result.stdout }
+  }
 }
 
 /**

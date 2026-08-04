@@ -62,6 +62,7 @@ resources/officecli/*/officecli.exe
 # OfficeCLI 自动更新产生的残留文件（旧版备份 + 下载分片），不入仓
 resources/officecli/*/*.old
 resources/officecli/*/*.update.partial
+resources/officecli/*/*.bak.*
 # OfficeCLI 自动更新下载的临时分片文件
 *.update.partial
 
