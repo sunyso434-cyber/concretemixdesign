@@ -94,7 +94,8 @@
         "filter": [
           "**/*",
           "!*.update.partial",
-          "!*.old"
+          "!*.old",
+          "!*.bak.*"
         ]
       },
       {
