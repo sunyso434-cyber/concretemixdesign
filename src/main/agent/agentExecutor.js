@@ -118,14 +118,25 @@ function createAgentExecutor({ getOrchestratorForSession, getOrchestrator, agent
   }
 
   // 批 B Task 1.9：steer/followUp 入队（仅 agent 运行时有效，orchestrator 在 finally 置 null）
+  // v0.6.1：加日志，方便诊断"agent 已结束 → 前端降级普通发送"链路
   function steer({ sessionId, msg }) {
     const orch = sessionId ? sessionAgents.get(sessionId)?.orchestrator : null
-    if (orch?.steer) { orch.steer(msg); return { success: true } }
+    if (orch?.steer) {
+      orch.steer(msg)
+      try { console.log(`[agentExecutor] steer 入队成功 sessionId=${sessionId} msgLen=${msg?.length || 0}`) } catch (_) {}
+      return { success: true }
+    }
+    try { console.log(`[agentExecutor] steer 失败（agent 未运行）sessionId=${sessionId}`) } catch (_) {}
     return { success: false, error: 'agent 未运行，无法插话' }
   }
   function followUp({ sessionId, msg }) {
     const orch = sessionId ? sessionAgents.get(sessionId)?.orchestrator : null
-    if (orch?.followUp) { orch.followUp(msg); return { success: true } }
+    if (orch?.followUp) {
+      orch.followUp(msg)
+      try { console.log(`[agentExecutor] followUp 入队成功 sessionId=${sessionId} msgLen=${msg?.length || 0}`) } catch (_) {}
+      return { success: true }
+    }
+    try { console.log(`[agentExecutor] followUp 失败（agent 未运行）sessionId=${sessionId}`) } catch (_) {}
     return { success: false, error: 'agent 未运行，无法追加任务' }
   }
 

@@ -820,36 +820,58 @@ const SmartDesignChat = () => {
   // 批 B Task 1.10/1.11：steer 插话 + followUp 追加任务（agent 忙时入队，显示到消息流带标签）
   // steer：AI 正在干活时插入新指令，下一轮 LLM 看到（入 steeringQueue）
   // followUp：当前任务完成后自动接着干新任务（入 followUpQueue）
+  // 修复 v0.6.1：agent 已结束时降级为普通发送，避免"显示了但 agent 没响应"
   const _doSteer = useCallback(async () => {
     const msg = state.input.trim()
     if (!msg || !state.session.currentId) return
-    // Task 1.11：插话内容显示到消息流，带"插话"标签（_steer 标记由消息渲染处识别）
-    dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: msg, _steer: true } })
     dispatch({ type: 'SET_INPUT', payload: '' })
     try {
       const r = await window.electronAPI.invoke('agent:steer', { sessionId: state.session.currentId, msg })
-      if (r && r.success) message.success('已插入指令，AI 下一轮将看到')
-      else message.warning(r?.error || '插话未生效（AI 可能已结束）')
+      if (r && r.success) {
+        // 入队成功：显示带"插话"标签的消息（agent 下一轮 drain 看到）
+        dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: msg, _steer: true } })
+        message.success('已插入指令，AI 下一轮将看到')
+      } else {
+        // agent 已结束 → 降级为普通发送（sendMessage 会自己加用户消息 + 启动新 run）
+        message.info('AI 已结束，改为普通发送')
+        await sendMessage({
+          dispatch,
+          sessionId: state.session.currentId,
+          message: msg,
+          runMode: state.agent.runMode
+        })
+      }
     } catch (e) {
       console.error('[steer] 失败:', e)
       message.error('插话失败')
     }
-  }, [state.input, state.session.currentId, dispatch])
+  }, [state.input, state.session.currentId, state.agent.runMode, dispatch])
 
   const _doFollowUp = useCallback(async () => {
     const msg = state.input.trim()
     if (!msg || !state.session.currentId) return
-    dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: msg, _followUp: true } })
     dispatch({ type: 'SET_INPUT', payload: '' })
     try {
       const r = await window.electronAPI.invoke('agent:follow_up', { sessionId: state.session.currentId, msg })
-      if (r && r.success) message.success('已追加任务，当前任务完成后自动执行')
-      else message.warning(r?.error || '追加未生效（AI 可能已结束）')
+      if (r && r.success) {
+        // 入队成功：显示带"追加任务"标签的消息（agent 完成当前任务后 drain 看到）
+        dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: msg, _followUp: true } })
+        message.success('已追加任务，当前任务完成后自动执行')
+      } else {
+        // agent 已结束 → 降级为普通发送
+        message.info('AI 已结束，改为普通发送')
+        await sendMessage({
+          dispatch,
+          sessionId: state.session.currentId,
+          message: msg,
+          runMode: state.agent.runMode
+        })
+      }
     } catch (e) {
       console.error('[followUp] 失败:', e)
       message.error('追加任务失败')
     }
-  }, [state.input, state.session.currentId, dispatch])
+  }, [state.input, state.session.currentId, state.agent.runMode, dispatch])
 
   // 输入框键盘事件（斜杠菜单导航 + Tab 补全 + Enter 发送）
   const handleInputKeyDown = useCallback((e) => {
