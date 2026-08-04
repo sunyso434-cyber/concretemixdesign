@@ -85,9 +85,14 @@ function register(refs = {}) {
 
   ipcMain.handle('remote:getPairCode', () => {
     const auth = ensureAuth()
-    const cfg = loadConfig()
     const pc = auth.generatePairCode()
-    return { code: pc.code, expiresAt: pc.expiresAt, addr: buildAddr(cfg.domain) }
+    // 多电脑并存方案：addr 从 FrpcManager 获取（含唯一 PC ID 子域名）
+    // 兜底：FrpcManager 未注入时用旧 domain 配置（兼容 R10 单跑测试场景）
+    const frpc = _refs.frpcManager
+    const addr = frpc && typeof frpc.getPairAddr === 'function'
+      ? frpc.getPairAddr()
+      : buildAddr(loadConfig().domain)
+    return { code: pc.code, expiresAt: pc.expiresAt, addr }
   })
 
   ipcMain.handle('remote:getStatus', () => {
@@ -102,11 +107,15 @@ function register(refs = {}) {
     // 隧道状态（R12 内置后：已连/未连 + 最近错误）
     let frpcRunning = false
     let frpcError = null
+    let pcId = null
+    let pairAddr = null
     const frpc = _refs.frpcManager
     if (frpc && typeof frpc.getStatus === 'function') {
       const s = frpc.getStatus()
       frpcRunning = !!s.running
       frpcError = s.lastError || null
+      pcId = s.pcId || null
+      pairAddr = s.pairAddr || null
     }
     return {
       enabled: auth.isEnabled(),
@@ -115,7 +124,9 @@ function register(refs = {}) {
       connectedClients,
       frpcRunning,
       frpcError,
-      domain: cfg.domain || ''
+      pcId,
+      pairAddr,
+      domain: cfg.domain || '' // 保留兼容旧面板
     }
   })
 

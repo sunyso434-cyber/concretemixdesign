@@ -20,8 +20,11 @@
 // 依赖注入：childProcess/fs/now 可在测试时替换（见 __tests__/FrpcManager.test.js）。
 
 const path = require('path')
+const crypto = require('crypto')
 
 const TOML_FILENAME = 'frpc.toml'
+const PC_ID_FILENAME = 'remote-pc-id.json' // PC 身份证文件（持久化，首次生成）
+const BASE_DOMAIN = 'concreteagent.cloud'  // 通配符证书覆盖的根域名（多电脑并存方案）
 const DEFAULT_RETRY_BASE_MS = 1000 // 首次重启退避 1s
 const DEFAULT_RETRY_MAX_MS = 60000 // 退避封顶 60s
 const DEFAULT_RETRY_FACTOR = 2
@@ -144,24 +147,78 @@ class FrpcManager {
     return bin
   }
 
-  /** 生成 frpc.toml 内容（frp v0.60.0 TOML 格式，type=http + customDomains）。 */
-  buildToml({ serverAddr, serverPort, token, localPort, domain }) {
-    const d = normalizeDomain(domain)
-    if (!d) throw new Error('frp 配置缺少 domain（customDomains）')
+  // ---------- PC ID 管理（多电脑并存方案）----------
+
+  /** PC ID 文件路径（<userData>/remote-pc-id.json）。 */
+  pcIdFilePath() {
+    if (!this._userDataDir) throw new Error('FrpcManager 未设置 userDataDir，无法读写 PC ID')
+    return path.join(this._userDataDir, PC_ID_FILENAME)
+  }
+
+  /**
+   * 获取本机 PC ID（8 位 hex，如 "9b2c3a7f"）。
+   * 首次调用时生成并持久化到 <userData>/remote-pc-id.json，后续直接读取。
+   * PC ID 是这台电脑的永久身份证，用于：
+   *   - frp 代理名：concrete-remote-<pcId>（避免多电脑重名冲突）
+   *   - frp 子域名：<pcId>.concreteagent.cloud（手机扫码直连对应电脑）
+   * @returns {string}
+   */
+  getPcId() {
+    const existing = this._loadPcId()
+    if (existing) return existing
+    const id = crypto.randomBytes(4).toString('hex') // 8 位 hex
+    this._savePcId(id)
+    return id
+  }
+
+  /** 子域名（<pcId>.concreteagent.cloud），供 customDomains 和配对地址使用。 */
+  getSubDomain() {
+    return `${this.getPcId()}.${BASE_DOMAIN}`
+  }
+
+  /** 配对地址（wss://<pcId>.concreteagent.cloud/concrete/ws），供面板生成配对码用。 */
+  getPairAddr() {
+    return `wss://${this.getSubDomain()}/concrete/ws`
+  }
+
+  /** 内部：读取持久化的 PC ID（文件不存在/损坏时返回 null，由 getPcId 生成新的）。 */
+  _loadPcId() {
+    try {
+      const data = JSON.parse(this._fs.readFileSync(this.pcIdFilePath(), 'utf8'))
+      return data && typeof data.pcId === 'string' ? data.pcId : null
+    } catch {
+      return null
+    }
+  }
+
+  /** 内部：原子写入 PC ID（临时文件 + rename，避免崩溃写坏）。 */
+  _savePcId(id) {
+    const filePath = this.pcIdFilePath()
+    this._fs.mkdirSync(this._userDataDir, { recursive: true })
+    const tmp = filePath + '.tmp'
+    this._fs.writeFileSync(tmp, JSON.stringify({ pcId: id }))
+    this._fs.renameSync(tmp, filePath)
+  }
+
+  /** 生成 frpc.toml 内容（frp v0.60.0 TOML 格式，type=http + customDomains）。
+   *  多电脑并存方案：代理名和子域名都带 PC ID，避免冲突。 */
+  buildToml({ serverAddr, serverPort, token, localPort, pcId }) {
     if (!serverAddr) throw new Error('frp 配置缺少 serverAddr')
     if (!token) throw new Error('frp 配置缺少 token')
     if (localPort == null) throw new Error('frp 配置缺少 localPort')
+    if (!pcId) throw new Error('frp 配置缺少 pcId（多电脑并存方案必需）')
     const port = toPositiveInt(serverPort == null ? 7000 : serverPort, 'serverPort')
     const local = toPositiveInt(localPort, 'localPort')
+    const subDomain = `${pcId}.${BASE_DOMAIN}`
     return [
       `serverAddr = ${tomlString(serverAddr)}`,
       `serverPort = ${port}`,
       `auth.token = ${tomlString(token)}`,
       '',
       '[[proxies]]',
-      'name = "concrete-remote"',
+      `name = "concrete-remote-${pcId}"`,
       'type = "http"',
-      `customDomains = [${tomlString(d)}]`,
+      `customDomains = [${tomlString(subDomain)}]`,
       'localIP = "127.0.0.1"',
       `localPort = ${local}`,
       ''
@@ -189,11 +246,14 @@ class FrpcManager {
     if (this._proc && !this._procExited) {
       await this.stop() // 先清理旧进程与旧退避
     }
-    this._config = { ...cfg }
+    // 多电脑并存方案：注入 PC ID（buildToml 生成唯一代理名 + 子域名）
+    const pcId = this.getPcId()
+    const cfgWithPcId = { ...cfg, pcId }
+    this._config = { ...cfgWithPcId }
     this._lastError = null
     this._restartDelay = 0
     this._stopping = false
-    const cfgPath = this.writeConfig(cfg)
+    const cfgPath = this.writeConfig(cfgWithPcId)
     const proc = this._spawn()
     return { started: true, pid: proc.pid, configPath: cfgPath, binaryPath: bin }
   }
@@ -315,9 +375,19 @@ class FrpcManager {
 
   /** 当前运行状态快照。 */
   getStatus() {
+    let pcId = null
+    let pairAddr = null
+    if (this._userDataDir) {
+      try {
+        pcId = this.getPcId()
+        pairAddr = this.getPairAddr()
+      } catch { /* 文件系统异常，忽略 */ }
+    }
     return {
       running: this.isRunning(),
       pid: this.pid,
+      pcId,
+      pairAddr,
       configPath: this._userDataDir ? this.configPath() : null,
       config: this._config ? { ...this._config, token: undefined } : null, // 不回传 token
       lastError: this._lastError // 最近一次错误（面板展示隧道异常原因）
@@ -340,5 +410,6 @@ module.exports = {
   FrpcManager,
   normalizeDomain,
   sourceBinaryDir,
+  BASE_DOMAIN,
   TOML_FILENAME
 }

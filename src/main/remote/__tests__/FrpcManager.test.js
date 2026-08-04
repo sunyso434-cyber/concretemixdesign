@@ -16,7 +16,7 @@ const CFG = {
   serverPort: 7000,
   token: 'tok123',
   localPort: 46351,
-  domain: 'www.concreteagent.cloud'
+  pcId: 'test1234' // 固定 PC ID 便于断言（多电脑并存方案）
 }
 
 /** 构造一个可 emit exit/error 的 mock frpc 子进程。 */
@@ -72,22 +72,22 @@ describe('FrpcManager（R12 frpc 子进程管理）', () => {
   })
 
   // ---------- TOML 生成 ----------
-  test('buildToml：生成 frp v0.60.0 TOML（serverAddr/serverPort/auth/customDomains/localPort）', () => {
+  test('buildToml：生成 frp v0.60.0 TOML（含 PC ID 唯一代理名 + 子域名）', () => {
     const mgr = makeManager({ tmpDir, resourcePath, spawn })
     const toml = mgr.buildToml(CFG)
     expect(toml).toContain(`serverAddr = "43.153.116.131"`)
     expect(toml).toContain(`serverPort = 7000`)
     expect(toml).toContain(`auth.token = "tok123"`)
-    expect(toml).toContain(`name = "concrete-remote"`)
+    expect(toml).toContain(`name = "concrete-remote-test1234"`)
     expect(toml).toContain('type = "http"')
-    expect(toml).toContain(`customDomains = ["www.concreteagent.cloud"]`)
+    expect(toml).toContain(`customDomains = ["test1234.concreteagent.cloud"]`)
     expect(toml).toContain('localIP = "127.0.0.1"')
     expect(toml).toContain(`localPort = 46351`)
   })
 
-  test('buildToml：缺少 domain / token / localPort / serverAddr 时抛错', () => {
+  test('buildToml：缺少 pcId / token / localPort / serverAddr 时抛错', () => {
     const mgr = makeManager({ tmpDir, resourcePath, spawn })
-    expect(() => mgr.buildToml({ ...CFG, domain: '' })).toThrow(/domain/)
+    expect(() => mgr.buildToml({ ...CFG, pcId: '' })).toThrow(/pcId/)
     expect(() => mgr.buildToml({ ...CFG, token: '' })).toThrow(/token/)
     expect(() => mgr.buildToml({ ...CFG, localPort: null })).toThrow(/localPort/)
     expect(() => mgr.buildToml({ ...CFG, serverAddr: '' })).toThrow(/serverAddr/)
@@ -166,10 +166,12 @@ describe('FrpcManager（R12 frpc 子进程管理）', () => {
     // 运行副本已部署
     expect(fs.readFileSync(path.join(tmpDir, 'frpc', 'frpc.exe'), 'utf8')).toBe('placeholder')
 
-    // toml 已落盘
+    // toml 已落盘（start 内部用 getPcId 注入 PC ID，代理名 + 子域名都带 PC ID）
+    const pcId = mgr.getPcId()
     const written = fs.readFileSync(path.join(tmpDir, 'frpc.toml'), 'utf8')
     expect(written).toContain('serverAddr = "43.153.116.131"')
-    expect(written).toContain('customDomains = ["www.concreteagent.cloud"]')
+    expect(written).toContain(`name = "concrete-remote-${pcId}"`)
+    expect(written).toContain(`customDomains = ["${pcId}.concreteagent.cloud"]`)
 
     // spawn 参数与选项：从 userData 副本运行
     expect(spawn).toHaveBeenCalledTimes(1)

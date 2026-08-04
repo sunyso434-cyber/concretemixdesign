@@ -135,13 +135,14 @@ describe('RemoteService（R11 组装）', () => {
     expect(auth._lockoutMs).toBe(30 * 60 * 1000)
 
     // frpc 已用写死默认配置启动，localPort 跟随实际监听端口
+    // 多电脑并存方案：cfg 不含 domain，FrpcManager 内部用 PC ID 算子域名
     const frpc = remoteService.getFrpc()
     expect(frpc.started).toHaveLength(1)
     expect(frpc.started[0]).toMatchObject({
       serverAddr: '43.153.116.131',
-      serverPort: 7000,
-      domain: 'www.concreteagent.cloud'
+      serverPort: 7000
     })
+    expect(frpc.started[0].domain).toBeUndefined()
     expect(frpc.started[0].localPort).toBe(r.port)
   })
 

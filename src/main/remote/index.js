@@ -31,12 +31,12 @@ const DEFAULT_PORT = 46351
 
 // 隧道内置默认连接配置（老板 2026-08-02 决策：写死默认值，应用启动即全自动连隧道；
 // 云端 frps token 沿用现有值，与 /etc/frp/frps.toml 一致）
+// 多电脑并存方案（2026-08-04）：移除 domain，FrpcManager 内部用 PC ID 自动算子域名
 const DEFAULT_FRPC_CONFIG = {
   serverAddr: '43.153.116.131',
   serverPort: 7000,
   token: '1ad988de1bcc00ca5f7f5c77fcc803b2',
-  localPort: DEFAULT_PORT,
-  domain: 'www.concreteagent.cloud'
+  localPort: DEFAULT_PORT
 }
 
 let _state = null // { userDataDir, auth, fanout, server, bridge, sessionApi, workspaceApi, imageApi, port, listening }
