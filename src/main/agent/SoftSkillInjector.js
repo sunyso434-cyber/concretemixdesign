@@ -9,6 +9,8 @@
  * 状态隔离：_activeSkill = Map<sessionId, {skillName, subFilesLoaded:Set}>
  */
 
+const { renderPlaceholders } = require('./mdInstructionBuilder')
+
 const ESTIMATE_CHARS_PER_TOKEN = 3 // 近似：~3 字符/token
 const LAYER3_TOKEN_LIMIT = 3000
 
@@ -61,7 +63,11 @@ class SoftSkillInjector {
       return { activated: false, reason: 'no_match' }
     }
     const skill = this._bestMatch(softSkills, msg)
-    this._activeSkill.set(sessionId, { skillName: skill.name, subFilesLoaded: new Set() })
+    if (!skill) {
+      return { activated: false, reason: 'no_match' }
+    }
+    // 存 userMessage 进 active 状态，供 _buildActiveSection 渲染 {{param}} 占位符（B-2 参数来源）
+    this._activeSkill.set(sessionId, { skillName: skill.name, subFilesLoaded: new Set(), userMessage: msg })
     return { activated: true, skillName: skill.name }
   }
 
@@ -89,9 +95,11 @@ class SoftSkillInjector {
     // Layer 1：所有 soft skill 完整 description
     const layer1 = softSkills.map(s => `- ${s.name}: ${s.description}`).join('\n')
 
-    // Layer 2：激活 skill 的 body
+    // Layer 2：激活 skill 的 body（渲染 {{param}} 占位符，用激活时存的 userMessage 作 args）
+    // 找不到对应值的占位符原样保留，让 LLM 知道这是待填参数
     const skill = this.registry.getSkill(active.skillName)
-    const body = (skill && skill._mdBody) || ''
+    const rawBody = (skill && skill._mdBody) || ''
+    const body = renderPlaceholders(rawBody, { userMessage: active.userMessage || '' })
     let layer23 = `\n## 🔓 ACTIVE SKILL: ${active.skillName}\n（本次会话期间生效）\n${body}\n`
 
     // Layer 3：解析子文件引用，按需加载，3000 token 截断
@@ -119,13 +127,14 @@ class SoftSkillInjector {
   }
 
   /**
-   * 关键词重叠打分选最佳 skill；全 0 时兜底第一个（单技能场景总能激活）。
-   * ponytail: 兜底激活，多技能精确消歧留待后续调优。
+   * 关键词重叠打分选最佳 skill；全 0 分时返回 null（不兜底硬塞第一个）。
+   * 修复 P0：旧实现 bestScore 初值 -1，任何 skill 得分 >=0 都 > -1 被选中，
+   * 导致无关消息也强行激活第一个 soft skill。改为初值 0，仅 score > 0 才选中。
    */
   _bestMatch(softSkills, message) {
     const msg = message.toLowerCase()
-    let best = softSkills[0]
-    let bestScore = -1
+    let best = null
+    let bestScore = 0
     for (const skill of softSkills) {
       const score = this._tokens(skill.description).filter(t => msg.includes(t)).length
       if (score > bestScore) {

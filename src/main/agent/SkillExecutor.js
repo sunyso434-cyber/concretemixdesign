@@ -58,6 +58,18 @@ class SkillExecutor {
 
     // 4. 执行（传递 runtimeCtx 作为第三参数，供蓝图技能等需要原始运行时上下文的场景使用）
     try {
+      // MD 技能（function 模式）没有 execute 函数：调 buildMDInstruction 渲染 body 作为工具结果。
+      // 主循环对 function MD skill 走 UnifiedStrategy 的 buildMDInstruction 分支不经过 SkillExecutor，
+      // 此分支主要为任务 1.5 rerunUnpairedToolCalls 重跑未配对工具时遇到 MD skill 不崩。
+      if (skill._isMDSkill && skill._triggerMode === 'function') {
+        const { buildMDInstruction } = require('./mdInstructionBuilder')
+        const instruction = buildMDInstruction(skill, args)
+        return {
+          success: true,
+          data: { instruction },
+          _meta: { skill: skillName, duration: 0, timestamp: new Date().toISOString() }
+        }
+      }
       const startTime = Date.now()
       const result = await skill.execute(args, context, runtimeCtx)
       const duration = Date.now() - startTime

@@ -143,6 +143,102 @@ export function abortAgent({ dispatch, requestId, sessionId }) {
 }
 
 /**
+ * P0 断点续跑（Task 1.6）：检测崩溃窗口（纯 IPC，不含弹窗逻辑）
+ *
+ * @param {string} sessionId - 当前会话 ID
+ * @returns {Promise<{needAsk:boolean, unpairedToolCalls:Array}>}
+ */
+export async function detectCrashWindow(sessionId) {
+  if (!sessionId) return { needAsk: false, unpairedToolCalls: [] }
+  try {
+    const r = await window.electronAPI.invoke('agent:detect-crash-window', { sessionId })
+    if (r && r.success) {
+      return { needAsk: !!r.needAsk, unpairedToolCalls: r.unpairedToolCalls || [] }
+    }
+  } catch (e) {
+    console.error('[AgentChat] detect-crash-window 失败:', e)
+  }
+  return { needAsk: false, unpairedToolCalls: [] }
+}
+
+/**
+ * P0 断点续跑（Task 1.6）：串行重跑未配对 tool_calls（纯 IPC）
+ *
+ * @param {string} sessionId
+ * @param {Array} unpairedToolCalls - detectCrashWindow 返回的未配对 tool_calls
+ * @returns {Promise<Array>} 执行结果
+ */
+export async function rerunUnpairedTools(sessionId, unpairedToolCalls) {
+  if (!sessionId || !Array.isArray(unpairedToolCalls) || unpairedToolCalls.length === 0) {
+    return []
+  }
+  try {
+    const r = await window.electronAPI.invoke('agent:rerun-unpaired-tools', {
+      sessionId,
+      unpairedToolCalls
+    })
+    return (r && r.results) || []
+  } catch (e) {
+    console.error('[AgentChat] rerun-unpaired-tools 失败:', e)
+    return []
+  }
+}
+
+/**
+ * P0 断点续跑（Task 1.6）：从断点续跑（纯 IPC，不含弹窗逻辑）
+ *
+ * 弹窗逻辑由 SmartDesignChat.jsx 组件处理（组件已有 Modal import）。
+ * 流程：组件调 detectCrashWindow → 若 needAsk 弹窗 → rerunUnpairedTools → resumeFromCheckpoint
+ *
+ * @param {Object} args
+ * @param {Function} args.dispatch - reducer 的 dispatch
+ * @param {string} args.sessionId - 当前会话 ID
+ */
+export async function resumeFromCheckpoint({ dispatch, sessionId }) {
+  if (!sessionId) {
+    message.error('无法续跑：缺少会话 ID')
+    return
+  }
+
+  const requestId = 'resume-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)
+  console.log('[AgentChat] 🔄 resumeFromCheckpoint', { sessionId, requestId })
+
+  // 重置 Agent 状态（复用 SEND_MESSAGE）
+  dispatch({ type: 'SEND_MESSAGE', payload: { requestId } })
+
+  // 插入 assistant 占位消息（流式内容定位用）
+  dispatch({
+    type: 'ADD_MESSAGE',
+    payload: { role: 'assistant', content: '', _streaming: true, _agentRequestId: requestId, _resume: true }
+  })
+
+  try {
+    console.log('[AgentChat] ⏳ 等待 agent:resume-from-checkpoint 返回...', { requestId })
+    const r = await window.electronAPI.invoke('agent:resume-from-checkpoint', {
+      requestId,
+      sessionId
+    })
+    console.log('[AgentChat] 📨 resume-from-checkpoint 返回', { requestId, success: r?.success })
+
+    if (r && r.result && r.result.success === false) {
+      const err = r.result.error || {}
+      dispatch({ type: 'ERROR', payload: { classifiedError: err, sessionId, requestId } })
+      message.error(err.title ? `[${err.code || 'ERROR'}] ${err.title}` : '续跑失败')
+    } else if (r && r.success === false) {
+      const err = r.error || {}
+      dispatch({ type: 'ERROR', payload: { classifiedError: err, sessionId, requestId } })
+      message.error(err.title ? `[${err.code || 'ERROR'}] ${err.title}` : '续跑失败')
+    } else {
+      message.success('已从断点继续执行')
+    }
+  } catch (e) {
+    console.error('[AgentChat] 💥 resume-from-checkpoint 异常', { requestId, error: e.message })
+    dispatch({ type: 'ERROR', payload: { classifiedError: { code: 'EXCEPTION', title: e.message }, sessionId, requestId } })
+    message.error(`续跑异常 — ${e.message}`)
+  }
+}
+
+/**
  * 加载会话列表（spec 5.3 修复 — 不覆盖 currentId）
  * @param {Object} args
  * @param {Function} args.dispatch - reducer 的 dispatch

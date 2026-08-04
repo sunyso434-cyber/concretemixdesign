@@ -80,6 +80,24 @@ class UnifiedStrategy {
   }
 
   /**
+   * 异步写 last_step 到 agent_checkpoint（断点续跑用）
+   * - 不 await（主循环不阻塞；崩溃时 last_step 可能滞后 1 步，可接受——续跑以 messages 为准）
+   * - 失败只 catch（DB 未就绪/测试环境静默跳过）
+   * C-3 性能取舍：同步 await 每步多 5-20ms DB 延迟累积影响体验；异步写 last_step 滞后 1 步不影响正确性
+   */
+  _persistLastStep(sessionId, step) {
+    try {
+      const { AgentCheckpoint } = require('../../db/database')
+      if (!AgentCheckpoint) return
+      AgentCheckpoint.upsert({
+        sessionId,
+        lastStep: step,
+        updatedAt: new Date()
+      }).catch(() => {})
+    } catch (_) { /* DB 未就绪/测试环境 */ }
+  }
+
+  /**
    * 清理消息对象
    * ⚠️ DeepSeek thinking 模式硬性规定：
    * reasoning_content 只能出现在最后一条 assistant 消息中
@@ -230,8 +248,23 @@ class UnifiedStrategy {
     this.sessionId = sessionId
     this.webContents = webContents || null
 
-    // Task 7: Soft skill 触发判断（在任何 LLM 调用前）
-    if (this.softSkillInjector) {
+    // P0 断点续跑（B-1 命门）：mode='resume' 分支
+    // - 跳过 soft skill 激活、附件处理
+    // - 恢复 todo 快照（restoreCheckpoint）
+    // - 构造续跑指令消息并落库，作为 enhancedMessage 驱动首轮 LLM 调用
+    // - LLM 既看到完整历史（buildHistoryMessages 重建），又收到明确续跑指令
+    const isResume = mode === 'resume'
+    if (isResume) {
+      _diagLog(`🔄 断点续跑启动：sessionId=${sessionId}，恢复 todo 快照 + 追加续跑指令`)
+      try {
+        await this.agentMemoryService.restoreCheckpoint(sessionId)
+      } catch (e) {
+        _diagLog(`⚠️ restoreCheckpoint 失败（继续续跑）: ${e.message}`)
+      }
+    }
+
+    // Task 7: Soft skill 触发判断（在任何 LLM 调用前；resume 时跳过——无新用户消息不应激活 soft skill）
+    if (this.softSkillInjector && !isResume) {
       this.softSkillInjector.tryActivate(sessionId, message || '')
     }
 
@@ -241,7 +274,21 @@ class UnifiedStrategy {
     let enhancedMessage = message
     let multimodalImages = null
 
-    if (Array.isArray(attachments) && attachments.length > 0) {
+    // resume 分支：构造续跑指令消息并落库，作为 enhancedMessage 驱动首轮 LLM 调用
+    if (isResume) {
+      const resumeInstruction = '（续跑）请继续完成之前的任务，从上次中断处接着做'
+      enhancedMessage = resumeInstruction
+      try {
+        await this.agentMemoryService.saveMessage({
+          sessionId,
+          role: 'user',
+          content: resumeInstruction,
+          metadata: { resume: true }
+        })
+      } catch (e) {
+        _diagLog(`⚠️ 续跑指令落库失败（继续）: ${e.message}`)
+      }
+    } else if (Array.isArray(attachments) && attachments.length > 0) {
       // 检查当前 LLM 配置是否支持多模态
       let visionCapable = false
       try {
@@ -375,8 +422,8 @@ class UnifiedStrategy {
       }
     } catch (_) {}
 
-    // Task 7: 拼 soft skill 激活段
-    const softSkillSection = this.softSkillInjector
+    // Task 7: 拼 soft skill 激活段（resume 时跳过——无新用户消息激活的 soft skill 不应注入）
+    const softSkillSection = (this.softSkillInjector && !isResume)
       ? await this.softSkillInjector.buildInjectionSection(sessionId)
       : ''
 
@@ -933,6 +980,8 @@ class UnifiedStrategy {
         }
 
         // 所有工具执行完毕，继续下一轮 LLM 调用
+        // P0 断点续跑：每步末尾异步写 last_step（不 await，崩溃滞后 1 步可接受）
+        this._persistLastStep(sessionId, step + 1)
         continue
       }
 

@@ -23,7 +23,7 @@ const _sessionTodos = new Map()
 // - priority: 'high' | 'medium' | 'low'
 // - status:   'pending' | 'in_progress' | 'completed'
 
-const VALID_ACTIONS = ['create', 'add', 'update', 'complete', 'list', 'clear']
+const VALID_ACTIONS = ['create', 'add', 'update', 'complete', 'list', 'clear', 'restore']
 const VALID_PRIORITIES = ['high', 'medium', 'low']
 const VALID_STATUSES = ['pending', 'in_progress', 'completed']
 
@@ -75,9 +75,45 @@ function _notifyTodoUpdate(context, sessionId, todos) {
   } catch (_) { /* 推送失败不影响主流程 */ }
 }
 
+/**
+ * 把当前 todos 快照 upsert 到 agent_checkpoint 表（断点续跑用）
+ * - 延迟 require 避免 DB 未初始化时循环依赖
+ * - 失败只 warn 不抛（todo 落库是非关键路径，内存 todo 仍可用）
+ * - DB 不可用（如单元测试无 DB）静默跳过
+ */
+async function _persistCheckpoint(sessionId, todos) {
+  // 测试环境短路：better-sqlite3 native module 在 jest worker 下触发 ACCESS_VIOLATION（进程级崩溃，try/catch 拦不住）
+  // 测试环境跳过落库，退回纯内存模式（与加 checkpoint 前行为一致）
+  if (process.env.JEST_WORKER_ID || process.env.NODE_ENV === 'test') return
+  try {
+    const { AgentCheckpoint } = require('../db/database')
+    if (!AgentCheckpoint) return
+    await AgentCheckpoint.upsert({
+      sessionId,
+      todoSnapshot: JSON.stringify(todos || []),
+      updatedAt: new Date()
+    })
+  } catch (e) {
+    // DB 未就绪或测试环境：静默跳过（todo 内存仍有效，仅丢失快照）
+    try { console.warn(`[todo_manage] checkpoint 落库失败 sessionId=${sessionId}: ${e.message}`) } catch (_) {}
+  }
+}
+
+/**
+ * 从快照还原 todos 进内存 Map（续跑时调用）
+ * @param {string} sessionId
+ * @param {Array} todos - 快照数组
+ */
+function restoreFromSnapshot(sessionId, todos) {
+  if (!sessionId) return
+  const arr = Array.isArray(todos) ? todos : []
+  _sessionTodos.set(sessionId, arr)
+  return arr
+}
+
 const skill = {
   name: 'todo_manage',
-  description: '管理任务清单。支持创建/追加/更新/完成/列出/清空任务。让 Agent 在多步骤任务中维护可见计划，状态可流转 pending → in_progress → completed。',
+  description: '管理任务清单。支持创建/追加/更新/完成/列出/清空/还原任务。让 Agent 在多步骤任务中维护可见计划，状态可流转 pending → in_progress → completed。',
   version: '1.0.0',
   category: 'agent',
   // 显式空数组：DynamicContextProvider.getServices 要求 services 字段必须声明
@@ -87,7 +123,7 @@ const skill = {
   parameters: {
     action: {
       type: 'string',
-      description: '操作类型：create(用一组任务初始化整个清单，覆盖旧清单) / add(追加单个任务) / update(修改某个任务) / complete(标记任务为已完成) / list(返回当前清单) / clear(清空清单)',
+      description: '操作类型：create(用一组任务初始化整个清单，覆盖旧清单) / add(追加单个任务) / update(修改某个任务) / complete(标记任务为已完成) / list(返回当前清单) / clear(清空清单) / restore(从快照还原清单)',
       required: true,
       enum: VALID_ACTIONS
     },
@@ -178,6 +214,7 @@ const skill = {
         })
         _sessionTodos.set(sessionId, created)
         _notifyTodoUpdate(context, sessionId, created)
+        _persistCheckpoint(sessionId, created)
         return {
           success: true,
           action: 'create',
@@ -194,6 +231,7 @@ const skill = {
         const added = _newTodo(args.todo.content, args.todo.priority)
         current.push(added)
         _notifyTodoUpdate(context, sessionId, current)
+        _persistCheckpoint(sessionId, current)
         return {
           success: true,
           action: 'add',
@@ -220,6 +258,7 @@ const skill = {
         }
         target.updatedAt = new Date().toISOString()
         _notifyTodoUpdate(context, sessionId, current)
+        _persistCheckpoint(sessionId, current)
         return {
           success: true,
           action: 'update',
@@ -241,6 +280,7 @@ const skill = {
         target.status = 'completed'
         target.updatedAt = new Date().toISOString()
         _notifyTodoUpdate(context, sessionId, current)
+        _persistCheckpoint(sessionId, current)
         return {
           success: true,
           action: 'complete',
@@ -262,12 +302,28 @@ const skill = {
       case 'clear': {
         _sessionTodos.delete(sessionId)
         _notifyTodoUpdate(context, sessionId, [])
+        _persistCheckpoint(sessionId, [])
         return {
           success: true,
           action: 'clear',
           todos: [],
           total: 0,
           completed: 0
+        }
+      }
+
+      case 'restore': {
+        // 续跑时由 AgentMemoryService.resumeFromCheckpoint 调用：
+        // 先从 DB 读 todoSnapshot，解析后传给 restoreFromSnapshot 还原内存
+        // 本 action 让 LLM 也能显式触发还原（如检测到 todo 丢失时）
+        const snapshot = Array.isArray(args.todos) ? args.todos : []
+        const restored = restoreFromSnapshot(sessionId, snapshot)
+        _notifyTodoUpdate(context, sessionId, restored)
+        return {
+          success: true,
+          action: 'restore',
+          todos: restored,
+          ..._summarize(restored)
         }
       }
 
@@ -299,5 +355,8 @@ skill._cleanupSession = function _cleanupSession(sessionId) {
 skill._cleanupAllForTest = function _cleanupAllForTest() {
   _sessionTodos.clear()
 }
+
+// 导出 restoreFromSnapshot 供续跑流程直接调用（不经 SkillExecutor，避免要构造 context）
+skill.restoreFromSnapshot = restoreFromSnapshot
 
 module.exports = skill

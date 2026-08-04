@@ -35,7 +35,7 @@ describe('todo_manage Skill - schema 与元数据', () => {
     expect(todoManage.parameters.action).toBeDefined()
     expect(todoManage.parameters.action.required).toBe(true)
     expect(todoManage.parameters.action.enum).toEqual(
-      ['create', 'add', 'update', 'complete', 'list', 'clear']
+      ['create', 'add', 'update', 'complete', 'list', 'clear', 'restore']
     )
   })
 

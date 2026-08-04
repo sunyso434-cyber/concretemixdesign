@@ -351,6 +351,59 @@ function registerAgentHandlers() {
     return executor.abort({ sessionId })
   })
 
+  // === P0 断点续跑（Task 1.6）：3 个 IPC ===
+  // 流程：detect-crash-window → 若 needAsk 弹窗 → rerun-unpaired-tools（可选）→ resume-from-checkpoint
+
+  // 1. 检测崩溃窗口：返回最后一条 assistant 的未配对 tool_calls
+  ipcMain.handle('agent:detect-crash-window', async (_event, { sessionId } = {}) => {
+    if (!sessionId) return { success: false, error: '缺少 sessionId', needAsk: false, unpairedToolCalls: [] }
+    try {
+      const result = await agentMemoryService.detectCrashWindow(sessionId)
+      _log(`[AgentHandler] 🔍 detect-crash-window sessionId=${sessionId} needAsk=${result.needAsk} unpairedCount=${result.unpairedToolCalls?.length || 0}`)
+      return { success: true, ...result }
+    } catch (e) {
+      _log(`[AgentHandler] detect-crash-window 失败: ${e.message}`)
+      return { success: false, error: e.message, needAsk: false, unpairedToolCalls: [] }
+    }
+  })
+
+  // 2. 串行重跑未配对 tool_calls（用户在弹窗选"是"时调用）
+  ipcMain.handle('agent:rerun-unpaired-tools', async (_event, { sessionId, unpairedToolCalls } = {}) => {
+    if (!sessionId) return { success: false, error: '缺少 sessionId', results: [] }
+    if (!Array.isArray(unpairedToolCalls) || unpairedToolCalls.length === 0) {
+      return { success: true, results: [] }
+    }
+    if (!skillExecutor) {
+      return { success: false, error: 'skillExecutor 未初始化', results: [] }
+    }
+    try {
+      _log(`[AgentHandler] 🔁 rerun-unpaired-tools sessionId=${sessionId} count=${unpairedToolCalls.length}`)
+      const results = await agentMemoryService.rerunUnpairedToolCalls(sessionId, unpairedToolCalls, { skillExecutor })
+      _log(`[AgentHandler] ✅ rerun-unpaired-tools 完成 sessionId=${sessionId} results=${results.length}`)
+      return { success: true, results }
+    } catch (e) {
+      _log(`[AgentHandler] rerun-unpaired-tools 失败: ${e.message}`)
+      return { success: false, error: e.message, results: [] }
+    }
+  })
+
+  // 3. 续跑：调 executor.resumeAgentSession（内部走 UnifiedStrategy.execute mode='resume' 分支）
+  ipcMain.handle('agent:resume-from-checkpoint', async (event, { requestId, sessionId } = {}) => {
+    if (!sessionId) return { success: false, error: '缺少 sessionId' }
+    const reqId = requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+    _log(`[AgentHandler] 🔄 resume-from-checkpoint sessionId=${sessionId} requestId=${reqId}`)
+    const result = await executor.resumeAgentSession({
+      sessionId,
+      requestId: reqId,
+      sink: executorDefaultSink || event.sender
+    })
+    const errSummary = result?.error
+      ? (typeof result.error === 'object' ? (result.error.code || '') : result.error)
+      : ''
+    _log(`[AgentHandler] 🚀 resume-from-checkpoint 完成 requestId=${reqId} success=${result?.success} error=${errSummary}`)
+    return result
+  })
+
   // === Todo 计划面板（2026-07-08）：前端 mount 时拉取当前会话最新清单 ===
   // 复用 skill 的 list action，不另写查询代码
   ipcMain.handle('todo:list', async (_event, { sessionId } = {}) => {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useDeferredValue } from 'react'
 import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip, Dropdown, Image } from 'antd'
-import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, ProfileOutlined, HeartOutlined, DownOutlined, CheckOutlined, PauseCircleOutlined, PictureOutlined } from '@ant-design/icons'
+import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, ProfileOutlined, HeartOutlined, DownOutlined, CheckOutlined, PauseCircleOutlined, PictureOutlined, ReloadOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import ToolCallBubble from './ToolCallBubble'
@@ -22,7 +22,7 @@ import WorkspaceFilePopover from './WorkspaceFilePopover'
 import useChatState from '../hooks/useChatState'
 import { AgentStoreProvider, useAgentStore } from './AgentStore'
 import useAgentMode from './AgentMode'
-import { sendMessage, abortAgent, createSession, loadSessionList, switchSession, loadMoreSessionMessages, useAssistantPersistence } from './agentActions'
+import { sendMessage, abortAgent, createSession, loadSessionList, switchSession, loadMoreSessionMessages, useAssistantPersistence, resumeFromCheckpoint, detectCrashWindow, rerunUnpairedTools } from './agentActions'
 import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, processImageAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
 
 // 对话发图后同步保存到工作区 raw/images（老板 2026-08-02 决策：图片进原始素材区，AI 可索引）。
@@ -589,6 +589,47 @@ const SmartDesignChat = () => {
 
   // 归档会话只读：当前会话若已归档则禁用输入，恢复后方可继续对话
   const isArchived = state.session.currentArchived
+
+  // P0 断点续跑（Task 1.6）：续跑按钮处理（含崩溃窗口检测 + 弹窗）
+  const handleResumeFromCheckpoint = useCallback(async () => {
+    const sid = state.session.currentId
+    if (!sid) return
+    // 1. 检测崩溃窗口
+    const { needAsk, unpairedToolCalls } = await detectCrashWindow(sid)
+    // 2. 根据 needAsk 决定流程
+    if (needAsk && unpairedToolCalls.length > 0) {
+      const toolNames = unpairedToolCalls
+        .map(tc => tc?.function?.name || '未知工具')
+        .map((n, i) => `${i + 1}. ${n}`)
+        .join('\n')
+      Modal.confirm({
+        title: '检测到上次任务异常中断',
+        content: (
+          <div>
+            <p>以下工具在上次执行中未完成，可能产生了不完整的数据：</p>
+            <pre style={{ background: '#f5f5f5', padding: 8, margin: '8px 0', whiteSpace: 'pre-wrap' }}>{toolNames}</pre>
+            <p style={{ color: '#faad14' }}>
+              ⚠️ 注意：重跑非幂等工具（如保存文件、写入数据）可能产生重复记录。
+            </p>
+            <p>选择"重跑"将重新执行上述工具；选择"跳过"则直接从断点继续。</p>
+          </div>
+        ),
+        okText: '重跑工具并续跑',
+        cancelText: '跳过重跑直接续跑',
+        onOk: async () => {
+          await rerunUnpairedTools(sid, unpairedToolCalls)
+          await resumeFromCheckpoint({ dispatch, sessionId: sid })
+        },
+        onCancel: async () => {
+          await resumeFromCheckpoint({ dispatch, sessionId: sid })
+        }
+      })
+    } else {
+      // 无崩溃窗口，直接续跑
+      await resumeFromCheckpoint({ dispatch, sessionId: sid })
+    }
+  }, [state.session.currentId, dispatch])
+
   const handleRestoreArchived = async () => {
     const sid = state.session.currentId
     if (!sid) return
@@ -1980,6 +2021,15 @@ const SmartDesignChat = () => {
               disabled={state.messages.length === 0}
               title="清空对话"
             />
+            <Tooltip title="从上次中断处继续执行（断点续跑）">
+              <Button
+                type="text"
+                size="small"
+                icon={<ReloadOutlined />}
+                onClick={handleResumeFromCheckpoint}
+                disabled={isAgentBusy || !state.session.currentId || state.messages.length === 0}
+              />
+            </Tooltip>
           </Space>
           {isAgentBusy ? (
             <Button

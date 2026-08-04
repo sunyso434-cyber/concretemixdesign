@@ -73,6 +73,35 @@ function createAgentExecutor({ getOrchestratorForSession, getOrchestrator, agent
     }
   }
 
+  // P0 断点续跑：续跑会话（B-1 命门）
+  // - 不落库用户消息（无新用户消息）
+  // - 不传 message/attachments（UnifiedStrategy.execute 内部用 mode='resume' 分支处理）
+  // - 锁检查同 runAgentSession
+  async function resumeAgentSession({ sessionId, requestId, sink }) {
+    if (!sessionId) return { success: false, error: 'sessionId is required' }
+    const reqId = requestId || `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+    const lock = sessionAgents.get(sessionId)
+    if (lock && lock.running) {
+      if (Date.now() - lock.startedAt > lockTimeoutMs) lock.running = false
+      else return { success: false, error: '该会话已有任务在执行，请稍等' }
+    }
+    try {
+      const ag = await getOrchestratorForSession(sessionId)
+      if (!ag) return { success: false, error: 'DeepSeek API未配置，请在系统设置中配置API密钥' }
+      sessionAgents.set(sessionId, { orchestrator: ag, running: true, startedAt: Date.now(), requestId: reqId })
+      // mode='resume'：UnifiedStrategy.execute 内部恢复 todo 快照 + 追加续跑指令消息
+      const result = await ag.run({ sessionId, mode: 'resume', webContents: sink, attachments: [] })
+      return { success: true, result }
+    } catch (error) {
+      const classified = classifyError(error, { callSite: 'agentExecutor.resumeAgentSession', sessionId, requestId: reqId })
+      try { sink?.send('agent:progress', { type: 'error', error: classified, sessionId, requestId: reqId }) } catch (_) {}
+      return { success: false, error: classified }
+    } finally {
+      const s = sessionAgents.get(sessionId)
+      if (s) { s.orchestrator = null; s.running = false; s.startedAt = 0 }
+    }
+  }
+
   function confirm({ sessionId, confirmed, args }) {
     const s = sessionId ? sessionAgents.get(sessionId) : null
     if (s?.orchestrator?.resolveConfirmation) { s.orchestrator.resolveConfirmation(confirmed, args); return { success: true } }
@@ -88,6 +117,6 @@ function createAgentExecutor({ getOrchestratorForSession, getOrchestrator, agent
     return { success: true }
   }
 
-  return { runAgentSession, saveUserMessage, getSessionOrchestrator, isSessionRunning, confirm, pause, resume, abort, sessionAgents, setGlobalFallback }
+  return { runAgentSession, resumeAgentSession, saveUserMessage, getSessionOrchestrator, isSessionRunning, confirm, pause, resume, abort, sessionAgents, setGlobalFallback }
 }
 module.exports = { createAgentExecutor }

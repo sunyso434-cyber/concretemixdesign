@@ -332,6 +332,128 @@ class AgentMemoryService {
   }
 
   /**
+   * P0 断点续跑：检测崩溃窗口（v5 方案 B）
+   *
+   * 查原始 DB 行（不经 buildHistoryMessages，避免孤儿救援污染判断），取最后一条 assistant，
+   * 检查其 tool_calls 是否有 id 不在所有 tool 消息里（未配对 = 工具执行到一半崩了）。
+   *
+   * 5 种形态（spec 7.1）：
+   * - 最后一条 assistant 无 tool_calls → needAsk=false
+   * - 最后一条 assistant tool_calls 全配对 → needAsk=false
+   * - 最后一条 assistant 有未配对 tool_calls → needAsk=true，返回所有未配对
+   * - 最后一条是 tool → needAsk=false（孤儿救援已处理）
+   * - 最后一条是 user → needAsk=false
+   *
+   * @returns {Promise<{needAsk:boolean, unpairedToolCalls:Array}>}
+   */
+  async detectCrashWindow(sessionId) {
+    const rows = await this.getRecentHistory(sessionId, 20)
+    if (rows.length === 0) return { needAsk: false, unpairedToolCalls: [] }
+
+    const last = rows[rows.length - 1]
+    // 最后一条不是 assistant，或无 tool_calls → 不需问
+    if (last.role !== 'assistant' || !last.toolCalls) {
+      return { needAsk: false, unpairedToolCalls: [] }
+    }
+
+    // 解析 toolCalls（DB 里可能是字符串）
+    let toolCalls = last.toolCalls
+    if (typeof toolCalls === 'string') {
+      try { toolCalls = JSON.parse(toolCalls) } catch (_) { return { needAsk: false, unpairedToolCalls: [] } }
+    }
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+      return { needAsk: false, unpairedToolCalls: [] }
+    }
+
+    // 收集所有 tool 消息的 toolCallId（已执行的）
+    const executedIds = new Set()
+    for (const r of rows) {
+      if (r.role === 'tool' && r.toolCallId) executedIds.add(r.toolCallId)
+    }
+
+    // 找未配对的 tool_calls
+    const unpaired = toolCalls.filter(tc => tc && tc.id && !executedIds.has(tc.id))
+    return { needAsk: unpaired.length > 0, unpairedToolCalls: unpaired }
+  }
+
+  /**
+   * P0 断点续跑：串行重跑未配对的 tool_calls（v5 新增）
+   *
+   * - 串行调 skillExecutor.execute（避免并发引入复杂性）
+   * - 结果作为 tool 消息落库，配对原 tool_call_id
+   * - metadata 标记 rerun:true，便于追溯
+   *
+   * @param {string} sessionId
+   * @param {Array} unpairedToolCalls - detectCrashWindow 返回的未配对 tool_calls
+   * @param {object} context - { skillExecutor, sessionId }
+   * @returns {Promise<Array>} 每个工具的执行结果 { toolCallId, success, result }
+   */
+  async rerunUnpairedToolCalls(sessionId, unpairedToolCalls, context) {
+    const { skillExecutor } = context
+    const results = []
+    for (const tc of unpairedToolCalls) {
+      const name = tc.function?.name
+      let args = {}
+      try { args = JSON.parse(tc.function?.arguments || '{}') } catch (_) {}
+      let execResult
+      try {
+        execResult = await skillExecutor.execute(name, args, { sessionId })
+      } catch (e) {
+        execResult = { success: false, error: e.message }
+      }
+      // 落库：配对原 tool_call_id，metadata 标记 rerun
+      try {
+        await this.saveMessage({
+          sessionId,
+          role: 'tool',
+          content: JSON.stringify(execResult),
+          toolCallId: tc.id,
+          metadata: { rerun: true, originalToolName: name }
+        })
+      } catch (_) {}
+      results.push({ toolCallId: tc.id, toolName: name, success: !!execResult?.success, result: execResult })
+    }
+    return results
+  }
+
+  /**
+   * P0 断点续跑：从 checkpoint 恢复 todo 快照到内存（v5 新增）
+   *
+   * - 读 agent_checkpoint.todo_snapshot
+   * - 调 todoManage.restoreFromSnapshot 还原进内存 Map
+   * - 返回 last_step（供主循环恢复 step 计数器，允许滞后 1 步）
+   *
+   * @returns {Promise<{lastStep:number, todoSnapshot:Array}>}
+   */
+  async restoreCheckpoint(sessionId) {
+    let lastStep = 0
+    let todoSnapshot = []
+    try {
+      const { AgentCheckpoint } = require('../db/database')
+      if (AgentCheckpoint) {
+        const cp = await AgentCheckpoint.findOne({ where: { sessionId } })
+        if (cp) {
+          lastStep = cp.lastStep || 0
+          if (cp.todoSnapshot) {
+            try { todoSnapshot = JSON.parse(cp.todoSnapshot) } catch (_) { todoSnapshot = [] }
+          }
+        }
+      }
+    } catch (_) { /* DB 未就绪 */ }
+
+    // 还原 todo 到内存
+    if (todoSnapshot.length > 0) {
+      try {
+        const todoManage = require('../skills/todo-manage')
+        if (typeof todoManage.restoreFromSnapshot === 'function') {
+          todoManage.restoreFromSnapshot(sessionId, todoSnapshot)
+        }
+      } catch (_) {}
+    }
+    return { lastStep, todoSnapshot }
+  }
+
+  /**
    * 获取资源摘要，用于增强 System Prompt
    * @returns {Promise<Object>} 资源统计信息
    */
