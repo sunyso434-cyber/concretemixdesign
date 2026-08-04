@@ -51,6 +51,12 @@ function renderSection(section) {
     }
     case 'table':
       return renderTable(section.rows || [])
+    case 'image': {
+      // 图片引用：![alt](path)
+      const alt = section.alt || section.title || 'chart'
+      const imgPath = section.path || ''
+      return `![${alt}](${imgPath})`
+    }
     default:
       return ''
   }

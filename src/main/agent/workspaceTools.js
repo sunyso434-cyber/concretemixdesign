@@ -150,7 +150,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         return getWiki().ingest(args)
       }
     ),
-    skill('workspace_writeFile', '把 Markdown 报告写入工作区 reports/。**两种模式**：\n1. **payload 模式**（默认）：传入 payload 含 title+sections 数组，整文件覆盖写入。\n2. **patches 模式**（v10.2.0）：只传 patches 不传 payload，局部修改已存在的 .md 报告。每个 patch 含 find(旧文本)、replace(新文本)、replaceAll(默认false)。\npayload 结构（必须包含 sections 数组）：{ title: "报告标题", sections: [ { type: "h1"|"h2", content: "标题文字" }, { type: "p", content: "段落正文" }, { type: "list", items: ["项1", "项2"] }, { type: "table", rows: [["列1","列2"],["数据1","数据2"]] }, { type: "code", language: "js", code: "console.log(1)" } ], metadata?: { 任意key: "value" } }。\n**重要：仅支持 md 格式。docx/xlsx 请使用 officecli 系列技能（create_office_file + edit_office_file）生成。**',
+    skill('workspace_writeFile', '把 Markdown 报告写入工作区 reports/。**两种模式**：\n1. **payload 模式**（默认）：传入 payload 含 title+sections 数组，整文件覆盖写入。\n2. **patches 模式**（v10.2.0）：只传 patches 不传 payload，局部修改已存在的 .md 报告。每个 patch 含 find(旧文本)、replace(新文本)、replaceAll(默认false)。\npayload 结构（必须包含 sections 数组）：{ title: "报告标题", sections: [ { type: "h1"|"h2", content: "标题文字" }, { type: "p", content: "段落正文" }, { type: "list", items: ["项1", "项2"] }, { type: "table", rows: [["列1","列2"],["数据1","数据2"]] }, { type: "code", language: "js", code: "console.log(1)" }, { type: "image", path: "reports/_images/xxx.svg", alt: "图表标题" } ], metadata?: { 任意key: "value" } }。\n**v0.3.1 新增 image 段落**：path 用 workspace_analyze 返回的 chart.svgRelPath。\n**重要：仅支持 md 格式。docx/xlsx 请使用 officecli 系列技能（create_office_file + edit_office_file）生成。**',
       {
         type: { type: 'string', description: '文件类型（仅支持 md）', required: true, enum: ['md'] },
         filename: { type: 'string', description: '文件名（含后缀）', required: true },
@@ -416,6 +416,109 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         }
       },
       (args) => getWiki().recordAnswer(args.question, args.answer, args.refs || [])
+    ),
+    // ════════════════════════════════════════════
+    // 数据分析工具（v0.3.1 新增）
+    // ════════════════════════════════════════════
+    skill('workspace_analyze',
+      '对工作区 xlsx/csv 文件或 wiki markdown 表格做数据统计 + 画图表（SVG）。\n' +
+      '**三种用法**：\n' +
+      '1. **纯统计**（不画图）：只传 source + stats，返回统计结果表。\n' +
+      '2. **统计+画图**：传 source + stats + chart，返回统计结果 + SVG 图片相对路径（写入 reports/_images/）。\n' +
+      '3. **纯画图**（对原始数据画图）：只传 source + chart，不传 stats。\n\n' +
+      '**数据源 source**：\n' +
+      '- xlsx/csv：传 filePath（工作区相对路径）\n' +
+      '- wiki 表格：传 markdown（markdown 全文）\n\n' +
+      '**统计配置 stats**：\n' +
+      '- type=aggregate：整列聚合（column + operation: sum/avg/count/min/max/stddev）\n' +
+      '- type=groupBy：分组聚合（groupBy + column + operation）\n\n' +
+      '**图表配置 chart**（可选）：\n' +
+      '- chartType: bar/bar-horizontal/line/area/scatter/histogram/pie\n' +
+      '- xField/yField/colorField: 自动推断（不传时用数据列名）\n' +
+      '- title: 图表标题\n\n' +
+      '**返回**：{ data, stats?, chart? }。chart.svgRelPath 可直接用于 workspace_writeFile 的 image 段落。',
+      {
+        source: {
+          type: 'object',
+          required: true,
+          description: '数据源描述',
+          properties: {
+            type: { type: 'string', description: 'xlsx/csv/wiki', enum: ['xlsx', 'csv', 'wiki'] },
+            filePath: { type: 'string', description: 'xlsx/csv 文件相对工作区路径' },
+            markdown: { type: 'string', description: 'wiki 数据源：markdown 全文' },
+            sheet: { type: 'string', description: 'xlsx 的 sheet 名（默认第一个）' },
+            tableIndex: { type: 'number', description: 'wiki 第几个表格（默认 0）' },
+            firstRowAsHeader: { type: 'boolean', description: '首行作为列名（默认 true）' }
+          }
+        },
+        stats: {
+          type: 'object',
+          required: false,
+          description: '统计配置（不传则不做统计，只画图）',
+          properties: {
+            type: { type: 'string', description: 'aggregate 或 groupBy', enum: ['aggregate', 'groupBy'] },
+            column: { type: 'string', description: '要聚合的列名' },
+            operation: { type: 'string', description: 'sum/avg/count/min/max/stddev', enum: ['sum', 'avg', 'count', 'min', 'max', 'stddev'] },
+            groupBy: { type: 'string', description: '分组列名（type=groupBy 时必填）' }
+          }
+        },
+        chart: {
+          type: 'object',
+          required: false,
+          description: '图表配置（不传则不画图）',
+          properties: {
+            chartType: { type: 'string', description: '图表类型', enum: ['bar', 'bar-horizontal', 'line', 'area', 'scatter', 'histogram', 'pie'] },
+            xField: { type: 'string', description: 'X 轴字段名（不传自动推断）' },
+            yField: { type: 'string', description: 'Y 轴字段名（不传自动推断）' },
+            colorField: { type: 'string', description: '颜色编码字段（可选）' },
+            title: { type: 'string', description: '图表标题' },
+            width: { type: 'number', description: '宽度（默认 500）' },
+            height: { type: 'number', description: '高度（默认 300）' }
+          }
+        }
+      },
+      async (args) => {
+        const wm = getWM()
+        const current = wm.current ? wm.current() : null
+        if (!current || !current.path) {
+          return ErrorCodes.createError('NOT_OPEN', '工作区未打开', '请先打开工作区', { retryable: false })
+        }
+
+        try {
+          const analyze = require('../workspace/analyze')
+          const result = await analyze(current.path, args)
+
+          // 返回结构化结果
+          const out = {
+            success: true,
+            data: {
+              source: result.data.source,
+              columns: result.data.columns,
+              rowCount: result.data.rows.length,
+              rowsPreview: result.data.rows.slice(0, 5) // 前 5 行预览
+            }
+          }
+          if (result.stats) {
+            out.data.stats = {
+              columns: result.stats.columns,
+              rows: result.stats.rows,
+              metadata: result.stats.metadata
+            }
+          }
+          if (result.chart) {
+            out.data.chart = {
+              svgRelPath: result.chart.svgRelPath, // 直接用于 markdown image 段落
+              spec: result.chart.spec
+            }
+          }
+          return out
+        } catch (err) {
+          if (err instanceof WorkspaceError) {
+            return ErrorCodes.createError(err.code, err.message, err.hint || '请检查参数', { retryable: err.retryable })
+          }
+          return ErrorCodes.createError(ErrorCodes.UNKNOWN, err.message, '请稍后重试', { stack: err.stack })
+        }
+      }
     ),
     // ════════════════════════════════════════════
     // OfficeCLI 工具（v11.6.0 新增）

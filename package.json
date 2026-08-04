@@ -1,6 +1,6 @@
 {
   "name": "concrete-mixdesign",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "砼智 Concrete Agent",
   "main": "main.js",
   "scripts": {
@@ -61,6 +61,8 @@
     "sql.js": "^1.14.0",
     "sqlite3": "^6.0.1",
     "uuid": "^14.0.0",
+    "vega": "^6.3.1",
+    "vega-lite": "^6.4.3",
     "ws": "^8.21.1",
     "xlsx": "^0.18.5"
   },
@@ -71,7 +73,7 @@
     "copyright": "Copyright © 2026",
     "publish": null,
     "directories": {
-      "output": "dist-0.2.0",
+      "output": "dist-0.3.1",
       "buildResources": "public"
     },
     "files": [
