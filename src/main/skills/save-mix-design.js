@@ -59,7 +59,7 @@ const skill = {
   },
 
   async execute(args, context) {
-    const { mixDesignService, auditLogService, logger } = context
+    const { mixDesignService, auditLogService, logger, toolCallId } = context
     const { schemeId, name } = args
 
     if (!schemeId) {
@@ -108,17 +108,18 @@ const skill = {
     const after = { name: newName, status: isDraft ? '已确认' : existing.status }
 
     try {
-      logger.info(`[save_mix_design] ${isDraft ? 'CONFIRM' : 'UPDATE'} 方案 ${schemeId}: ${existing.name} → ${newName}`)
+      logger.info(`[save_mix_design] ${isDraft ? 'CONFIRM' : 'UPDATE'} 方案 ${schemeId}: ${existing.name} → ${newName} requestId=${toolCallId || 'none'}`)
       await mixDesignService.updateMixDesign(schemeId, patch)
 
-      // 5. 写审计日志
+      // 5. 写审计日志（v0.6.0 Task 1.12：传 requestId 幂等，重跑同 tool_call 不重复写）
       await auditLogService.write({
         action: isDraft ? 'CONFIRM' : 'UPDATE',
         targetType: 'mix_design',
         targetId: schemeId,
         targetName: newName,
         before,
-        after
+        after,
+        requestId: toolCallId || null
       })
 
       return {

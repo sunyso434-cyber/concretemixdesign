@@ -22,10 +22,11 @@ class SkillExecutor {
    * 执行 Skill
    * @param {string} skillName - Skill 名称
    * @param {object} args - 参数
-   * @param {{ sessionId?: string, orchestrator?: object, webContents?: object }} [runtimeCtx] - 运行时上下文（可选）
+   * @param {{ sessionId?: string, orchestrator?: object, webContents?: object, toolCallId?: string }} [runtimeCtx] - 运行时上下文（可选）
    *   - sessionId：当前会话 ID（todo_manage 等需要按会话隔离的 skill 使用）
    *   - orchestrator：当前会话的 Orchestrator 实例（ask_user 等跨进程协同 skill 使用）
    *   - webContents：当前会话的渲染进程 webContents
+   *   - toolCallId：当前 tool call 的唯一 ID（v0.6.0 Task 1.12：save_mix_design/save_sales_quote 用作幂等键）
    * @returns {object} 执行结果
    */
   async execute(skillName, args, runtimeCtx = {}) {
@@ -50,11 +51,13 @@ class SkillExecutor {
       )
     }
 
-    // 3. 获取上下文（注入 runtimeCtx，让 skill 能拿到 sessionId/orchestrator/webContents）
+    // 3. 获取上下文（注入 runtimeCtx，让 skill 能拿到 sessionId/orchestrator/webContents/toolCallId）
     const context = this.contextProvider.getForSkill(skillName)
     if (runtimeCtx.sessionId) context.sessionId = runtimeCtx.sessionId
     if (runtimeCtx.orchestrator) context.orchestrator = runtimeCtx.orchestrator
     if (runtimeCtx.webContents) context.webContents = runtimeCtx.webContents
+    // v0.6.0 Task 1.12：toolCallId 注入 context（写操作 skill 用作幂等键，断点续跑重跑同 tool_call 防重复）
+    if (runtimeCtx.toolCallId) context.toolCallId = runtimeCtx.toolCallId
 
     // 4. 执行（传递 runtimeCtx 作为第三参数，供蓝图技能等需要原始运行时上下文的场景使用）
     try {

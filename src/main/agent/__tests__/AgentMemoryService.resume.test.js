@@ -139,9 +139,9 @@ describe('AgentMemoryService.rerunUnpairedToolCalls (Task 1.5)', () => {
 
     expect(results).toHaveLength(3)
     expect(mockSkillExecutor.execute).toHaveBeenCalledTimes(3)
-    // 验证串行调用参数
-    expect(mockSkillExecutor.execute).toHaveBeenNthCalledWith(1, 'foo', { a: 1 }, { sessionId: 's1' })
-    expect(mockSkillExecutor.execute).toHaveBeenNthCalledWith(2, 'bar', { b: 2 }, { sessionId: 's1' })
+    // 验证串行调用参数（v0.6.0 Task 1.12：含 toolCallId 用于幂等键）
+    expect(mockSkillExecutor.execute).toHaveBeenNthCalledWith(1, 'foo', { a: 1 }, { sessionId: 's1', toolCallId: 'tc1' })
+    expect(mockSkillExecutor.execute).toHaveBeenNthCalledWith(2, 'bar', { b: 2 }, { sessionId: 's1', toolCallId: 'tc2' })
     // 验证落库 3 次，metadata.rerun=true
     expect(mem.saveMessage).toHaveBeenCalledTimes(3)
     expect(mem.saveMessage).toHaveBeenCalledWith(expect.objectContaining({

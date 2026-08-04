@@ -650,7 +650,7 @@ const SmartDesignChat = () => {
       return
     }
 
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
       if (isAgentBusy && !state.input.trim()) {
         e.preventDefault()
         abortAgent({ dispatch, requestId: state.agent.requestId, sessionId: state.session.currentId })
@@ -817,6 +817,40 @@ const SmartDesignChat = () => {
     await executeRemainingCommands(commandParts, textParts)
   }, [state.input, state.session.currentId, state.agent.runMode, handleClearCommand, handleClearChat, handleSendChat, executeRemainingCommands, dispatch])
 
+  // 批 B Task 1.10/1.11：steer 插话 + followUp 追加任务（agent 忙时入队，显示到消息流带标签）
+  // steer：AI 正在干活时插入新指令，下一轮 LLM 看到（入 steeringQueue）
+  // followUp：当前任务完成后自动接着干新任务（入 followUpQueue）
+  const _doSteer = useCallback(async () => {
+    const msg = state.input.trim()
+    if (!msg || !state.session.currentId) return
+    // Task 1.11：插话内容显示到消息流，带"插话"标签（_steer 标记由消息渲染处识别）
+    dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: msg, _steer: true } })
+    dispatch({ type: 'SET_INPUT', payload: '' })
+    try {
+      const r = await window.electronAPI.invoke('agent:steer', { sessionId: state.session.currentId, msg })
+      if (r && r.success) message.success('已插入指令，AI 下一轮将看到')
+      else message.warning(r?.error || '插话未生效（AI 可能已结束）')
+    } catch (e) {
+      console.error('[steer] 失败:', e)
+      message.error('插话失败')
+    }
+  }, [state.input, state.session.currentId, dispatch])
+
+  const _doFollowUp = useCallback(async () => {
+    const msg = state.input.trim()
+    if (!msg || !state.session.currentId) return
+    dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: msg, _followUp: true } })
+    dispatch({ type: 'SET_INPUT', payload: '' })
+    try {
+      const r = await window.electronAPI.invoke('agent:follow_up', { sessionId: state.session.currentId, msg })
+      if (r && r.success) message.success('已追加任务，当前任务完成后自动执行')
+      else message.warning(r?.error || '追加未生效（AI 可能已结束）')
+    } catch (e) {
+      console.error('[followUp] 失败:', e)
+      message.error('追加任务失败')
+    }
+  }, [state.input, state.session.currentId, dispatch])
+
   // 输入框键盘事件（斜杠菜单导航 + Tab 补全 + Enter 发送）
   const handleInputKeyDown = useCallback((e) => {
     if (e.key === 'ArrowDown' && showSlashMenu) {
@@ -847,7 +881,10 @@ const SmartDesignChat = () => {
       abortAgent({ dispatch, requestId: state.agent.requestId, sessionId: state.session.currentId })
       return
     }
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // 批 B Task 1.10：Enter 按键重定义
+    // - Enter（无 Shift/Alt）：闲→发送；忙+空→abort；忙+非空→steer 插话
+    // - Alt+Enter：忙+非空→followUp 追加任务；闲或忙+空→换行（行为变化，release notes 标注）
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
       // B1：中文输入法组词中按 Enter 是"确认候选词"，不应发送消息
       // 同时兼容 keyCode === 229（部分老浏览器/输入法的 isCompositionState 标志）
       if (e.nativeEvent && e.nativeEvent.isComposing) return
@@ -862,14 +899,30 @@ const SmartDesignChat = () => {
         if (selected) return
       }
 
-      // B3：菜单关闭/无候选时，正常发送
+      // B3：菜单关闭/无候选时
       if (isAgentBusy && !state.input.trim()) {
         abortAgent({ dispatch, requestId: state.agent.requestId, sessionId: state.session.currentId })
+      } else if (isAgentBusy && state.input.trim()) {
+        // 批 B：agent 忙 + 有内容 → steer 插话（不再走 handleSend）
+        _doSteer()
       } else {
         handleSend()
       }
+      return
     }
-  }, [showSlashMenu, state.input, state.agent.requestId, cursorPos, availableSkills, isAgentBusy, dispatch, handleSend])
+    // 批 B Task 1.10 ③：Alt+Enter 分支
+    if (e.key === 'Enter' && e.altKey) {
+      // 中文输入法组词中不处理
+      if (e.nativeEvent && e.nativeEvent.isComposing) return
+      if (e.keyCode === 229) return
+      if (isAgentBusy && state.input.trim()) {
+        e.preventDefault()
+        _doFollowUp()
+      }
+      // 闲或忙+空：Alt+Enter 不 preventDefault，让默认换行（行为变化：原闲时 Alt+Enter=发送，现=换行）
+      return
+    }
+  }, [showSlashMenu, state.input, state.agent.requestId, cursorPos, availableSkills, isAgentBusy, dispatch, handleSend, _doSteer, _doFollowUp])
 
   // ===== 流式聊天辅助函数 =====
   const createStreamRequestId = () => {
@@ -1818,6 +1871,8 @@ const SmartDesignChat = () => {
                             ))}
                           </div>
                         )}
+                        {item._steer && <Tag color="orange" style={{ marginBottom: 4 }}>插话</Tag>}
+                        {item._followUp && <Tag color="blue" style={{ marginBottom: 4 }}>追加任务</Tag>}
                         {item.content}
                       </div>
                     )

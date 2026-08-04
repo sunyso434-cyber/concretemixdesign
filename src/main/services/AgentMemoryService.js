@@ -397,7 +397,9 @@ class AgentMemoryService {
       try { args = JSON.parse(tc.function?.arguments || '{}') } catch (_) {}
       let execResult
       try {
-        execResult = await skillExecutor.execute(name, args, { sessionId })
+        // v0.6.0 Task 1.12：传 toolCallId（tc.id）给写操作 skill 作幂等键
+        // 重跑时复用原 tool_call_id → save_mix_design/save_sales_quote 查重命中 → 不重复写
+        execResult = await skillExecutor.execute(name, args, { sessionId, toolCallId: tc.id })
       } catch (e) {
         execResult = { success: false, error: e.message }
       }

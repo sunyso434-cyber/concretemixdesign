@@ -351,6 +351,20 @@ function registerAgentHandlers() {
     return executor.abort({ sessionId })
   })
 
+  // === 批 B Task 1.9：steer/followUp 插话 IPC ===
+  // steer：agent 运行中插入新指令，下一轮 LLM 看到（入 steeringQueue）
+  // followUp：当前任务完成后自动接着干新任务（入 followUpQueue，完成判定时 drain + step 重置）
+  ipcMain.handle('agent:steer', async (_event, { sessionId, msg } = {}) => {
+    if (!sessionId) return { success: false, error: '缺少 sessionId' }
+    if (!msg) return { success: false, error: '缺少插话内容' }
+    return executor.steer({ sessionId, msg })
+  })
+  ipcMain.handle('agent:follow_up', async (_event, { sessionId, msg } = {}) => {
+    if (!sessionId) return { success: false, error: '缺少 sessionId' }
+    if (!msg) return { success: false, error: '缺少追加任务内容' }
+    return executor.followUp({ sessionId, msg })
+  })
+
   // === P0 断点续跑（Task 1.6）：3 个 IPC ===
   // 流程：detect-crash-window → 若 needAsk 弹窗 → rerun-unpaired-tools（可选）→ resume-from-checkpoint
 

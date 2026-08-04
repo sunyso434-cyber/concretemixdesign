@@ -252,6 +252,10 @@ async function syncModels() {
   await ensureColumn(sequelize, 'trial_test_records', 'stone1_amount', 'FLOAT')
   await ensureColumn(sequelize, 'trial_test_records', 'stone2_amount', 'FLOAT')
 
+  // v0.6.0 Task 1.12：幂等键字段（断点续跑重跑同一 tool_call 时防重复写入）
+  await ensureColumn(sequelize, 'auditLogs', 'requestId', 'TEXT')
+  await ensureColumn(sequelize, 'salesQuoteHistories', 'requestId', 'TEXT')
+
   // FTS5 表的创建已统一交给 ensureMemoryFts()（覆盖旧库残留的 key_decisions_unfolded 字段）
   // SessionSummary.js 的 afterSync hook 也会幂等重建，两处保持一致
 

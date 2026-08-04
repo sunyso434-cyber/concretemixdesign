@@ -111,4 +111,55 @@ describe('controlMixin', () => {
       clearTimeout(target._confirmationTimer)
     })
   })
+
+  // ===== 批 B Task 1.7：steer/followUp/drain 队列 =====
+  describe('steer/followUp/drain 队列（Task 1.7）', () => {
+    test('steer 入队 → drainSteering 返回并清空', () => {
+      target.steer('插话1')
+      target.steer('插话2')
+      expect(target.steeringQueue).toEqual(['插话1', '插话2'])
+      const out = target.drainSteering()
+      expect(out).toEqual(['插话1', '插话2'])
+      expect(target.steeringQueue).toEqual([])
+    })
+
+    test('followUp 入队 → drainFollowUp 返回并清空', () => {
+      target.followUp('追加任务1')
+      expect(target.followUpQueue).toEqual(['追加任务1'])
+      const out = target.drainFollowUp()
+      expect(out).toEqual(['追加任务1'])
+      expect(target.followUpQueue).toEqual([])
+    })
+
+    test('drainSteering 空队列返回 [] 且不报错', () => {
+      expect(target.drainSteering()).toEqual([])
+    })
+
+    test('drainFollowUp 空队列返回 [] 且不报错', () => {
+      expect(target.drainFollowUp()).toEqual([])
+    })
+
+    test('drain 后再次入队正常工作（清空后可复用）', () => {
+      target.steer('a')
+      target.drainSteering()
+      target.steer('b')
+      expect(target.drainSteering()).toEqual(['b'])
+    })
+
+    test('steer 空消息不入队', () => {
+      target.steer('')
+      target.steer(null)
+      target.steer(undefined)
+      expect(target.steeringQueue).toBeUndefined()
+    })
+
+    test('steer 与 followUp 队列独立（互不影响）', () => {
+      target.steer('插话')
+      target.followUp('追加')
+      expect(target.steeringQueue).toEqual(['插话'])
+      expect(target.followUpQueue).toEqual(['追加'])
+      target.drainSteering()
+      expect(target.followUpQueue).toEqual(['追加'])
+    })
+  })
 })

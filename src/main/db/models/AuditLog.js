@@ -11,7 +11,9 @@ const AuditLog = sequelize.define('AuditLog', {
   targetName: { type: DataTypes.STRING, allowNull: true },
   before: { type: DataTypes.TEXT, allowNull: true },
   after: { type: DataTypes.TEXT, allowNull: true },
-  userIntent: { type: DataTypes.TEXT, allowNull: true }
+  userIntent: { type: DataTypes.TEXT, allowNull: true },
+  // v0.6.0 Task 1.12：幂等键（tool_call_id），断点续跑重跑同一工具调用时查重用
+  requestId: { type: DataTypes.STRING, allowNull: true }
 }, {
   tableName: 'auditLogs',
   timestamps: false,  // 用自己的 timestamp 字段，不用 createdAt/updatedAt

@@ -21,7 +21,9 @@ const SalesQuoteHistory = sequelize.define('SalesQuoteHistory', {
   polishedUnitPrices: { type: DataTypes.JSON, allowNull: true },
   equipmentPurchaseCost: { type: DataTypes.FLOAT, allowNull: true },
   equipmentAmortizeVolume: { type: DataTypes.FLOAT, allowNull: true },
-  equipmentUnitAmortization: { type: DataTypes.FLOAT, allowNull: true }
+  equipmentUnitAmortization: { type: DataTypes.FLOAT, allowNull: true },
+  // v0.6.0 Task 1.12：幂等键（tool_call_id），断点续跑重跑同一工具调用时查重用
+  requestId: { type: DataTypes.STRING, allowNull: true }
 }, {
   tableName: 'salesQuoteHistories',
   timestamps: true

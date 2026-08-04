@@ -547,7 +547,12 @@ class UnifiedStrategy {
       }
     }
 
+    // 批 B Task 1.8（C-5）：followUp 续跑时重置 step 计数器，不累加到 maxSteps 上限
+    // 用 _stepReset 标志而非 while 改造——保留 for 的 continue 语义（continue 自动 step++），
+    // 避免 while+手动 step++ 在多个 continue 路径漏递增导致死循环
+    let _stepReset = false
     for (let step = 0; step < maxSteps; step++) {  // v1.2: 改为 maxSteps
+      if (_stepReset) { step = 0; _stepReset = false }
       if (webContents?.isDestroyed?.()) {
         this._notifyProgress(webContents, { type: 'error', error: 'wc_destroyed', mode })
         return { success: false, error: 'wc_destroyed' }
@@ -562,6 +567,15 @@ class UnifiedStrategy {
           this._notifyProgress(webContents, { type: 'error', error: 'aborted', mode })
           return { success: false, error: 'aborted' }
         }
+      }
+
+      // 批 B Task 1.8 ①：每轮 LLM 调用前 drain steering，有则注入 user 消息（插话尽快被 LLM 看到）
+      const _steeringMsgs = this.orchestrator?.drainSteering ? this.orchestrator.drainSteering() : []
+      if (_steeringMsgs.length > 0) {
+        const _steerContent = _steeringMsgs.join('\n')
+        trimmedMessages.push({ role: 'user', content: _steerContent })
+        try { await this.agentMemoryService.saveMessage({ sessionId, role: 'user', content: _steerContent, metadata: { steer: true } }) } catch (_) {}
+        this._notifyProgress(webContents, { type: 'steer_injected', content: _steerContent, mode })
       }
 
       // 通知前端：新一轮思考开始
@@ -739,6 +753,26 @@ class UnifiedStrategy {
             metadata: response.reasoning_content ? { reasoning_content: response.reasoning_content } : null
           })
         } catch (_) {}
+
+        // 批 B Task 1.8 ②③：完成前先 drain steering/followUp，有内容则不结束继续下一轮（steering 优先）
+        const _steerTail = this.orchestrator?.drainSteering ? this.orchestrator.drainSteering() : []
+        if (_steerTail.length > 0) {
+          const _c = _steerTail.join('\n')
+          trimmedMessages.push({ role: 'user', content: _c })
+          try { await this.agentMemoryService.saveMessage({ sessionId, role: 'user', content: _c, metadata: { steer: true } }) } catch (_) {}
+          this._notifyProgress(webContents, { type: 'steer_injected', content: _c, mode })
+          continue  // 不 return，下一轮 LLM 看到插话
+        }
+        const _followUpMsgs = this.orchestrator?.drainFollowUp ? this.orchestrator.drainFollowUp() : []
+        if (_followUpMsgs.length > 0) {
+          const _c = _followUpMsgs.join('\n')
+          trimmedMessages.push({ role: 'user', content: _c })
+          try { await this.agentMemoryService.saveMessage({ sessionId, role: 'user', content: _c, metadata: { followUp: true } }) } catch (_) {}
+          this._notifyProgress(webContents, { type: 'followup_injected', content: _c, mode })
+          _stepReset = true  // C-5: followUp 续跑重置 step 计数器，不累加到 maxSteps
+          continue
+        }
+
         finalResult = { reply: response.content, mode }
         this._notifyProgress(webContents, { type: 'done', result: finalResult, mode })
         return { success: true, content: response.content }
@@ -798,10 +832,12 @@ class UnifiedStrategy {
               // v9.1.0: 传 runtimeCtx（含 sessionId/orchestrator/webContents）给 SkillExecutor
               // - todo_manage 用 sessionId 隔离会话清单
               // - ask_user 用 orchestrator/webContents 跨进程等待用户回答
+              // v0.6.0 Task 1.12：传 toolCallId（tc.id）给写操作 skill 作幂等键
               execResult = await this.skillExecutor.execute(name, args, {
                 sessionId,
                 orchestrator: this.orchestrator,
-                webContents: this.webContents
+                webContents: this.webContents,
+                toolCallId: tc.id
               })
             } catch (execErr) {
               execResult = { success: false, error: execErr.message }

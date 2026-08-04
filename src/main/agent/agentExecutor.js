@@ -117,6 +117,18 @@ function createAgentExecutor({ getOrchestratorForSession, getOrchestrator, agent
     return { success: true }
   }
 
-  return { runAgentSession, resumeAgentSession, saveUserMessage, getSessionOrchestrator, isSessionRunning, confirm, pause, resume, abort, sessionAgents, setGlobalFallback }
+  // 批 B Task 1.9：steer/followUp 入队（仅 agent 运行时有效，orchestrator 在 finally 置 null）
+  function steer({ sessionId, msg }) {
+    const orch = sessionId ? sessionAgents.get(sessionId)?.orchestrator : null
+    if (orch?.steer) { orch.steer(msg); return { success: true } }
+    return { success: false, error: 'agent 未运行，无法插话' }
+  }
+  function followUp({ sessionId, msg }) {
+    const orch = sessionId ? sessionAgents.get(sessionId)?.orchestrator : null
+    if (orch?.followUp) { orch.followUp(msg); return { success: true } }
+    return { success: false, error: 'agent 未运行，无法追加任务' }
+  }
+
+  return { runAgentSession, resumeAgentSession, saveUserMessage, getSessionOrchestrator, isSessionRunning, confirm, pause, resume, abort, steer, followUp, sessionAgents, setGlobalFallback }
 }
 module.exports = { createAgentExecutor }

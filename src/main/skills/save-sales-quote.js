@@ -128,7 +128,7 @@ module.exports = {
   },
 
   async execute(args, context) {
-    const { salesQuoteHistory, logger } = context
+    const { salesQuoteHistory, logger, toolCallId } = context
 
     try {
       // 1. 弹窗确认（ask_user form 模式）
@@ -146,16 +146,17 @@ module.exports = {
         return { success: false, error: '用户未确认保存' }
       }
 
-      // 2. 用 values 写入
+      // 2. 用 values 写入（v0.6.0 Task 1.12：传 requestId=toolCallId 幂等，重跑同 tool_call 不重复写）
       const payload = {
         ...args,
         strengthGrade: confirm.values.strengthGrade,
         concreteType: confirm.values.concreteType,
         slump: Number(confirm.values.slump),
-        remarks: confirm.values.remarks || ''
+        remarks: confirm.values.remarks || '',
+        requestId: toolCallId || null
       }
 
-      logger.info(`[save_sales_quote] 保存报价: ${payload.strengthGrade} ${payload.concreteType} mode=${payload.quoteMode || 'legacy'}`)
+      logger.info(`[save_sales_quote] 保存报价: ${payload.strengthGrade} ${payload.concreteType} mode=${payload.quoteMode || 'legacy'} requestId=${toolCallId || 'none'}`)
       const saved = await salesQuoteHistory.saveQuote(payload)
       return {
         success: true,

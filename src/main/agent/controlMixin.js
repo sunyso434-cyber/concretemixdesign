@@ -203,6 +203,49 @@ function resolveConfirmation(confirmed, args) {
   }
 }
 
+/**
+ * 批 B N3 插话：steer 入队（Agent 执行中插入新指令，下一轮 LLM 看到）
+ *
+ * 设计：懒初始化（不依赖 orchestrator 构造函数预声明），队列是实例属性。
+ * drain 取出全部并清空，返回数组（无内容返回 []）。
+ * steering 优先于 followUp（同时存在时由调用方先 drain steering，见 Task 1.8）。
+ *
+ * @param {string} msg - 插话/追加指令内容
+ */
+function steer(msg) {
+  if (!msg) return
+  if (!Array.isArray(this.steeringQueue)) this.steeringQueue = []
+  this.steeringQueue.push(msg)
+}
+
+function followUp(msg) {
+  if (!msg) return
+  if (!Array.isArray(this.followUpQueue)) this.followUpQueue = []
+  this.followUpQueue.push(msg)
+}
+
+/**
+ * 取出全部 steering 并清空队列（Task 1.8 每轮 LLM 调用前调用）
+ * @returns {string[]} 累积的插话消息数组（可能为空）
+ */
+function drainSteering() {
+  if (!Array.isArray(this.steeringQueue) || this.steeringQueue.length === 0) return []
+  const out = this.steeringQueue.slice()
+  this.steeringQueue = []
+  return out
+}
+
+/**
+ * 取出全部 followUp 并清空队列（Task 1.8 任务完成后调用，续跑新任务）
+ * @returns {string[]} 累积的追加任务消息数组（可能为空）
+ */
+function drainFollowUp() {
+  if (!Array.isArray(this.followUpQueue) || this.followUpQueue.length === 0) return []
+  const out = this.followUpQueue.slice()
+  this.followUpQueue = []
+  return out
+}
+
 module.exports = {
   _notifyProgress,
   pause,
@@ -210,5 +253,9 @@ module.exports = {
   abort,
   _cleanMessage,
   requestConfirmation,
-  resolveConfirmation
+  resolveConfirmation,
+  steer,
+  followUp,
+  drainSteering,
+  drainFollowUp
 }

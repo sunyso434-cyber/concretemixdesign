@@ -151,7 +151,7 @@ function WorkspaceContent() {
 
         <div className="topbar-right">
           {hasTasks && <span className="topbar-task-dot has-tasks" />}
-          <span className="topbar-version">v0.5.0</span>
+          <span className="topbar-version">v0.6.0</span>
 
           {/* 自定义窗口控制按钮（无原生标题栏时使用） */}
           <div className="topbar-window-controls">
