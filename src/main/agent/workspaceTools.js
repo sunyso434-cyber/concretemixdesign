@@ -485,7 +485,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         }
 
         try {
-          const analyze = require('../workspace/analyze')
+          const { analyze } = require('../workspace/analyze')
           const result = await analyze(current.path, args)
 
           // 返回结构化结果
