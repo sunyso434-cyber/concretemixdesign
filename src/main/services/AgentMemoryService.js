@@ -80,6 +80,41 @@ class AgentMemoryService {
     return msg
   }
 
+  /**
+   * 为"因插话/打断而未执行"的 tool_calls 合成 tool 消息（双写：落库 + 返回数组）。
+   *
+   * - 跳过已执行（executedIds 命中）的 tool_call，避免重复合成。
+   * - 落库失败静默忽略（try-catch），不影响返回的内存数组（调用方 push 到 trimmedMessages）。
+   * - 返回的数组形如 `{ role: 'tool', tool_call_id, content }`。
+   *
+   * @param {string} sessionId
+   * @param {Array}  toolCalls   - assistant 消息里的 tool_calls 列表
+   * @param {Set}    executedIds - 已执行的 tool_call id 集合
+   * @param {string} [reason='interrupted'] 合成原因（写进 metadata.reason）
+   * @returns {Promise<Array<{role:'tool', tool_call_id:string, content:string}>>}
+   */
+  async synthToolResults(sessionId, toolCalls, executedIds, reason = 'interrupted') {
+    if (!Array.isArray(toolCalls)) return []
+    const synthMsgs = []
+    for (const tc of toolCalls) {
+      if (!tc?.id || executedIds.has(tc.id)) continue
+      const toolName = tc.function?.name || 'unknown'
+      const content = JSON.stringify({
+        success: false,
+        error: 'Interrupted by user',
+        interrupted_tool: toolName
+      })
+      try {
+        await this.saveMessage({
+          sessionId, role: 'tool', content, toolCallId: tc.id,
+          metadata: { synth: true, reason }
+        })
+      } catch (_) {}
+      synthMsgs.push({ role: 'tool', tool_call_id: tc.id, content })
+    }
+    return synthMsgs
+  }
+
   async getHistory(sessionId, { limit = DEFAULT_WINDOW_SIZE, before } = {}) {
     const where = { sessionId }
     if (before) {
