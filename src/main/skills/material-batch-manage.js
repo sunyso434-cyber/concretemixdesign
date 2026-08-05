@@ -35,6 +35,7 @@ module.exports = {
     '\n\n说明：list 只返回批次概要(不含检测值)；需要检测值做配合比设计时用 get 查单个批次详情。setCurrent 会把该批次检测值同步到材料主表，后续配合比设计默认用主表值即为该批次值。',
   version: '1.0.0',
   category: 'manage',
+  isWrite: true,
 
   parameters: {
     action: {

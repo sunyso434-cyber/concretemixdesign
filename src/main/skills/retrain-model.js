@@ -17,6 +17,7 @@ module.exports = {
     '训练前自动归档旧版本，完成后清缓存并返回 RMSE/R² 等指标。触发词：重新训练、训练模型、更新模型、用试配数据训练。',
   version: '1.0.0',
   category: 'training',
+  isWrite: true,
   parameters: {
     nTrials: {
       type: 'number',

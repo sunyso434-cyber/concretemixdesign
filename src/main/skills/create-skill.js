@@ -21,6 +21,7 @@ module.exports = {
   description: '创建新的自定义技能。仅当用户明确说"创建/添加/新建一个技能/工具"，且确认没有功能重复的已有技能时才调用。调用前先用 manage_skills(list) 检查已有技能列表。若创建蓝图（blueprint）技能，请先调用 prepare_blueprint_authoring 获取创作规范并在本次对话中生成 rawBlueprint 内容。',
   version: '2.0.0',
   category: 'system',
+  isWrite: true,
 
   parameters: {
     type: {

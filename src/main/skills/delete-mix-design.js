@@ -16,6 +16,7 @@ module.exports = {
   description: '删除配合比方案。草稿可直接删；正式方案会弹窗确认（choice 模式带"其他"输入框）。用户说"删掉XX方案"时调用。',
   version: '1.0.0',
   category: 'delete',
+  isWrite: true,
 
   parameters: {
     id: { type: 'integer', required: true, description: '方案 ID' }

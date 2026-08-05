@@ -16,6 +16,7 @@ const skills = [
     description: '配置学术搜索参数（provider 搜索服务商 + arxiv 兜底开关）。学术搜索用于查询科技论文（中英文期刊、预印本）。支持 semantic_scholar（推荐，免费）/ openalex（免费）/ nstl（国家科技图书文献中心，中文期刊覆盖最全，返回题录+摘要）。所有 API 无需 key。老板说"学术搜索用 OpenAlex"、"学术搜索用 NSTL 查中文"、"禁用 arxiv 兜底"等指令时调用此技能。',
     version: '1.0.0',
     category: 'agent',
+    isWrite: true,
     parameters: {
       provider: {
         type: 'string',
@@ -117,6 +118,7 @@ const skills = [
     description: '清除学术搜索配置（恢复默认：provider=semantic_scholar, arxivFallback=true）。老板说"清除学术搜索配置"、"重置学术搜索"等指令时调用此技能。',
     version: '1.0.0',
     category: 'agent',
+    isWrite: true,
     parameters: { type: 'object', properties: {}, required: [] },
     services: ['systemService'],
     async execute(args, ctx) {

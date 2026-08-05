@@ -9,6 +9,7 @@ module.exports = {
   description: '记录混凝土试配实测数据。当用户口述配合比参数和实测强度/坍落度/容重时，调用此工具录入试配记录。触发词：记录试配、试配记录、录入试配、保存试配、新增试配。',
   version: '1.0.0',
   category: 'recording',
+  isWrite: true,
 
   parameters: {
     water_binder_ratio: {

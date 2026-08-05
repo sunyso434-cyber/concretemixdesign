@@ -30,6 +30,7 @@ const skill = {
   description: '把用户口述的新规则写入 agent.md（智能助手规则文件）。当用户说"以后xxx都yyy"/"记住xxx"/"加一条规则xxx"/"删掉xxx规则"时调用。会先弹确认框给用户看要写什么，同意后才落盘。只支持列表项增删，不改段落结构。',
   version: '1.0.0',
   category: 'agent',
+  isWrite: true,
   services: [],
 
   parameters: {

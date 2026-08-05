@@ -166,6 +166,7 @@ const updateJgj55ParamSkill = {
   description: '修改单个 JGJ55 参数。value 必须是 min/max 范围内的数字（字符串或数字都接受）。传 null 或空串 = 清空该参数走默认/派生（v10.7.7 老板场景）。',
   version: '1.1.0',
   category: 'settings',
+  isWrite: true,
   parameters: {
     type: 'object',
     properties: {
@@ -205,6 +206,7 @@ const clearJgj55ParamSkill = {
   description: '清空单个 JGJ55 参数，让它走默认/派生。适用场景：v10.7.7 减水剂新规则下，老 DB 里的"等级单点覆盖值"（如 superplasticizerDosage_C40=2.9）需要清掉才能正确派生。',
   version: '1.0.0',
   category: 'settings',
+  isWrite: true,
   parameters: {
     type: 'object',
     properties: {
@@ -234,6 +236,7 @@ const batchUpdateJgj55ParamsSkill = {
   description: '批量修改多个 JGJ55 参数。适用于「一次性调整一组参数」的场景。非事务：每条独立校验/写库，任一失败不影响其他参数（失败的收集到 failed 数组）。',
   version: '1.0.0',
   category: 'settings',
+  isWrite: true,
   parameters: {
     type: 'object',
     properties: {
@@ -297,6 +300,7 @@ const resetJgj55ParamsSkill = {
   description: '把所有 13 个 JGJ55 参数恢复为出厂默认值。**不可逆**操作，会覆盖用户当前所有自定义值。',
   version: '1.0.0',
   category: 'settings',
+  isWrite: true,
   parameters: { type: 'object', properties: {} },
   errors: { SYSTEM_ERROR: { code: 'SYSTEM_ERROR', message: '重置失败', recovery: 'retry' } },
   async execute(args, context) {

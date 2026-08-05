@@ -23,6 +23,7 @@ module.exports = {
   description: '保存销售报价到历史记录（salesQuoteHistories 表）。**必填 strengthGrade 和 concreteType**（其他可选）。弹窗（form）让用户确认/改强度、类型、坍落度、备注、模式(reverse/forward)。**v10.10 新增**：quoteMode/polishStrategy/polishedUnitPrices/equipment* 字段。**注意：销售报价历史不在 audit_logs 覆盖范围内**（SPEC 4.3 只覆盖方案/基准）。',
   version: '3.0.0',
   category: 'save',
+  isWrite: true,
 
   parameters: {
     strengthGrade: {

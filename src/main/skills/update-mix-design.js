@@ -11,6 +11,7 @@ module.exports = {
   description: '更新配合比方案的**元信息**（**白名单字段**：name/description/projectName/customerInfo/remarks，共 5 个）。**必传 id**。**不允许改 status/materials/计算结果**——白名单外字段静默忽略。无白名单内字段会返回 NO_FIELDS。写 audit_logs。',
   version: '1.0.0',
   category: 'update',
+  isWrite: true,
 
   parameters: {
     id: { type: 'integer', required: true },

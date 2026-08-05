@@ -32,6 +32,7 @@ const skills = [
     description: '配置视觉模型 API（base url、api key、模型名）。视觉模型用于读取图片内容。支持任意 OpenAI Chat Completions 兼容服务（如 Qwen-VL、硅基流动、自建服务）。',
     version: '1.1.0',
     category: 'vision',
+    isWrite: true,
     // v9.1.0 修复：改用 flat schema（顶层直接是字段定义）。
     // - 旧版用 JSON Schema 嵌套格式（type/properties/required），但项目其他 skill 全用 flat 格式，
     //   导致 SchemaValidator 对该 skill 校验完全 bypass，LLM 漏传 baseUrl/apiKey/model 时仍返回 success:true
@@ -113,6 +114,7 @@ const skills = [
     description: '清除视觉模型配置。清除后 analyze_concrete_image 不可用。',
     version: '1.0.0',
     category: 'vision',
+    isWrite: true,
     parameters: {
       type: 'object',
       properties: {},

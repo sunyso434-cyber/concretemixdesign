@@ -15,6 +15,7 @@ module.exports = {
   description: '管理自定义技能。list=列表, source=读取源文件, info=查看元数据, update=修改或升级已有技能（支持整文件覆盖 / 局部 patch / JSON Patch / 蓝图 rawBlueprint 全量替换 4 种粒度），delete=删除（删除前自动备份）, help=帮助。例如"我有哪些自定义技能"、"升级 XX 技能为 v2"、"删除 XX 技能"、"技能系统怎么用"。',
   version: '2.0.0',
   category: 'system',
+  isWrite: true,
 
   parameters: {
     action: {

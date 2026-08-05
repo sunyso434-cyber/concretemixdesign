@@ -28,6 +28,7 @@ const skills = [
     description: '配置联网搜索 API（服务商 provider + api key）。联网搜索用于查询最新资料（规范条文、材料参数、行情等）。支持 bocha（博查，国内免费源）/ tavily（海外）。',
     version: '1.0.0',
     category: 'agent',
+    isWrite: true,
     parameters: {
       provider: { type: 'string', description: '搜索服务商：bocha（推荐，国内免费）或 tavily', required: true, enum: SUPPORTED },
       apiKey: { type: 'string', description: 'API 密钥', required: true },
@@ -87,6 +88,7 @@ const skills = [
     description: '清除联网搜索配置。清除后 web_search 不可用。',
     version: '1.0.0',
     category: 'agent',
+    isWrite: true,
     parameters: { type: 'object', properties: {}, required: [] },
     services: ['systemService'],
     async execute(args, ctx) {
