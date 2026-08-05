@@ -54,5 +54,20 @@ describe('mdWatcher', () => {
     expect(watcher.watchingCount).toBe(0)
   })
 
+  test('外部删除文件（unlink）推送 0 值事件并清理 _paths', async () => {
+    const delTarget = path.join(tmp, 'del.md')
+    fs.writeFileSync(delTarget, 'v1', 'utf-8')
+    watcher.watch(delTarget)
+    await waitWatcherReady()
+    const p = waitEvent()
+    fs.unlinkSync(delTarget)
+    const evt = await p
+    expect(evt.channel).toBe('md:file-changed')
+    expect(path.normalize(evt.payload.filePath)).toBe(path.normalize(delTarget))
+    expect(evt.payload.mtimeMs).toBe(0) // stat 失败走 0 值推送
+    expect(evt.payload.size).toBe(0)
+    expect(watcher.watchingCount).toBe(0) // unlink 已从 _paths 清理，句柄不泄漏
+  })
+
   afterAll(() => watcher.close())
 })

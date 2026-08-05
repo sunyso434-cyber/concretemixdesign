@@ -42,10 +42,13 @@ export function dedupeOpen(state, file) {
 export function applyReadSuccess(state, key, { content, body, mtimeMs, size }) {
   return {
     ...state,
+    // 读成功后清掉非阻塞提示（"文件已被外部修改 [点击刷新]"不留残留）
+    noticeKey: state.noticeKey === key ? undefined : state.noticeKey,
     contents: { ...state.contents, [key]: body },
     drafts: { ...state.drafts, [key]: content },
     lastSeen: { ...state.lastSeen, [key]: { mtimeMs, size } },
-    tabs: state.tabs.map(t => t.key === key ? { ...t, status: 'done', error: null } : t)
+    // 读成功后 draft == 磁盘内容，dirty 恒为 false（含 reload 成功：用户已选"载入最新"丢弃修改）
+    tabs: state.tabs.map(t => t.key === key ? { ...t, status: 'done', error: null, dirty: false } : t)
   }
 }
 
@@ -82,11 +85,13 @@ export function resolveConflict(state, key, choice) {
   const tab = state.tabs.find(t => t.key === key)
   if (!tab) return state
   if (choice === 'reload') {
+    // 只置 reloadKey + 清 conflict，不动 drafts（contents[key] 是去 frontmatter 的 body，
+    // 写入 drafts 会静默剥掉 YAML frontmatter）。重读成功由 applyReadSuccess 用完整原文覆盖 drafts；
+    // 重读失败则 draft 保留用户完整内容，再次保存不丢 frontmatter。dirty 也不动：重读成功前无法判定是否丢弃成功。
     return {
       ...state,
       reloadKey: key,
-      drafts: { ...state.drafts, [key]: state.contents[key] || '' },
-      tabs: state.tabs.map(t => t.key === key ? { ...t, conflict: null, dirty: false } : t)
+      tabs: state.tabs.map(t => t.key === key ? { ...t, conflict: null } : t)
     }
   }
   // keep：保留草稿，清冲突；保存失败时上层置 conflict='save-failed'

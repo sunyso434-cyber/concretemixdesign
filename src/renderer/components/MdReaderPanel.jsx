@@ -45,7 +45,7 @@ export default function MdReaderPanel({
           items={items}
           activeKey={state.activeKey}
           onChange={onSelect}
-          onEdit={(key, action) => action === 'remove' && onClose(key)}
+          onEdit={(key, action) => action === 'remove' && onClose(key, state.tabs.find(t => t.key === key)?.conflict === 'save-failed')}
           hideAdd
         />
         <Space className="md-reader-header-actions">

@@ -69,12 +69,43 @@ export function useMdReader() {
     await readFile(key, path)
   }, [readFile])
 
-  // 注意：saveDraftNow 在下文定义，但 closeTab 在渲染完成、事件触发时才调用，闭包捕获的引用此时已初始化（合法前向引用）
-  const closeTab = useCallback((key) => {
+  const saveDraftNow = useCallback((key) => {
+    const tab = stateRef.current.tabs.find(t => t.key === key)
+    const draft = stateRef.current.drafts[key]
+    if (!tab || typeof draft !== 'string') return Promise.resolve(false)
+    return window.electronAPI.md.write(tab.path, draft).then(res => {
+      if (res && res.ok) {
+        // body 由主进程写回后重新解析（去掉 frontmatter），供预览态渲染
+        // 保存回调返回时 tab 可能已被关闭：查 stillOpen，已关闭则不再把 contents/drafts/lastSeen 加回
+        setState(s => {
+          if (!s.tabs.some(t => t.key === key)) return s
+          return {
+            ...applyReadSuccess(s, key, { content: draft, body: res.body || draft, mtimeMs: res.mtimeMs, size: res.size }),
+            tabs: s.tabs.map(t => t.key === key ? { ...t, dirty: false, conflict: null } : t)
+          }
+        })
+        return true
+      }
+      setState(s => {
+        if (!s.tabs.some(t => t.key === key)) return s
+        return { ...s, tabs: s.tabs.map(t => t.key === key ? { ...t, conflict: 'save-failed' } : t) }
+      })
+      return false
+    })
+  }, [])
+
+  const selectTab = useCallback((key) => setState(s => ({ ...s, activeKey: key })), [])
+  const collapse = useCallback(() => setState(s => ({ ...s, isOpen: false })), [])
+
+  // closeTab(key, force)：force=true 视为"确认丢弃"（跳过保存直接关，用于 tab 已处于 save-failed 冲突态时再点 ×）
+  const closeTab = useCallback(async (key, force = false) => {
     const tab = stateRef.current.tabs.find(t => t.key === key)
     if (!tab) return
-    // dirty 先 flush 保存（fire-and-forget；保存逻辑见 saveDraftNow）
-    if (tab.dirty) saveDraftNow(key)
+    // dirty 且非"确认丢弃"：先保存；失败则保留 tab（saveDraftNow 已置 conflict='save-failed'，提示条在 UI 渲染），不删 drafts
+    if (tab.dirty && !force) {
+      const ok = await saveDraftNow(key)
+      if (!ok) return
+    }
     window.electronAPI.md.unwatch(tab.path)
     setState(s => {
       const idx = s.tabs.findIndex(t => t.key === key)
@@ -88,27 +119,7 @@ export function useMdReader() {
         : s.activeKey
       return { ...s, tabs, contents, drafts, lastSeen, inflight, activeKey, isOpen: tabs.length > 0 ? s.isOpen : false }
     })
-  }, [])
-
-  const selectTab = useCallback((key) => setState(s => ({ ...s, activeKey: key })), [])
-  const collapse = useCallback(() => setState(s => ({ ...s, isOpen: false })), [])
-
-  const saveDraftNow = useCallback((key) => {
-    const tab = stateRef.current.tabs.find(t => t.key === key)
-    const draft = stateRef.current.drafts[key]
-    if (!tab || typeof draft !== 'string') return
-    window.electronAPI.md.write(tab.path, draft).then(res => {
-      if (res && res.ok) {
-        // body 由主进程写回后重新解析（去掉 frontmatter），供预览态渲染
-        setState(s => ({
-          ...applyReadSuccess(s, key, { content: draft, body: res.body || draft, mtimeMs: res.mtimeMs, size: res.size }),
-          tabs: s.tabs.map(t => t.key === key ? { ...t, dirty: false, conflict: null } : t)
-        }))
-      } else {
-        setState(s => ({ ...s, tabs: s.tabs.map(t => t.key === key ? { ...t, conflict: 'save-failed' } : t) }))
-      }
-    })
-  }, [])
+  }, [saveDraftNow])
 
   const toggleEdit = useCallback((key) => {
     const tab = stateRef.current.tabs.find(t => t.key === key)

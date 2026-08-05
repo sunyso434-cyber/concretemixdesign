@@ -2571,6 +2571,7 @@ body {
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  min-width: 0; /* flex row 里可收缩，防超长元素挤压阅读器 */
   height: 100%;
 }
 

@@ -12,12 +12,9 @@ import { renderHook, act } from '@testing-library/react'
 const {
   normalizePath,
   dedupeOpen,
-  closeTab,
   applyReadSuccess,
-  applyReadFailure,
   applyFileChanged,
   resolveConflict,
-  applyWorkspaceChanged,
   clampWidth
 } = require('../useMdReader.core.js')
 const { useMdReader } = require('../useMdReader.js')
@@ -98,17 +95,42 @@ describe('applyFileChanged', () => {
 })
 
 describe('resolveConflict', () => {
-  test('reload 丢弃草稿清 conflict', () => {
-    // core 的 reload 分支读 state.contents[key]，夹具需带上 contents/drafts（hook 真实 state 恒有）
-    const r = resolveConflict({ contents: { a: '旧' }, drafts: {}, tabs: [{ key: 'a', dirty: true, conflict: 'external-change' }] }, 'a', 'reload')
+  test('reload 只置 reloadKey 清 conflict，不动 draft/dirty（Fix1：draft 保留完整原文待重读）', () => {
+    // contents[key] 是去 frontmatter 的 body；reload 分支不能把 body 写进 drafts，否则重读失败再保存会剥掉 frontmatter
+    const drafts = { a: '---\ntitle: x\n---\n未保存修改' }
+    const r = resolveConflict({ contents: { a: '正文（body）' }, drafts, tabs: [{ key: 'a', dirty: true, conflict: 'external-change' }] }, 'a', 'reload')
     expect(r.tabs[0].conflict).toBeNull()
-    expect(r.tabs[0].dirty).toBe(false)
+    expect(r.tabs[0].dirty).toBe(true) // dirty 不动（重读成功前不能判定丢弃是否生效）
     expect(r.reloadKey).toBe('a')
+    expect(r.drafts['a']).toBe('---\ntitle: x\n---\n未保存修改') // 完整原文保留，不被 body 覆盖
   })
   test('keep 保留草稿，仅清 conflict', () => {
     const r = resolveConflict({ tabs: [{ key: 'a', dirty: true, conflict: 'external-change' }] }, 'a', 'keep')
     expect(r.tabs[0].conflict).toBeNull()
     expect(r.tabs[0].dirty).toBe(true)
+  })
+})
+
+describe('applyReadSuccess', () => {
+  test('读成功后清同 key 的 noticeKey、dirty 置 false；drafts 存完整原文、contents 存 body', () => {
+    const r = applyReadSuccess(
+      { noticeKey: 'a', contents: {}, drafts: {}, lastSeen: {}, tabs: [{ key: 'a', status: 'loading', dirty: true }] },
+      'a',
+      { content: '---\n---\n正文', body: '正文', mtimeMs: 1, size: 2 }
+    )
+    expect(r.noticeKey).toBeUndefined()
+    expect(r.drafts['a']).toBe('---\n---\n正文')
+    expect(r.contents['a']).toBe('正文')
+    expect(r.tabs[0].status).toBe('done')
+    expect(r.tabs[0].dirty).toBe(false) // reload 成功：draft == 磁盘内容 → 不再视为 dirty
+  })
+  test('其他 key 的 noticeKey 保留', () => {
+    const r = applyReadSuccess(
+      { noticeKey: 'b', contents: {}, drafts: {}, lastSeen: {}, tabs: [{ key: 'a', status: 'loading' }] },
+      'a',
+      { content: 'c', body: 'b', mtimeMs: 1, size: 2 }
+    )
+    expect(r.noticeKey).toBe('b')
   })
 })
 
@@ -188,5 +210,58 @@ describe('useMdReader hook：读失败解锁 inflight', () => {
     expect(mdMock.read).toHaveBeenCalledTimes(2)
     expect(result.current.state.tabs[0].status).toBe('done')
     expect(result.current.state.tabs[0].conflict).toBeNull()
+  })
+})
+
+describe('useMdReader hook：reload 重读失败保草稿（Fix1 回归）', () => {
+  test('draft 保留完整原文（含 frontmatter），再编辑保存不丢 frontmatter', async () => {
+    const fm = '---\ntitle: x\n---\n正文'
+    mdMock.read.mockResolvedValue({ content: fm, body: '正文', mtimeMs: 1, size: 2 })
+    const { result } = renderHook(() => useMdReader())
+
+    await act(async () => { await result.current.openFile('C:\\docs\\a.md') })
+    act(() => result.current.toggleEdit('c:/docs/a.md'))
+    act(() => result.current.setDraft('c:/docs/a.md', fm))
+    expect(result.current.state.tabs[0].dirty).toBe(true)
+
+    // reload：重读失败 → draft 保留用户完整内容（含 frontmatter），conflict 已清
+    mdMock.read.mockResolvedValueOnce({ error: '文件不存在' })
+    act(() => result.current.resolveConflict('c:/docs/a.md', 'reload'))
+    await act(async () => {})
+    expect(result.current.state.tabs[0].conflict).toBeNull()
+    expect(result.current.state.drafts['c:/docs/a.md']).toBe(fm)
+
+    // 再次编辑并保存 → write 收到含 frontmatter 的完整内容（未被 body 剥掉）
+    const edited = fm + '\n追加'
+    act(() => result.current.setDraft('c:/docs/a.md', edited))
+    mdMock.write.mockResolvedValue({ ok: true, mtimeMs: 3, size: 3, body: '正文\n追加' })
+    await act(async () => { jest.advanceTimersByTime(800) })
+    expect(mdMock.write).toHaveBeenCalledWith('C:\\docs\\a.md', edited)
+  })
+})
+
+describe('useMdReader hook：closeTab 保存失败保 tab（Fix2）', () => {
+  test('保存失败 → tab 保留、drafts 未删、conflict=save-failed；force 确认丢弃才关闭', async () => {
+    mdMock.read.mockResolvedValue({ content: '内容', body: '内容', mtimeMs: 1, size: 2 })
+    const { result } = renderHook(() => useMdReader())
+
+    await act(async () => { await result.current.openFile('C:\\docs\\a.md') })
+    act(() => result.current.toggleEdit('c:/docs/a.md'))
+    act(() => result.current.setDraft('c:/docs/a.md', '未保存草稿'))
+    expect(result.current.state.tabs[0].dirty).toBe(true)
+
+    // 保存失败 → closeTab 不关闭，保留 tab 与草稿，置 conflict='save-failed'
+    mdMock.write.mockResolvedValue({ error: '磁盘写入失败' })
+    await act(async () => { await result.current.closeTab('c:/docs/a.md') })
+    expect(result.current.state.tabs.length).toBe(1)
+    expect(result.current.state.drafts['c:/docs/a.md']).toBe('未保存草稿')
+    expect(result.current.state.tabs[0].conflict).toBe('save-failed')
+    expect(mdMock.unwatch).not.toHaveBeenCalled()
+
+    // force=true（× 确认丢弃）→ 真正关闭，清 drafts 与监视
+    await act(async () => { await result.current.closeTab('c:/docs/a.md', true) })
+    expect(result.current.state.tabs.length).toBe(0)
+    expect(result.current.state.drafts['c:/docs/a.md']).toBeUndefined()
+    expect(mdMock.unwatch).toHaveBeenCalled()
   })
 })

@@ -9,7 +9,7 @@ fs.mkdirSync(wsRoot, { recursive: true })
 fs.mkdirSync(userDir, { recursive: true })
 fs.writeFileSync(path.join(wsRoot, 'a.md'), '# 标题\n正文', 'utf-8')
 
-const { isAllowedPath, atomicWrite, readMd } = require('../../ipcHandlers/markdownHandler')
+const { isAllowedPath, atomicWrite, readMd, writeMd, MAX_SIZE } = require('../../ipcHandlers/markdownHandler')
 
 describe('isAllowedPath', () => {
   test('接受工作区根内的 .md', async () => {
@@ -57,5 +57,34 @@ describe('atomicWrite', () => {
     await atomicWrite(target, '# 新标题\n')
     expect(fs.readFileSync(target, 'utf-8')).toBe('# 新标题\n')
     expect(fs.existsSync(target + '.md-reader.tmp')).toBe(false)
+  })
+})
+
+describe('writeMd', () => {
+  test('正常写入返回 ok + 新 body，frontmatter 保留', async () => {
+    const target = path.join(wsRoot, 'w.md')
+    fs.writeFileSync(target, '---\ntitle: old\n---\n旧正文', 'utf-8')
+    const r = await writeMd(target, '---\ntitle: new\n---\n新正文', { workspaceRoot: wsRoot, skillUserDir: userDir })
+    expect(r.ok).toBe(true)
+    expect(r.body).toBe('新正文')
+    expect(fs.readFileSync(target, 'utf-8')).toBe('---\ntitle: new\n---\n新正文')
+  })
+  test('非字符串内容被拒绝', async () => {
+    const r = await writeMd(path.join(wsRoot, 'a.md'), 12345, { workspaceRoot: wsRoot, skillUserDir: userDir })
+    expect(r.error).toBe('内容必须为字符串')
+    expect(r.ok).toBeUndefined()
+  })
+  test('内容超过 200MB 上限被拒绝（不落盘）', async () => {
+    const before = fs.readFileSync(path.join(wsRoot, 'a.md'), 'utf-8')
+    const huge = 'a'.repeat(MAX_SIZE + 1)
+    const r = await writeMd(path.join(wsRoot, 'a.md'), huge, { workspaceRoot: wsRoot, skillUserDir: userDir })
+    expect(r.error).toBe('内容超过 200MB 上限')
+    expect(fs.readFileSync(path.join(wsRoot, 'a.md'), 'utf-8')).toBe(before) // 未被写入
+  })
+  test('白名单外拒绝', async () => {
+    fs.writeFileSync(path.join(tmp, 'outside.md'), 'x', 'utf-8')
+    const r = await writeMd(path.join(tmp, 'outside.md'), '新内容', { workspaceRoot: wsRoot, skillUserDir: userDir })
+    expect(r.error).toBeDefined()
+    expect(fs.readFileSync(path.join(tmp, 'outside.md'), 'utf-8')).toBe('x') // 未被写入
   })
 })

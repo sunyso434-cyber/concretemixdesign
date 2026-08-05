@@ -2,7 +2,6 @@
 // - 安全边界：白名单（当前 workspace 根 + skill 用户目录）+ realpath 解析（解决大小写/symlink 绕过）
 // - 编辑写回必须原子写（tmp + rename），防崩溃损坏
 const fs = require('fs').promises
-const fsSync = require('fs')
 const path = require('path')
 const { ipcMain } = require('electron')
 const matter = require('gray-matter')
@@ -78,6 +77,20 @@ async function atomicWrite(targetPath, content) {
   }
 }
 
+// 写回：守卫（非字符串 / 超 200MB）→ 白名单校验 → 原子写 → 重解析 body
+async function writeMd(filePath, content, roots) {
+  if (typeof content !== 'string') return { error: '内容必须为字符串' }
+  if (Buffer.byteLength(content, 'utf-8') > MAX_SIZE) return { error: '内容超过 200MB 上限' }
+  const check = await isAllowedPath(filePath, roots)
+  if (!check.ok) return { error: check.reason }
+  await atomicWrite(check.realPath, content)
+  const stat = await fs.stat(check.realPath)
+  // 写回后重新解析 body（预览态渲染去掉 frontmatter 的正文；frontmatter 解析失败则用全文）
+  let body = content
+  try { body = matter(content).content } catch { /* 保留全文 */ }
+  return { ok: true, mtimeMs: stat.mtimeMs, size: stat.size, body }
+}
+
 function wrap(handler) {
   return async (event, payload) => {
     try {
@@ -100,15 +113,7 @@ function register(refs) {
   }))
 
   ipcMain.handle('md:write', wrap(async (event, { filePath, content }) => {
-    if (typeof content !== 'string') return { error: '内容必须为字符串' }
-    const check = await isAllowedPath(filePath, getRoots())
-    if (!check.ok) return { error: check.reason }
-    await atomicWrite(check.realPath, content)
-    const stat = await fs.stat(check.realPath)
-    // 写回后重新解析 body（预览态渲染去掉 frontmatter 的正文；frontmatter 解析失败则用全文）
-    let body = content
-    try { body = matter(content).content } catch { /* 保留全文 */ }
-    return { ok: true, mtimeMs: stat.mtimeMs, size: stat.size, body }
+    return await writeMd(filePath, content, getRoots())
   }))
 
   ipcMain.handle('md:watch', wrap(async (event, { filePath }) => {
@@ -129,4 +134,4 @@ function register(refs) {
   }))
 }
 
-module.exports = { register, isAllowedPath, readMd, atomicWrite, MAX_SIZE, EDIT_DISABLE_BYTES }
+module.exports = { register, isAllowedPath, readMd, writeMd, atomicWrite, MAX_SIZE, EDIT_DISABLE_BYTES }

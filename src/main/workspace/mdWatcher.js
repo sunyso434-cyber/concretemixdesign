@@ -39,6 +39,11 @@ class MdWatcher {
     this._watcher.on('change', (fp) => {
       this._handleChange(fp).catch((err) => console.error('[mdWatcher] 推送失败:', err.message))
     })
+    // 文件被外部删除：清理句柄避免泄漏，并推送 0 值事件 → 渲染端按"有变化"重读 → 读失败 → 错误提示
+    this._watcher.on('unlink', (fp) => {
+      this._paths.delete(fp)
+      this._handleChange(fp).catch((err) => console.error('[mdWatcher] unlink 推送失败:', err.message))
+    })
     this._watcher.on('error', (err) => {
       console.error('[mdWatcher] watcher error:', err.message)
     })
