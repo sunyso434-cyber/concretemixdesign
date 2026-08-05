@@ -217,6 +217,13 @@ const skill = {
       const msg = err?.message || String(err)
       logger?.warn(`[ask_user] 失败: ${msg}`)
 
+      if (msg === 'INTERRUPTED_BY_STEER') {
+        return {
+          success: false,
+          error: 'INTERRUPTED_BY_STEER',  // 专用错误码，UnifiedStrategy 失败分支识别后跳过记账
+          interrupted: true
+        }
+      }
       if (msg === 'USER_REJECTED') {
         return { success: false, error: this.errors.E_ASK_USER_REJECTED }
       }
