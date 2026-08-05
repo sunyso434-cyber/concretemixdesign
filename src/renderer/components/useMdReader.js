@@ -27,16 +27,21 @@ export function useMdReader() {
 
   const readFile = useCallback(async (key, path, roots) => {
     const res = await window.electronAPI.md.read(path)
-    if (!res) return
+    // 解锁：无论读成功/失败/空响应/期间关 tab，都从 inflight 移除该 key（避免永久阻塞）
+    const unlock = s => ({ ...s, inflight: new Set([...s.inflight].filter(k => k !== key)) })
+    if (!res) {
+      setState(unlock)
+      return
+    }
+    // 用函数式 updater 在最新 state 内判断 tab 是否仍在（stateRef 可能滞后于异步返回）
     if ('error' in res) {
-      const stillOpen = stateRef.current.tabs.some(t => t.key === key)
-      if (stillOpen) setState(s => applyReadFailure(s, key, res.error))
+      setState(s => s.tabs.some(t => t.key === key)
+        ? unlock(applyReadFailure(s, key, res.error))
+        : unlock(s))
     } else {
-      const stillOpen = stateRef.current.tabs.some(t => t.key === key)
-      if (stillOpen) {
-        setState(s => applyReadSuccess(s, key, res))
-        setState(s => ({ ...s, inflight: new Set([...s.inflight].filter(k => k !== key)) }))
-      }
+      setState(s => s.tabs.some(t => t.key === key)
+        ? unlock(applyReadSuccess(s, key, res))
+        : unlock(s))
     }
   }, [])
 
@@ -49,9 +54,16 @@ export function useMdReader() {
   const openFile = useCallback(async (path) => {
     const key = normalizePath(path)
     if (stateRef.current.inflight.has(key)) return
-    setState(s => dedupeOpen(s, { path }))
     const next = dedupeOpen(stateRef.current, { path })
     if (next.rejected) return
+    const isExisting = next.tabs.length === stateRef.current.tabs.length
+    setState(s => dedupeOpen(s, { path }))
+    if (isExisting) {
+      // 命中已打开 tab：只切 tab，不 watch 不 readFile（防重读覆盖未保存草稿）
+      // 例外：tab 处于 error 态时需重读重试（配合读失败解锁 inflight）
+      const tab = stateRef.current.tabs.find(t => t.key === key)
+      if (tab && tab.status !== 'error') return
+    }
     setState(s => ({ ...s, inflight: new Set([...s.inflight, key]) }))
     window.electronAPI.md.watch(path)
     await readFile(key, path)
@@ -90,7 +102,7 @@ export function useMdReader() {
         // body 由主进程写回后重新解析（去掉 frontmatter），供预览态渲染
         setState(s => ({
           ...applyReadSuccess(s, key, { content: draft, body: res.body || draft, mtimeMs: res.mtimeMs, size: res.size }),
-          tabs: s.tabs.map(t => t.key === key ? { ...t, dirty: false } : t)
+          tabs: s.tabs.map(t => t.key === key ? { ...t, dirty: false, conflict: null } : t)
         }))
       } else {
         setState(s => ({ ...s, tabs: s.tabs.map(t => t.key === key ? { ...t, conflict: 'save-failed' } : t) }))

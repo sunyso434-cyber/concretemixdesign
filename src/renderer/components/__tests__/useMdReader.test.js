@@ -1,9 +1,13 @@
 /**
- * useMdReader 纯函数核心测试
- * 覆盖：normalizePath / dedupeOpen / applyFileChanged / resolveConflict / clampWidth
+ * @jest-environment jsdom
  *
- * 跑法：npx jest src/renderer/components/__tests__/useMdReader.test.js -v
+ * useMdReader 测试
+ * 1) 纯函数核心：normalizePath / dedupeOpen / applyFileChanged / resolveConflict / clampWidth
+ * 2) hook 状态机闭合（mock window.electronAPI.md.*）：重开不丢草稿 / 保存清 conflict / 读失败解锁 inflight
+ *
+ * 跑法：npx jest src/renderer/components/__tests__/useMdReader.test.js --verbose
  */
+import { renderHook, act } from '@testing-library/react'
 
 const {
   normalizePath,
@@ -16,6 +20,33 @@ const {
   applyWorkspaceChanged,
   clampWidth
 } = require('../useMdReader.core.js')
+const { useMdReader } = require('../useMdReader.js')
+
+// --- Mock window.electronAPI.md.*（hook 消费侧） ---
+const mdMock = {
+  read: jest.fn(),
+  write: jest.fn(),
+  watch: jest.fn(),
+  unwatch: jest.fn(),
+  onFileChanged: jest.fn(() => 1),
+  removeFileChangedListener: jest.fn()
+}
+global.window = global.window || {}
+global.window.electronAPI = { md: mdMock }
+
+beforeEach(() => {
+  jest.useFakeTimers()
+  localStorage.clear()
+  mdMock.read.mockReset()
+  mdMock.write.mockReset()
+  mdMock.watch.mockReset()
+  mdMock.unwatch.mockReset()
+  mdMock.onFileChanged.mockReset().mockReturnValue(1)
+  mdMock.removeFileChangedListener.mockReset()
+})
+afterEach(() => {
+  jest.useRealTimers()
+})
 
 describe('normalizePath', () => {
   test('Windows 大小写归一', () => {
@@ -86,5 +117,76 @@ describe('clampWidth', () => {
     expect(clampWidth(100, 1400)).toBe(280)
     expect(clampWidth(800, 1400)).toBe(600)
     expect(clampWidth(500, 800)).toBe(480) // 800*0.6=480
+  })
+})
+
+// ============ hook 状态机闭合（审查修复） ============
+
+describe('useMdReader hook：重开已打开 tab', () => {
+  test('命中已打开健康 tab → 不重读不重复 watch，草稿与 dirty 保留', async () => {
+    mdMock.read.mockResolvedValue({ content: '磁盘正文', body: '磁盘正文', mtimeMs: 1, size: 2 })
+    const { result } = renderHook(() => useMdReader())
+
+    await act(async () => { await result.current.openFile('C:\\docs\\a.md') })
+    act(() => result.current.toggleEdit('c:/docs/a.md'))
+    act(() => result.current.setDraft('c:/docs/a.md', '未保存的草稿'))
+
+    expect(result.current.state.drafts['c:/docs/a.md']).toBe('未保存的草稿')
+    expect(result.current.state.tabs[0].dirty).toBe(true)
+    expect(mdMock.read).toHaveBeenCalledTimes(1)
+
+    // 用不同大小写重新打开同一文件：命中已有 tab → 不重读，草稿不被磁盘内容覆盖
+    await act(async () => { await result.current.openFile('c:\\docs\\a.md') })
+
+    expect(mdMock.read).toHaveBeenCalledTimes(1)
+    expect(mdMock.watch).toHaveBeenCalledTimes(1)
+    expect(result.current.state.drafts['c:/docs/a.md']).toBe('未保存的草稿')
+    expect(result.current.state.tabs[0].dirty).toBe(true)
+    expect(result.current.state.tabs.length).toBe(1)
+    expect(result.current.state.activeKey).toBe('c:/docs/a.md')
+  })
+})
+
+describe('useMdReader hook：保存成功清 conflict', () => {
+  test('save-failed 后 retry 保存成功 → conflict 清空、dirty 置 false', async () => {
+    mdMock.read.mockResolvedValue({ content: '内容', body: '内容', mtimeMs: 1, size: 2 })
+    const { result } = renderHook(() => useMdReader())
+
+    await act(async () => { await result.current.openFile('C:\\docs\\a.md') })
+    act(() => result.current.toggleEdit('c:/docs/a.md'))
+    act(() => result.current.setDraft('c:/docs/a.md', '未保存草稿'))
+    expect(result.current.state.tabs[0].dirty).toBe(true)
+
+    // 首次保存失败（debounce 触发）→ conflict='save-failed'
+    mdMock.write.mockResolvedValueOnce({ error: '磁盘写入失败' })
+    await act(async () => { jest.advanceTimersByTime(800) })
+    expect(mdMock.write).toHaveBeenCalledTimes(1)
+    expect(result.current.state.tabs[0].conflict).toBe('save-failed')
+
+    // retry 保存成功 → conflict 与 dirty 均被清除（修复：成功分支置 conflict:null）
+    mdMock.write.mockResolvedValue({ ok: true, mtimeMs: 2, size: 3, body: '未保存草稿' })
+    act(() => result.current.resolveConflict('c:/docs/a.md', 'retry'))
+    await act(async () => {})
+    expect(result.current.state.tabs[0].conflict).toBeNull()
+    expect(result.current.state.tabs[0].dirty).toBe(false)
+  })
+})
+
+describe('useMdReader hook：读失败解锁 inflight', () => {
+  test('读失败后同 key 可再次 openFile 重读重试', async () => {
+    mdMock.read.mockResolvedValueOnce({ error: '文件不存在' })
+    const { result } = renderHook(() => useMdReader())
+
+    await act(async () => { await result.current.openFile('C:\\missing.md') })
+    expect(result.current.state.tabs[0].status).toBe('error')
+    expect(mdMock.read).toHaveBeenCalledTimes(1)
+
+    // 读失败已解锁 inflight → 再次打开同一文件能重读重试（error 态 tab 不命中"健康早退"）
+    mdMock.read.mockResolvedValue({ content: '正文', body: '正文', mtimeMs: 1, size: 2 })
+    await act(async () => { await result.current.openFile('c:\\missing.md') })
+
+    expect(mdMock.read).toHaveBeenCalledTimes(2)
+    expect(result.current.state.tabs[0].status).toBe('done')
+    expect(result.current.state.tabs[0].conflict).toBeNull()
   })
 })
