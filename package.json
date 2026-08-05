@@ -73,7 +73,7 @@
     "copyright": "Copyright © 2026",
     "publish": null,
     "directories": {
-      "output": "dist-0.6.1",
+      "output": "dist-0.6.2",
       "buildResources": "public"
     },
     "files": [
