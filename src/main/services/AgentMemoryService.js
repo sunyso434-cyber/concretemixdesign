@@ -355,6 +355,31 @@ class AgentMemoryService {
       }
     }
 
+    // v3.1 兜底：assistant 有 tool_calls 但缺对应 tool 消息 → 在已有 tool 结果之后补合成（不落库）
+    const toolMsgIds = new Set(
+      messages.filter(x => x.role === 'tool' && x.tool_call_id).map(x => x.tool_call_id)
+    )
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.role !== 'assistant' || !Array.isArray(m.tool_calls)) continue
+      const missing = m.tool_calls.filter(tc => tc?.id && !toolMsgIds.has(tc.id))
+      if (missing.length === 0) continue
+      let insertPos = i + 1
+      while (insertPos < messages.length
+             && messages[insertPos].role === 'tool'
+             && messages[insertPos].tool_call_id
+             && m.tool_calls.some(tc => tc.id === messages[insertPos].tool_call_id)) {
+        insertPos++
+      }
+      const synthBlocks = missing.map(tc => ({
+        role: 'tool',
+        tool_call_id: tc.id,
+        content: JSON.stringify({ success: false, error: 'Interrupted by user', interrupted_tool: tc.function?.name || 'unknown' }),
+        _synth: true
+      }))
+      messages.splice(insertPos, 0, ...synthBlocks)
+    }
+
     // 过滤掉孤儿 tool 消息
     const filtered = messages.filter(m => !m._drop)
 
