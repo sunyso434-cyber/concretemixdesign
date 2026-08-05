@@ -18,6 +18,8 @@ import LintReportModal from './LintReportModal'
 import DecisionGate from './DecisionGate'
 import MemorySidebar from './MemorySidebar'
 import SlashCommandMenu from './SlashCommandMenu'
+import MdReaderPanel from './MdReaderPanel'
+import { useMdReader } from './useMdReader'
 import WelcomeScreen from './WelcomeScreen'
 import WorkspaceFilePopover from './WorkspaceFilePopover'
 import useChatState from '../hooks/useChatState'
@@ -168,6 +170,8 @@ const SmartDesignChat = () => {
   // ===== Hooks =====
   const chatState = useChatState()
   const { state, dispatch } = useAgentStore()
+  const reader = useMdReader()
+  const handleOpenMd = (path) => reader.openFile(path)
   const { agentRequestIdRef } = useAgentMode() // 纯事件监听器
   useAssistantPersistence() // 副作用 hook（done/aborted 时自动持久化）
 
@@ -371,6 +375,7 @@ const SmartDesignChat = () => {
   }
 
   const handleSwitchWorkspace = async (wsPath) => {
+    reader.handleWorkspaceChanged(wsPath)
     if (wsPath === workspacePath) return
     try {
       await window.electronAPI.workspace.open(wsPath)
@@ -1650,7 +1655,7 @@ const SmartDesignChat = () => {
         />
       )}
 
-      <Content style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <Content style={{ display: 'flex', flexDirection: 'row', height: '100%', minWidth: 0 }}>
         <div className="smart-design-chat">
           <div className="smart-chat-toolbar v9-chat-header">
             <div className="v9-chat-header-left">
@@ -1909,7 +1914,7 @@ const SmartDesignChat = () => {
                       {item.role === 'assistant' && Array.isArray(item.attachments) && item.attachments.length > 0 && (
                         <div className="file-message-card-list" style={{ marginTop: 8 }}>
                           {item.attachments.map((att, idx) => (
-                            <FileMessageCard key={`${att.path || 'file'}-${idx}`} file={att} />
+                            <FileMessageCard key={`${att.path || 'file'}-${idx}`} file={att} onOpenMd={handleOpenMd} />
                           ))}
                         </div>
                       )}
@@ -2193,6 +2198,19 @@ const SmartDesignChat = () => {
         onClose={() => setLintModalOpen(false)}
       />
     </div>
+      {reader.state.isOpen && (
+        <MdReaderPanel
+          state={reader.state}
+          panelWidth={reader.panelWidth}
+          onClose={reader.closeTab}
+          onSelect={reader.selectTab}
+          onCollapse={reader.collapse}
+          onToggleEdit={reader.toggleEdit}
+          onDraftChange={reader.setDraft}
+          onConflictResolve={reader.resolveConflict}
+          onResize={reader.setPanelWidth}
+        />
+      )}
     </Content>
     </Layout>
   )

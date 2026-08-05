@@ -33,7 +33,7 @@ const ICON_MAP = {
  * - 打开文件夹：通过 window.electronAPI.showInFolder(path) 高亮文件
  * - 复制路径：通过 navigator.clipboard.writeText(path) 复制完整路径
  */
-export default function FileMessageCard({ file }) {
+export default function FileMessageCard({ file, onOpenMd }) {
   const { message } = App.useApp()
   const filePath = file?.path || ''
   const fileName = basename(filePath)
@@ -44,10 +44,13 @@ export default function FileMessageCard({ file }) {
   const actions = buildActions()
 
   const handleOpen = () => {
-    const result = actions.onOpen(window.electronAPI, filePath)
-    if (!result) {
-      message.warning('当前环境不支持打开文件')
+    // md 文件走应用内阅读器；其余保持原状（openFile 当前不可用）
+    if ((file?.type || '').toLowerCase() === 'md' && typeof onOpenMd === 'function') {
+      onOpenMd(filePath)
+      return
     }
+    const result = actions.onOpen(window.electronAPI, filePath)
+    if (!result) message.warning('当前环境不支持打开文件')
   }
 
   const handleShowInFolder = () => {
