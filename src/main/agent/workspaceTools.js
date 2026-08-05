@@ -27,13 +27,14 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
   const getWiki = () => global.wikiEngine || wikiEngine
   const getKG = () => global.kgExtractor || kgExtractor
 
-  const skill = (name, description, parameters, invoke) => ({
+  const skill = (name, description, parameters, invoke, isWrite = false) => ({
     name,
     description,
     version: '1.0.0',
     category: 'workspace',
     parameters,
     services: [],  // v1.5.3 关键：不依赖 services（不调任何业务服务）
+    isWrite,  // v2.x.x 关键：标记写操作（写盘/改文件），读操作默认 false
     async execute(args, context) {
       try {
         return await invoke(args, context)
@@ -148,7 +149,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           return { success: true, type: 'image', ...result }
         }
         return getWiki().ingest(args)
-      }
+      },
+      true
     ),
     skill('workspace_writeFile', '把 Markdown 报告写入工作区 reports/。**两种模式**：\n1. **payload 模式**（默认）：传入 payload 含 title+sections 数组，整文件覆盖写入。\n2. **patches 模式**（v10.2.0）：只传 patches 不传 payload，局部修改已存在的 .md 报告。每个 patch 含 find(旧文本)、replace(新文本)、replaceAll(默认false)。\npayload 结构（必须包含 sections 数组）：{ title: "报告标题", sections: [ { type: "h1"|"h2", content: "标题文字" }, { type: "p", content: "段落正文" }, { type: "list", items: ["项1", "项2"] }, { type: "table", rows: [["列1","列2"],["数据1","数据2"]] }, { type: "code", language: "js", code: "console.log(1)" }, { type: "image", path: "reports/_images/xxx.svg", alt: "图表标题" } ], metadata?: { 任意key: "value" } }。\n**v0.3.1 新增 image 段落**：path 用 workspace_analyze 返回的 chart.svgRelPath。\n**重要：仅支持 md 格式。docx/xlsx 请使用 officecli 系列技能（create_office_file + edit_office_file）生成。**',
       {
@@ -192,7 +194,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           style: mergedStyle,
           folder: args.folder
         })
-      }
+      },
+      true
     ),
     skill('workspace_mkdir', '在工作区 reports/ 下创建归档文件夹（文件夹名称由用户自定义，用于按文件夹归档报告）。用户说"建一个 XX 文件夹放报告"/"创建归档文件夹"时调用。重复创建返回已存在，不报错。',
       {
@@ -215,7 +218,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         const dir = path.posix.join(current.path, 'reports', folderRel)
         await fs.promises.mkdir(dir, { recursive: true })
         return { ok: true, folder: folderRel, path: dir }
-      }
+      },
+      true
     ),
     skill('workspace_archiveReports', '把 reports/ 根目录下的报告移动到指定的归档文件夹（reports/<folder>/），用于整理散落的旧报告。用户说"把报告归档到 XX"/"整理 reports"时调用。',
       {
@@ -276,7 +280,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           }
         }
         return { ok: true, folder: folderRel, moved, skipped, total: wanted.length }
-      }
+      },
+      true
     ),
     skill('workspace_listFiles', '列出工作区指定子目录下的条目。返回 [{ name, path, size, type: "file"|"dir", ingested?, wikiPage?, lastIngestAt?, quality? }]。**关键：当 subdir="root" 且 withIngestStatus=true 时，每条记录带 ingested:true/false — 用这个字段判断文件是否已摄入到 wiki**，避免凭空猜测。v2026-07-03：新增 raw 及其类型子目录（raw/pdf raw/docx raw/xlsx raw/md raw/txt raw/images 等），用于查看原始文件。**v2026-08-03：reports 支持归档子文件夹——subdir 可传 "reports/<文件夹名>"（如 "reports/XX项目"，由 workspace_mkdir 创建），查看文件夹内报告**。',
       {
@@ -395,7 +400,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           }
         }
         return { organized: results }
-      }
+      },
+      true
     ),
     skill('workspace_recordAnswer',
       '把本次问答里"以后还用得上"的知识回填到 wiki/answers/。' +
@@ -415,7 +421,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           items: { type: 'string' }
         }
       },
-      (args) => getWiki().recordAnswer(args.question, args.answer, args.refs || [])
+      (args) => getWiki().recordAnswer(args.question, args.answer, args.refs || []),
+      true
     ),
     // ════════════════════════════════════════════
     // 数据分析工具（v0.3.1 新增）
@@ -518,7 +525,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           }
           return ErrorCodes.createError(ErrorCodes.UNKNOWN, err.message, '请稍后重试', { stack: err.stack })
         }
-      }
+      },
+      true
     ),
     // ════════════════════════════════════════════
     // OfficeCLI 工具（v11.6.0 新增）
@@ -822,7 +830,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
             '确认文件不是被其他程序锁定，或者路径表达式正确（先用 read_office_file 查看结构）',
             { retryable: true })
         }
-      }
+      },
+      true
     ),
     // ════════════════════════════════════════════
     // officecli 补充技能（v0.3.2 新增）
@@ -900,7 +909,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
             '检查 commands 数组格式是否正确（参考 officecli help batch）',
             { retryable: false })
         }
-      }
+      },
+      true
     ),
     skill('query_office_elements',
       '用 CSS 选择器查询 Office 文档元素，精准定位要操作的元素。\n' +
@@ -995,7 +1005,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
             'refresh 需要 Windows + Word 环境。非 Windows 或未装 Word 无法重算',
             { retryable: false })
         }
-      }
+      },
+      true
     ),
     skill('create_office_file',
       '在工作区创建空白 Office 文档（docx/xlsx/pptx）。文件会写入工作区根目录。' +
@@ -1045,7 +1056,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
             `创建文件失败: ${err.message}`,
             '确认文件名后缀正确，且磁盘空间充足', { retryable: true })
         }
-      }
+      },
+      true
     ),
     skill('merge_office_template',
       '用 JSON 数据填充 Office 模板文件中的 {{key}} 占位符，生成新文档。' +
@@ -1112,7 +1124,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
             `模板合并失败: ${err.message}`,
             '确认模板文件中的 {{key}} 标记与 data 中的 key 一一对应', { retryable: true })
         }
-      }
+      },
+      true
     ),
     // ════════════════════════════════════════════
     // v11.7.0 P1：元素操作 + 校验 + 导入
@@ -1178,7 +1191,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           return ErrorCodes.createError(args.action === 'move' ? 'MOVE_FAILED' : 'SWAP_FAILED',
             `操作失败: ${err.message}`, '确认路径表达正确', { retryable: true })
         }
-      }
+      },
+      true
     ),
     skill('validate_office_file',
       '校验 Office 文档的 OpenXML schema 合法性。',
@@ -1270,7 +1284,8 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         } catch (err) {
           return ErrorCodes.createError('IMPORT_FAILED', `导入失败: ${err.message}`, '确认源文件格式正确', { retryable: true })
         }
-      }
+      },
+      true
     ),
     // ════════════════════════════════════════════
     // v11.7.0 P2：XML 底层逃生口（会损坏文件）
