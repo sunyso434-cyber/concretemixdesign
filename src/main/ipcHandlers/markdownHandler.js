@@ -122,7 +122,9 @@ function register(refs) {
 
   ipcMain.handle('md:unwatch', wrap(async (event, { filePath }) => {
     const { mdWatcher } = require('../workspace/mdWatcher')
-    mdWatcher.unwatch(filePath)
+    let key = filePath
+    try { key = await fs.realpath(filePath) } catch { /* 文件已删，回退原路径 */ }
+    mdWatcher.unwatch(key)
     return { ok: true }
   }))
 }
