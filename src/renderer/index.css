@@ -3281,3 +3281,55 @@ body {
 .welcome-cta {
   margin-top: 4px;
 }
+
+/* === MD 阅读器面板 === */
+.md-reader-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-left: 1px solid var(--border-color, rgba(0,0,0,0.08));
+  background: var(--bg-primary, #fff);
+  min-width: 0;
+}
+.md-reader-divider {
+  position: absolute;
+  left: -4px;
+  top: 0; bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 2;
+}
+.md-reader-divider:hover { background: rgba(75, 63, 227, 0.15); }
+.md-reader-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 0 8px;
+  border-bottom: 1px solid var(--border-color, rgba(0,0,0,0.08));
+}
+.md-reader-header .ant-tabs { flex: 1; min-width: 0; }
+.md-reader-header-actions { display: flex; align-items: center; gap: 4px; }
+.md-reader-notice { padding: 6px 8px; }
+.md-reader-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 12px; }
+.md-reader-loading { display: flex; justify-content: center; padding: 40px 0; }
+.md-reader-content { padding: 4px 8px; }
+.md-reader-editor {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--border-color, rgba(0,0,0,0.12));
+  border-radius: 6px;
+  padding: 10px;
+  font-family: 'Roboto Mono', Consolas, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: none;
+  box-sizing: border-box;
+  background: var(--bg-secondary, #fafafa);
+  color: var(--text-primary, #1f1f1f);
+}
+.md-reader-tab-label { display: inline-flex; align-items: center; gap: 4px; }
+.md-reader-conflict-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #ff4d4f; display: inline-block;
+}
