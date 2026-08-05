@@ -958,13 +958,16 @@ class UnifiedStrategy {
    * 插话/中断检查（Task 6/10/11 机制，从旧串行循环抽出）
    * 有插话 → 给未执行的 tool_calls 补合成（双写）+ 注入插话 user 消息（双写）
    * 中断 ≠ 终止：只 break 出工具执行，绝不 return（下一轮 LLM 看到完整序列后继续）
+   * @param {function|null} mergeExecutedResults 命中插话/中断时，先把已执行工具结果按原始全序列顺序
+   *   合并进 trimmedMessages，再补合成剩余——保证「真实结果在前、合成在后」（审查 Finding 1 修复）
    * @returns {boolean} true = 应 break 出工具执行（继续下一轮 LLM）
    */
-  async _checkSteerInterrupt(toolCalls, executedIds, trimmedMessages, mode) {
+  async _checkSteerInterrupt(toolCalls, executedIds, trimmedMessages, mode, mergeExecutedResults) {
     const sessionId = this.sessionId
     // drain steering（Enter 工具边界插话）
     const _steerMid = this.orchestrator?.drainSteering ? this.orchestrator.drainSteering() : []
     if (_steerMid.length > 0) {
+      if (mergeExecutedResults) mergeExecutedResults()
       const synthMsgs = await this.agentMemoryService.synthToolResults(sessionId, toolCalls, executedIds, 'steer')
       for (const sm of synthMsgs) { trimmedMessages.push(sm) }
       const _c = _steerMid.join('\n')
@@ -975,6 +978,7 @@ class UnifiedStrategy {
     }
     // 检查 interruptRequested（Alt+Enter 立即插话，Task 10 使该标志生效）
     if (this.orchestrator?.isInterrupted?.()) {
+      if (mergeExecutedResults) mergeExecutedResults()
       const synthMsgs = await this.agentMemoryService.synthToolResults(sessionId, toolCalls, executedIds, 'interrupt')
       for (const sm of synthMsgs) { trimmedMessages.push(sm) }
       const _immSteer = this.orchestrator?.drainSteering ? this.orchestrator.drainSteering() : []
@@ -1149,6 +1153,15 @@ class UnifiedStrategy {
     }
 
     const executedIds = new Set()
+    // 结果描述符按 tc.id 收集，最终按原始 tool_calls 全序列顺序合并
+    // （审查 Finding 1 修复：交错读写时必须保持"全序列"原序，而非读组整体在前、写组整体在后）
+    const resultsById = new Map()
+    const mergeExecutedResults = () => {
+      for (const tc of toolCalls) {
+        const r = resultsById.get(tc.id)
+        if (r) trimmedMessages.push(r.toolMsg)
+      }
+    }
 
     // 2. 读批次：并发前按请求顺序发 tool_start（前端按请求序展示"开始执行"卡片）
     for (const tc of reads) {
@@ -1161,13 +1174,13 @@ class UnifiedStrategy {
       })
     }
 
-    // 3. 读批次并发执行
+    // 3. 读批次并发执行（读无副作用，执行无害）
     const readResults = await Promise.all(reads.map(tc => this._executeSingleTool(tc, ctx)))
 
-    // 4. 按请求顺序合并 tool 消息 + 发完成事件 + 记录 executedIds
+    // 4. 收集结果 + 发完成事件 + 记录 executedIds（完成事件按读组请求序）
     for (let i = 0; i < reads.length; i++) {
       const r = readResults[i]
-      trimmedMessages.push(r.toolMsg)
+      resultsById.set(reads[i].id, r)
       this._emitToolCompletion(r, { mode, roundIndex })
       executedIds.add(reads[i].id)
     }
@@ -1175,15 +1188,20 @@ class UnifiedStrategy {
     // 5. fatal 检查（任一读工具触发熔断 → 终止 execute）
     const fatalRead = readResults.find(r => r.kind === 'fatal')
     if (fatalRead) {
+      mergeExecutedResults()
       this._notifyProgress(this.webContents, { type: 'error', error: fatalRead.classifiedError, result: fatalRead.finalResult, mode })
       return { success: false, error: fatalRead.classifiedError }
     }
 
     // 6. 读批次边界：steer / interrupt 检查一次（并发执行中无法逐工具检查）
-    const breakAfterReads = await this._checkSteerInterrupt(toolCalls, executedIds, trimmedMessages, mode)
-    if (breakAfterReads) return null
+    //    审查 Finding 2 修复：仅当读批非空才在此检查——"批次内至少一个工具已执行"之后。
+    //    全写批次跳此步，保证第一个写工具先执行（否则整批被合成 = 用户可见的写行为变化）
+    if (reads.length > 0) {
+      const breakAfterReads = await this._checkSteerInterrupt(toolCalls, executedIds, trimmedMessages, mode, mergeExecutedResults)
+      if (breakAfterReads) return null
+    }
 
-    // 7. 写批次串行执行（每个写工具后检查 steer/interrupt，语义同旧串行循环）
+    // 7. 写批次串行执行（先执行第一个写工具，再逐写检查 steer/interrupt，语义同旧串行循环）
     for (const tc of writes) {
       const { name, arguments: argsStr } = tc.function
       let args = {}
@@ -1194,19 +1212,22 @@ class UnifiedStrategy {
       })
 
       const r = await this._executeSingleTool(tc, ctx)
-      trimmedMessages.push(r.toolMsg)
+      resultsById.set(tc.id, r)
       this._emitToolCompletion(r, { mode, roundIndex })
       executedIds.add(tc.id)
 
       if (r.kind === 'fatal') {
+        mergeExecutedResults()
         this._notifyProgress(this.webContents, { type: 'error', error: r.classifiedError, result: r.finalResult, mode })
         return { success: false, error: r.classifiedError }
       }
 
-      const breakAfterWrite = await this._checkSteerInterrupt(toolCalls, executedIds, trimmedMessages, mode)
+      const breakAfterWrite = await this._checkSteerInterrupt(toolCalls, executedIds, trimmedMessages, mode, mergeExecutedResults)
       if (breakAfterWrite) return null
     }
 
+    // 8. 全部执行完：按原始 tool_calls 全序列顺序合并（此时才真正写入 trimmedMessages）
+    mergeExecutedResults()
     return null
   }
 }

@@ -202,4 +202,87 @@ describe('UnifiedStrategy 读写分组并发（Task 2.3）', () => {
       'tool_start:w2', 'tool_done:w2'
     ])
   })
+
+  // 审查 Finding 1：交错读写请求时，结果必须按原始 tool_calls 全序列顺序合并，
+  // 而非"读组整体在前、写组整体在后"。
+  test('交错读写请求：结果按原始 tool_calls 全序列顺序合并（非读组整体在前）', async () => {
+    const mocks = makeMocks()
+    mocks.skillRegistry.getSkill.mockImplementation((name) => ({ name, parameters: {}, isWrite: name.startsWith('write') }))
+    mocks.skillExecutor.execute.mockImplementation(async (name) => ({ success: true, data: `${name}-result` }))
+    mockChat
+      .mockResolvedValueOnce({
+        content: null,
+        tool_calls: [
+          { id: 'w1', function: { name: 'write1', arguments: '{}' } },
+          { id: 'r1', function: { name: 'read1', arguments: '{}' } },
+          { id: 'w2', function: { name: 'write2', arguments: '{}' } },
+          { id: 'r2', function: { name: 'read2', arguments: '{}' } }
+        ]
+      })
+      .mockResolvedValueOnce({ content: '完成', tool_calls: null })
+
+    const strategy = new UnifiedStrategy(mocks)
+    const result = await strategy.execute({ sessionId: 's1', message: 'hi' })
+    expect(result.success).toBe(true)
+
+    // 第二轮 LLM 收到的 tool 消息必须按请求序 [write1, read1, write2, read2]
+    const secondMsgs = mockChat.mock.calls[1][0]
+    const toolMsgs = secondMsgs.filter(m => m.role === 'tool').map(m => JSON.parse(m.content).data)
+    expect(toolMsgs).toEqual(['write1-result', 'read1-result', 'write2-result', 'read2-result'])
+  })
+
+  // 审查 Finding 2：全写批次时，第一个写工具必须先执行，再检查 steer/interrupt，
+  // 剩余写工具才补合成——不能整批跳过。
+  test('全写批次 + 已插话：第一个写工具先执行，剩余补合成（不整批跳过）', async () => {
+    const orch = makeOrchestrator()
+    const mocks = makeMocks(orch)
+    mocks.skillRegistry.getSkill.mockReturnValue({ name: 'x', parameters: {}, isWrite: true })
+    const executed = []
+    mocks.skillExecutor.execute.mockImplementation(async (name) => {
+      executed.push(name)
+      return { success: true, data: `${name}-ok` }
+    })
+    // 还原真实 synthToolResults 落库行为（saveMessage + synth metadata）
+    mocks.agentMemoryService.synthToolResults.mockImplementation(async (_sid, toolCalls, executedIds) => {
+      const out = []
+      for (const tc of toolCalls) {
+        if (executedIds.has(tc.id)) continue
+        const content = JSON.stringify({ success: false, error: 'Interrupted by user', interrupted_tool: tc.function.name })
+        await mocks.agentMemoryService.saveMessage({ sessionId: 's1', role: 'tool', content, toolCallId: tc.id, metadata: { synth: true } })
+        out.push({ role: 'tool', tool_call_id: tc.id, content })
+      }
+      return out
+    })
+    mockChat
+      .mockResolvedValueOnce({
+        content: null,
+        tool_calls: [
+          { id: 'w1', function: { name: 'w1', arguments: '{}' } },
+          { id: 'w2', function: { name: 'w2', arguments: '{}' } },
+          { id: 'w3', function: { name: 'w3', arguments: '{}' } }
+        ]
+      })
+      .mockResolvedValueOnce({ content: '已处理插话', tool_calls: null })
+    // drainSteering 调用顺序：
+    //   ① 主循环顶部第 1 轮 drain → []（空）
+    //   ② 第一个写工具 w1 执行后 drain → ['用户插话']（触发插话，KEY）
+    //   ③+ 主循环顶部第 2 轮 / 完成判定前 → 空
+    orch.drainSteering
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce(['用户插话'])
+      .mockReturnValue([])
+
+    const strategy = new UnifiedStrategy(mocks)
+    const result = await strategy.execute({ sessionId: 's1', message: 'hi' })
+    expect(result.success).toBe(true)
+
+    // 第一个写工具 w1 真实执行，w2/w3 被合成（未被整批跳过）
+    expect(executed).toEqual(['w1'])
+    expect(mocks.agentMemoryService.saveMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'tool', toolCallId: 'w2', metadata: expect.objectContaining({ synth: true }) })
+    )
+    expect(mocks.agentMemoryService.saveMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'tool', toolCallId: 'w3', metadata: expect.objectContaining({ synth: true }) })
+    )
+  })
 })
