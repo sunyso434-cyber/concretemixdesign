@@ -171,4 +171,89 @@ describe('PlanApprovalModal 计划审批弹窗', () => {
     render(<PlanApprovalModal open={false} sessionId="s1" steps={steps} onClose={() => {}} />)
     expect(screen.queryByText('查规范')).not.toBeInTheDocument()
   })
+
+  // === 审查修复 1：IPC 失败（success:false）不关弹窗 + 错误提示 ===
+  test('确认失败（success:false）→ 不关弹窗且有错误提示', async () => {
+    confirmPlanMock.mockResolvedValue({ success: false, error: '缺少 sessionId' })
+    const onClose = jest.fn()
+    render(<PlanApprovalModal open sessionId="s1" steps={steps} onClose={onClose} />)
+    fireEvent.click(await screen.findByRole('button', { name: /确\s*认/ }))
+
+    await waitFor(() => expect(confirmPlanMock).toHaveBeenCalledWith('s1'))
+    expect(await screen.findByText(/确认计划失败/)).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  test('取消失败（success:false）→ 不关弹窗且有错误提示', async () => {
+    clearMock.mockResolvedValue({ success: false, error: '缺少 sessionId' })
+    const onClose = jest.fn()
+    render(<PlanApprovalModal open sessionId="s1" steps={steps} onClose={onClose} />)
+    fireEvent.click(await screen.findByRole('button', { name: /取\s*消/ }))
+
+    await waitFor(() => expect(clearMock).toHaveBeenCalledWith('s1'))
+    expect(await screen.findByText(/取消计划失败/)).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  test('保存修改失败（success:false）→ 不关弹窗且有错误提示', async () => {
+    replacePlanMock.mockResolvedValue({ success: false, error: '每个计划步骤必须有 content 字段' })
+    const onClose = jest.fn()
+    render(<PlanApprovalModal open sessionId="s1" steps={steps} onClose={onClose} />)
+    fireEvent.click(await screen.findByRole('button', { name: '修改计划' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
+
+    await waitFor(() => expect(replacePlanMock).toHaveBeenCalled())
+    expect(await screen.findByText(/保存修改失败/)).toBeInTheDocument()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  // === 审查修复 2：编辑模式保留步骤元数据（expectedParams / dependencies / priority / maxRetry） ===
+  test('编辑回传保留步骤全量元数据', async () => {
+    const metaSteps = [
+      {
+        id: 'm1',
+        content: '查规范',
+        suggestedSkill: 'web_search',
+        expectedParams: { keyword: '规范' },
+        dependencies: ['dep-1'],
+        priority: 'high',
+        maxRetry: 5
+      },
+      { id: 'm2', content: '做配合比' }
+    ]
+    render(<PlanApprovalModal open sessionId="s1" steps={metaSteps} onClose={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: '修改计划' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
+
+    await waitFor(() => {
+      expect(replacePlanMock).toHaveBeenCalledWith('s1', expect.arrayContaining([
+        expect.objectContaining({
+          id: 'm1',
+          content: '查规范',
+          expectedParams: { keyword: '规范' },
+          dependencies: ['dep-1'],
+          priority: 'high',
+          maxRetry: 5
+        })
+      ]))
+    })
+  })
+
+  // === 审查修复 3：编辑状态跨开关重置（重开弹窗回到审阅视图） ===
+  test('重开弹窗回到审阅视图（编辑状态被重置）', async () => {
+    const { rerender } = render(<PlanApprovalModal open sessionId="s1" steps={steps} onClose={() => {}} />)
+    // 进入编辑模式
+    fireEvent.click(await screen.findByRole('button', { name: '修改计划' }))
+    await screen.findByDisplayValue('查规范')  // 确认已进入编辑态
+
+    // 关闭再重新打开
+    rerender(<PlanApprovalModal open={false} sessionId="s1" steps={steps} onClose={() => {}} />)
+    rerender(<PlanApprovalModal open sessionId="s1" steps={steps} onClose={() => {}} />)
+
+    // 回到审阅视图：无编辑输入框、无"保存修改"，三键重新出现
+    expect(await screen.findByRole('button', { name: /确\s*认/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '修改计划' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '保存修改' })).not.toBeInTheDocument()
+    expect(screen.queryByDisplayValue('查规范')).not.toBeInTheDocument()
+  })
 })

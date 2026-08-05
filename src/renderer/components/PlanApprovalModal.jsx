@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Modal, Button, Input, Space, Typography, message } from 'antd'
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 
@@ -27,22 +27,39 @@ const PlanApprovalModal = ({ open, sessionId, steps = [], onClose }) => {
   const [editingSteps, setEditingSteps] = useState([])
   const [submitting, setSubmitting] = useState(false)
 
-  // 进入编辑模式：拷贝一份步骤（保留 id，供 replace_plan 保留原 id）
+  // 弹窗每次打开 / 步骤变化时重置编辑态，避免上一次的编辑模式残留到下一次打开
+  useEffect(() => {
+    if (open) {
+      setEditing(false)
+      setEditingSteps(steps.map(s => ({
+        ...s,
+        content: s.content || '',
+        suggestedSkill: s.suggestedSkill || ''
+      })))
+    }
+  }, [open, steps])
+
+  // 进入编辑模式：拷贝完整步骤对象（保留 id / expectedParams / dependencies / priority / maxRetry 等元数据）
   const enterEdit = () => {
     setEditingSteps(steps.map(s => ({
-      id: s.id,
+      ...s,
       content: s.content || '',
       suggestedSkill: s.suggestedSkill || ''
     })))
     setEditing(true)
   }
 
-  // 【确认】：approve_plan 清除 pendingApproval，计划按原样生效
+  // 【确认】：approve_plan 清除 pendingApproval，计划按原样生效。
+  // 主进程失败返回 {success:false,error} 而非 reject → 必须检查 success，失败不关弹窗并提示
   const handleConfirm = async () => {
     if (!sessionId) return
     setSubmitting(true)
     try {
-      await window.electronAPI.todo.confirmPlan(sessionId)
+      const res = await window.electronAPI.todo.confirmPlan(sessionId)
+      if (!res || res.success === false) {
+        message.error('确认计划失败: ' + (res?.error || '未知错误'))
+        return
+      }
       onClose()
     } catch (e) {
       message.error('确认计划失败: ' + (e?.message || e))
@@ -56,7 +73,11 @@ const PlanApprovalModal = ({ open, sessionId, steps = [], onClose }) => {
     if (!sessionId) return
     setSubmitting(true)
     try {
-      await window.electronAPI.todo.clear(sessionId)
+      const res = await window.electronAPI.todo.clear(sessionId)
+      if (!res || res.success === false) {
+        message.error('取消计划失败: ' + (res?.error || '未知错误'))
+        return
+      }
       onClose()
     } catch (e) {
       message.error('取消计划失败: ' + (e?.message || e))
@@ -65,12 +86,12 @@ const PlanApprovalModal = ({ open, sessionId, steps = [], onClose }) => {
     }
   }
 
-  // 【保存修改】：编辑后的数组经 todo:replace-plan 回传主进程清空重建
+  // 【保存修改】：编辑后的数组经 todo:replace-plan 回传主进程清空重建（保留步骤全量元数据）
   const handleSaveEdit = async () => {
     if (!sessionId) return
     const cleaned = editingSteps
       .map(s => ({
-        id: s.id,
+        ...s,
         content: (s.content || '').trim(),
         suggestedSkill: (s.suggestedSkill || '').trim() || undefined
       }))
@@ -81,7 +102,11 @@ const PlanApprovalModal = ({ open, sessionId, steps = [], onClose }) => {
     }
     setSubmitting(true)
     try {
-      await window.electronAPI.todo.replacePlan(sessionId, cleaned)
+      const res = await window.electronAPI.todo.replacePlan(sessionId, cleaned)
+      if (!res || res.success === false) {
+        message.error('保存修改失败: ' + (res?.error || '未知错误'))
+        return
+      }
       onClose()
     } catch (e) {
       message.error('保存修改失败: ' + (e?.message || e))
