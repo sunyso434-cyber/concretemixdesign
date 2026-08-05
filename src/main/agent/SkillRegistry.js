@@ -9,6 +9,21 @@ const SchemaValidator = require('./SchemaValidator')
 const MDParser = require('./MDParser')
 const { wrapBlueprintAsSkill } = require('../skills/blueprint-loader')
 
+/**
+ * 常驻 skill 名称：始终加载进 tools，作为技能路由的兜底
+ */
+const RESIDENT_SKILL_NAMES = ['ask_user', 'todo_manage', 'web_search', 'web_fetch', 'recall_session']
+
+/**
+ * 关键词匹配停用词：不参与匹配的常见口语/虚词
+ */
+const KEYWORD_STOPWORDS = new Set([
+  '的', '了', '吗', '吧', '和', '与', '请', '帮我', '一个', '什么',
+  '我', '你', '是', '在', '有', '就', '要', '把', '被', '这', '那',
+  '也', '都', '很', '不', '会', '能', '想', '给', '一下', '然后',
+  '请问', '我想', '我要', '请你', '现在', '怎么', '如何', '可以', '需要'
+])
+
 class SkillRegistry {
   constructor(options = {}) {
     this._skills = new Map()
@@ -259,24 +274,130 @@ module.exports = {
   }
 
   /**
+   * 单个 skill 转 JSON Schema (传给 LLM)
+   * getToolSchemas / getRelevantToolSchemas 共用，避免重复实现
+   * @param {object} skill - skill 定义
+   * @returns {object} JSON Schema
+   */
+  _skillToToolSchema(skill) {
+    return {
+      type: 'function',
+      function: {
+        name: skill.name,
+        description: skill.description,
+        parameters: {
+          type: 'object',
+          properties: this._validator.toJsonSchemaProperties(skill.parameters),
+          required: this._validator.getRequiredParams(skill.parameters || {})
+        }
+      }
+    }
+  }
+
+  /**
    * 获取所有 skill 的 JSON Schema (传给 LLM)
    * @returns {object[]} JSON Schema 数组
    */
   getToolSchemas() {
     return Array.from(this._skills.values())
       .filter(skill => !skill._isMDSkill || skill._triggerMode !== 'soft')
-      .map(skill => ({
-        type: 'function',
-        function: {
-          name: skill.name,
-          description: skill.description,
-          parameters: {
-            type: 'object',
-            properties: this._validator.toJsonSchemaProperties(skill.parameters),
-            required: this._validator.getRequiredParams(skill.parameters)
+      .map(skill => this._skillToToolSchema(skill))
+  }
+
+  /**
+   * 按需加载：只返回常驻 + todo 指定 + 关键词匹配的 skill schema（技能路由）
+   *
+   * - 常驻 skill（存在才加入，缺失容错）
+   * - todo 指定：planSteps 里每步的 suggestedSkill / skill
+   * - 关键词匹配：recentMessages + planSteps.content 抽取关键词，命中 skill 的 name/description
+   * 输出与 getToolSchemas 相同的 JSON-Schema 形状，按注册顺序去重
+   *
+   * @param {string} sessionId - 会话 id（预留，暂不参与筛选）
+   * @param {Array<string|object>} recentMessages - 近期消息（字符串或含 content 的对象）
+   * @param {Array<object>} planSteps - 计划步骤（可含 suggestedSkill / skill / content）
+   * @returns {object[]} JSON Schema 数组
+   */
+  getRelevantToolSchemas(sessionId, recentMessages, planSteps) {
+    const relevantNames = new Set()
+
+    // 1. 常驻 skill：存在才加入（缺失容错）
+    for (const name of RESIDENT_SKILL_NAMES) {
+      if (this._skills.has(name)) relevantNames.add(name)
+    }
+
+    // 2. todo 指定 + todo 内容关键词素材
+    const todoTexts = []
+    if (Array.isArray(planSteps)) {
+      for (const step of planSteps) {
+        if (!step || typeof step !== 'object') continue
+        const name = step.suggestedSkill || step.skill
+        if (name) relevantNames.add(name)
+        if (step.content) todoTexts.push(step.content)
+      }
+    }
+
+    // 3. 关键词匹配（用户近期消息 + todo 内容）
+    const keywords = this._extractKeywords(recentMessages).concat(this._extractKeywords(todoTexts))
+    if (keywords.length > 0) {
+      for (const skill of this._skills.values()) {
+        if (relevantNames.has(skill.name)) continue
+        if (skill._isMDSkill && skill._triggerMode === 'soft') continue
+        if (this._matchesKeywords(skill, keywords)) relevantNames.add(skill.name)
+      }
+    }
+
+    // 4. 复用 schema 构建逻辑，按注册顺序去重输出
+    return Array.from(this._skills.values())
+      .filter(skill => relevantNames.has(skill.name))
+      .filter(skill => !skill._isMDSkill || skill._triggerMode !== 'soft')
+      .map(skill => this._skillToToolSchema(skill))
+  }
+
+  /**
+   * 从消息列表中抽取关键词（简单健壮版）
+   *
+   * - 按非中英文/非数字切分
+   * - 丢弃长度 < 2 的 token 与停用词
+   * - 中文连续片段生成重叠二元组（如"水泥强度" → 水泥/泥强/强度），提高召回
+   *
+   * @param {Array<string|object>} messages - 消息列表（字符串或含 content 的对象）
+   * @returns {string[]} 去重后的关键词数组
+   */
+  _extractKeywords(messages) {
+    const keywords = new Set()
+    const items = Array.isArray(messages) ? messages : []
+    for (const item of items) {
+      const text = String(typeof item === 'string' ? item : (item && item.content) || '')
+      const segments = text.split(/[^0-9a-zA-Z一-龥]+/).filter(Boolean)
+      for (let segment of segments) {
+        segment = segment.toLowerCase()
+        if (segment.length < 2) continue
+        if (KEYWORD_STOPWORDS.has(segment)) continue
+        if (/[一-龥]/.test(segment)) {
+          // 中文连续片段：生成重叠二元组
+          for (let i = 0; i + 1 < segment.length; i++) {
+            const bigram = segment.slice(i, i + 2)
+            if (!KEYWORD_STOPWORDS.has(bigram)) keywords.add(bigram)
           }
+        } else {
+          keywords.add(segment)
         }
-      }))
+      }
+    }
+    return Array.from(keywords)
+  }
+
+  /**
+   * 判断 skill 是否被任一关键词命中（name 或 description 包含关键词）
+   * @param {object} skill - skill 定义
+   * @param {string[]} keywords - 关键词数组
+   * @returns {boolean} 是否命中
+   */
+  _matchesKeywords(skill, keywords) {
+    if (!keywords || keywords.length === 0) return false
+    const name = (skill.name || '').toLowerCase()
+    const desc = (skill.description || '').toLowerCase()
+    return keywords.some(kw => name.includes(kw) || desc.includes(kw))
   }
 
   /**
