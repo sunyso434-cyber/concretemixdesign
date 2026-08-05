@@ -110,6 +110,21 @@ function register(refs) {
     try { body = matter(content).content } catch { /* 保留全文 */ }
     return { ok: true, mtimeMs: stat.mtimeMs, size: stat.size, body }
   }))
+
+  ipcMain.handle('md:watch', wrap(async (event, { filePath }) => {
+    const check = await isAllowedPath(filePath, getRoots())
+    if (!check.ok) return { error: check.reason }
+    const { mdWatcher } = require('../workspace/mdWatcher')
+    mdWatcher.setSender(event.sender) // 事件推送到调用方窗口（当前单窗口应用够用）
+    mdWatcher.watch(check.realPath)
+    return { ok: true }
+  }))
+
+  ipcMain.handle('md:unwatch', wrap(async (event, { filePath }) => {
+    const { mdWatcher } = require('../workspace/mdWatcher')
+    mdWatcher.unwatch(filePath)
+    return { ok: true }
+  }))
 }
 
 module.exports = { register, isAllowedPath, readMd, atomicWrite, MAX_SIZE, EDIT_DISABLE_BYTES }

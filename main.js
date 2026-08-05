@@ -423,6 +423,14 @@ app.whenReady().then(async () => {
     summaryExtractor: summaryExtractor
   })
   workspaceHandler.register(workspaceRefs)
+  // === MD 阅读器：注册 markdownHandler（白名单读写 + 文件监视）===
+  const markdownHandler = require('./src/main/ipcHandlers/markdownHandler')
+  const mdWatcher = require('./src/main/workspace/mdWatcher')
+  markdownHandler.register({
+    // workspaceRoot 用 getter，随工作区切换实时变化（WorkspaceManager.current() 返回 { path, status }）
+    getWorkspaceRoot: () => (workspaceRefs.workspaceManager ? workspaceRefs.workspaceManager.current()?.path || null : null)
+  })
+  global.mdWatcher = mdWatcher
   // v2026-06-29 Task 6：注入视觉能力到 WorkspaceManager（图片拖入自动 OCR + 入 wiki 索引）
   // - SystemService 是单例导出，每次 ingest 时调 getVisionConfig() 拿最新配置再 new VisionService
   const SystemService = require('./src/main/services/SystemService')
