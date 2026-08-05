@@ -655,15 +655,18 @@ class DeepSeekService {
    * @param {Function} onEvent - 流式事件回调 ({ type, content, toolCallId, toolName, args })
    * @returns {Promise<Object>} - 完整的 assistant message（含 content + tool_calls）
    */
-  async chatWithToolsStream(messages, tools, onEvent) {
+  async chatWithToolsStream(messages, tools, onEvent, signal) {
     try {
-      return await this._callAPIStream(messages, true, onEvent, tools)
+      return await this._callAPIStream(messages, true, onEvent, tools, signal)
     } catch (error) {
+      if (error.code === 'ERR_CANCELED' || error.name === 'AbortError' || error.message?.includes('cancel')) {
+        throw { name: 'AbortError', message: 'Stream interrupted by user', code: 'ERR_CANCELED' }
+      }
       throw await this._buildClassifiedError(error, 'DeepSeekService.chatWithToolsStream')
     }
   }
 
-  async _callAPIStream(messages, includeTools = false, onEvent = null, customTools = null) {
+  async _callAPIStream(messages, includeTools = false, onEvent = null, customTools = null, signal) {
     const cfg = await this._getConfig()
     const requestBody = {
       model: cfg.model,
@@ -691,9 +694,14 @@ class DeepSeekService {
           'Authorization': `Bearer ${cfg.apiKey || this.config.apiKey}`
         },
         responseType: 'stream',
-        timeout: cfg.timeout
+        timeout: cfg.timeout,
+        signal   // v3.0：axios 原生支持，abort 时抛 ERR_CANCELED
       })
     } catch (postError) {
+      // v3.1 要点 3：响应头前 abort 静默跳过，不打吓人日志
+      if (postError.code === 'ERR_CANCELED' || postError.name === 'CanceledError' || postError.message?.includes('cancel')) {
+        throw { name: 'AbortError', message: 'Stream interrupted by user (pre-headers)', code: 'ERR_CANCELED' }
+      }
       const status = postError.response?.status || '?'
       let errorBody = ''
       const data = postError.response?.data
