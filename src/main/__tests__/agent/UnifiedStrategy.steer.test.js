@@ -132,4 +132,28 @@ describe('UnifiedStrategy Enter 工具边界插话（Task 6）', () => {
       expect.objectContaining({ role: 'tool', content: expect.stringContaining('interrupted') })
     )
   })
+
+  // Task 10：LLM 流式中 Alt+Enter 立即插话（AbortError）
+  test('LLM 流式中 Alt+Enter 中断（AbortError）→ drain 插话双写 + 不 return，下一轮 LLM 看到插话', async () => {
+    const orch = makeOrchestrator()
+    const mocks = makeMocks(orch)
+    mockChat
+      .mockRejectedValueOnce({ name: 'AbortError', message: 'Stream interrupted by user', code: 'ERR_CANCELED' })
+      .mockResolvedValueOnce({ content: '收到，立即改用 zod', tool_calls: null })
+    orch.drainSteering
+      .mockReturnValueOnce([])             // 主循环顶部第 1 轮
+      .mockReturnValueOnce(['立即改用 zod']) // catch 内 drain（中断后）
+      .mockReturnValue([])                  // 后续为空
+    orch.isInterrupted.mockReturnValue(true)  // 中断标志在 catch 判断时生效
+
+    const strategy = new UnifiedStrategy(mocks)
+    const result = await strategy.execute({ sessionId: 's1', message: 'hi' })
+
+    expect(result.success).toBe(true)   // 关键：中断不杀会话
+    expect(mockChat).toHaveBeenCalledTimes(2)
+    const secondCallMsgs = mockChat.mock.calls[1][0]
+    const steerMsg = secondCallMsgs.find(m => m.role === 'user' && m.content === '立即改用 zod')
+    expect(steerMsg).toBeTruthy()
+    expect(orch.clearInterrupt).toHaveBeenCalled()
+  })
 })

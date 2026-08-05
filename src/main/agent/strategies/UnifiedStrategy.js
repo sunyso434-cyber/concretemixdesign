@@ -600,6 +600,8 @@ class UnifiedStrategy {
         }
 
         let switchedFrom = null
+        // Task 10: 每轮独立 AbortController — Alt+Enter 立即插话可 abort 本轮 LLM 流式调用
+        this._currentTurnAbort = new AbortController()
         const { result, usedConfig } = await tryWithFailover(
           failoverConfigs,
           async (config) => {
@@ -625,7 +627,8 @@ class UnifiedStrategy {
                     status: 'running'
                   })
                 }
-              }
+              },
+              this._currentTurnAbort.signal
             )
           },
           (fromName, toName, reason) => {
@@ -637,7 +640,13 @@ class UnifiedStrategy {
               reason,
             })
           },
-          { activeId }  // v11.7.9: 激活模型优先
+          {
+            activeId,  // v11.7.9: 激活模型优先
+            // v3.1 要点 2：中断错误（AbortError / 用户插话标志）直接穿透，不切换配置
+            shouldStopOnError: (err) => err?.name === 'AbortError'
+              || err?.code === 'ERR_CANCELED'
+              || this.orchestrator?.isInterrupted?.()
+          }
         )
         response = result
 
@@ -663,6 +672,21 @@ class UnifiedStrategy {
         this._notifyProgress(webContents, { type: 'debug_log', tag: '✅ LLM OK', data: successLog, roundIndex, mode })
 
       } catch (err) {
+        // v3.0: 中断不报错，走 drain steering 流程（Alt+Enter 立即插话：LLM 流式被 abort）
+        if (err?.name === 'AbortError' || err?.code === 'ERR_CANCELED' || this.orchestrator?.isInterrupted?.()) {
+          const _steer = this.orchestrator?.drainSteering?.() || []
+          if (_steer.length > 0) {
+            const _c = _steer.join('\n')
+            trimmedMessages.push({ role: 'user', content: _c })
+            try { await this.agentMemoryService.saveMessage({ sessionId, role: 'user', content: _c, metadata: { steer: true, immediate: true } }) } catch (_) {}
+            this._notifyProgress(webContents, { type: 'steer_injected', content: _c, mode, source: 'immediate' })
+            this.orchestrator?.clearInterrupt?.()
+            continue
+          }
+          // 防御性：无插话的中断理论上不存在（interruptRequested 只由 steerImmediate 设置）
+          this.orchestrator?.clearInterrupt?.()
+          continue
+        }
         // [DEBUG] 记录 LLM 调用失败 → 推送前端 + 累积到 debugLog
         // ⚠️ 只提取安全的原始值，不引用 err 对象（含循环引用的 TLSSocket）
         const failLog = {
