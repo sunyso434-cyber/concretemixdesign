@@ -140,6 +140,20 @@ function createAgentExecutor({ getOrchestratorForSession, getOrchestrator, agent
     return { success: false, error: 'agent 未运行，无法追加任务' }
   }
 
-  return { runAgentSession, resumeAgentSession, saveUserMessage, getSessionOrchestrator, isSessionRunning, confirm, pause, resume, abort, steer, followUp, sessionAgents, setGlobalFallback }
+  // Task 3.1（Enter 排队插话 + Alt+Enter 立即插话）：Alt+Enter 立即插话
+  // - 仅 state==='running' 时中断（问题 7 时序竞态），中断 ≠ 终止：用 requestInterrupt（不动会话级 abort）
+  // - steer 入队 + 取消挂起的 ask_user 确认 + 请求中断当前 LLM 循环
+  function steerImmediate({ sessionId, msg }) {
+    const orch = sessionId ? sessionAgents.get(sessionId)?.orchestrator : null
+    if (!orch) return { success: false, error: 'agent 未运行，无法立即插话' }
+    if (orch.state !== 'running') return { success: false, error: `agent 状态为 ${orch.state}，无法立即插话` }
+    orch.steer(msg)
+    if (orch.cancelPendingConfirmation) orch.cancelPendingConfirmation()
+    if (orch.requestInterrupt) orch.requestInterrupt()
+    try { console.log(`[agentExecutor] steerImmediate 成功 sessionId=${sessionId} msgLen=${msg?.length || 0}`) } catch (_) {}
+    return { success: true }
+  }
+
+  return { runAgentSession, resumeAgentSession, saveUserMessage, getSessionOrchestrator, isSessionRunning, confirm, pause, resume, abort, steer, followUp, steerImmediate, sessionAgents, setGlobalFallback }
 }
 module.exports = { createAgentExecutor }

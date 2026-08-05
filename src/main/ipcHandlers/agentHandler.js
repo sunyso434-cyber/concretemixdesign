@@ -364,6 +364,12 @@ function registerAgentHandlers() {
     if (!msg) return { success: false, error: '缺少追加任务内容' }
     return executor.followUp({ sessionId, msg })
   })
+  // Task 3.1（Alt+Enter 立即插话）：校验后委托 executor.steerImmediate（state==='running' 时 steer + 中断 + 取消 ask_user）
+  ipcMain.handle('agent:steer_immediate', async (_event, { sessionId, msg } = {}) => {
+    if (!sessionId) return { success: false, error: '缺少 sessionId' }
+    if (!msg) return { success: false, error: '缺少插话内容' }
+    return executor.steerImmediate({ sessionId, msg })
+  })
 
   // === P0 断点续跑（Task 1.6）：3 个 IPC ===
   // 流程：detect-crash-window → 若 needAsk 弹窗 → rerun-unpaired-tools（可选）→ resume-from-checkpoint
