@@ -6,8 +6,8 @@
 // Task 4.4：注入到 system prompt，让 LLM 知道每个工具怎么用、返回什么
 // v2026-06-22：listFiles 扩 enum + 加 ingested 状态字段（修「LLM 误判未导入」bug）
 // v2026-07-17：新增 workspace_recordAnswer（Agent 自动回填问答到 wiki/answers/）
-const WORKSPACE_TOOLS_PROMPT = `
-可用 workspace 工具（共 8 个）：
+// Task 2.5：工具数不再硬编码，由 buildWorkspaceToolsPrompt(count) 动态注入（计数来自 buildSystemPrompt 统计）
+const WORKSPACE_TOOLS_BODY = `
 - workspace_search(query, topK) → 找相关 wiki 页（含 chat-history，不调 LLM）。**返回结果含 summary/keyPoints，大多数情况直接看结果即可回答。**
 - workspace_readPage(wikiPath, {query?, depth?}) → 读 wiki 页。
   - depth='relevant'（默认）：返回相关段落原文（~2K tokens，纯本地，~200ms）
@@ -54,6 +54,20 @@ raw/ 目录说明（v2026-07-03）：
 - **典型该调的例子**：用户问"抗渗混凝土水胶比上限？"，你回答"≤0.45，依据 JTG 3420-2020 §5.2"，调一次把问答回填，refs=['sources/jtg-3420-2020.md']
 - **典型不该调的例子**：用户问"我今天配的料够不够？"、"这个报错怎么修"、闲聊打招呼
 `
+
+/**
+ * 生成 workspace 工具说明段（纯函数）
+ * @param {number} registeredCount 实际注册的 workspace 工具数（来自 buildSystemPrompt 统计 skillInfos/skillNames）
+ * @returns {string} 带动态工具数的 workspace 工具说明段
+ */
+function buildWorkspaceToolsPrompt(registeredCount) {
+  // Task 2.5 兜底：没传技能数据时，用正文里实际罗列的工具数，
+  // 避免出现「共 0 个」这种自相矛盾的输出（此前硬编码 8 也已陈旧）
+  // WORKSPACE_TOOLS_BODY 是模块内固定常量，必然含 bullets，无需 || [] 防御
+  const documentedCount = WORKSPACE_TOOLS_BODY.match(/\n- workspace_/g).length
+  const count = registeredCount > 0 ? registeredCount : documentedCount
+  return `可用 workspace 工具（共 ${count} 个）：${WORKSPACE_TOOLS_BODY}`
+}
 
 // 蓝图技能创建路由提示（按需加载策略）：
 // 用户明确要创建"蓝图（blueprint）"类型的自定义配合比设计技能时，先调
@@ -110,6 +124,15 @@ function buildSystemPrompt({
   crossSessionBlock = '',  // P1-1: 跨会话摘要块
   softSkillSection = ''  // Task 4: 方法论 Skill 段（Layer 1，description 触发）
 } = {}) {
+  // Task 2.5：workspace 工具数动态化——从传入的技能列表统计实际注册的 workspace_ 前缀工具数，
+  // 不再硬编码（此前写死 8，实际已增至 14，属陈旧数字）
+  const workspaceToolCount = (() => {
+    const src = skillInfos && skillInfos.length > 0
+      ? skillInfos.map(s => s.name)
+      : skillNames
+    return src.filter(n => typeof n === 'string' && n.startsWith('workspace_')).length
+  })()
+
   // 优先用 skillInfos（带 description + category）按类别分组生成；降级用 skillNames（只名字）
   let skillSection
   if (skillInfos && skillInfos.length > 0) {
@@ -121,7 +144,8 @@ function buildSystemPrompt({
     }
     const blocks = []
     for (const [cat, skills] of Object.entries(groups)) {
-      const lines = skills.map(s => `- ${s.name}：${(s.description || '').slice(0, 30)}`)
+      // Task 2.5：description 截断到完整句子（以句子结束标点收尾，不硬切句中）
+      const lines = skills.map(s => `- ${s.name}：${truncateToCompleteSentence(s.description)}`)
       blocks.push(`【${cat}】\n${lines.join('\n')}`)
     }
     skillSection = `（共 ${skillInfos.length} 个，按类别分组）\n\n${blocks.join('\n\n')}`
@@ -164,7 +188,7 @@ function buildSystemPrompt({
 3. 学习和记忆用户偏好
 
 # workspace 工具说明
-${WORKSPACE_TOOLS_PROMPT}
+${buildWorkspaceToolsPrompt(workspaceToolCount)}
 
 # 当前可用技能
 ${skillSection}
@@ -192,6 +216,40 @@ ${l3Block}
 - 简洁专业，避免冗长
 - 涉及数据时引用具体数值
 - 不确定时主动调用工具查询`
+}
+
+/**
+ * 把 description 截断到完整句子（Task 2.5）
+ *
+ * 规则（maxLen 默认 30）：
+ * 1. 不超过 maxLen 直接返回；
+ * 2. 前 maxLen 内有句子结束标点（。！？.!?）→ 截到最后一个标点处（含标点）；
+ * 3. 前 maxLen 内无标点 → 向后延伸到下一个句子结束标点（上限 maxLen*2，避免说明被无限拉长）；
+ * 4. 仍无 → 退化为在最后一个空格处截断（不切英文单词），无空格则硬切到 maxLen。
+ *
+ * @param {string|null|undefined} text
+ * @param {number} [maxLen]
+ * @returns {string}
+ */
+function truncateToCompleteSentence(text, maxLen = 30) {
+  if (!text) return ''
+  if (text.length <= maxLen) return text
+  const window = text.slice(0, maxLen)
+  const SENTENCE_STOPS = ['.', '。', '?', '？', '!', '！']
+  let cut = -1
+  for (let i = 0; i < window.length; i++) {
+    if (SENTENCE_STOPS.includes(window[i])) cut = i
+  }
+  if (cut === -1) {
+    // 窗口内无句子结束标点 → 向后找下一个（上限 maxLen*2）
+    const tail = text.slice(maxLen, maxLen * 2)
+    const m = tail.match(/[.。?!！]/)
+    if (m) cut = maxLen + m.index
+  }
+  if (cut !== -1) return text.slice(0, cut + 1)
+  // 兜底：最后一个空格处截断（避免切断英文单词），无空格则硬切
+  const sp = window.lastIndexOf(' ')
+  return sp > 0 ? window.slice(0, sp) : window
 }
 
 const TODO_MANAGE_PROMPT = `# 任务规划要求
