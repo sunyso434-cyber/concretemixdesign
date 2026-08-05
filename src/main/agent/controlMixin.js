@@ -246,6 +246,48 @@ function drainFollowUp() {
   return out
 }
 
+/**
+ * 中断标志机制（Task 1: controlMixin 中断机制，Enter 排队插话 + Alt+Enter 立即插话基础原语）
+ *
+ * 设计：
+ * - requestInterrupt：置 interruptRequested=true，同时 abort 本轮 AbortController（_currentTurnAbort，由 Task 10 UnifiedStrategy 注入）
+ * - clearInterrupt / isInterrupted：标志的读写
+ * - cancelPendingConfirmation：插话时若有待确认弹窗（ask_user），主动清掉并 reject（否则弹窗卡住插话流程）
+ *
+ * 与既有 abort()（整任务中止）的区别：interrupt 是「插话」级别的软中断，只中断当前这一轮，
+ * 由调用方在下一轮/任务收尾时检查并 clearInterrupt。
+ */
+function requestInterrupt() {
+  this.interruptRequested = true
+  try { this._currentTurnAbort?.abort() } catch (_) {}
+}
+
+function clearInterrupt() {
+  this.interruptRequested = false
+}
+
+function isInterrupted() {
+  return !!this.interruptRequested
+}
+
+/**
+ * 插话时取消挂起的确认弹窗（ask_user）：
+ * 清 timer、发 agent:confirmation-close 让前端收起弹窗、reject 原 Promise（INTERRUPTED_BY_STEER）。
+ * 无 pending 时静默（幂等）。
+ */
+function cancelPendingConfirmation() {
+  if (this._pendingConfirmation) {
+    const p = this._pendingConfirmation
+    this._pendingConfirmation = null
+    if (this._confirmationTimer) {
+      clearTimeout(this._confirmationTimer)
+      this._confirmationTimer = null
+    }
+    try { this.webContents?.send?.('agent:confirmation-close', { sessionId: this.sessionId, confirmationId: p.confirmationId }) } catch (_) {}
+    p.reject(new Error('INTERRUPTED_BY_STEER'))
+  }
+}
+
 module.exports = {
   _notifyProgress,
   pause,
@@ -257,5 +299,9 @@ module.exports = {
   steer,
   followUp,
   drainSteering,
-  drainFollowUp
+  drainFollowUp,
+  requestInterrupt,
+  clearInterrupt,
+  isInterrupted,
+  cancelPendingConfirmation
 }
