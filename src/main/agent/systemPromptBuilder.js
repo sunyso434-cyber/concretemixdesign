@@ -252,10 +252,19 @@ function truncateToCompleteSentence(text, maxLen = 30) {
   return sp > 0 ? window.slice(0, sp) : window
 }
 
+// Task 3.2（2026-08-05）：≥5 步强制规划——任务自然拆解到 5 步及以上时，
+// 先调 todo_manage(action='create_plan', steps=[...]) 提交计划，等老板审批通过后再执行（软约束）。
 const TODO_MANAGE_PROMPT = `# 任务规划要求
 凡是预估需要 3 步以上工具调用的任务，**必须先调 \`todo_manage(action='create', todos=[...])\`** 创建任务清单。
 执行过程中每完成一步就调 \`todo_manage(action='complete', id=...)\` 标记完成。
-这样老板能看到进度、你也不会跑偏。`
+这样老板能看到进度、你也不会跑偏。
+
+# ≥5 步强制规划（create_plan + 审批）
+任务自然拆解达到 **5 步及以上**时，**必须先调 \`todo_manage(action='create_plan', steps=[{content:'...', ...}, ...])\`** 提交计划，**等老板审批通过后再执行**。
+- steps 每步至少带 content，可按需加 suggestedSkill / expectedParams / priority 等元数据
+- 审批通过前不要擅自开始执行
+- 审批通过后按计划逐步执行，每完成一步调 \`todo_manage(action='complete', id=...)\`
+- 老板修改计划后重传 → \`todo_manage(action='replace_plan', steps=[...])\``
 
 // v10.2.0 方案 10：技能更新场景专项指引
 // 解决老板截图里 AI 反复失败的根因：不知道用 update、不知道 update 有 4 种粒度、失败后不主动停

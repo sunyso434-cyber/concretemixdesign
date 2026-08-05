@@ -1,4 +1,4 @@
-const { buildSystemPrompt, REPORT_SKILL_MATRIX } = require('../systemPromptBuilder')
+const { buildSystemPrompt, REPORT_SKILL_MATRIX, TODO_MANAGE_PROMPT } = require('../systemPromptBuilder')
 
 describe('systemPromptBuilder v2 基础', () => {
   test('应输出包含角色定义的字符串', () => {
@@ -301,5 +301,44 @@ describe('systemPromptBuilder L3 核心记忆', () => {
   test('L3 为空时不注入（向后兼容）', () => {
     const result = buildSystemPrompt({ skillNames: [] })
     expect(result).not.toContain('# 核心记忆摘要')
+  })
+})
+
+// 阶段 3 任务 3.2：system prompt 加「≥5 步强制规划」规则
+// 与任务 3.1 的 todo_manage create_plan 配套：任务自然拆解到 ≥5 步时，
+// LLM 应先调 create_plan 提交计划，等老板审批通过后再执行（软约束，非硬门禁）。
+describe('buildSystemPrompt 注入 ≥5 步强制规划规则（Task 3.2）', () => {
+  test('TODO_MANAGE_PROMPT 常量应被导出且含 ≥5 步 create_plan 规则', () => {
+    expect(TODO_MANAGE_PROMPT).toBeDefined()
+    expect(TODO_MANAGE_PROMPT).toContain('5 步')
+    expect(TODO_MANAGE_PROMPT).toContain('create_plan')
+    expect(TODO_MANAGE_PROMPT).toContain('steps')
+    expect(TODO_MANAGE_PROMPT).toContain('审批')
+  })
+
+  test('buildSystemPrompt 应注入 ≥5 步 create_plan 强制规划规则', () => {
+    const prompt = buildSystemPrompt({
+      memoryContext: '',
+      skillNames: [],
+      userRulesMarkdown: ''
+    })
+    // 阈值：≥5 步
+    expect(prompt).toContain('5 步')
+    // 必须先调 create_plan，带 steps 数组
+    expect(prompt).toContain("todo_manage(action='create_plan'")
+    expect(prompt).toContain('steps')
+    // 审批后执行
+    expect(prompt).toContain('审批')
+    // 引导语义（先规划、审批后执行，非硬门禁）
+    expect(prompt).toContain('先调')
+    expect(prompt).toContain('再执行')
+  })
+
+  test('≥5 步规则应出现在回答风格之前（位置正确）', () => {
+    const prompt = buildSystemPrompt({ skillNames: [] })
+    const idxPlan = prompt.indexOf('create_plan')
+    const idxStyle = prompt.indexOf('回答风格')
+    expect(idxPlan).toBeGreaterThan(-1)
+    expect(idxStyle).toBeGreaterThan(idxPlan)
   })
 })
