@@ -24,6 +24,45 @@ const KEYWORD_STOPWORDS = new Set([
   '请问', '我想', '我要', '请你', '现在', '怎么', '如何', '可以', '需要'
 ])
 
+/**
+ * category 归并映射（v5 spec 3.5.4）：
+ * 18 种真实 category + concrete_type 新值，统一归并到 9 大类。
+ * - 'blueprint' 是旧值（过渡期），concrete_type 是蓝图新值
+ * - 未显式列出的值视为 concrete_type 业务值（如 ordinary/self_compacting/pervious），归 tool
+ * 注：markdown/javascript 是 skill-manager UI 展示标签，不是 skill.category 字段值，不在此表
+ */
+const CATEGORY_NORMALIZE_MAP = {
+  // 旧值过渡期：蓝图 skill 硬编码 category
+  'blueprint': 'flow',
+  // concrete_type 通用流程值
+  'workflow': 'flow',
+  // concrete_type 业务计算值（示例）
+  'mix_design': 'tool',
+  'sales_quote': 'tool',
+  // 基础设施 → agent
+  'agent': 'agent',
+  'system': 'agent',
+  'settings': 'agent',
+  // 业务计算工具 → tool
+  'core': 'tool',
+  'optimization': 'tool',
+  'analysis': 'tool',
+  // 增删改 → manage
+  'save': 'manage',
+  'update': 'manage',
+  'delete': 'manage',
+  'manage': 'manage',
+  'recording': 'manage',
+  'training': 'manage',
+  // 方法论 → method
+  'innovation': 'method',
+  // 身份保留（identity）
+  'workspace': 'workspace',
+  'custom': 'custom',
+  'vision': 'vision',
+  'query': 'query'
+}
+
 class SkillRegistry {
   constructor(options = {}) {
     this._skills = new Map()
@@ -402,6 +441,7 @@ module.exports = {
 
   /**
    * 列出所有 triggerMode=soft 的 skill（用于 system-prompt 注入）
+   * category 输出归一化值（LLM/system 所见即归一化后 category）
    * @returns {Array<{name, description, version, category}>}
    */
   listSoftSkills() {
@@ -411,8 +451,27 @@ module.exports = {
         name: s.name,
         description: s.description,
         version: s.version,
-        category: s.category
+        category: this._normalizeCategory(s.category)
       }))
+  }
+
+  /**
+   * category 归并（v5 spec 3.5.4）：18 种真实值 + concrete_type 新值 → 9 大类
+   *
+   * 同时兼容旧值（'blueprint' → 'flow'）与新值（concrete_type 业务值 → 'tool'、'workflow' → 'flow'）。
+   * 未在映射表中的值视为 concrete_type 业务值，归并到 'tool'（不编造新类别）。
+   * 空值（undefined/null/''）原样透传，由调用方兜底（如 getSkillMeta 的 'general'）。
+   *
+   * @param {string} [rawCategory]
+   * @returns {string|undefined|null} 归一化后的 category
+   */
+  _normalizeCategory(rawCategory) {
+    if (!rawCategory) return rawCategory // undefined/null/'' 原样透传，由调用方兜底（如 getSkillMeta 的 'general'）
+    if (Object.prototype.hasOwnProperty.call(CATEGORY_NORMALIZE_MAP, rawCategory)) {
+      return CATEGORY_NORMALIZE_MAP[rawCategory]
+    }
+    // concrete_type 业务值未显式枚举（ordinary/self_compacting/pervious/...）→ 业务计算工具
+    return 'tool'
   }
 
   /**
@@ -436,6 +495,7 @@ module.exports = {
 
   /**
    * 获取 skill 元数据
+   * category 输出归一化值（systemPromptBuilder 按此分组注入 system-prompt，LLM 所见即归一化后 category）
    * @param {string} name - skill 名称
    * @returns {object|null} 元数据
    */
@@ -446,7 +506,7 @@ module.exports = {
       name: skill.name,
       description: skill.description,
       version: skill.version || '1.0.0',
-      category: skill.category || 'general',
+      category: this._normalizeCategory(skill.category) || 'general',
       builtin: skill._builtin,
       registeredAt: skill._registeredAt
     }

@@ -164,10 +164,10 @@ class SkillExecutor {
       category: skill.category || 'general',
       builtin: skill._builtin,
       // 修复：补回 triggerMode 字段，前端 SkillManager 表格的"类型"列依赖这个渲染。
-      // - 蓝图技能：category='blueprint' → 固定 'blueprint'
+      // - 蓝图技能：_isBlueprint（阶段2任务2.6：category 改 concrete_type 后不再依赖 category==='blueprint'）→ 固定 'blueprint'
       // - MD 技能：读 _triggerMode（'function' 或 'soft'）
       // - JS 技能：_triggerMode 默认为 undefined → 回落 'function'（JS 只能显式调用）
-      triggerMode: skill.category === 'blueprint'
+      triggerMode: skill._isBlueprint
         ? 'blueprint'
         : (skill._triggerMode || 'function')
     }))

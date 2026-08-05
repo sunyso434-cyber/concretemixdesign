@@ -138,10 +138,22 @@ async function loadTables(skillDir) {
 }
 
 /**
+ * 进程级材料索引缓存。
+ * 材料库变更（create/update/delete/batch）时由 invalidateMaterialsCache() 显式失效，
+ * 否则每次执行蓝图都复用同一份索引，避免反复查库。
+ */
+let _materialsCache = null
+
+/**
  * 从数据库构建材料索引：{ [type]: material[] }
+ * 命中进程级缓存时直接返回；force=true 强制重建。
+ * @param {object} [options]
+ * @param {boolean} [options.force=false] - 强制重建缓存（忽略已有缓存）
  * @returns {Promise<object>}
  */
-async function buildMaterialsIndex() {
+async function buildMaterialsIndex(options = {}) {
+  if (!options.force && _materialsCache) return _materialsCache
+
   // 惰性加载：仅在真正执行蓝图时才拉起 DB 依赖
   const MaterialService = require('../services/MaterialService')
   const materials = await MaterialService.getAllMaterials()
@@ -151,7 +163,15 @@ async function buildMaterialsIndex() {
     if (!index[type]) index[type] = []
     index[type].push(m)
   }
+  _materialsCache = index
   return index
+}
+
+/**
+ * 使材料索引缓存失效（材料增删改后调用，下次构建取最新数据）
+ */
+function invalidateMaterialsCache() {
+  _materialsCache = null
 }
 
 /**
@@ -201,7 +221,11 @@ function wrapBlueprintAsSkill(skillDir) {
     name: meta.name || path.basename(skillDir),
     description: meta.description || '',
     version: meta.version || '1.0.0',
-    category: 'blueprint',
+    // 阶段2任务2.6：category 优先取 meta.concrete_type（业务蓝图类型，如 self_compacting/ordinary），
+    // 无则回退 'blueprint'（旧值，过渡期由 _normalizeCategory 归并到 flow）
+    category: meta.concrete_type || 'blueprint',
+    // 蓝图技能标记：category 改为 concrete_type 后，SkillExecutor 靠此识别蓝图（原靠 category==='blueprint'）
+    _isBlueprint: true,
     parameters: fullParams,
     services: [],
     execute: async (args = {}, skillContext = {}, runtimeCtx = {}) => {
@@ -220,4 +244,4 @@ function wrapBlueprintAsSkill(skillDir) {
   }
 }
 
-module.exports = { wrapBlueprintAsSkill, loadTables, buildMaterialsIndex, normalizeParameters, injectMaterialParams, extractMaterialChoices, CATEGORY_PARAM_MAP, _collectMaterialCategories }
+module.exports = { wrapBlueprintAsSkill, loadTables, buildMaterialsIndex, invalidateMaterialsCache, normalizeParameters, injectMaterialParams, extractMaterialChoices, CATEGORY_PARAM_MAP, _collectMaterialCategories }

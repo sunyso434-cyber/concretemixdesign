@@ -5,6 +5,15 @@ const { Mutex } = require('async-mutex')
 
 const batchMutex = new Mutex()
 
+// 惰性 require blueprint-loader 的 invalidateMaterialsCache，避免模块加载阶段引入 require 环
+function _invalidateMaterialsCache() {
+  try {
+    require('../skills/blueprint-loader').invalidateMaterialsCache()
+  } catch (error) {
+    console.error('[MaterialBatchService] 失效材料缓存失败:', error.message)
+  }
+}
+
 // 从 spec A.1 的表结构中提取的检测值字段名列表（不含 ID/元数据字段）
 const DETECTION_FIELDS = [
   'density', 'fineness', 'waterContent',
@@ -56,11 +65,13 @@ class MaterialBatchService {
   }
 
   async createBatch(data) {
-    return await MaterialBatch.create(data)
+    const batch = await MaterialBatch.create(data)
+    _invalidateMaterialsCache()
+    return batch
   }
 
   async updateBatch(id, data) {
-    return await sequelize.transaction(async (t) => {
+    const batch = await sequelize.transaction(async (t) => {
       // 先更新批次
       await MaterialBatch.update(data, { where: { id }, transaction: t })
       // 如果这个批次是某材料的当前批次，同步主表
@@ -76,6 +87,8 @@ class MaterialBatchService {
       }
       return await MaterialBatch.findByPk(id, { transaction: t })
     })
+    _invalidateMaterialsCache()
+    return batch
   }
 
   async deleteBatch(id) {
@@ -100,6 +113,10 @@ class MaterialBatchService {
         await Material.update(updateFields, { where: { id: materialId }, transaction: t })
         return batch
       })
+    })
+    .then((batch) => {
+      _invalidateMaterialsCache()
+      return batch
     })
   }
 

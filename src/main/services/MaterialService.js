@@ -1,5 +1,15 @@
 const Material = require('../db/models/Material')
 
+// 惰性 require blueprint-loader 的 invalidateMaterialsCache，避免模块加载阶段引入 require 环
+function _invalidateMaterialsCache() {
+  try {
+    require('../skills/blueprint-loader').invalidateMaterialsCache()
+  } catch (error) {
+    // 缓存失效失败不阻塞材料写操作
+    console.error('[MaterialService] 失效材料缓存失败:', error.message)
+  }
+}
+
 class MaterialService {
   /**
    * 清理材料输出：移除 null/undefined/NaN 字段。
@@ -44,6 +54,7 @@ class MaterialService {
   async createMaterial(data) {
     try {
       const material = await Material.create(data)
+      _invalidateMaterialsCache()
       return this._cleanMaterial(material.toJSON())
     } catch (error) {
       console.error('创建原材料失败:', error)
@@ -59,6 +70,7 @@ class MaterialService {
         throw new Error('原材料不存在')
       }
       const updatedMaterial = await material.update(data)
+      _invalidateMaterialsCache()
       return this._cleanMaterial(updatedMaterial.toJSON())
     } catch (error) {
       console.error('更新原材料失败:', error)
@@ -73,7 +85,9 @@ class MaterialService {
       if (!material) {
         throw new Error('原材料不存在')
       }
-      return await material.destroy()
+      const result = await material.destroy()
+      _invalidateMaterialsCache()
+      return result
     } catch (error) {
       console.error('删除原材料失败:', error)
       throw error
@@ -387,6 +401,7 @@ class MaterialService {
           console.log(`材料 ${material.name} 已存在，跳过更新`)
         }
       }
+      _invalidateMaterialsCache()
 
       // 验证所有材料是否创建成功
       const allMaterials = await Material.findAll()
