@@ -601,7 +601,10 @@ class UnifiedStrategy {
 
         let switchedFrom = null
         // Task 10: 每轮独立 AbortController — Alt+Enter 立即插话可 abort 本轮 LLM 流式调用
+        // 同步注入 orchestrator：controlMixin.requestInterrupt() 在 Orchestrator 实例上 abort 该 controller，
+        // 否则真实链路 Alt+Enter abort 不到（orchestrator._currentTurnAbort 为 undefined），立即插话退化成排队插话
         this._currentTurnAbort = new AbortController()
+        if (this.orchestrator) this.orchestrator._currentTurnAbort = this._currentTurnAbort
         const { result, usedConfig } = await tryWithFailover(
           failoverConfigs,
           async (config) => {
