@@ -89,6 +89,32 @@ export function agentReducer(state, action) {
     case 'ADD_MESSAGE': {
       return { ...state, messages: [...state.messages, action.payload] }
     }
+    case 'SEAL_STREAMING_MESSAGE': {
+      // v0.6.2 插话按时序显示：封存当前 streaming 的 AI 气泡（content+timeline 固化，
+      // _streaming 置 false），并清空 replyText/timeline，让插话后的回答从空开始累积，
+      // DONE 时 mergeReplyToMessages 会定位到新气泡（显示在插话下方）。
+      // 若 AI 还没输出任何内容（replyText 和 timeline 都空），直接移除空气泡，不显示空白段落。
+      const { replyText, timeline } = state.agent
+      const hasContent = (replyText || '').trim().length > 0 || (Array.isArray(timeline) && timeline.length > 0)
+      const idx = state.messages.findIndex(m => m.role === 'assistant' && m._streaming === true)
+      let messages = state.messages
+      if (idx >= 0) {
+        if (hasContent) {
+          messages = messages.map((m, i) =>
+            i === idx
+              ? { ...m, content: replyText || '', timeline, _streaming: false, _sealed: true, stopReason: 'sealed' }
+              : m
+          )
+        } else {
+          messages = messages.filter((_, i) => i !== idx)
+        }
+      }
+      return {
+        ...state,
+        messages,
+        agent: { ...state.agent, replyText: '', timeline: [] }
+      }
+    }
     case 'SET_MESSAGES': {
       // P3 commit 2 修复：保留所有字段（含 streaming / streamId / toolEvents / _dedupKey / classifiedError 等），
       // 仅规范化 timeline 和 stopReason 默认值。

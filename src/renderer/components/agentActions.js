@@ -129,6 +129,29 @@ export async function sendMessage({ dispatch, sessionId, message: userMessage, r
 }
 
 /**
+ * v0.6.2 插话按时序显示：
+ * 1. 封存当前 streaming 的 AI 气泡（replyText/timeline 固化，作为「插话前」段落）
+ * 2. 插入插话消息（带 _steer / _steerImmediate 标签）
+ * 3. 新开一个 AI 占位气泡，承接 AI 对插话的回答（DONE 时 merge 到这里，显示在插话下方）
+ *
+ * 这样插话后的回答永远出现在插话消息之后，用户不会把「悬在末尾的插话」误认为没被响应。
+ *
+ * @param {Object} args
+ * @param {Function} args.dispatch - reducer 的 dispatch
+ * @param {string} args.msg - 插话内容
+ * @param {string} args.requestId - 当前 agent 请求 ID（新气泡沿用，DONE 时 mergeReplyToMessages 定位用）
+ * @param {string} args.flag - '_steer'（Enter 排队）| '_steerImmediate'（Alt+Enter 立即）
+ */
+export function insertSteerMessage({ dispatch, msg, requestId, flag }) {
+  // 1. 封存当前 AI 气泡（无内容则移除空气泡，同时清空 replyText/timeline）
+  dispatch({ type: 'SEAL_STREAMING_MESSAGE' })
+  // 2. 插入插话消息
+  dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: msg, [flag]: true } })
+  // 3. 新开 AI 占位气泡
+  dispatch({ type: 'ADD_MESSAGE', payload: { role: 'assistant', content: '', _streaming: true, _agentRequestId: requestId } })
+}
+
+/**
  * 停止 Agent（spec 7.2）
  * @param {Object} args
  * @param {Function} args.dispatch - reducer 的 dispatch

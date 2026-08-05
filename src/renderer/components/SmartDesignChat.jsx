@@ -22,7 +22,7 @@ import WorkspaceFilePopover from './WorkspaceFilePopover'
 import useChatState from '../hooks/useChatState'
 import { AgentStoreProvider, useAgentStore } from './AgentStore'
 import useAgentMode from './AgentMode'
-import { sendMessage, abortAgent, createSession, loadSessionList, switchSession, loadMoreSessionMessages, useAssistantPersistence, resumeFromCheckpoint, detectCrashWindow, rerunUnpairedTools } from './agentActions'
+import { sendMessage, abortAgent, createSession, loadSessionList, switchSession, loadMoreSessionMessages, useAssistantPersistence, resumeFromCheckpoint, detectCrashWindow, rerunUnpairedTools, insertSteerMessage } from './agentActions'
 import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, processImageAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
 
 // 对话发图后同步保存到工作区 raw/images（老板 2026-08-02 决策：图片进原始素材区，AI 可索引）。
@@ -828,8 +828,8 @@ const SmartDesignChat = () => {
     try {
       const r = await window.electronAPI.invoke('agent:steer', { sessionId: state.session.currentId, msg })
       if (r && r.success) {
-        // 入队成功：显示带"插话"标签的消息（agent 下一轮 drain 看到）
-        dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: msg, _steer: true } })
+        // v0.6.2：封存当前 AI 气泡 + 新开气泡，AI 对插话的回答显示在插话下方
+        insertSteerMessage({ dispatch, msg, requestId: state.agent.requestId, flag: '_steer' })
         message.success('已插入指令，AI 下一轮将看到')
       } else {
         // agent 已结束 → 降级为普通发送（sendMessage 会自己加用户消息 + 启动新 run）
@@ -883,7 +883,8 @@ const SmartDesignChat = () => {
     try {
       const r = await window.electronAPI.invoke('agent:steer_immediate', { sessionId: state.session.currentId, msg })
       if (r && r.success) {
-        dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: msg, _steerImmediate: true } })
+        // v0.6.2：封存当前 AI 气泡 + 新开气泡，AI 对插话的回答显示在插话下方
+        insertSteerMessage({ dispatch, msg, requestId: state.agent.requestId, flag: '_steerImmediate' })
         message.success('已中断当前操作，AI 将立即响应插话')
       } else {
         message.info('AI 已结束或状态异常，改为普通发送')

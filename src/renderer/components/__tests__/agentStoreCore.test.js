@@ -309,3 +309,61 @@ describe('SET_SESSION_ARCHIVED', () => {
     expect(next.session.currentArchived).toBe(false)
   })
 })
+
+describe('SEAL_STREAMING_MESSAGE（v0.6.2 插话按时序显示）', () => {
+  test('有内容：封存当前 streaming 气泡（content+timeline+_sealed），清空 replyText/timeline', () => {
+    const state = {
+      ...initialState,
+      messages: [
+        { role: 'user', content: '原始' },
+        { role: 'assistant', content: '', _streaming: true, _agentRequestId: 'r1' }
+      ],
+      agent: {
+        ...initialState.agent,
+        requestId: 'r1',
+        replyText: '第一段话',
+        timeline: [{ type: 'tool', toolCallId: 'c1', status: 'done' }]
+      }
+    }
+    const next = agentReducer(state, { type: 'SEAL_STREAMING_MESSAGE' })
+    const sealed = next.messages[1]
+    expect(sealed._streaming).toBe(false)
+    expect(sealed._sealed).toBe(true)
+    expect(sealed.content).toBe('第一段话')
+    expect(sealed.timeline).toEqual([{ type: 'tool', toolCallId: 'c1', status: 'done' }])
+    expect(next.agent.replyText).toBe('')
+    expect(next.agent.timeline).toEqual([])
+  })
+
+  test('无内容：移除空气泡（插话时 AI 还没输出）', () => {
+    const state = {
+      ...initialState,
+      messages: [
+        { role: 'user', content: '原始' },
+        { role: 'assistant', content: '', _streaming: true, _agentRequestId: 'r1' }
+      ],
+      agent: { ...initialState.agent, requestId: 'r1', replyText: '', timeline: [] }
+    }
+    const next = agentReducer(state, { type: 'SEAL_STREAMING_MESSAGE' })
+    expect(next.messages).toHaveLength(1)
+    expect(next.messages[0].role).toBe('user')
+    expect(next.agent.replyText).toBe('')
+  })
+
+  test('无 streaming 气泡：只清空 replyText/timeline，消息不动', () => {
+    const state = {
+      ...initialState,
+      messages: [{ role: 'user', content: '原始' }],
+      agent: {
+        ...initialState.agent,
+        replyText: 'x',
+        timeline: [{ type: 'reasoning', status: 'done', content: '' }]
+      }
+    }
+    const next = agentReducer(state, { type: 'SEAL_STREAMING_MESSAGE' })
+    expect(next.messages).toHaveLength(1)
+    expect(next.messages[0].content).toBe('原始')
+    expect(next.agent.replyText).toBe('')
+    expect(next.agent.timeline).toEqual([])
+  })
+})
