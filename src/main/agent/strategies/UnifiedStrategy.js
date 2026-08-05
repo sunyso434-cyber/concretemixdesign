@@ -793,6 +793,7 @@ class UnifiedStrategy {
           })
         } catch (_) {}
 
+        const executedIds = new Set()
         for (const tc of response.tool_calls) {
           const { name, arguments: argsStr } = tc.function
           let args = {}
@@ -997,6 +998,39 @@ class UnifiedStrategy {
               trimmedMessages.push({ role: 'tool', content: toolContentMissing, tool_call_id: tc.id })
             }
             try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: toolContentMissing, toolCallId: tc.id }) } catch (_) {}
+          }
+
+          // 记录已执行的 tool_call（Task 6：供 synthToolResults 判断哪些需要补合成）
+          executedIds.add(tc.id)
+
+          // === 新增：每个 tool 执行完后 drain steering（Enter 工具边界插话） ===
+          // 有插话 → 给未执行的 tool_calls 补合成（双写）+ 注入插话 user 消息（双写）+ break，
+          // 下一轮 LLM 在同一轮 trimmedMessages 上看到「A 真实结果 + B/C 合成 + 插话」完整序列
+          const _steerMid = this.orchestrator?.drainSteering ? this.orchestrator.drainSteering() : []
+          if (_steerMid.length > 0) {
+            const synthMsgs = await this.agentMemoryService.synthToolResults(sessionId, response.tool_calls, executedIds, 'steer')
+            for (const sm of synthMsgs) { trimmedMessages.push(sm) }
+            const _c = _steerMid.join('\n')
+            trimmedMessages.push({ role: 'user', content: _c })
+            try { await this.agentMemoryService.saveMessage({ sessionId, role: 'user', content: _c, metadata: { steer: true } }) } catch (_) {}
+            this._notifyProgress(webContents, { type: 'steer_injected', content: _c, mode, source: 'tool_boundary' })
+            break
+          }
+
+          // === 新增：检查 interruptRequested（Alt+Enter 立即插话，Task 10 使该标志生效） ===
+          // 中断 ≠ 终止：只 break 出 tool 循环，绝不 return（下一轮 LLM 看到完整序列后继续）
+          if (this.orchestrator?.isInterrupted?.()) {
+            const synthMsgs = await this.agentMemoryService.synthToolResults(sessionId, response.tool_calls, executedIds, 'interrupt')
+            for (const sm of synthMsgs) { trimmedMessages.push(sm) }
+            const _immSteer = this.orchestrator?.drainSteering ? this.orchestrator.drainSteering() : []
+            if (_immSteer.length > 0) {
+              const _c = _immSteer.join('\n')
+              trimmedMessages.push({ role: 'user', content: _c })
+              try { await this.agentMemoryService.saveMessage({ sessionId, role: 'user', content: _c, metadata: { steer: true, immediate: true } }) } catch (_) {}
+              this._notifyProgress(webContents, { type: 'steer_injected', content: _c, mode, source: 'immediate' })
+            }
+            this.orchestrator?.clearInterrupt?.()
+            break
           }
         }
 

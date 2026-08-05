@@ -36,6 +36,11 @@ jest.mock('../../../shared/utils/contextStats', () => ({
   estimateTokens: (...args) => mockEstimateTokens(...args)
 }))
 
+// sqlite3 原生模块在本环境（Node 20.20.2 非 Electron）加载即段错误（访问冲突 0xC0000005），
+// UnifiedStrategy 顶层 require('../../db/database') 会连带加载 sqlite3 → 崩溃。
+// 本项目所有涉及 db 的测试均 mock 该模块（本项目测试不碰真实 DB），此处同惯例。
+jest.mock('../../db/database', () => ({}))
+
 // 所有测试前确保 mockEstimateTokens 有默认返回值（低于阈值，避免自动压缩干扰现有测试）
 beforeEach(() => {
   mockEstimateTokens = jest.fn(() => 1000)
