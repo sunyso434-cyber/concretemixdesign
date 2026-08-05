@@ -5,6 +5,16 @@ const path = require('path')
 const { app } = require('electron')
 const iconv = require('iconv-lite')
 
+// 惰性 require blueprint-loader 的 invalidateMaterialsCache，避免模块加载阶段引入 require 环
+function _invalidateMaterialsCache() {
+  try {
+    require('../skills/blueprint-loader').invalidateMaterialsCache()
+  } catch (error) {
+    // 缓存失效失败不阻塞材料导入
+    console.error('[SystemService] 失效材料缓存失败:', error.message)
+  }
+}
+
 class SystemService {
   // 获取所有系统参数
   async getAllParams() {
@@ -848,6 +858,8 @@ class SystemService {
           onProgress(20 + Math.round(((i + 1) / sheetKeys.length) * 75))
         }
 
+        // Excel 导入直接写 Material 表（绕过 MaterialService），需显式失效蓝图材料缓存
+        _invalidateMaterialsCache()
         onProgress(100)
         return { count: totalCount }
       } else if (resultType === 'mixdesigns') {
@@ -883,6 +895,8 @@ class SystemService {
         count++
         onProgress(20 + Math.round((i / rows.length) * 75))
       }
+      // Excel 导入直接写 Material 表（绕过 MaterialService），需显式失效蓝图材料缓存
+      _invalidateMaterialsCache()
     } else if (type === 'mixdesigns') {
       const MixDesign = require('../db/models/MixDesign')
       for (let i = 0; i < rows.length; i++) {
