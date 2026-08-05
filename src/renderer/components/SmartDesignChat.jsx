@@ -8,6 +8,7 @@ import ToolMessageBubble from './ToolMessageBubble'
 import SystemErrorBubble from './SystemErrorBubble'
 import StreamingAgentCard from './StreamingAgentCard'
 import TodoPanel from './TodoPanel'
+import PlanApprovalModal from './PlanApprovalModal'
 import FileMessageCard from './FileMessageCard'
 import MixDesignResultCard from './MixDesignResultCard'
 import OptimizationResultCard from './OptimizationResultCard'
@@ -179,23 +180,51 @@ const SmartDesignChat = () => {
   // 跟踪当前 todo 状态，用于 agent 完成时拍快照存入消息
   const latestTodoRef = useRef({ todos: [], summary: { total: 0, completed: 0 } })
 
+  // 阶段 3 任务 3.3：AI 计划审批弹窗状态（pendingApproval=true 时挂起）
+  const [planApproval, setPlanApproval] = useState({ visible: false, steps: [] })
+
   // 派生：Agent 是否在工作中（流式/思考/工具调用）
   const isAgentBusy = ['streaming', 'thinking', 'tool_calling'].includes(state.agent.status)
 
   // 订阅 todo 更新，保持 ref 最新（用于 agent 完成时拍快照）
+  // 阶段 3 任务 3.3：同时检测 pendingApproval → 挂起/关闭计划审批弹窗
+  // 按当前会话过滤事件：多会话并行时，别的会话的 todo 事件不干扰本会话弹窗
   useEffect(() => {
+    const sid = state.session.currentId
     if (!window.electronAPI?.todo) return
     const listenerId = window.electronAPI.todo.onUpdate((payload) => {
       if (!payload) return
+      if (sid && payload.sessionId && payload.sessionId !== sid) return
       latestTodoRef.current = {
         todos: payload.todos || [],
         summary: { total: payload.total || 0, completed: payload.completed || 0 }
+      }
+      if (payload.pendingApproval) {
+        // create_plan 完成 → 弹出计划审批窗，让用户确认/修改/取消
+        setPlanApproval({ visible: true, steps: payload.todos || [] })
+      } else {
+        // 计划已确认 / 修改回传 / 取消清空 → 收起弹窗（防残留）
+        setPlanApproval(prev => (prev.visible ? { ...prev, visible: false } : prev))
       }
     })
     return () => {
       try { window.electronAPI.todo.removeUpdateListener(listenerId) } catch (_) {}
     }
-  }, [])
+  }, [state.session.currentId])
+
+  // 渲染进程刷新/切换会话后兜底恢复：拉一次 todo:list 检测是否有待审批计划
+  useEffect(() => {
+    const sid = state.session.currentId
+    if (!sid || !window.electronAPI?.todo) return
+    let cancelled = false
+    window.electronAPI.todo.list(sid).then(res => {
+      if (cancelled) return
+      if (res?.pendingApproval && Array.isArray(res.todos) && res.todos.length > 0) {
+        setPlanApproval({ visible: true, steps: res.todos })
+      }
+    }).catch(() => { /* 拉取失败静默忽略，订阅通道仍可用 */ })
+    return () => { cancelled = true }
+  }, [state.session.currentId])
 
   // 仅在消息条数变化时刷新会话列表（避免流式输出时频繁刷新）
   const prevMsgCountRef = useRef(0)
@@ -1933,6 +1962,13 @@ const SmartDesignChat = () => {
         {!welcomeVisible && state.session.currentId && (
           <TodoPanel sessionId={state.session.currentId} />
         )}
+        {/* 阶段 3 任务 3.3：AI 计划审批弹窗（LLM create_plan 后 pendingApproval=true 自动弹出） */}
+        <PlanApprovalModal
+          open={planApproval.visible}
+          sessionId={state.session.currentId}
+          steps={planApproval.steps}
+          onClose={() => setPlanApproval(prev => ({ ...prev, visible: false }))}
+        />
         {/* AI 提问弹窗：在消息列表末尾跟随 LLM 输出位置 */}
         {state.confirmation && (
           <DecisionGate

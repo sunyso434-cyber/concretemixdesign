@@ -2,10 +2,11 @@
  * Todo 任务管理 Skill
  *
  * 让 Agent 能维护一个跨轮次可见的任务清单，支持 create / add / update / complete / list / clear
- * / restore / create_plan / retry / replace_plan 十种操作。状态可流转（pending → in_progress → completed / failed）。
+ * / restore / create_plan / retry / replace_plan / approve_plan 十一种操作。状态可流转（pending → in_progress → completed / failed）。
  * create_plan 用于 ≥5 步强制规划（LLM 先规划、用户审批后执行）；replace_plan 用于用户编辑后回传；
- * retry 用于步骤重跑（retryCount++，超过 maxRetry 标记 failed）。计划步骤可携带 suggestedSkill /
- * expectedParams / dependencies 等元数据，供技能路由（getRelevantToolSchemas）和重跑使用。
+ * approve_plan 用于用户点击【确认】后清除待审批标记（计划生效）；retry 用于步骤重跑（retryCount++，
+ * 超过 maxRetry 标记 failed）。计划步骤可携带 suggestedSkill / expectedParams / dependencies 等元数据，
+ * 供技能路由（getRelevantToolSchemas）和重跑使用。
  *
  * 设计要点：
  * - 纯内存存储（模块级 Map<sessionId, Todo[]>），不依赖外部服务
@@ -13,6 +14,12 @@
  * - 从 context.sessionId 拿会话 ID（由 SkillExecutor.execute 第三参数 runtimeCtx 注入）
  * - 会话结束时由 agentHandler 调用 _cleanupSession 清理，防内存泄漏
  * - 不驱动 Agent 主循环——Agent 是否按清单执行由 LLM 自行决定
+ *
+ * 计划审批（阶段 3 任务 3.3）：
+ * - _sessionPlanPending 记录每个会话的计划是否待审批（模块级 Map<sessionId, boolean>，纯内存不落库）
+ * - create_plan 置 true（前端据此弹 PlanApprovalModal）；approve_plan / replace_plan / create / clear
+ *   / restore 置 false（计划生效或取消）；list / todo:updated 事件把 pendingApproval 带给前端
+ * - 断点续跑恢复快照时 pendingApproval 不持久化 → 默认 false（优雅降级，不再弹审批窗）
  */
 
 const crypto = require('crypto')
@@ -20,6 +27,9 @@ const crypto = require('crypto')
 // 模块级存储：Map<sessionId, Todo[]>
 // 不暴露给外部，仅通过 execute 操作
 const _sessionTodos = new Map()
+
+// 模块级存储：Map<sessionId, boolean>，标记当前计划是否待审批（create_plan 置 true）
+const _sessionPlanPending = new Map()
 
 // 单个 Todo 结构（阶段 3 增强，基于原结构扩展，不破坏现有字段）：
 // { id, content, priority, status, createdAt, updatedAt, suggestedSkill?, expectedParams?, retryCount, maxRetry, dependencies }
@@ -31,7 +41,7 @@ const _sessionTodos = new Map()
 // - dependencies：本步骤依赖的其他步骤 id 数组
 
 const DEFAULT_MAX_RETRY = 3
-const VALID_ACTIONS = ['create', 'add', 'update', 'complete', 'list', 'clear', 'restore', 'create_plan', 'retry', 'replace_plan']
+const VALID_ACTIONS = ['create', 'add', 'update', 'complete', 'list', 'clear', 'restore', 'create_plan', 'retry', 'replace_plan', 'approve_plan']
 const VALID_PRIORITIES = ['high', 'medium', 'low']
 const VALID_STATUSES = ['pending', 'in_progress', 'completed', 'failed']
 
@@ -87,6 +97,7 @@ function _findTodo(todos, id) {
  * - 没有 webContents（如单元测试场景）静默跳过
  * - webContents 已销毁（用户切页/关闭窗口）也跳过
  * - 推送失败 catch 吞掉，不影响 skill 主流程
+ * - pendingApproval 随事件带给前端：create_plan 后为 true，前端据此弹计划审批窗
  */
 function _notifyTodoUpdate(context, sessionId, todos) {
   try {
@@ -96,6 +107,7 @@ function _notifyTodoUpdate(context, sessionId, todos) {
     wc.send('todo:updated', {
       sessionId,
       todos,
+      pendingApproval: _sessionPlanPending.get(sessionId) || false,
       total: todos.length,
       completed: todos.filter(t => t.status === 'completed').length,
       failed: todos.filter(t => t.status === 'failed').length
@@ -141,7 +153,7 @@ function restoreFromSnapshot(sessionId, todos) {
 
 const skill = {
   name: 'todo_manage',
-  description: '管理任务清单。支持创建/追加/更新/完成/列出/清空/还原任务，以及 create_plan(强制规划，≥5 步任务先规划等用户审批)/retry(步骤重跑，超过 maxRetry 标记 failed)/replace_plan(用户编辑计划后回传，清空重建)。让 Agent 在多步骤任务中维护可见计划，状态可流转 pending → in_progress → completed / failed。',
+  description: '管理任务清单。支持创建/追加/更新/完成/列出/清空/还原任务，以及 create_plan(强制规划，≥5 步任务先规划等用户审批)/retry(步骤重跑，超过 maxRetry 标记 failed)/replace_plan(用户编辑计划后回传，清空重建)/approve_plan(用户确认计划后生效，清除待审批标记)。让 Agent 在多步骤任务中维护可见计划，状态可流转 pending → in_progress → completed / failed。',
   version: '1.0.0',
   category: 'agent',
   // 显式空数组：DynamicContextProvider.getServices 要求 services 字段必须声明
@@ -151,7 +163,7 @@ const skill = {
   parameters: {
     action: {
       type: 'string',
-      description: '操作类型：create(用一组任务初始化整个清单，覆盖旧清单) / add(追加单个任务) / update(修改某个任务) / complete(标记任务为已完成) / list(返回当前清单) / clear(清空清单) / restore(从快照还原清单) / create_plan(用 steps 数组构建计划，替换当前清单，≥5 步强制规划用) / retry(重跑某一步，retryCount++，超过 maxRetry 标记 failed) / replace_plan(编辑计划后回传，清空重建)',
+      description: '操作类型：create(用一组任务初始化整个清单，覆盖旧清单) / add(追加单个任务) / update(修改某个任务) / complete(标记任务为已完成) / list(返回当前清单) / clear(清空清单) / restore(从快照还原清单) / create_plan(用 steps 数组构建计划，替换当前清单，≥5 步强制规划用，置 pendingApproval 待用户审批) / retry(重跑某一步，retryCount++，超过 maxRetry 标记 failed) / replace_plan(编辑计划后回传，清空重建，清除 pendingApproval) / approve_plan(用户确认计划，清除 pendingApproval，计划生效)',
       required: true,
       enum: VALID_ACTIONS
     },
@@ -262,12 +274,15 @@ const skill = {
           return _newTodo(t.content, t.priority)
         })
         _sessionTodos.set(sessionId, created)
+        // create 重建普通清单 → 若此前有待审批计划，视为已替换
+        _sessionPlanPending.set(sessionId, false)
         _notifyTodoUpdate(context, sessionId, created)
         _persistCheckpoint(sessionId, created)
         return {
           success: true,
           action: 'create',
           todos: created,
+          pendingApproval: false,
           ..._summarize(created)
         }
       }
@@ -344,18 +359,22 @@ const skill = {
           success: true,
           action: 'list',
           todos: current,
+          pendingApproval: _sessionPlanPending.get(sessionId) || false,
           ..._summarize(current)
         }
       }
 
       case 'clear': {
         _sessionTodos.delete(sessionId)
+        // 取消计划：清空清单同时清除待审批标记
+        _sessionPlanPending.delete(sessionId)
         _notifyTodoUpdate(context, sessionId, [])
         _persistCheckpoint(sessionId, [])
         return {
           success: true,
           action: 'clear',
           todos: [],
+          pendingApproval: false,
           total: 0,
           completed: 0,
           failed: 0
@@ -368,19 +387,23 @@ const skill = {
         // 本 action 让 LLM 也能显式触发还原（如检测到 todo 丢失时）
         const snapshot = Array.isArray(args.todos) ? args.todos : []
         const restored = restoreFromSnapshot(sessionId, snapshot)
+        // restore 不持久化 pendingApproval → 默认 false（断点续跑不弹审批窗）
+        _sessionPlanPending.set(sessionId, false)
         _notifyTodoUpdate(context, sessionId, restored)
         return {
           success: true,
           action: 'restore',
           todos: restored,
+          pendingApproval: false,
           ..._summarize(restored)
         }
       }
 
       case 'create_plan':
       case 'replace_plan': {
-        // create_plan：≥5 步强制规划，用 steps 数组构建计划替换当前清单（用户审批后才执行，审批由前端/IPC 层做）
-        // replace_plan：用户编辑计划后回传，清空重建（不触发审批，直接替换）
+        // create_plan：≥5 步强制规划，用 steps 数组构建计划替换当前清单，置 pendingApproval=true
+        //   前端据此弹 PlanApprovalModal，用户【确认/修改/取消】后再执行（审批由前端/IPC 层做）
+        // replace_plan：用户编辑计划后回传，清空重建（编辑即确认 → pendingApproval=false）
         const steps = Array.isArray(args.steps) ? args.steps : []
         if (steps.length === 0) {
           return { success: false, error: `${action} 操作需要 steps 数组且不能为空` }
@@ -390,13 +413,29 @@ const skill = {
         }
         const created = _planTodosFromSteps(steps)
         _sessionTodos.set(sessionId, created)
+        _sessionPlanPending.set(sessionId, action === 'create_plan')
         _notifyTodoUpdate(context, sessionId, created)
         _persistCheckpoint(sessionId, created)
         return {
           success: true,
           action,
           todos: created,
+          pendingApproval: action === 'create_plan',
           ..._summarize(created)
+        }
+      }
+
+      case 'approve_plan': {
+        // 计划审批通过：仅清除 pendingApproval，计划清单保持不动（前端【确认】按钮触发）
+        const current = _getTodos(sessionId)
+        _sessionPlanPending.set(sessionId, false)
+        _notifyTodoUpdate(context, sessionId, current)
+        return {
+          success: true,
+          action: 'approve_plan',
+          todos: current,
+          pendingApproval: false,
+          ..._summarize(current)
         }
       }
 
@@ -444,6 +483,7 @@ skill._cleanupSession = function _cleanupSession(sessionId) {
   const pendingTodos = todos.filter(t => t.status !== 'completed')
   if (pendingTodos.length === 0) {
     _sessionTodos.delete(sessionId)
+    _sessionPlanPending.delete(sessionId)
   }
   // 有未完成 todo → 保留，不做清理
 }
@@ -453,6 +493,7 @@ skill._cleanupSession = function _cleanupSession(sessionId) {
  */
 skill._cleanupAllForTest = function _cleanupAllForTest() {
   _sessionTodos.clear()
+  _sessionPlanPending.clear()
 }
 
 // 导出 restoreFromSnapshot 供续跑流程直接调用（不经 SkillExecutor，避免要构造 context）

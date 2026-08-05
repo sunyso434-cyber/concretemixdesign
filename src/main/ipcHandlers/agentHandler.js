@@ -442,6 +442,62 @@ function registerAgentHandlers() {
     }
   })
 
+  // === 阶段 3 任务 3.3：计划审批三个 IPC（PlanApprovalModal 三键对应） ===
+  // 确认 → todo:confirm-plan → approve_plan（清除 pendingApproval，计划生效）
+  // 修改 → todo:replace-plan → replace_plan（编辑后数组清空重建，清除 pendingApproval）
+  // 取消 → todo:clear → clear（清空计划）
+  // 注：todo_manage.execute 内部已 _persistCheckpoint 落库，成功即持久化完成
+  ipcMain.handle('todo:confirm-plan', async (_event, { sessionId } = {}) => {
+    if (!sessionId) {
+      return { success: false, error: '缺少 sessionId', todos: [], total: 0, completed: 0 }
+    }
+    try {
+      const todoManage = require('../skills/todo-manage')
+      return await todoManage.execute(
+        { action: 'approve_plan' },
+        { sessionId, logger: _log }
+      )
+    } catch (e) {
+      _log(`[AgentHandler] todo:confirm-plan 失败: ${e.message}`)
+      return { success: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('todo:replace-plan', async (_event, { sessionId, steps } = {}) => {
+    if (!sessionId) {
+      return { success: false, error: '缺少 sessionId', todos: [], total: 0, completed: 0 }
+    }
+    if (!Array.isArray(steps) || steps.length === 0) {
+      return { success: false, error: '缺少计划步骤 steps', todos: [], total: 0, completed: 0 }
+    }
+    try {
+      const todoManage = require('../skills/todo-manage')
+      return await todoManage.execute(
+        { action: 'replace_plan', steps },
+        { sessionId, logger: _log }
+      )
+    } catch (e) {
+      _log(`[AgentHandler] todo:replace-plan 失败: ${e.message}`)
+      return { success: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('todo:clear', async (_event, { sessionId } = {}) => {
+    if (!sessionId) {
+      return { success: false, error: '缺少 sessionId', todos: [], total: 0, completed: 0 }
+    }
+    try {
+      const todoManage = require('../skills/todo-manage')
+      return await todoManage.execute(
+        { action: 'clear' },
+        { sessionId, logger: _log }
+      )
+    } catch (e) {
+      _log(`[AgentHandler] todo:clear 失败: ${e.message}`)
+      return { success: false, error: e.message }
+    }
+  })
+
   ipcMain.handle('agent:saveMessage', async (_event, { sessionId, role, content, metadata, stopReason }) => {
     // M0-2：整体委托 executor.saveUserMessage
     // - 内部先 await saveMessage 落库，再 fire-and-forget ensureSession（建会话 + AI 标题 + 缓存失效 + 广播）

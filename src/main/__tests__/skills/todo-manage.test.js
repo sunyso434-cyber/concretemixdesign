@@ -35,7 +35,7 @@ describe('todo_manage Skill - schema 与元数据', () => {
     expect(todoManage.parameters.action).toBeDefined()
     expect(todoManage.parameters.action.required).toBe(true)
     expect(todoManage.parameters.action.enum).toEqual(
-      ['create', 'add', 'update', 'complete', 'list', 'clear', 'restore', 'create_plan', 'retry', 'replace_plan']
+      ['create', 'add', 'update', 'complete', 'list', 'clear', 'restore', 'create_plan', 'retry', 'replace_plan', 'approve_plan']
     )
   })
 
@@ -930,5 +930,152 @@ describe('todo_manage Skill - VALID_ACTIONS', () => {
     expect(todoManage.parameters.action.enum).toContain('restore')
     expect(todoManage.parameters.action.enum).toContain('create')
     expect(todoManage.parameters.action.enum).toContain('list')
+  })
+})
+
+// === 阶段 3 任务 3.3（2026-08-05）：计划审批 pendingApproval 触发机制 ===
+// create_plan 把计划标记为待审批（pendingApproval=true），前端据此弹出 PlanApprovalModal；
+// approve_plan（确认）/ replace_plan（编辑回传）/ clear（取消清空）三种路径清除待审批标记。
+describe('todo_manage Skill - 计划审批 pendingApproval', () => {
+  test('create_plan 后 pendingApproval=true（返回值 + list 一致）', async () => {
+    const result = await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ content: 'A' }, { content: 'B' }, { content: 'C' }]
+    }, _ctx('approval-1'))
+
+    expect(result.success).toBe(true)
+    expect(result.pendingApproval).toBe(true)
+
+    const list = await todoManage.execute({ action: 'list' }, _ctx('approval-1'))
+    expect(list.pendingApproval).toBe(true)
+    expect(list.total).toBe(3)
+  })
+
+  test('create_plan 事件 payload 带 pendingApproval=true', async () => {
+    const sendSpy = jest.fn()
+    const ctx = _ctx('approval-2')
+    ctx.webContents = { send: sendSpy, isDestroyed: () => false }
+
+    await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ content: 'A' }]
+    }, ctx)
+
+    expect(sendSpy).toHaveBeenCalledWith('todo:updated', expect.objectContaining({
+      pendingApproval: true,
+      sessionId: 'approval-2'
+    }))
+  })
+
+  test('approve_plan 清除 pendingApproval，计划保留（确认路径）', async () => {
+    await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ content: 'A' }, { content: 'B' }]
+    }, _ctx('approval-3'))
+
+    const result = await todoManage.execute({ action: 'approve_plan' }, _ctx('approval-3'))
+
+    expect(result.success).toBe(true)
+    expect(result.action).toBe('approve_plan')
+    expect(result.pendingApproval).toBe(false)
+    expect(result.total).toBe(2)  // 计划仍保留，只是不再待审批
+
+    const list = await todoManage.execute({ action: 'list' }, _ctx('approval-3'))
+    expect(list.pendingApproval).toBe(false)
+    expect(list.total).toBe(2)
+  })
+
+  test('approve_plan 事件 payload 带 pendingApproval=false', async () => {
+    const sendSpy = jest.fn()
+    const ctx = _ctx('approval-7')
+    ctx.webContents = { send: sendSpy, isDestroyed: () => false }
+
+    await todoManage.execute({ action: 'create_plan', steps: [{ content: 'A' }] }, ctx)
+    sendSpy.mockClear()
+    await todoManage.execute({ action: 'approve_plan' }, ctx)
+
+    expect(sendSpy).toHaveBeenCalledWith('todo:updated', expect.objectContaining({
+      pendingApproval: false,
+      sessionId: 'approval-7'
+    }))
+  })
+
+  test('replace_plan（用户编辑回传）清除 pendingApproval', async () => {
+    await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ content: 'A' }]
+    }, _ctx('approval-4'))
+
+    const result = await todoManage.execute({
+      action: 'replace_plan',
+      steps: [{ content: 'A2' }, { content: 'B2' }]
+    }, _ctx('approval-4'))
+
+    expect(result.success).toBe(true)
+    expect(result.pendingApproval).toBe(false)
+    expect(result.total).toBe(2)
+    expect(result.todos[0].content).toBe('A2')
+
+    const list = await todoManage.execute({ action: 'list' }, _ctx('approval-4'))
+    expect(list.pendingApproval).toBe(false)
+  })
+
+  test('clear（取消）清除 pendingApproval 且清空计划', async () => {
+    await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ content: 'A' }]
+    }, _ctx('approval-5'))
+
+    const result = await todoManage.execute({ action: 'clear' }, _ctx('approval-5'))
+
+    expect(result.success).toBe(true)
+    expect(result.pendingApproval).toBe(false)
+    expect(result.todos).toEqual([])
+
+    const list = await todoManage.execute({ action: 'list' }, _ctx('approval-5'))
+    expect(list.pendingApproval).toBe(false)
+    expect(list.total).toBe(0)
+  })
+
+  test('clear 事件 payload 带 pendingApproval=false', async () => {
+    const sendSpy = jest.fn()
+    const ctx = _ctx('approval-6')
+    ctx.webContents = { send: sendSpy, isDestroyed: () => false }
+
+    await todoManage.execute({ action: 'create_plan', steps: [{ content: 'A' }] }, ctx)
+    sendSpy.mockClear()
+    await todoManage.execute({ action: 'clear' }, ctx)
+
+    expect(sendSpy).toHaveBeenCalledWith('todo:updated', expect.objectContaining({
+      pendingApproval: false,
+      todos: [],
+      sessionId: 'approval-6'
+    }))
+  })
+
+  test('create（重建普通清单）清除 pendingApproval', async () => {
+    await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ content: 'A' }]
+    }, _ctx('approval-8'))
+
+    const result = await todoManage.execute({
+      action: 'create',
+      todos: [{ content: '普通任务' }]
+    }, _ctx('approval-8'))
+
+    expect(result.pendingApproval).toBe(false)
+    const list = await todoManage.execute({ action: 'list' }, _ctx('approval-8'))
+    expect(list.pendingApproval).toBe(false)
+  })
+
+  test('_cleanupAllForTest 清除 pendingApproval 标记', async () => {
+    await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ content: 'A' }]
+    }, _ctx('approval-9'))
+    todoManage._cleanupAllForTest()
+    const list = await todoManage.execute({ action: 'list' }, _ctx('approval-9'))
+    expect(list.pendingApproval).toBe(false)
   })
 })

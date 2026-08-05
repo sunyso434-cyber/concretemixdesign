@@ -76,6 +76,9 @@ const INVOKE_CHANNELS = new Set([
   'start-export-task',
   'start-import-task',
   'start-restore-task',
+  'todo:clear',
+  'todo:confirm-plan',
+  'todo:replace-plan',
   'updateMaterial',
   'updateMixDesign',
   'workspace:rename',
@@ -264,10 +267,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   // === Todo 计划面板（2026-07-08）：实时订阅 LLM 任务清单 ===
   // - list(sessionId)：mount 时拉取当前会话最新清单（兜底场景）
-  // - onUpdate(func)：订阅 todo:updated 事件，回调收到 { sessionId, todos, total, completed }
+  // - onUpdate(func)：订阅 todo:updated 事件，回调收到 { sessionId, todos, total, completed, pendingApproval }
   // - removeUpdateListener(id)：卸载时注销订阅
+  // - replacePlan / confirmPlan / clear：阶段 3 任务 3.3 计划审批三键（修改 / 确认 / 取消）
   todo: {
     list: (sessionId) => ipcRenderer.invoke('todo:list', { sessionId }),
+    replacePlan: (sessionId, steps) => ipcRenderer.invoke('todo:replace-plan', { sessionId, steps }),
+    confirmPlan: (sessionId) => ipcRenderer.invoke('todo:confirm-plan', { sessionId }),
+    clear: (sessionId) => ipcRenderer.invoke('todo:clear', { sessionId }),
     onUpdate: (func) => {
       const id = generateListenerId()
       const wrapper = (event, ...args) => func(...args)
