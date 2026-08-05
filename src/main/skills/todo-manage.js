@@ -2,7 +2,10 @@
  * Todo 任务管理 Skill
  *
  * 让 Agent 能维护一个跨轮次可见的任务清单，支持 create / add / update / complete / list / clear
- * 六种操作。状态可流转（pending → in_progress → completed）。
+ * / restore / create_plan / retry / replace_plan 十种操作。状态可流转（pending → in_progress → completed / failed）。
+ * create_plan 用于 ≥5 步强制规划（LLM 先规划、用户审批后执行）；replace_plan 用于用户编辑后回传；
+ * retry 用于步骤重跑（retryCount++，超过 maxRetry 标记 failed）。计划步骤可携带 suggestedSkill /
+ * expectedParams / dependencies 等元数据，供技能路由（getRelevantToolSchemas）和重跑使用。
  *
  * 设计要点：
  * - 纯内存存储（模块级 Map<sessionId, Todo[]>），不依赖外部服务
@@ -18,36 +21,60 @@ const crypto = require('crypto')
 // 不暴露给外部，仅通过 execute 操作
 const _sessionTodos = new Map()
 
-// 单个 Todo 结构：
-// { id, content, priority, status, createdAt, updatedAt }
+// 单个 Todo 结构（阶段 3 增强，基于原结构扩展，不破坏现有字段）：
+// { id, content, priority, status, createdAt, updatedAt, suggestedSkill?, expectedParams?, retryCount, maxRetry, dependencies }
 // - priority: 'high' | 'medium' | 'low'
-// - status:   'pending' | 'in_progress' | 'completed'
+// - status:   'pending' | 'in_progress' | 'completed' | 'failed'
+// - suggestedSkill：执行本步骤建议使用的 skill 名称（技能路由用）
+// - expectedParams：调用 suggestedSkill 时的参数对象
+// - retryCount / maxRetry：重跑计数与上限，retryCount >= maxRetry 时标记 failed
+// - dependencies：本步骤依赖的其他步骤 id 数组
 
-const VALID_ACTIONS = ['create', 'add', 'update', 'complete', 'list', 'clear', 'restore']
+const DEFAULT_MAX_RETRY = 3
+const VALID_ACTIONS = ['create', 'add', 'update', 'complete', 'list', 'clear', 'restore', 'create_plan', 'retry', 'replace_plan']
 const VALID_PRIORITIES = ['high', 'medium', 'low']
-const VALID_STATUSES = ['pending', 'in_progress', 'completed']
+const VALID_STATUSES = ['pending', 'in_progress', 'completed', 'failed']
 
 function _getTodos(sessionId) {
   if (!_sessionTodos.has(sessionId)) _sessionTodos.set(sessionId, [])
   return _sessionTodos.get(sessionId)
 }
 
-function _newTodo(content, priority = 'medium') {
+/**
+ * 新建一个 Todo
+ * @param {object} extra - 计划步骤元数据：id / suggestedSkill / expectedParams / maxRetry / dependencies / priority
+ */
+function _newTodo(content, priority = 'medium', extra = {}) {
   const now = new Date().toISOString()
   return {
-    id: crypto.randomUUID(),
+    id: extra.id || crypto.randomUUID(),
     content,
     priority: VALID_PRIORITIES.includes(priority) ? priority : 'medium',
     status: 'pending',
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    suggestedSkill: extra.suggestedSkill || undefined,
+    expectedParams: extra.expectedParams || undefined,
+    retryCount: 0,
+    maxRetry: (typeof extra.maxRetry === 'number' && extra.maxRetry >= 1) ? extra.maxRetry : DEFAULT_MAX_RETRY,
+    dependencies: Array.isArray(extra.dependencies) ? extra.dependencies : []
   }
+}
+
+/**
+ * 从 steps 数组构建计划 Todo 列表（create_plan / replace_plan 共用）
+ * - 调用前 execute 已校验 steps 非空且每步有 content
+ * - 保留步骤原有 id（前端编辑回传场景），无 id 则生成新 UUID
+ */
+function _planTodosFromSteps(steps) {
+  return steps.map(s => _newTodo(s.content, s.priority, s))
 }
 
 function _summarize(todos) {
   return {
     total: todos.length,
-    completed: todos.filter(t => t.status === 'completed').length
+    completed: todos.filter(t => t.status === 'completed').length,
+    failed: todos.filter(t => t.status === 'failed').length
   }
 }
 
@@ -70,7 +97,8 @@ function _notifyTodoUpdate(context, sessionId, todos) {
       sessionId,
       todos,
       total: todos.length,
-      completed: todos.filter(t => t.status === 'completed').length
+      completed: todos.filter(t => t.status === 'completed').length,
+      failed: todos.filter(t => t.status === 'failed').length
     })
   } catch (_) { /* 推送失败不影响主流程 */ }
 }
@@ -113,7 +141,7 @@ function restoreFromSnapshot(sessionId, todos) {
 
 const skill = {
   name: 'todo_manage',
-  description: '管理任务清单。支持创建/追加/更新/完成/列出/清空/还原任务。让 Agent 在多步骤任务中维护可见计划，状态可流转 pending → in_progress → completed。',
+  description: '管理任务清单。支持创建/追加/更新/完成/列出/清空/还原任务，以及 create_plan(强制规划，≥5 步任务先规划等用户审批)/retry(步骤重跑，超过 maxRetry 标记 failed)/replace_plan(用户编辑计划后回传，清空重建)。让 Agent 在多步骤任务中维护可见计划，状态可流转 pending → in_progress → completed / failed。',
   version: '1.0.0',
   category: 'agent',
   // 显式空数组：DynamicContextProvider.getServices 要求 services 字段必须声明
@@ -123,13 +151,29 @@ const skill = {
   parameters: {
     action: {
       type: 'string',
-      description: '操作类型：create(用一组任务初始化整个清单，覆盖旧清单) / add(追加单个任务) / update(修改某个任务) / complete(标记任务为已完成) / list(返回当前清单) / clear(清空清单) / restore(从快照还原清单)',
+      description: '操作类型：create(用一组任务初始化整个清单，覆盖旧清单) / add(追加单个任务) / update(修改某个任务) / complete(标记任务为已完成) / list(返回当前清单) / clear(清空清单) / restore(从快照还原清单) / create_plan(用 steps 数组构建计划，替换当前清单，≥5 步强制规划用) / retry(重跑某一步，retryCount++，超过 maxRetry 标记 failed) / replace_plan(编辑计划后回传，清空重建)',
       required: true,
       enum: VALID_ACTIONS
     },
+    steps: {
+      type: 'array',
+      description: 'create_plan / replace_plan 操作时传入的计划步骤数组，每步含 content + 可选 suggestedSkill / expectedParams / priority / maxRetry / dependencies',
+      required: false,
+      items: {
+        type: 'object',
+        properties: {
+          content: { type: 'string', description: '步骤内容' },
+          priority: { type: 'string', enum: VALID_PRIORITIES },
+          suggestedSkill: { type: 'string', description: '执行本步骤建议使用的 skill 名称（技能路由用）' },
+          expectedParams: { type: 'object', description: '调用 suggestedSkill 时传入的参数' },
+          maxRetry: { type: 'number', description: '最大重试次数，默认 3' },
+          dependencies: { type: 'array', description: '本步骤依赖的其他步骤 id 数组' }
+        }
+      }
+    },
     todos: {
       type: 'array',
-      description: 'create 操作时传入的任务数组',
+      description: 'create / restore 操作时传入的任务数组',
       required: false,
       items: {
         type: 'object',
@@ -152,7 +196,12 @@ const skill = {
     },
     id: {
       type: 'string',
-      description: 'complete 操作时传入的任务 ID',
+      description: 'complete / retry 操作时传入的任务 ID',
+      required: false
+    },
+    stepId: {
+      type: 'string',
+      description: 'retry 操作时传入的步骤 ID（与 id 等价，spec 3.4.6 示例用 stepId）',
       required: false
     }
   },
@@ -308,7 +357,8 @@ const skill = {
           action: 'clear',
           todos: [],
           total: 0,
-          completed: 0
+          completed: 0,
+          failed: 0
         }
       }
 
@@ -324,6 +374,55 @@ const skill = {
           action: 'restore',
           todos: restored,
           ..._summarize(restored)
+        }
+      }
+
+      case 'create_plan':
+      case 'replace_plan': {
+        // create_plan：≥5 步强制规划，用 steps 数组构建计划替换当前清单（用户审批后才执行，审批由前端/IPC 层做）
+        // replace_plan：用户编辑计划后回传，清空重建（不触发审批，直接替换）
+        const steps = Array.isArray(args.steps) ? args.steps : []
+        if (steps.length === 0) {
+          return { success: false, error: `${action} 操作需要 steps 数组且不能为空` }
+        }
+        if (steps.some(s => !s || !s.content)) {
+          return { success: false, error: '每个计划步骤必须有 content 字段' }
+        }
+        const created = _planTodosFromSteps(steps)
+        _sessionTodos.set(sessionId, created)
+        _notifyTodoUpdate(context, sessionId, created)
+        _persistCheckpoint(sessionId, created)
+        return {
+          success: true,
+          action,
+          todos: created,
+          ..._summarize(created)
+        }
+      }
+
+      case 'retry': {
+        // 步骤重跑：retryCount++；未达 maxRetry 时重置 status 为 pending 供重跑，达到/超过 maxRetry 标记 failed
+        // spec 3.4.6 参数示例用 stepId，此处与 id 等价兼容
+        const id = args.id || args.stepId
+        if (!id) {
+          return { success: false, error: 'retry 操作需要 id 字段' }
+        }
+        const current = _getTodos(sessionId)
+        const target = _findTodo(current, id)
+        if (!target) {
+          return { success: false, error: `任务不存在: ${id}` }
+        }
+        target.retryCount = (target.retryCount || 0) + 1
+        const cap = (typeof target.maxRetry === 'number' && target.maxRetry >= 1) ? target.maxRetry : DEFAULT_MAX_RETRY
+        target.status = target.retryCount >= cap ? 'failed' : 'pending'
+        target.updatedAt = new Date().toISOString()
+        _notifyTodoUpdate(context, sessionId, current)
+        _persistCheckpoint(sessionId, current)
+        return {
+          success: true,
+          action: 'retry',
+          todo: target,
+          ..._summarize(current)
         }
       }
 

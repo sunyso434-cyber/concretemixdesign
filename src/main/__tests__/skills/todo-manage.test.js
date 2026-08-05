@@ -35,7 +35,7 @@ describe('todo_manage Skill - schema 与元数据', () => {
     expect(todoManage.parameters.action).toBeDefined()
     expect(todoManage.parameters.action.required).toBe(true)
     expect(todoManage.parameters.action.enum).toEqual(
-      ['create', 'add', 'update', 'complete', 'list', 'clear', 'restore']
+      ['create', 'add', 'update', 'complete', 'list', 'clear', 'restore', 'create_plan', 'retry', 'replace_plan']
     )
   })
 
@@ -677,5 +677,258 @@ describe('todo_manage Skill - todo:updated 事件推送', () => {
 
     expect(result.success).toBe(true)
     expect(result.todos).toHaveLength(1)
+  })
+})
+
+// === 阶段 3 任务 3.1（2026-08-05）：增强版 todo_manage ===
+// 新增 create_plan / retry / replace_plan action + failed status + 计划步骤元数据字段
+describe('todo_manage Skill - create_plan action', () => {
+  test('create_plan 用 steps 数组构建 N 步计划，替换旧清单', async () => {
+    // 先创建旧清单
+    await todoManage.execute({
+      action: 'create',
+      todos: [{ content: '旧任务' }]
+    }, _ctx('plan-1'))
+
+    const result = await todoManage.execute({
+      action: 'create_plan',
+      steps: [
+        { content: '查规范', suggestedSkill: 'list_available_materials' },
+        { content: '做配合比' },
+        { content: '生成报告' }
+      ]
+    }, _ctx('plan-1'))
+
+    expect(result.success).toBe(true)
+    expect(result.action).toBe('create_plan')
+    expect(result.todos).toHaveLength(3)
+    expect(result.total).toBe(3)
+    expect(result.todos[0].content).toBe('查规范')
+    expect(result.todos[0].suggestedSkill).toBe('list_available_materials')
+    expect(result.todos[0].status).toBe('pending')
+    expect(result.todos[0].retryCount).toBe(0)
+    expect(result.todos[0].maxRetry).toBe(3)
+    expect(result.todos[0].dependencies).toEqual([])
+    // 旧清单被替换
+    expect(result.todos.some(t => t.content === '旧任务')).toBe(false)
+  })
+
+  test('create_plan 步骤透传 expectedParams / dependencies / priority / maxRetry', async () => {
+    const result = await todoManage.execute({
+      action: 'create_plan',
+      steps: [
+        { content: 'A', expectedParams: { materials: ['水泥'] }, dependencies: ['x'], priority: 'high', maxRetry: 2 }
+      ]
+    }, _ctx('plan-2'))
+
+    expect(result.todos[0].expectedParams).toEqual({ materials: ['水泥'] })
+    expect(result.todos[0].dependencies).toEqual(['x'])
+    expect(result.todos[0].priority).toBe('high')
+    expect(result.todos[0].maxRetry).toBe(2)
+  })
+
+  test('create_plan 空 steps 返回错误', async () => {
+    const result = await todoManage.execute({
+      action: 'create_plan',
+      steps: []
+    }, _ctx())
+
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/steps/)
+  })
+
+  test('create_plan 缺 steps 字段返回错误', async () => {
+    const result = await todoManage.execute({
+      action: 'create_plan'
+    }, _ctx())
+
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/steps/)
+  })
+
+  test('create_plan 步骤缺 content 返回错误', async () => {
+    const result = await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ suggestedSkill: 'web_search' }]
+    }, _ctx())
+
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/content/)
+  })
+})
+
+describe('todo_manage Skill - retry action', () => {
+  test('retry 使 retryCount++ 且状态重置为 pending', async () => {
+    const created = await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ content: '步骤1' }]
+    }, _ctx('retry-1'))
+    const id = created.todos[0].id
+
+    const result = await todoManage.execute({ action: 'retry', id }, _ctx('retry-1'))
+
+    expect(result.success).toBe(true)
+    expect(result.action).toBe('retry')
+    expect(result.todo.retryCount).toBe(1)
+    expect(result.todo.status).toBe('pending')
+  })
+
+  test('retry 超过 maxRetry（默认 3）标记 failed', async () => {
+    const created = await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ content: '步骤1' }]  // maxRetry 默认 3
+    }, _ctx('retry-2'))
+    const id = created.todos[0].id
+
+    // 第 1 次：retryCount=1，未达上限 → pending
+    const r1 = await todoManage.execute({ action: 'retry', id }, _ctx('retry-2'))
+    expect(r1.todo.retryCount).toBe(1)
+    expect(r1.todo.status).toBe('pending')
+
+    // 第 2 次：retryCount=2 → pending
+    const r2 = await todoManage.execute({ action: 'retry', id }, _ctx('retry-2'))
+    expect(r2.todo.retryCount).toBe(2)
+    expect(r2.todo.status).toBe('pending')
+
+    // 第 3 次：retryCount=3 >= maxRetry(3) → failed
+    const r3 = await todoManage.execute({ action: 'retry', id }, _ctx('retry-2'))
+    expect(r3.todo.retryCount).toBe(3)
+    expect(r3.todo.status).toBe('failed')
+  })
+
+  test('retry 尊重自定义 maxRetry', async () => {
+    const created = await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ content: '步骤1', maxRetry: 2 }]
+    }, _ctx('retry-3'))
+    const id = created.todos[0].id
+
+    // 第 1 次：retryCount=1 < 2 → pending
+    const r1 = await todoManage.execute({ action: 'retry', id }, _ctx('retry-3'))
+    expect(r1.todo.status).toBe('pending')
+
+    // 第 2 次：retryCount=2 >= 2 → failed
+    const r2 = await todoManage.execute({ action: 'retry', id }, _ctx('retry-3'))
+    expect(r2.todo.status).toBe('failed')
+  })
+
+  test('retry 支持 stepId 参数（spec 3.4.6 示例）', async () => {
+    const created = await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ content: '步骤1' }]
+    }, _ctx('retry-4'))
+    const stepId = created.todos[0].id
+
+    const result = await todoManage.execute({ action: 'retry', stepId }, _ctx('retry-4'))
+
+    expect(result.success).toBe(true)
+    expect(result.todo.retryCount).toBe(1)
+  })
+
+  test('retry 不存在的 id 返回错误', async () => {
+    const result = await todoManage.execute({ action: 'retry', id: 'nonexistent-id' }, _ctx())
+
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/不存在/)
+  })
+
+  test('retry 缺 id 返回错误', async () => {
+    const result = await todoManage.execute({ action: 'retry' }, _ctx())
+
+    expect(result.success).toBe(false)
+  })
+})
+
+describe('todo_manage Skill - replace_plan action', () => {
+  test('replace_plan 清空重建，替换为新的 steps', async () => {
+    // 先有旧计划
+    await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ content: '旧步骤1' }, { content: '旧步骤2' }]
+    }, _ctx('repl-1'))
+
+    const result = await todoManage.execute({
+      action: 'replace_plan',
+      steps: [
+        { content: '新步骤1', suggestedSkill: 'web_search' },
+        { content: '新步骤2' },
+        { content: '新步骤3' }
+      ]
+    }, _ctx('repl-1'))
+
+    expect(result.success).toBe(true)
+    expect(result.action).toBe('replace_plan')
+    expect(result.total).toBe(3)
+    expect(result.todos.every(t => t.status === 'pending')).toBe(true)
+    expect(result.todos[0].content).toBe('新步骤1')
+    expect(result.todos[0].suggestedSkill).toBe('web_search')
+    expect(result.todos.some(t => t.content === '旧步骤1')).toBe(false)
+  })
+
+  test('replace_plan 保留步骤原有 id（前端编辑回传场景）', async () => {
+    const result = await todoManage.execute({
+      action: 'replace_plan',
+      steps: [{ id: 'keep-1', content: '保留 id 的步骤' }]
+    }, _ctx('repl-2'))
+
+    expect(result.todos[0].id).toBe('keep-1')
+  })
+
+  test('replace_plan 空 steps 返回错误', async () => {
+    const result = await todoManage.execute({ action: 'replace_plan', steps: [] }, _ctx())
+
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/steps/)
+  })
+})
+
+describe('todo_manage Skill - failed status', () => {
+  test('failed 状态出现在返回的 todos 中（list）', async () => {
+    const created = await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ content: 'A' }, { content: 'B' }]
+    }, _ctx('fail-1'))
+    const id = created.todos[0].id
+
+    // 连续 retry 超过 maxRetry → failed
+    for (let i = 0; i < 3; i++) {
+      await todoManage.execute({ action: 'retry', id }, _ctx('fail-1'))
+    }
+
+    const list = await todoManage.execute({ action: 'list' }, _ctx('fail-1'))
+    expect(list.todos[0].status).toBe('failed')
+    // failed 计入 summary
+    expect(list.failed).toBe(1)
+    // 未完成的 failed 步骤不会被 _cleanupSession 清理
+    todoManage._cleanupSession('fail-1')
+    const after = await todoManage.execute({ action: 'list' }, _ctx('fail-1'))
+    expect(after.total).toBe(2)
+  })
+
+  test('update 也能显式把 status 置为 failed（VALID_STATUSES 含 failed）', async () => {
+    const created = await todoManage.execute({
+      action: 'create_plan',
+      steps: [{ content: 'A' }]
+    }, _ctx('fail-2'))
+    const id = created.todos[0].id
+
+    const result = await todoManage.execute({
+      action: 'update',
+      todo: { id, status: 'failed' }
+    }, _ctx('fail-2'))
+
+    expect(result.success).toBe(true)
+    expect(result.todo.status).toBe('failed')
+  })
+})
+
+describe('todo_manage Skill - VALID_ACTIONS', () => {
+  test('VALID_ACTIONS 含 create_plan / retry / replace_plan，且 restore 仍在', () => {
+    expect(todoManage.parameters.action.enum).toContain('create_plan')
+    expect(todoManage.parameters.action.enum).toContain('retry')
+    expect(todoManage.parameters.action.enum).toContain('replace_plan')
+    expect(todoManage.parameters.action.enum).toContain('restore')
+    expect(todoManage.parameters.action.enum).toContain('create')
+    expect(todoManage.parameters.action.enum).toContain('list')
   })
 })
