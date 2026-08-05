@@ -15,7 +15,8 @@ const { contextBridge, ipcRenderer } = require('electron')
 require('../preload')
 
 const electronAPI = contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'electronAPI')[1]
-const legacyElectron = contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'electron')[1]
+// preload 只在模块加载时调用 exposeInMainWorld，须在 beforeEach clearAllMocks 前记录暴露名单
+const exposedNamesAtLoad = contextBridge.exposeInMainWorld.mock.calls.map(([name]) => name)
 
 describe('preload IPC boundary', () => {
   beforeEach(() => {
@@ -39,6 +40,16 @@ describe('preload IPC boundary', () => {
     expect(ipcRenderer.on).toHaveBeenCalledWith('agent:sessionUpdated', expect.any(Function))
   })
 
+  test('allows the steer/follow_up/steer_immediate interrupt channels (v0.6.0/v0.6.1)', () => {
+    expect(() => electronAPI.invoke('agent:steer', { sessionId: 's', msg: 'x' })).not.toThrow()
+    expect(() => electronAPI.invoke('agent:follow_up', { sessionId: 's', msg: 'x' })).not.toThrow()
+    expect(() => electronAPI.invoke('agent:steer_immediate', { sessionId: 's', msg: 'x' })).not.toThrow()
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('agent:steer', { sessionId: 's', msg: 'x' })
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('agent:follow_up', { sessionId: 's', msg: 'x' })
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('agent:steer_immediate', { sessionId: 's', msg: 'x' })
+  })
+
   test('rejects unknown generic calls and events', () => {
     expect(() => electronAPI.invoke('shell:execute', 'whoami')).toThrow('IPC channel is not allowed')
     expect(() => electronAPI.on('secret:event', jest.fn())).toThrow('IPC channel is not allowed')
@@ -57,9 +68,9 @@ describe('preload IPC boundary', () => {
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('workspace:pickFolder')
   })
 
-  test('does not expose unrestricted legacy send/once/removeAllListeners methods', () => {
-    expect(legacyElectron.ipcRenderer.send).toBeUndefined()
-    expect(legacyElectron.ipcRenderer.once).toBeUndefined()
-    expect(legacyElectron.ipcRenderer.removeAllListeners).toBeUndefined()
+  test('does not expose an unrestricted legacy window.electron bridge', () => {
+    // preload 只暴露受限的 window.electronAPI，不再暴露旧的无白名单 window.electron
+    expect(exposedNamesAtLoad).toContain('electronAPI')
+    expect(exposedNamesAtLoad).not.toContain('electron')
   })
 })

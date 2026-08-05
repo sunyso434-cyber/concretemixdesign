@@ -10,7 +10,7 @@ const INVOKE_CHANNELS = new Set([
   'training:previewArchivedMetrics',
   'agent:abort',
   'agent:steer',
-  'agent:followUp',
+  'agent:follow_up',
   'agent:steer_immediate',
   'agent:archiveSession',
   'agent:backfillMemory',

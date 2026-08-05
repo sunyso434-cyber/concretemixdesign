@@ -659,7 +659,7 @@ class DeepSeekService {
     try {
       return await this._callAPIStream(messages, true, onEvent, tools, signal)
     } catch (error) {
-      if (error.code === 'ERR_CANCELED' || error.name === 'AbortError' || error.message?.includes('cancel')) {
+      if (error.code === 'ERR_CANCELED' || error.name === 'CanceledError' || error.name === 'AbortError') {
         throw { name: 'AbortError', message: 'Stream interrupted by user', code: 'ERR_CANCELED' }
       }
       throw await this._buildClassifiedError(error, 'DeepSeekService.chatWithToolsStream')
@@ -699,7 +699,7 @@ class DeepSeekService {
       })
     } catch (postError) {
       // v3.1 要点 3：响应头前 abort 静默跳过，不打吓人日志
-      if (postError.code === 'ERR_CANCELED' || postError.name === 'CanceledError' || postError.message?.includes('cancel')) {
+      if (postError.code === 'ERR_CANCELED' || postError.name === 'CanceledError' || postError.name === 'AbortError') {
         throw { name: 'AbortError', message: 'Stream interrupted by user (pre-headers)', code: 'ERR_CANCELED' }
       }
       const status = postError.response?.status || '?'
