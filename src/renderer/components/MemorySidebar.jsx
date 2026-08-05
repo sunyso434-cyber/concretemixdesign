@@ -50,6 +50,64 @@ function formatSessionFallback(sid) {
  * Props:
  * - onToggle: 关闭侧栏按钮的回调
  */
+
+// 文件树递归项：目录可展开/折叠（懒加载子目录），md 文件点击打开阅读器
+const toSlash = (p) => String(p || '').replace(/\\/g, '/')
+function FileTreeItems({ files, workspacePath, depth = 0, onOpenMd, wsPath, wsBasename, expandedSet = new Set(), childrenMap = {}, onToggleDir }) {
+  return (files || []).map((f, idx) => {
+    const isMd = !f.isDir && /\.md$/i.test(f.name)
+    const isDir = !!f.isDir
+    const expanded = isDir && expandedSet.has(f.path)
+    return (
+      <div key={idx}>
+        <div
+          className="v9-file-tree-item"
+          style={{ paddingLeft: 8 + depth * 18, cursor: (isMd || isDir) ? 'pointer' : 'default' }}
+          onClick={async () => {
+            if (isDir) {
+              onToggleDir(wsPath, f.path, workspacePath)
+              return
+            }
+            if (isMd && typeof onOpenMd === 'function') {
+              // 文件属于其他工作区（非当前激活）→ 提示切换，避免打开注定失败的 tab
+              try {
+                const cur = await window.electronAPI.workspace.current()
+                if (cur?.path && workspacePath && workspacePath !== cur.path) {
+                  message.info(`「${wsBasename}」工作区未打开，请先切换到该工作区再查看文件`)
+                  return
+                }
+              } catch { /* current() 失败则放行，主进程会兜底提示 */ }
+              onOpenMd(f.path)
+            }
+          }}
+        >
+          {isDir
+            ? (expanded ? <FolderOpenOutlined style={{ marginRight: 4 }} /> : <FolderOutlined style={{ marginRight: 4 }} />)
+            : <FileOutlined style={{ marginRight: 4 }} />}
+          <span className="v9-file-tree-name">{f.name}</span>
+        </div>
+        {isDir && expanded && (
+          childrenMap[f.path] ? (
+            <FileTreeItems
+              files={childrenMap[f.path]}
+              workspacePath={workspacePath}
+              depth={depth + 1}
+              onOpenMd={onOpenMd}
+              wsPath={wsPath}
+              wsBasename={wsBasename}
+              expandedSet={expandedSet}
+              childrenMap={childrenMap}
+              onToggleDir={onToggleDir}
+            />
+          ) : (
+            <div style={{ padding: '4px 12px 4px ' + (8 + (depth + 1) * 18) + 'px', color: 'var(--text-tertiary)', fontSize: 12 }}>加载中...</div>
+          )
+        )}
+      </div>
+    )
+  })
+}
+
 const MemorySidebar = ({ onToggle, onOpenMd }) => {
   const { state, dispatch } = useAgentStore()
   const sessions = state.session.list
@@ -61,6 +119,10 @@ const MemorySidebar = ({ onToggle, onOpenMd }) => {
   const [workspaceRenameModal, setWorkspaceRenameModal] = useState({ open: false, path: null, basename: '', value: '' })
   // 工作区文件树视图：{ [path]: { showFiles: bool, files: [], loading: bool } }
   const [wsFileView, setWsFileView] = useState({})
+  // 文件树已展开的目录：{ [wsPath]: Set<绝对目录路径> }
+  const [expandedDirs, setExpandedDirs] = useState({})
+  // 文件树子目录缓存：{ [wsPath]: { [绝对目录路径]: files } }
+  const [dirChildren, setDirChildren] = useState({})
   // 工作区会话折叠：{ [path]: true } 表示展开；缺省/false 表示折叠（默认只显示前 3 条）
   const [expandedWs, setExpandedWs] = useState({})
   const SESSION_COLLAPSE_LIMIT = 3
@@ -109,6 +171,33 @@ const MemorySidebar = ({ onToggle, onOpenMd }) => {
       }
     } else {
       setWsFileView(prev => ({ ...prev, [wsPath]: { ...current, showFiles: newShowFiles } }))
+    }
+  }
+
+  // 文件树目录展开/折叠：展开时懒加载子目录（listFiles 的 subdir 传相对路径）
+  const toggleDir = async (wsPath, dirAbsPath, workspaceAbsPath) => {
+    const curSet = expandedDirs[wsPath] || new Set()
+    if (curSet.has(dirAbsPath)) {
+      // 折叠：移除该目录（连同其所有子目录一并折叠）
+      const newSet = new Set([...curSet].filter(p => p !== dirAbsPath && !p.startsWith(dirAbsPath + '\\') && !p.startsWith(dirAbsPath + '/')))
+      setExpandedDirs(prev => ({ ...prev, [wsPath]: newSet }))
+      return
+    }
+    setExpandedDirs(prev => ({ ...prev, [wsPath]: new Set([...curSet, dirAbsPath]) }))
+    // 懒加载子目录内容（未缓存时）
+    if (!dirChildren[wsPath]?.[dirAbsPath]) {
+      const toSlash = (p) => String(p || '').replace(/\\/g, '/')
+      const rootSlash = toSlash(workspaceAbsPath)
+      const rel = toSlash(dirAbsPath).startsWith(rootSlash)
+        ? toSlash(dirAbsPath).slice(rootSlash.length).replace(/^\/+/, '')
+        : toSlash(dirAbsPath).replace(/^\/+/, '')
+      try {
+        const result = await window.electronAPI.workspace.listFiles(rel || 'root', { workspacePath: workspaceAbsPath })
+        setDirChildren(prev => ({ ...prev, [wsPath]: { ...(prev[wsPath] || {}), [dirAbsPath]: result?.files || [] } }))
+      } catch (err) {
+        console.warn('[MemorySidebar] 加载子目录失败:', err)
+        setDirChildren(prev => ({ ...prev, [wsPath]: { ...(prev[wsPath] || {}), [dirAbsPath]: [] } }))
+      }
     }
   }
 
@@ -489,21 +578,17 @@ const MemorySidebar = ({ onToggle, onOpenMd }) => {
                         ) : fileView.files.length === 0 ? (
                           <div style={{ padding: '8px 12px', color: 'var(--text-tertiary)', fontSize: 12 }}>暂无文件</div>
                         ) : (
-                          fileView.files.map((f, idx) => (
-                            <div
-                              key={idx}
-                              className="v9-file-tree-item"
-                              onClick={() => {
-                                if (!f.isDir && /\.md$/i.test(f.name) && typeof onOpenMd === 'function') {
-                                  onOpenMd(f.path)
-                                }
-                              }}
-                              style={{ cursor: !f.isDir && /\.md$/i.test(f.name) ? 'pointer' : 'default' }}
-                            >
-                              {f.isDir ? <FolderOutlined /> : <FileOutlined />}
-                              <span className="v9-file-tree-name">{f.name}</span>
-                            </div>
-                          ))
+                          <FileTreeItems
+                            files={fileView.files}
+                            workspacePath={ws.path}
+                            depth={0}
+                            onOpenMd={onOpenMd}
+                            wsPath={ws.path}
+                            wsBasename={ws.basename}
+                            expandedSet={expandedDirs[ws.path] || new Set()}
+                            childrenMap={dirChildren[ws.path] || {}}
+                            onToggleDir={toggleDir}
+                          />
                         )}
                       </div>
                     ) : (

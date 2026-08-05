@@ -1,8 +1,8 @@
 import React, { useDeferredValue } from 'react'
-import { Tabs, Button, Empty, Alert, Spin, Space } from 'antd'
+import { Tabs, Button, Empty, Alert, Spin, Space, Tooltip } from 'antd'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { FileMarkdownOutlined, EditOutlined, CloseOutlined, RightOutlined } from '@ant-design/icons'
+import { FileMarkdownOutlined, EditOutlined, EyeOutlined, DoubleRightOutlined } from '@ant-design/icons'
 
 export default function MdReaderPanel({
   state, panelWidth,
@@ -50,12 +50,18 @@ export default function MdReaderPanel({
         />
         <Space className="md-reader-header-actions">
           {active?.mode === 'edit' && (
-            <Button size="small" icon={<RightOutlined />} onClick={() => onToggleEdit(active.key)}>预览</Button>
+            <Tooltip title="返回预览">
+              <span className="md-reader-icon-btn" onClick={() => onToggleEdit(active.key)}><EyeOutlined /></span>
+            </Tooltip>
           )}
           {active?.mode === 'preview' && !active.readOnly && (
-            <Button size="small" icon={<EditOutlined />} onClick={() => onToggleEdit(active.key)}>编辑</Button>
+            <Tooltip title="编辑">
+              <span className="md-reader-icon-btn" onClick={() => onToggleEdit(active.key)}><EditOutlined /></span>
+            </Tooltip>
           )}
-          <Button size="small" icon={<CloseOutlined />} onClick={onCollapse} title="收起阅读器">收起</Button>
+          <Tooltip title="收起阅读器">
+            <span className="md-reader-icon-btn" onClick={onCollapse}><DoubleRightOutlined /></span>
+          </Tooltip>
         </Space>
       </div>
 

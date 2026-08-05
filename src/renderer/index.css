@@ -3334,3 +3334,71 @@ body {
   width: 8px; height: 8px; border-radius: 50%;
   background: #ff4d4f; display: inline-block;
 }
+
+/* === MD 阅读器：对话内 md 引用可点击链接 === */
+.md-inline-link {
+  color: var(--primary-color, #4B3FE3);
+  text-decoration: underline;
+  cursor: pointer;
+  word-break: break-all;
+}
+.md-inline-link:hover { opacity: 0.85; }
+
+/* === MD 阅读器：tab 随数量收缩 + 操作按钮靠右 === */
+.md-reader-header .ant-tabs-nav-wrap,
+.md-reader-header .ant-tabs-nav-list {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.md-reader-header .ant-tabs-tab {
+  flex: 1 1 auto !important;
+  min-width: 0;
+  max-width: 220px;
+  padding: 6px 10px !important;
+}
+.md-reader-header .ant-tabs-tab .ant-tabs-tab-btn {
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+.md-reader-header .md-reader-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.md-reader-header .ant-tabs-tab .ant-tabs-tab-remove {
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+.md-reader-header-actions {
+  flex-shrink: 0;
+  padding-left: 4px;
+}
+
+/* === MD 阅读器：顶部操作图标按钮（与 tab 关闭圆钮同款） === */
+.md-reader-header-actions .md-reader-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 12px;
+  color: var(--text-tertiary, #737373);
+  cursor: pointer;
+  transition: all var(--transition-fast, 150ms ease);
+  line-height: 1;
+}
+.md-reader-header-actions .md-reader-icon-btn:hover {
+  color: var(--primary-color, #4B3FE3);
+  background: var(--brand-light, rgba(75, 63, 227, 0.08));
+}
+.md-reader-header-actions .md-reader-icon-btn .anticon {
+  display: inline-flex;
+}

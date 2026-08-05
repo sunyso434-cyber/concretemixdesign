@@ -39,7 +39,8 @@ async function isAllowedPath(filePath, { workspaceRoot, skillUserDir }) {
       return { ok: true, realPath: real }
     }
   }
-  return { ok: false, reason: '路径不在允许目录内' }
+  // 文件真实存在但不在当前允许目录内：给友好提示（多为点了其他工作区的文件）
+  return { ok: false, reason: '文件不在当前工作区，请先切换到对应工作区后再查看' }
 }
 
 async function readMd(filePath, roots) {

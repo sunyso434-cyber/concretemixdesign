@@ -92,12 +92,66 @@ const CHAT_STREAM_EVENT = 'aiAnalysis:chatStream:event'
  * 注意：toolCall 卡片 / materialPicker / analysisReport 等复杂业务渲染不在本组件内，
  * 由 SmartDesignChat 主体保留处理（不在 Task 9 重构范围）。
  */
-function MessageContent({ item, agentStatus, agentReplyText }) {
+
+// md 阅读器：把文本中出现的 md 文件引用（如 reports/xxx.md、小砼-自我介绍.md）转成可点击链接
+// 注意：react-markdown 的 text 节点不是独立元素、无法用 components 覆盖，故先转成特殊链接再拦截 a 组件
+const MD_REF_RE = /([\w一-龥][\w一-龥\-.()\/\\]*\.md)(?![A-Za-z0-9一-龥\-_./\\])/g
+const MD_REF_PREFIX = '#md-ref:'
+function linkifyMdRefs(content) {
+  if (!content) return content
+  MD_REF_RE.lastIndex = 0
+  return String(content).replace(MD_REF_RE, (match) => `[${match}](${MD_REF_PREFIX}${encodeURIComponent(match)})`)
+}
+
+function makeMdComponents(onOpenMd) {
+  return {
+    a: ({ href, children }) => {
+      if (href && href.startsWith(MD_REF_PREFIX)) {
+        const mdPath = decodeURIComponent(href.slice(MD_REF_PREFIX.length))
+        return (
+          <a
+            className="md-inline-link"
+            title="点击在阅读器中打开"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenMd && onOpenMd(mdPath) }}
+          >
+            {children}
+          </a>
+        )
+      }
+      return <a href={href}>{children}</a>
+    },
+    // 反引号包裹的 md 路径：linkify 已转成链接语法，ReactMarkdown 会当行内代码渲染，
+    // 这里识别（content 为 md-ref 链接语法）并还原为"代码样式的可点击链接"
+    // 注意：react-markdown v10 的 code 组件不传 inline prop，故按内容格式判断
+    code: ({ className, children }) => {
+      const text = String(children || '')
+      const m = text.match(/^\[(.+)\]\(#md-ref:([^)]+)\)$/)
+      if (m) {
+        const mdPath = decodeURIComponent(m[2])
+        return (
+          <code className={className}>
+            <a
+              className="md-inline-link"
+              title="点击在阅读器中打开"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenMd && onOpenMd(mdPath) }}
+            >
+              {m[1]}
+            </a>
+          </code>
+        )
+      }
+      return <code className={className}>{children}</code>
+    }
+  }
+}
+
+function MessageContent({ item, agentStatus, agentReplyText, onOpenMd }) {
   // v10.10.12 修复：agent 流式输出时 ReactMarkdown 每条 IPC 都重新解析整个 markdown，
   // 大段输出（几万字）会卡死渲染进程 → 白屏。useDeferredValue 让 React 自动降速。
   const deferredReplyText = useDeferredValue(agentReplyText)
+  const mdComponents = makeMdComponents(onOpenMd)
   if (item.role !== 'assistant') {
-    return <ReactMarkdown>{item.content}</ReactMarkdown>
+    return <ReactMarkdown components={mdComponents}>{linkifyMdRefs(item.content)}</ReactMarkdown>
   }
   if (agentStatus === 'thinking' && item._streaming) {
     return <div className="ai-thinking">AI 正在思考<span className="ai-thinking-text"></span></div>
@@ -105,7 +159,7 @@ function MessageContent({ item, agentStatus, agentReplyText }) {
   if ((agentStatus === 'streaming' || agentStatus === 'tool_calling') && item._streaming) {
     return (
       <div className="chat-markdown-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{deferredReplyText || item.content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{linkifyMdRefs(deferredReplyText || item.content)}</ReactMarkdown>
         <span className="streaming-cursor">|</span>
       </div>
     )
@@ -113,7 +167,7 @@ function MessageContent({ item, agentStatus, agentReplyText }) {
   if (item.stopReason === 'aborted') {
     return (
       <div className="chat-markdown-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{linkifyMdRefs(item.content)}</ReactMarkdown>
         <span className="aborted-tag">[已停止]</span>
       </div>
     )
@@ -121,7 +175,7 @@ function MessageContent({ item, agentStatus, agentReplyText }) {
   if (item.stopReason === 'error') {
     return (
       <div className="chat-markdown-body">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{linkifyMdRefs(item.content)}</ReactMarkdown>
         <span className="aborted-tag">[生成中断]</span>
       </div>
     )
@@ -134,7 +188,7 @@ function MessageContent({ item, agentStatus, agentReplyText }) {
     return (
       <div className="chat-markdown-body">
         {visibleContent && (
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{visibleContent}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{linkifyMdRefs(visibleContent)}</ReactMarkdown>
         )}
         <details style={{ marginTop: 8, fontSize: 12, color: 'var(--color-text-secondary)' }}>
           <summary style={{ cursor: 'pointer', userSelect: 'none' }}>
@@ -161,7 +215,7 @@ function MessageContent({ item, agentStatus, agentReplyText }) {
 
   return (
     <div className="chat-markdown-body">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{linkifyMdRefs(item.content)}</ReactMarkdown>
     </div>
   )
 }
@@ -171,7 +225,16 @@ const SmartDesignChat = () => {
   const chatState = useChatState()
   const { state, dispatch } = useAgentStore()
   const reader = useMdReader()
-  const handleOpenMd = (path) => reader.openFile(path)
+  const handleOpenMd = (path) => {
+    const p = String(path || '').trim()
+    if (!p) return
+    // 相对路径（如 reports/xxx.md）→ 拼接当前工作区根；绝对路径直接用
+    if (!/^([A-Za-z]:[\\/]|[\\/])/.test(p) && workspacePath) {
+      reader.openFile(`${workspacePath.replace(/[\\/]+$/, '')}/${p.replace(/^[\\/]+/, '')}`)
+    } else {
+      reader.openFile(p)
+    }
+  }
   const { agentRequestIdRef } = useAgentMode() // 纯事件监听器
   useAssistantPersistence() // 副作用 hook（done/aborted 时自动持久化）
 
@@ -1906,6 +1969,7 @@ const SmartDesignChat = () => {
                         item={item}
                         agentStatus={state.agent.status}
                         agentReplyText={state.agent.replyText}
+                        onOpenMd={handleOpenMd}
                       />
                       {/* 历史 todo 快照（只读）：留在上一轮 agent 输出中 */}
                       {item.todoSnapshot && (

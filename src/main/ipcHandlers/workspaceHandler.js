@@ -79,15 +79,19 @@ function register(refs) {
   })
 
   ipcMain.handle('workspace:listFiles', wrapWorkspaceCall(async (event, { subdir, workspacePath }) => {
-    // 指定 workspacePath 时，直接用 fs 读该路径（用于侧栏按工作区显示文件树）
+    // 指定 workspacePath 时，用 fs 直接读该工作区（用于侧栏按工作区显示文件树）
+    // subdir='root'（或缺省）读根目录；否则读 workspacePath/subdir（支持文件树展开子目录）
     if (workspacePath) {
       try {
-        const entries = await fs.promises.readdir(workspacePath, { withFileTypes: true })
+        const target = (subdir === 'root' || !subdir)
+          ? workspacePath
+          : path.posix.join(String(workspacePath).replace(/\\/g, '/'), String(subdir).replace(/\\/g, '/'))
+        const entries = await fs.promises.readdir(target, { withFileTypes: true })
         const files = entries
           .filter(e => !e.name.startsWith('.')) // 过滤隐藏文件
           .map(e => ({
             name: e.name,
-            path: path.join(workspacePath, e.name),
+            path: path.join(target, e.name),
             isDir: e.isDirectory()
           }))
         return { files }
