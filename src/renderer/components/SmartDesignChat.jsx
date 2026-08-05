@@ -1652,6 +1652,7 @@ const SmartDesignChat = () => {
       {!state.session.sidebarCollapsed && (
         <MemorySidebar
           onToggle={() => dispatch({ type: 'SET_SIDEBAR_COLLAPSED', payload: true })}
+          onOpenMd={handleOpenMd}
         />
       )}
 

@@ -50,7 +50,7 @@ function formatSessionFallback(sid) {
  * Props:
  * - onToggle: 关闭侧栏按钮的回调
  */
-const MemorySidebar = ({ onToggle }) => {
+const MemorySidebar = ({ onToggle, onOpenMd }) => {
   const { state, dispatch } = useAgentStore()
   const sessions = state.session.list
   const currentSessionId = state.session.currentId
@@ -490,7 +490,16 @@ const MemorySidebar = ({ onToggle }) => {
                           <div style={{ padding: '8px 12px', color: 'var(--text-tertiary)', fontSize: 12 }}>暂无文件</div>
                         ) : (
                           fileView.files.map((f, idx) => (
-                            <div key={idx} className="v9-file-tree-item">
+                            <div
+                              key={idx}
+                              className="v9-file-tree-item"
+                              onClick={() => {
+                                if (!f.isDir && /\.md$/i.test(f.name) && typeof onOpenMd === 'function') {
+                                  onOpenMd(f.path)
+                                }
+                              }}
+                              style={{ cursor: !f.isDir && /\.md$/i.test(f.name) ? 'pointer' : 'default' }}
+                            >
                               {f.isDir ? <FolderOutlined /> : <FileOutlined />}
                               <span className="v9-file-tree-name">{f.name}</span>
                             </div>
