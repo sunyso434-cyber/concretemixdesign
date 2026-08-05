@@ -107,4 +107,29 @@ describe('UnifiedStrategy Enter 工具边界插话（Task 6）', () => {
     // 合成结果已落库
     expect(mocks.agentMemoryService.saveMessage).toHaveBeenCalledWith(expect.objectContaining({ role: 'tool', toolCallId: 'B', metadata: expect.objectContaining({ synth: true }) }))
   })
+
+  // Task 7：问题 D — ask_user 被插话打断（INTERRUPTED_BY_STEER）不当失败记账，不触发熔断
+  test('ask_user 连续被打断（INTERRUPTED_BY_STEER）不递增 skillExec → 不熔断，正常完成', async () => {
+    const orch = makeOrchestrator()
+    const mocks = makeMocks(orch)
+    mocks.skillRegistry.getSkill.mockReturnValue({ name: 'ask_user', parameters: {} })
+    // 8 次全返回中断（若 skillExec 递增则第 6 次熔断），第 9 次返回纯文本
+    for (let i = 0; i < 8; i++) {
+      mockChat.mockResolvedValueOnce({
+        content: null,
+        tool_calls: [{ id: `ask${i}`, function: { name: 'ask_user', arguments: '{"question":"x"}' } }]
+      })
+    }
+    mockChat.mockResolvedValueOnce({ content: '完成了', tool_calls: null })
+    mocks.skillExecutor.execute.mockResolvedValue({ success: false, error: 'INTERRUPTED_BY_STEER', interrupted: true })
+
+    const strategy = new UnifiedStrategy(mocks)
+    const result = await strategy.execute({ sessionId: 's1', message: 'hi' })
+
+    expect(result.success).toBe(true)
+    // 打断时 tool 消息仍落库（LLM 看到中断）
+    expect(mocks.agentMemoryService.saveMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'tool', content: expect.stringContaining('interrupted') })
+    )
+  })
 })

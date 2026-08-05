@@ -845,89 +845,120 @@ class UnifiedStrategy {
             }
 
             if (execResult && execResult.success === false) {
-              // v8.2.2: workspace_readPage 等工具通过 createError 返回 {code, title, hint, recovery, details}
-              // 优先读 .title（用户可读消息），再读老的 .message/.error，避免全部丢失后落到"未知错误"兜底
-              const errorMsg = typeof execResult.error === 'object'
-                ? (execResult.error.title || execResult.error.message || execResult.error.error || JSON.stringify(execResult.error))
-                : String(execResult.error || '未知错误')
+              // v3.0 问题 D：被 steer 打断的 ask_user 返回 INTERRUPTED_BY_STEER（interrupted:true）→
+              // 视为正常中断，不是"失败"——跳过 recordFailure + skillExec++ + 软提醒 + 熔断，
+              // 否则连续打断会把 skillExec 顶到 HARD_FUSE_THRESHOLD 误熔断。
+              const isInterrupted = execResult.error === 'INTERRUPTED_BY_STEER' || execResult.interrupted === true
 
-              // P1-2：失败教训自动记录
-              try {
-                const LearningService = require('../../services/LearningService')
-                LearningService.recordFailure({ skillName: name, args, error: errorMsg }).catch(() => {})
-              } catch (_) {}
+              // === 跳过区（v3.1 要点 1）：只包「记账 + 软提醒 + 熔断」，中断时不执行 ===
+              if (!isInterrupted) {
+                // v8.2.2: workspace_readPage 等工具通过 createError 返回 {code, title, hint, recovery, details}
+                // 优先读 .title（用户可读消息），再读老的 .message/.error，避免全部丢失后落到"未知错误"兜底
+                const errorMsg = typeof execResult.error === 'object'
+                  ? (execResult.error.title || execResult.error.message || execResult.error.error || JSON.stringify(execResult.error))
+                  : String(execResult.error || '未知错误')
 
-              failureCounters.skillExec++
+                // P1-2：失败教训自动记录
+                try {
+                  const LearningService = require('../../services/LearningService')
+                  LearningService.recordFailure({ skillName: name, args, error: errorMsg }).catch(() => {})
+                } catch (_) {}
 
-              // v8.2.5: 软提醒 — 连续失败 3 次后向 LLM 注入"换路"提示
-              // 仅触发 1 次（用 softWarnSent 标志防重复）
-              if (failureCounters.skillExec === SOFT_WARN_THRESHOLD && !softWarnSent.skillExec) {
-                const warnMsg = `⚠️ 你已在这条路径上连续失败 3 次（工具 "${name}" 执行失败）。请停下分析：失败原因是什么？换一种工具 / 换一套参数 / 换条路径，而不是重试同样的方法。`
-                trimmedMessages.push({ role: 'user', content: warnMsg })
-                softWarnSent.skillExec = true
-              }
+                failureCounters.skillExec++
 
-              this._notifyProgress(webContents, {
-                type: 'tool_error',
-                toolCallId: tc.id,
-                toolName: name,
-                args,
-                error: errorMsg,
-                roundIndex,
-                mode,
-                status: 'running'
-              })
+                // v8.2.5: 软提醒 — 连续失败 3 次后向 LLM 注入"换路"提示
+                // 仅触发 1 次（用 softWarnSent 标志防重复）
+                if (failureCounters.skillExec === SOFT_WARN_THRESHOLD && !softWarnSent.skillExec) {
+                  const warnMsg = `⚠️ 你已在这条路径上连续失败 3 次（工具 "${name}" 执行失败）。请停下分析：失败原因是什么？换一种工具 / 换一套参数 / 换条路径，而不是重试同样的方法。`
+                  trimmedMessages.push({ role: 'user', content: warnMsg })
+                  softWarnSent.skillExec = true
+                }
 
-              if (failureCounters.skillExec >= HARD_FUSE_THRESHOLD) {
-                errorHandler.fatal('orchestrator', { counters: failureCounters })
-                // Task 2: 微压缩（带 try-catch，磁盘 I/O 失败不阻塞主流程）
-                let cacheResultFatal = null
-                try { cacheResultFatal = this.toolResultStore.store(sessionId, tc.id, execResult) } catch (_) {}
-                const toolErrContent1 = JSON.stringify(execResult)
-                if (cacheResultFatal && cacheResultFatal.offloaded) {
+                this._notifyProgress(webContents, {
+                  type: 'tool_error',
+                  toolCallId: tc.id,
+                  toolName: name,
+                  args,
+                  error: errorMsg,
+                  roundIndex,
+                  mode,
+                  status: 'running'
+                })
+
+                if (failureCounters.skillExec >= HARD_FUSE_THRESHOLD) {
+                  errorHandler.fatal('orchestrator', { counters: failureCounters })
+                  // Task 2: 微压缩（带 try-catch，磁盘 I/O 失败不阻塞主流程）
+                  let cacheResultFatal = null
+                  try { cacheResultFatal = this.toolResultStore.store(sessionId, tc.id, execResult) } catch (_) {}
+                  const toolErrContent1 = JSON.stringify(execResult)
+                  if (cacheResultFatal && cacheResultFatal.offloaded) {
+                    trimmedMessages.push({
+                      role: 'tool',
+                      content: JSON.stringify({
+                        _cached: true,
+                        path: cacheResultFatal.path,
+                        summary: cacheResultFatal.summary,
+                        tool_call_id: tc.id
+                      }),
+                      tool_call_id: tc.id
+                    })
+                  } else {
+                    trimmedMessages.push({ role: 'tool', content: toolErrContent1, tool_call_id: tc.id })
+                  }
+                  try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: toolErrContent1, toolCallId: tc.id }) } catch (_) {}
+                  finalResult = { reply: `执行"${name}"时连续失败：${errorMsg}`, mode, error: true }
+                  const classifiedError = classifyError(new Error('max_failures_exceeded: skill execution failures exceeded threshold'), {
+                    callSite: 'UnifiedStrategy.skillExec',
+                    sessionId,
+                  })
+                  this._notifyProgress(webContents, { type: 'error', error: classifiedError, result: finalResult, mode })
+                  return { success: false, error: classifiedError }
+                }
+
+                // Task 2: 微压缩（带 try-catch）
+                const failResult = { ...execResult, hint: '此步骤执行失败，请尝试其他方法或跳过' }
+                let cacheResultFail = null
+                try { cacheResultFail = this.toolResultStore.store(sessionId, tc.id, failResult) } catch (_) {}
+                const toolContentFail = JSON.stringify(failResult)
+                if (cacheResultFail && cacheResultFail.offloaded) {
                   trimmedMessages.push({
                     role: 'tool',
                     content: JSON.stringify({
                       _cached: true,
-                      path: cacheResultFatal.path,
-                      summary: cacheResultFatal.summary,
+                      path: cacheResultFail.path,
+                      summary: cacheResultFail.summary,
                       tool_call_id: tc.id
                     }),
                     tool_call_id: tc.id
                   })
                 } else {
-                  trimmedMessages.push({ role: 'tool', content: toolErrContent1, tool_call_id: tc.id })
+                  trimmedMessages.push({ role: 'tool', content: toolContentFail, tool_call_id: tc.id })
                 }
-                try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: toolErrContent1, toolCallId: tc.id }) } catch (_) {}
-                finalResult = { reply: `执行"${name}"时连续失败：${errorMsg}`, mode, error: true }
-                const classifiedError = classifyError(new Error('max_failures_exceeded: skill execution failures exceeded threshold'), {
-                  callSite: 'UnifiedStrategy.skillExec',
-                  sessionId,
-                })
-                this._notifyProgress(webContents, { type: 'error', error: classifiedError, result: finalResult, mode })
-                return { success: false, error: classifiedError }
+                try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: JSON.stringify(execResult), toolCallId: tc.id }) } catch (_) {}
               }
 
-              // Task 2: 微压缩（带 try-catch）
-              const failResult = { ...execResult, hint: '此步骤执行失败，请尝试其他方法或跳过' }
-              let cacheResultFail = null
-              try { cacheResultFail = this.toolResultStore.store(sessionId, tc.id, failResult) } catch (_) {}
-              const toolContentFail = JSON.stringify(failResult)
-              if (cacheResultFail && cacheResultFail.offloaded) {
-                trimmedMessages.push({
-                  role: 'tool',
-                  content: JSON.stringify({
-                    _cached: true,
-                    path: cacheResultFail.path,
-                    summary: cacheResultFail.summary,
+              // === 非跳过区（v3.1 要点 1）：中断类结果也要落库 tool 消息（LLM 看到 ask_user 被插话打断）===
+              // 合成内容改友好，避免 LLM 不理解英文错误码
+              if (isInterrupted) {
+                const toolContentForLlm = JSON.stringify({ interrupted: true, note: '用户已插话，请直接处理插话消息' })
+                let cacheResultFail = null
+                try { cacheResultFail = this.toolResultStore.store(sessionId, tc.id, JSON.parse(toolContentForLlm)) } catch (_) {}
+                if (cacheResultFail && cacheResultFail.offloaded) {
+                  trimmedMessages.push({
+                    role: 'tool',
+                    content: JSON.stringify({
+                      _cached: true,
+                      path: cacheResultFail.path,
+                      summary: cacheResultFail.summary,
+                      tool_call_id: tc.id
+                    }),
                     tool_call_id: tc.id
-                  }),
-                  tool_call_id: tc.id
-                })
-              } else {
-                trimmedMessages.push({ role: 'tool', content: toolContentFail, tool_call_id: tc.id })
+                  })
+                } else {
+                  trimmedMessages.push({ role: 'tool', content: toolContentForLlm, tool_call_id: tc.id })
+                }
+                try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: toolContentForLlm, toolCallId: tc.id }) } catch (_) {}
               }
-              try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: JSON.stringify(execResult), toolCallId: tc.id }) } catch (_) {}
             } else {
               failureCounters.skillExec = 0
               // v8.2.5: 工具成功 → 计数器清零 → 同步重置软提醒标志
