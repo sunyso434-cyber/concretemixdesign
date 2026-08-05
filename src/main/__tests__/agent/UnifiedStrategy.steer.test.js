@@ -60,7 +60,8 @@ describe('UnifiedStrategy Enter 工具边界插话（Task 6）', () => {
   test('多个 tool 时，A 执行完 drain 到插话 → 剩余 B/C 补合成 + 插话注入 + 下一轮 LLM 看到完整序列', async () => {
     const orch = makeOrchestrator()
     const mocks = makeMocks(orch)
-    mocks.skillRegistry.getSkill.mockReturnValue({ name: 'tool', parameters: {} })
+    // Task 2.3 读写分组：tool_a 是读（进并发批次），tool_b/tool_c 是写（串行，插话时尚未执行 → 补合成）
+    mocks.skillRegistry.getSkill.mockImplementation((name) => ({ name, parameters: {}, isWrite: name !== 'tool_a' }))
     mocks.skillExecutor.execute.mockResolvedValue({ success: true, data: 'ok' })
     // 第 1 次：返回 3 个 tool_call；第 2 次：返回纯文本结束
     mockChat
