@@ -561,15 +561,45 @@ class UnifiedStrategy {
         this._notifyProgress(webContents, { type: 'error', error: 'aborted', mode })
         return { success: false, error: 'aborted' }
       }
+      // ② paused 循环（含 interrupt 处理，问题 C：paused 优先于主循环顶部 interrupt 检查）
       while (getState && getState() === 'paused') {
         await new Promise(r => setTimeout(r, 100))
         if (signal?.aborted) {
           this._notifyProgress(webContents, { type: 'error', error: 'aborted', mode })
           return { success: false, error: 'aborted' }
         }
+        // v3.0 问题 C：paused 状态下 interruptRequested → resume + 注入插话 + 继续
+        if (this.orchestrator?.isInterrupted?.()) {
+          const _steer = this.orchestrator?.drainSteering?.() || []
+          if (_steer.length > 0) {
+            const _c = _steer.join('\n')
+            trimmedMessages.push({ role: 'user', content: _c })
+            try { await this.agentMemoryService.saveMessage({ sessionId, role: 'user', content: _c, metadata: { steer: true, immediate: true } }) } catch (_) {}
+            this._notifyProgress(webContents, { type: 'steer_injected', content: _c, mode, source: 'immediate_paused' })
+            this.orchestrator?.clearInterrupt?.()
+            this.orchestrator?.resume?.()
+            break  // 跳出 paused 循环，继续主循环
+          }
+          this.orchestrator?.clearInterrupt?.()
+        }
+      }
+      // ③ 主循环顶部的 interrupt 检查（非 paused 状态，问题 C：移到 paused 之后）
+      // 中断 ≠ 终止：不 return，只注入插话后继续（下面会走 LLM 调用）
+      if (this.orchestrator?.isInterrupted?.()) {
+        const _steer = this.orchestrator?.drainSteering?.() || []
+        if (_steer.length > 0) {
+          const _c = _steer.join('\n')
+          trimmedMessages.push({ role: 'user', content: _c })
+          try { await this.agentMemoryService.saveMessage({ sessionId, role: 'user', content: _c, metadata: { steer: true, immediate: true } }) } catch (_) {}
+          this._notifyProgress(webContents, { type: 'steer_injected', content: _c, mode, source: 'immediate' })
+          this.orchestrator?.clearInterrupt?.()
+        } else {
+          // 防御性：interruptRequested 只由 steerImmediate 设置，理论上必然伴随插话
+          this.orchestrator?.clearInterrupt?.()
+        }
       }
 
-      // 批 B Task 1.8 ①：每轮 LLM 调用前 drain steering，有则注入 user 消息（插话尽快被 LLM 看到）
+      // ④ 每轮 LLM 调用前 drain steering，有则注入 user 消息（插话尽快被 LLM 看到）
       const _steeringMsgs = this.orchestrator?.drainSteering ? this.orchestrator.drainSteering() : []
       if (_steeringMsgs.length > 0) {
         const _steerContent = _steeringMsgs.join('\n')
@@ -788,6 +818,7 @@ class UnifiedStrategy {
           trimmedMessages.push({ role: 'user', content: _c })
           try { await this.agentMemoryService.saveMessage({ sessionId, role: 'user', content: _c, metadata: { steer: true } }) } catch (_) {}
           this._notifyProgress(webContents, { type: 'steer_injected', content: _c, mode })
+          this.orchestrator?.clearInterrupt?.()  // v3.0 问题 B：continue 前清中断标志，防下一轮误退出
           continue  // 不 return，下一轮 LLM 看到插话
         }
         const _followUpMsgs = this.orchestrator?.drainFollowUp ? this.orchestrator.drainFollowUp() : []

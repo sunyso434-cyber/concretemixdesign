@@ -205,4 +205,56 @@ describe('UnifiedStrategy Enter 工具边界插话（Task 6）', () => {
     expect(result.success).toBe(true)      // 中断 ≠ 终止：下一轮 LLM 继续，会话不被杀
     expect(orch.interruptRequested).toBe(false)  // clearInterrupt 已复位
   })
+
+  // Task 11 问题 B：完成判定前（LLM 返回纯文本）Alt+Enter → 完成判定分支 drain 插话 + clearInterrupt，
+  // 下一轮不退出。KEY：clearInterrupt 必须在 continue 前调用，否则残留中断标志影响下一轮。
+  test('完成判定前（LLM 返回纯文本时）Alt+Enter → 完成判定分支 drain 插话 + clearInterrupt，下一轮不退出', async () => {
+    const orch = makeOrchestrator()
+    const mocks = makeMocks(orch)
+    // 第 1 次 LLM 返回纯文本（无 tool），进入完成判定前 drain
+    mockChat.mockResolvedValueOnce({ content: '初步方案', tool_calls: null })
+    // drainSteering 实际调用顺序（无 getState，不走 paused 循环）：
+    //   ① 主循环顶部第 1 轮 drain → []（空）
+    //   ② 完成判定前 drain → ['改用 zod']（触发插话 → clearInterrupt → continue）
+    //   ③+ 主循环顶部第 2 轮 / 完成判定前 → 空
+    orch.drainSteering
+      .mockReturnValueOnce([])               // ① 主循环顶部第 1 轮
+      .mockReturnValueOnce(['改用 zod'])      // ② 完成判定前 drain
+      .mockReturnValue([])
+    mockChat.mockResolvedValueOnce({ content: '好的，改用 zod', tool_calls: null })
+
+    const strategy = new UnifiedStrategy(mocks)
+    const result = await strategy.execute({ sessionId: 's1', message: 'hi' })
+
+    expect(result.success).toBe(true)        // 关键：不因 interrupt 残留而退出
+    expect(mockChat).toHaveBeenCalledTimes(2)
+    expect(orch.clearInterrupt).toHaveBeenCalled()
+  })
+
+  // Task 11 问题 C：paused 状态 Alt+Enter → 暂停循环内 resume + 注入插话 + 继续（不卡死）
+  test('paused 状态 Alt+Enter → resume + 注入插话 + 继续（不卡死）', async () => {
+    const orch = makeOrchestrator()
+    orch.state = 'paused'
+    const mocks = makeMocks(orch)
+    mockChat.mockResolvedValueOnce({ content: '收到', tool_calls: null })
+    // paused 循环内：isInterrupted 首次 true + drain 到插话 → resume + break
+    let pausedChecks = 0
+    orch.isInterrupted.mockImplementation(() => {
+      pausedChecks++
+      return pausedChecks === 1
+    })
+    // drainSteering 实际调用顺序（首轮 getState 即 'paused' → 先进 paused 循环）：
+    //   ① paused 循环内 drain（isInterrupted 首次 true 时）→ ['暂停中插话']（触发 resume + break）
+    //   ②+ 顶部第 1 轮 drain / 完成判定前 → 空
+    orch.drainSteering
+      .mockReturnValueOnce(['暂停中插话'])    // ① paused 循环内 drain
+      .mockReturnValue([])
+
+    const strategy = new UnifiedStrategy(mocks)
+    // 通过 execute 的 getState 返回 paused，模拟暂停
+    const result = await strategy.execute({ sessionId: 's1', message: 'hi', getState: () => orch.state })
+    // 注入插话后 resume → 继续跑完
+    expect(result.success).toBe(true)
+    expect(orch.resume).toHaveBeenCalled()
+  })
 })
