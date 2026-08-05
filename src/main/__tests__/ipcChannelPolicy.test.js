@@ -73,4 +73,21 @@ describe('preload IPC boundary', () => {
     expect(exposedNamesAtLoad).toContain('electronAPI')
     expect(exposedNamesAtLoad).not.toContain('electron')
   })
+
+  test('exposes md reader APIs and allows md: channels', () => {
+    expect(typeof electronAPI.md.read).toBe('function')
+    expect(typeof electronAPI.md.write).toBe('function')
+    expect(typeof electronAPI.md.watch).toBe('function')
+    expect(typeof electronAPI.md.unwatch).toBe('function')
+    expect(typeof electronAPI.md.onFileChanged).toBe('function')
+
+    electronAPI.md.read('/x/a.md')
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('md:read', { filePath: '/x/a.md' })
+
+    electronAPI.md.write('/x/a.md', '# hi')
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('md:write', { filePath: '/x/a.md', content: '# hi' })
+
+    electronAPI.md.onFileChanged(jest.fn())
+    expect(ipcRenderer.on).toHaveBeenCalledWith('md:file-changed', expect.any(Function))
+  })
 })

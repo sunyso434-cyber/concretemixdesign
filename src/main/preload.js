@@ -103,7 +103,12 @@ const INVOKE_CHANNELS = new Set([
   'remote:setDomain',
   // R11：开机自启开关
   'remote:getAutostart',
-  'remote:setAutostart'
+  'remote:setAutostart',
+  // MD 阅读器
+  'md:read',
+  'md:write',
+  'md:watch',
+  'md:unwatch'
 ])
 
 const EVENT_CHANNELS = new Set([
@@ -121,7 +126,8 @@ const EVENT_CHANNELS = new Set([
   'optimization-failed',
   'optimization-progress',
   // R8：远程（手机）切换工作区后，通知桌面刷新当前工作区显示
-  'workspace:changed'
+  'workspace:changed',
+  'md:file-changed'
 ])
 
 function assertAllowedIpcChannel(type, channel) {
@@ -251,6 +257,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Task 3.2：写报告到 reports/ 并同步生成 wiki 版本
     writeFile: (type, filename, payload) => ipcRenderer.invoke('workspace:writeFile', { type, filename, payload })
     // 后续 task 加：search / searchGraph
+  },
+  // MD 阅读器：读/写/监视已打开文件
+  md: {
+    read: (filePath) => ipcRenderer.invoke('md:read', { filePath }),
+    write: (filePath, content) => ipcRenderer.invoke('md:write', { filePath, content }),
+    watch: (filePath) => ipcRenderer.invoke('md:watch', { filePath }),
+    unwatch: (filePath) => ipcRenderer.invoke('md:unwatch', { filePath }),
+    onFileChanged: (func) => {
+      const id = generateListenerId()
+      const wrapper = (event, ...args) => func(...args)
+      listenerCache.set(id, { channel: 'md:file-changed', wrapper })
+      ipcRenderer.on('md:file-changed', wrapper)
+      return id
+    },
+    removeFileChangedListener: (id) => {
+      const entry = listenerCache.get(id)
+      if (entry) {
+        ipcRenderer.removeListener(entry.channel, entry.wrapper)
+        listenerCache.delete(id)
+      }
+    }
   },
   // === Task 8：vision 模块（图片上传 + 缩略图列）===
   // 兼容两种入参：
