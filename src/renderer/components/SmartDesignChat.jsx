@@ -873,6 +873,28 @@ const SmartDesignChat = () => {
     }
   }, [state.input, state.session.currentId, state.agent.runMode, dispatch])
 
+  // Task 13（Alt+Enter 立即插话）：走 agent:steer_immediate（steer 入队 + 中断当前 LLM 循环 + 取消 ask_user）
+  // - 成功：立即响应插话（前端带 _steerImmediate 标签显示用户消息）
+  // - 失败/结束：降级为普通发送（sendMessage 会自己加用户消息 + 启动新 run）
+  const _doSteerImmediate = useCallback(async () => {
+    const msg = state.input.trim()
+    if (!msg || !state.session.currentId) return
+    dispatch({ type: 'SET_INPUT', payload: '' })
+    try {
+      const r = await window.electronAPI.invoke('agent:steer_immediate', { sessionId: state.session.currentId, msg })
+      if (r && r.success) {
+        dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: msg, _steerImmediate: true } })
+        message.success('已中断当前操作，AI 将立即响应插话')
+      } else {
+        message.info('AI 已结束或状态异常，改为普通发送')
+        await sendMessage({ dispatch, sessionId: state.session.currentId, message: msg, runMode: state.agent.runMode })
+      }
+    } catch (e) {
+      console.error('[steer_immediate] 失败:', e)
+      message.error('立即插话失败')
+    }
+  }, [state.input, state.session.currentId, state.agent.runMode, dispatch])
+
   // 输入框键盘事件（斜杠菜单导航 + Tab 补全 + Enter 发送）
   const handleInputKeyDown = useCallback((e) => {
     if (e.key === 'ArrowDown' && showSlashMenu) {
@@ -905,7 +927,7 @@ const SmartDesignChat = () => {
     }
     // 批 B Task 1.10：Enter 按键重定义
     // - Enter（无 Shift/Alt）：闲→发送；忙+空→abort；忙+非空→steer 插话
-    // - Alt+Enter：忙+非空→followUp 追加任务；闲或忙+空→换行（行为变化，release notes 标注）
+    // - Alt+Enter：忙+非空→立即插话（steerImmediate）；闲或忙+空→换行（行为变化，release notes 标注）
     if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
       // B1：中文输入法组词中按 Enter 是"确认候选词"，不应发送消息
       // 同时兼容 keyCode === 229（部分老浏览器/输入法的 isCompositionState 标志）
@@ -939,12 +961,12 @@ const SmartDesignChat = () => {
       if (e.keyCode === 229) return
       if (isAgentBusy && state.input.trim()) {
         e.preventDefault()
-        _doFollowUp()
+        _doSteerImmediate()
       }
       // 闲或忙+空：Alt+Enter 不 preventDefault，让默认换行（行为变化：原闲时 Alt+Enter=发送，现=换行）
       return
     }
-  }, [showSlashMenu, state.input, state.agent.requestId, cursorPos, availableSkills, isAgentBusy, dispatch, handleSend, _doSteer, _doFollowUp])
+  }, [showSlashMenu, state.input, state.agent.requestId, cursorPos, availableSkills, isAgentBusy, dispatch, handleSend, _doSteer, _doSteerImmediate])
 
   // ===== 流式聊天辅助函数 =====
   const createStreamRequestId = () => {
