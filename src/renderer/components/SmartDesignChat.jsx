@@ -95,6 +95,14 @@ const CHAT_STREAM_EVENT = 'aiAnalysis:chatStream:event'
 
 // md 阅读器：把文本中出现的 md 文件引用（如 reports/xxx.md、小砼-自我介绍.md）转成可点击链接
 // 注意：react-markdown 的 text 节点不是独立元素、无法用 components 覆盖，故先转成特殊链接再拦截 a 组件
+//
+// v0.7.1 修复：反引号内的 .md 文件名也要能点击打开。
+// 背景：AI 常用反引号包裹文件名/路径（如 `# 标题 xxx.md`），linkify 会把反引号内的 .md 也转成
+// [xxx.md](#md-ref:...) 链接语法。react-markdown 把反引号内内容当 inlineCode 渲染，里面的链接
+// 语法不再被解析。旧版 code 组件用 ^...$ 锚定，只处理"整个代码内容都是纯链接语法"的情况，
+// 导致"前缀文字 + 链接"的混合情况露出原始 [xxx.md](#md-ref:...) 语法。
+// 方案：linkify 保持处理反引号内内容（让 .md 转成链接语法），code 组件增强为支持
+// "前缀 + 链接 + 后缀"的混合解析，把链接部分还原成可点击链接，其他文字保持代码样式。
 const MD_REF_RE = /([\w一-龥][\w一-龥\-.()\/\\]*\.md)(?![A-Za-z0-9一-龥\-_./\\])/g
 const MD_REF_PREFIX = '#md-ref:'
 function linkifyMdRefs(content) {
@@ -123,24 +131,46 @@ function makeMdComponents(onOpenMd) {
     // 反引号包裹的 md 路径：linkify 已转成链接语法，ReactMarkdown 会当行内代码渲染，
     // 这里识别（content 为 md-ref 链接语法）并还原为"代码样式的可点击链接"
     // 注意：react-markdown v10 的 code 组件不传 inline prop，故按内容格式判断
+    //
+    // v0.7.1 增强：支持"前缀文字 + 链接 + 后缀文字"的混合情况。
+    // 旧版用 ^...$ 锚定只处理"纯链接语法"，导致 `# 标题 xxx.md` 这种混合内容露出原始语法。
+    // 现在用全局正则扫描，把所有 [xxx.md](#md-ref:...) 片段还原成可点击链接，
+    // 链接之间的普通文字保持代码样式。
     code: ({ className, children }) => {
       const text = String(children || '')
-      const m = text.match(/^\[(.+)\]\(#md-ref:([^)]+)\)$/)
-      if (m) {
-        const mdPath = decodeURIComponent(m[2])
-        return (
-          <code className={className}>
-            <a
-              className="md-inline-link"
-              title="点击在阅读器中打开"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenMd && onOpenMd(mdPath) }}
-            >
-              {m[1]}
-            </a>
-          </code>
-        )
+      // 全局匹配 [文本](#md-ref:编码路径)  注意：linkify 生成 #md-ref:（无空格）
+      const LINK_RE = /\[([^\]]+\.md)\]\(#md-ref:([^)]+)\)/g
+      if (!LINK_RE.test(text)) {
+        return <code className={className}>{children}</code>
       }
-      return <code className={className}>{children}</code>
+      // 重新扫描并分段渲染
+      LINK_RE.lastIndex = 0
+      const parts = []
+      let lastIdx = 0
+      let m
+      while ((m = LINK_RE.exec(text)) !== null) {
+        // 链接前的普通文字
+        if (m.index > lastIdx) {
+          parts.push(text.slice(lastIdx, m.index))
+        }
+        const mdPath = decodeURIComponent(m[2])
+        parts.push(
+          <a
+            key={`mdlink-${m.index}`}
+            className="md-inline-link"
+            title="点击在阅读器中打开"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onOpenMd && onOpenMd(mdPath) }}
+          >
+            {m[1]}
+          </a>
+        )
+        lastIdx = m.index + m[0].length
+      }
+      // 末尾普通文字
+      if (lastIdx < text.length) {
+        parts.push(text.slice(lastIdx))
+      }
+      return <code className={className}>{parts}</code>
     }
   }
 }
@@ -225,15 +255,42 @@ const SmartDesignChat = () => {
   const chatState = useChatState()
   const { state, dispatch } = useAgentStore()
   const reader = useMdReader()
-  const handleOpenMd = (path) => {
+  const handleOpenMd = async (path) => {
     const p = String(path || '').trim()
     if (!p) return
-    // 相对路径（如 reports/xxx.md）→ 拼接当前工作区根；绝对路径直接用
-    if (!/^([A-Za-z]:[\\/]|[\\/])/.test(p) && workspacePath) {
-      reader.openFile(`${workspacePath.replace(/[\\/]+$/, '')}/${p.replace(/^[\\/]+/, '')}`)
-    } else {
+    // 含分隔符的相对路径（如 reports/xxx.md）→ 直接拼工作区根
+    // 绝对路径直接用
+    const isAbsolutePath = /^([A-Za-z]:[\\/]|[\\/])/.test(p)
+    const hasSeparator = /[\\/]/.test(p)
+    if (isAbsolutePath) {
       reader.openFile(p)
+      return
     }
+    if (hasSeparator && workspacePath) {
+      reader.openFile(`${workspacePath.replace(/[\\/]+$/, '')}/${p.replace(/^[\\/]+/, '')}`)
+      return
+    }
+    // 纯文件名（无分隔符）：先拼工作区根尝试，找不到则调 md:resolve 后缀匹配查找
+    // 场景：AI 反引号内只有文件名后缀（如 清水混凝土应用技术规程.md），
+    // 但实际文件在子目录且名字更长（如 raw/md/# 标准 清水混凝土应用技术规程.md）
+    if (workspacePath) {
+      const directPath = `${workspacePath.replace(/[\\/]+$/, '')}/${p}`
+      const res = await window.electronAPI.md.read(directPath)
+      if (res && !res.error) {
+        reader.openFile(directPath)
+        return
+      }
+      // 回退：后缀匹配查找
+      const resolved = await window.electronAPI.md.resolve(p)
+      if (resolved && resolved.filePath) {
+        reader.openFile(resolved.filePath)
+        return
+      }
+      // 都找不到：报错
+      alert(`文件不存在：${p}`)
+      return
+    }
+    reader.openFile(p)
   }
   const { agentRequestIdRef } = useAgentMode() // 纯事件监听器
   useAssistantPersistence() // 副作用 hook（done/aborted 时自动持久化）

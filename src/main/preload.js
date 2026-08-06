@@ -108,7 +108,8 @@ const INVOKE_CHANNELS = new Set([
   'md:read',
   'md:write',
   'md:watch',
-  'md:unwatch'
+  'md:unwatch',
+  'md:resolve'
 ])
 
 const EVENT_CHANNELS = new Set([
@@ -264,6 +265,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     write: (filePath, content) => ipcRenderer.invoke('md:write', { filePath, content }),
     watch: (filePath) => ipcRenderer.invoke('md:watch', { filePath }),
     unwatch: (filePath) => ipcRenderer.invoke('md:unwatch', { filePath }),
+    resolve: (filename) => ipcRenderer.invoke('md:resolve', { filename }),
     onFileChanged: (func) => {
       const id = generateListenerId()
       const wrapper = (event, ...args) => func(...args)

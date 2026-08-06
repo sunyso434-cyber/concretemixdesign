@@ -133,6 +133,45 @@ function register(refs) {
     mdWatcher.unwatch(key)
     return { ok: true }
   }))
+
+  // md:resolve —— 在工作区内按"后缀匹配"查找 .md 文件
+  // 场景：AI 用反引号包裹文件名后缀（如 `清水混凝土应用技术规程.md`），但实际文件
+  // 在子目录且名字更长（如 raw/md/# 标准 清水混凝土应用技术规程.md）。点击链接时
+  // 纯文件名拼工作区根找不到，这里递归搜索工作区内 basename 以查询串结尾的 .md 文件。
+  // 返回第一个匹配的绝对路径；找不到返回 { error }
+  ipcMain.handle('md:resolve', wrap(async (event, { filename }) => {
+    if (typeof filename !== 'string' || !filename) return { error: '文件名不能为空' }
+    if (!filename.toLowerCase().endsWith('.md')) return { error: '仅支持 .md 文件' }
+    const { workspaceRoot } = getRoots()
+    if (!workspaceRoot) return { error: '工作区未打开' }
+
+    // 递归扫描工作区（跳过 node_modules / .git / dist 等大目录避免性能问题）
+    const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'dist-0.6.3', '.tmp'])
+    const target = filename.toLowerCase()
+    let found = null
+    async function walk(dir) {
+      if (found) return
+      let entries
+      try {
+        entries = await fs.readdir(dir, { withFileTypes: true })
+      } catch {
+        return
+      }
+      for (const entry of entries) {
+        if (found) return
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (SKIP_DIRS.has(entry.name)) continue
+          await walk(full)
+        } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md') && entry.name.toLowerCase().endsWith(target)) {
+          found = full
+        }
+      }
+    }
+    await walk(workspaceRoot)
+    if (!found) return { error: `工作区内未找到匹配 ${filename} 的文件` }
+    return { filePath: found }
+  }))
 }
 
 module.exports = { register, isAllowedPath, readMd, writeMd, atomicWrite, MAX_SIZE, EDIT_DISABLE_BYTES }
