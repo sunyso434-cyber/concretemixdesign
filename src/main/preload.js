@@ -284,7 +284,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     // agent 写盘成功后主动通知（payload 与 md:file-changed 同格式 { path, mtimeMs, size }）
     onReportWritten: (func) => {
-      const id = generateListenerID()
+      const id = generateListenerId()
       const wrapper = (event, ...args) => func(...args)
       listenerCache.set(id, { channel: 'md:report-written', wrapper })
       ipcRenderer.on('md:report-written', wrapper)
