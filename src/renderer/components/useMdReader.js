@@ -157,21 +157,37 @@ export function useMdReader() {
     setState(s => applyResolve(s, key, 'keep'))
   }, [saveDraftNow, readFile])
 
-  // 订阅外部文件变更（主进程推送时携带最新 stat，渲染端无需 fs.stat）
+  // 外部文件变更的统一处理：chokidar 推送 + agent 主动通知共用
+  // applyFileChanged 内部按 mtimeMs/size 去重（自身写跳过），并按 tab 状态分流：
+  //   预览态 → reloadKey 静默刷新；编辑态 dirty → 冲突条；编辑态无 dirty → 非阻塞提示
+  const handleExternalFileChange = useCallback((filePath, mtimeMs, size) => {
+    const key = normalizePath(filePath)
+    const tab = stateRef.current.tabs.find(t => t.key === key)
+    if (!tab) return
+    const res = applyFileChanged(stateRef.current, key, { mtimeMs, size })
+    if (res.reloadKey) {
+      readFile(res.reloadKey, tab.path) // 预览态：静默刷新
+    } else if (res !== stateRef.current) {
+      setState(res) // 编辑态：冲突提示条 / 非阻塞提示条
+    }
+  }, [readFile])
+
+  // chokidar 推送的外部文件变更（编辑器/外部程序修改）
   useEffect(() => {
     const id = window.electronAPI.md.onFileChanged(({ filePath, mtimeMs, size }) => {
-      const key = normalizePath(filePath)
-      const tab = stateRef.current.tabs.find(t => t.key === key)
-      if (!tab) return
-      const res = applyFileChanged(stateRef.current, key, { mtimeMs, size })
-      if (res.reloadKey) {
-        readFile(res.reloadKey, tab.path) // 预览态：静默刷新
-      } else if (res !== stateRef.current) {
-        setState(res) // 编辑态：冲突提示条 / 非阻塞提示条
-      }
+      handleExternalFileChange(filePath, mtimeMs, size)
     })
     return () => window.electronAPI.md.removeFileChangedListener(id)
-  }, [readFile])
+  }, [handleExternalFileChange])
+
+  // agent 写盘成功的主动通知（payload 与 onFileChanged 同格式，路径与 openFile 同源可匹配 tab）
+  // 主动通知先到则刷新 + 更新 lastSeen，chokidar 随后推相同 stat 被 applyFileChanged 去重跳过，不重复刷新
+  useEffect(() => {
+    const id = window.electronAPI.md.onReportWritten(({ path: filePath, mtimeMs, size }) => {
+      handleExternalFileChange(filePath, mtimeMs, size)
+    })
+    return () => window.electronAPI.md.removeReportWrittenListener(id)
+  }, [handleExternalFileChange])
 
   const handleWorkspaceChanged = useCallback((workspaceRoot) => {
     setState(s => applyWorkspaceChanged(s, workspaceRoot))

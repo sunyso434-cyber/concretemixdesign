@@ -16,8 +16,27 @@
 //   - 单元测试直接调本模块，不必 mock electron.ipcMain
 const path = require('path')
 const fs = require('fs').promises
+const fsSync = require('fs')
 const writers = require('./writers')
 const { WorkspaceError } = require('./WorkspaceError')
+
+/**
+ * agent 写盘成功后主动通知 md 阅读器刷新（场景：阅读器已打开该 md，agent 改了它）。
+ * 单窗口应用，遍历 getAllWindows 广播；payload 带 stat 供渲染端去重（与 md:file-changed 同格式）。
+ * fire-and-forget：通知失败不影响写盘主流程。测试环境 require('electron') 可能失败，被 catch 静默跳过。
+ */
+function _notifyReportWritten(filePath) {
+  try {
+    const { BrowserWindow } = require('electron')
+    const stat = fsSync.statSync(filePath)
+    const payload = { path: filePath, mtimeMs: stat.mtimeMs, size: stat.size }
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('md:report-written', payload)
+    }
+  } catch (err) {
+    console.warn('[write-handler] 通知 md 阅读器刷新失败:', err.message)
+  }
+}
 
 /**
  * 校验并规范化 reports/ 下的归档文件夹相对路径（老板 2026-08-03：按自定义文件夹归档报告）。
@@ -145,6 +164,9 @@ async function writeFile({ workspaceManager, wikiEngine = null, type, filename, 
     }
   }
 
+  // 主动通知 md 阅读器刷新（若该 md 已被打开）
+  _notifyReportWritten(targetPath)
+
   return {
     path: targetPath,
     size: buf.length,
@@ -260,6 +282,9 @@ async function _writePatches({ current, type, filename, patches, wikiEngine, fol
       console.warn('[write-handler:patch] 同步 wiki 版本失败:', err.message)
     }
   }
+
+  // 主动通知 md 阅读器刷新（若该 md 已被打开）
+  _notifyReportWritten(targetPath)
 
   return {
     success: true,

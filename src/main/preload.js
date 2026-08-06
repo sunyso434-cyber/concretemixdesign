@@ -128,7 +128,9 @@ const EVENT_CHANNELS = new Set([
   'optimization-progress',
   // R8：远程（手机）切换工作区后，通知桌面刷新当前工作区显示
   'workspace:changed',
-  'md:file-changed'
+  'md:file-changed',
+  // agent 写盘成功后主动通知（与 md:file-changed 同格式，渲染端复用刷新逻辑）
+  'md:report-written'
 ])
 
 function assertAllowedIpcChannel(type, channel) {
@@ -274,6 +276,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return id
     },
     removeFileChangedListener: (id) => {
+      const entry = listenerCache.get(id)
+      if (entry) {
+        ipcRenderer.removeListener(entry.channel, entry.wrapper)
+        listenerCache.delete(id)
+      }
+    },
+    // agent 写盘成功后主动通知（payload 与 md:file-changed 同格式 { path, mtimeMs, size }）
+    onReportWritten: (func) => {
+      const id = generateListenerID()
+      const wrapper = (event, ...args) => func(...args)
+      listenerCache.set(id, { channel: 'md:report-written', wrapper })
+      ipcRenderer.on('md:report-written', wrapper)
+      return id
+    },
+    removeReportWrittenListener: (id) => {
       const entry = listenerCache.get(id)
       if (entry) {
         ipcRenderer.removeListener(entry.channel, entry.wrapper)

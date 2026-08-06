@@ -26,7 +26,9 @@ const mdMock = {
   watch: jest.fn(),
   unwatch: jest.fn(),
   onFileChanged: jest.fn(() => 1),
-  removeFileChangedListener: jest.fn()
+  removeFileChangedListener: jest.fn(),
+  onReportWritten: jest.fn(() => 1),
+  removeReportWrittenListener: jest.fn()
 }
 global.window = global.window || {}
 global.window.electronAPI = { md: mdMock }
@@ -40,6 +42,8 @@ beforeEach(() => {
   mdMock.unwatch.mockReset()
   mdMock.onFileChanged.mockReset().mockReturnValue(1)
   mdMock.removeFileChangedListener.mockReset()
+  mdMock.onReportWritten.mockReset().mockReturnValue(1)
+  mdMock.removeReportWrittenListener.mockReset()
 })
 afterEach(() => {
   jest.useRealTimers()
