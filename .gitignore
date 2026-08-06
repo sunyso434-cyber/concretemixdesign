@@ -124,3 +124,6 @@ version_log.md
 version_log_*.md
 dev_log.md
 dev_log_*.md
+
+# 移动端 UI 设计目录（一次性探索产物，不入仓）
+tongzhi-mobile-ui/
