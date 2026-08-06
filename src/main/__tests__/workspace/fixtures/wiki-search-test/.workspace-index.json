@@ -1,0 +1,208 @@
+{
+  "version": 1,
+  "workspacePath": "D:/C-c/concreteagent/src/main/__tests__/workspace/fixtures/wiki-search-test",
+  "createdAt": "2026-08-04T06:59:24.120Z",
+  "updatedAt": "2026-08-04T14:59:24.138+08:00",
+  "lastFullRebuild": "2026-08-04T06:59:24.120Z",
+  "files": {
+    "抗渗.md": {
+      "hash": "sha256:1bc54e703304e328a28ed88f792e74666aacc05e4488f80111ee34115e29e04f",
+      "mtime": 1785826764108,
+      "size": 63,
+      "wikiPage": "sources/抗渗-797a48.md",
+      "lastIngestAt": 1785826764120,
+      "quality": "high",
+      "ingestVersion": 2
+    },
+    "普通.md": {
+      "hash": "sha256:a141dc5a372531bb81b6ab8f632dc69320978fe585518896d02c7ba597638481",
+      "mtime": 1785826764108,
+      "size": 52,
+      "wikiPage": "sources/普通-56a16b.md",
+      "lastIngestAt": 1785826764129,
+      "quality": "high",
+      "ingestVersion": 2
+    },
+    "抗冻.md": {
+      "hash": "sha256:2a44416d6692945ebdf7a71dd08c56289d0e420e3167f609f74aa587dc3793a4",
+      "mtime": 1785826764109,
+      "size": 43,
+      "wikiPage": "sources/抗冻-8996a6.md",
+      "lastIngestAt": 1785826764138,
+      "quality": "high",
+      "ingestVersion": 2
+    }
+  },
+  "bm25Index": {
+    "vocabulary": {
+      "0": {
+        "df": 1
+      },
+      "45": {
+        "df": 1
+      },
+      "抗渗": {
+        "df": 1
+      },
+      "渗混": {
+        "df": 1
+      },
+      "混凝": {
+        "df": 3
+      },
+      "凝土": {
+        "df": 3
+      },
+      "土水": {
+        "df": 2
+      },
+      "水胶": {
+        "df": 2
+      },
+      "胶比": {
+        "df": 2
+      },
+      "比不": {
+        "df": 1
+      },
+      "不应": {
+        "df": 1
+      },
+      "应大": {
+        "df": 1
+      },
+      "大于": {
+        "df": 1
+      },
+      "普通": {
+        "df": 1
+      },
+      "通混": {
+        "df": 1
+      },
+      "土配": {
+        "df": 1
+      },
+      "配合": {
+        "df": 1
+      },
+      "合比": {
+        "df": 1
+      },
+      "比设": {
+        "df": 1
+      },
+      "设计": {
+        "df": 1
+      },
+      "抗冻": {
+        "df": 1
+      },
+      "冻融": {
+        "df": 1
+      },
+      "融混": {
+        "df": 1
+      }
+    },
+    "postings": {
+      "0": [
+        "sources/抗渗-797a48.md"
+      ],
+      "45": [
+        "sources/抗渗-797a48.md"
+      ],
+      "抗渗": [
+        "sources/抗渗-797a48.md"
+      ],
+      "渗混": [
+        "sources/抗渗-797a48.md"
+      ],
+      "混凝": [
+        "sources/抗渗-797a48.md",
+        "sources/普通-56a16b.md",
+        "sources/抗冻-8996a6.md"
+      ],
+      "凝土": [
+        "sources/抗渗-797a48.md",
+        "sources/普通-56a16b.md",
+        "sources/抗冻-8996a6.md"
+      ],
+      "土水": [
+        "sources/抗渗-797a48.md",
+        "sources/抗冻-8996a6.md"
+      ],
+      "水胶": [
+        "sources/抗渗-797a48.md",
+        "sources/抗冻-8996a6.md"
+      ],
+      "胶比": [
+        "sources/抗渗-797a48.md",
+        "sources/抗冻-8996a6.md"
+      ],
+      "比不": [
+        "sources/抗渗-797a48.md"
+      ],
+      "不应": [
+        "sources/抗渗-797a48.md"
+      ],
+      "应大": [
+        "sources/抗渗-797a48.md"
+      ],
+      "大于": [
+        "sources/抗渗-797a48.md"
+      ],
+      "普通": [
+        "sources/普通-56a16b.md"
+      ],
+      "通混": [
+        "sources/普通-56a16b.md"
+      ],
+      "土配": [
+        "sources/普通-56a16b.md"
+      ],
+      "配合": [
+        "sources/普通-56a16b.md"
+      ],
+      "合比": [
+        "sources/普通-56a16b.md"
+      ],
+      "比设": [
+        "sources/普通-56a16b.md"
+      ],
+      "设计": [
+        "sources/普通-56a16b.md"
+      ],
+      "抗冻": [
+        "sources/抗冻-8996a6.md"
+      ],
+      "冻融": [
+        "sources/抗冻-8996a6.md"
+      ],
+      "融混": [
+        "sources/抗冻-8996a6.md"
+      ]
+    },
+    "docLengths": {
+      "sources/抗渗-797a48.md": 13,
+      "sources/普通-56a16b.md": 9,
+      "sources/抗冻-8996a6.md": 8
+    },
+    "avgDocLength": 10,
+    "totalDocs": 3
+  },
+  "chatBM25Index": {
+    "vocabulary": {},
+    "postings": {},
+    "docLengths": {},
+    "avgDocLength": 0,
+    "totalDocs": 0
+  },
+  "answerBM25Index": {
+    "vocabulary": {},
+    "postings": {},
+    "docLengths": {},
+    "avgDocLength": 0,
+    "totalDocs": 0
+  }
+}
