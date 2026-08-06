@@ -2,7 +2,7 @@
 
 基于 Electron + React 的混凝土配合比智能设计软件，集成 AI Agent 辅助设计与知识库管理。
 
-**当前版本：v0.2.0**
+**当前版本：v0.7.1**
 
 ## 核心功能
 
@@ -28,6 +28,8 @@
 ### 知识库与文档
 - **工作区（Workspace）**：项目管理与文件组织
 - **Wiki 知识引擎**：文档入库、全文检索（BM25）、知识图谱抽取与合并、健康检查
+- **MinerU 高精度文档解析**（v0.7.0）：云端解析扫描件 PDF、复杂表格/公式/多栏版式、图片、PPT 等，输出 Markdown 自动入库；内置加密 Token（用户可自配覆盖），上云前需用户确认
+- **MD 阅读器**（v0.6.x ~ v0.7.1）：应用内 Markdown 查看与编辑，支持多标签、原子保存、外部修改冲突提示；agent 修改报告后已打开的阅读器自动刷新（v0.7.1）
 - **Office 文档处理**：通过 OfficeCLI 创建/编辑/读取 docx/xlsx/pptx（Agent 可生成格式化报告）
 - **会话归档**：批量归档/恢复/删除历史会话，归档会话只读
 
@@ -128,6 +130,11 @@ Android-concreteagent/       # 手机端 Flutter App（砼智移动版）
 | `check_compliance` | 规范合规审查 |
 | `predict_performance` | XGBoost 强度预测 |
 | `calculate_sales_quote` | 销售报价生成 |
+| `retrain_model` | 模型重新训练（TPE 调参，自动归档回滚） |
+| `parse_with_mineru` | MinerU 高精度文档解析（v0.7.0） |
+| `record_trial_test` | 试配记录录入 |
+| `material_batch_manage` | 原材料批次管理 |
+| `workspace_writeFile` | 写 Markdown 报告到 reports/（支持 payload 整文件 / patches 局部修改） |
 
 ### Agent 工具体系
 
