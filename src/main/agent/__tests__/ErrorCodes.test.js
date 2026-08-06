@@ -67,4 +67,38 @@ describe('ErrorCodes', () => {
     expect(err.recovery).toBeDefined()
     expect(err.details).toEqual({ x: 1 })
   })
+
+  test('7 个 E-MINERU-* 错误码应注册进 AI_ERROR_REGISTRY（v0.7.0）', () => {
+    const registry = ErrorCodes.AI_ERROR_REGISTRY
+    const mineruCodes = [
+      'E-MINERU-NO-TOKEN',
+      'E-MINERU-SIZE-EXCEEDED',
+      'E-MINERU-UPLOAD-FAIL',
+      'E-MINERU-PARSE-FAIL',
+      'E-MINERU-TIMEOUT',
+      'E-MINERU-NETWORK',
+      'E-MINERU-API-ERROR'
+    ]
+    mineruCodes.forEach(code => {
+      expect(registry[code]).toBeDefined()
+      const entry = registry[code]
+      expect(typeof entry.title).toBe('string')
+      expect(entry.title.length).toBeGreaterThan(0)
+      expect(typeof entry.hint).toBe('string')
+      expect(typeof entry.recovery).toBe('string')
+      expect(['error', 'warn', 'info']).toContain(entry.severity)
+    })
+  })
+
+  test('createError 对 E-MINERU-* 码应自动补全 registry 字段', () => {
+    const err = ErrorCodes.createError('E-MINERU-NO-TOKEN')
+    expect(err.success).toBe(false)
+    expect(err.code).toBe('E-MINERU-NO-TOKEN')
+    expect(err.title).toBe('MinerU Token 未配置')
+    expect(err.recovery).toBe('fix_settings')
+    // caller 显式传 message/hint 应覆盖 registry
+    const err2 = ErrorCodes.createError('E-MINERU-API-ERROR', '额度超限', '请配置个人 Token')
+    expect(err2.title).toBe('额度超限')
+    expect(err2.hint).toBe('请配置个人 Token')
+  })
 })

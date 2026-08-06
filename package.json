@@ -1,6 +1,6 @@
 {
   "name": "concrete-mixdesign",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "description": "砼智 Concrete Agent",
   "main": "main.js",
   "scripts": {
@@ -64,7 +64,8 @@
     "vega": "^6.3.1",
     "vega-lite": "^6.4.3",
     "ws": "^8.21.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "yauzl": "^3.4.0"
   },
   "type": "commonjs",
   "build": {
@@ -106,6 +107,7 @@
         ]
       }
     ],
+    "npmRebuild": false,
     "asarUnpack": [
       "node_modules/sqlite3/**",
       "resources/models/**",

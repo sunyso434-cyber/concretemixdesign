@@ -99,6 +99,15 @@ const AI_ERROR_REGISTRY = {
   'E-SEARCH-PDF-INGEST-FAILED': { title: 'PDF 已下载但入库失败', hint: '文件已落盘，可手动调用 workspace_ingest', recovery: 'manual_resolve', severity: 'warn' },
   'E-SEARCH-INVALID-ACADEMIC-PROVIDER': { title: '不支持的学术搜索服务商', hint: '目前仅支持 semantic_scholar / openalex，请用 configure_academic_search 重新配置', recovery: 'fix_settings', severity: 'error' },
 
+  // ===== MinerU 高精度解析相关错误（v0.7.0）=====
+  'E-MINERU-NO-TOKEN': { title: 'MinerU Token 未配置', hint: '请在对话中提供你的 mineru Token，或联系开发注入内置 Token', recovery: 'fix_settings', severity: 'error' },
+  'E-MINERU-SIZE-EXCEEDED': { title: '文件超出 MinerU 限制', hint: '文件需 ≤ 200MB 且 ≤ 200 页，请拆分后再解析', recovery: 'fix_params', severity: 'error' },
+  'E-MINERU-UPLOAD-FAIL': { title: '上传到 MinerU 失败', hint: '网络抖动或签名 URL 过期，已重试 1 次仍失败，请稍后重试', recovery: 'retry', severity: 'error' },
+  'E-MINERU-PARSE-FAIL': { title: 'MinerU 解析失败', hint: '云端解析返回失败或内容为空，请检查文件是否损坏，或换用本地解析', recovery: 'manual_resolve', severity: 'error' },
+  'E-MINERU-TIMEOUT': { title: 'MinerU 解析轮询超时', hint: '已等待 5 分钟未完成，任务仍在云端，可用返回的 batch_id 到 mineru 后台查询', recovery: 'retry', severity: 'error' },
+  'E-MINERU-NETWORK': { title: 'MinerU 网络错误', hint: '无法连接 mineru 服务，请检查网络后重试', recovery: 'retry', severity: 'error' },
+  'E-MINERU-API-ERROR': { title: 'MinerU 接口返回错误', hint: '可能是额度超限（请配置个人 Token）、Token 失效（请检查 Token）、或参数错误', recovery: 'manual_resolve', severity: 'error' },
+
   // ===== OfficeCLI 相关错误（v11.7.0）=====
   'UNSUPPORTED_PROP': { title: 'OfficeCLI 不支持的格式属性', hint: '检查属性名拼写，常用：bold/italic/font/size/color/align/firstLineIndent/lineSpacing/lineRule/font.ea/font.latin', recovery: 'fix_params', severity: 'error' },
   'ADD_TABLE_FAILED': { title: '添加表格失败', hint: 'rows/cols 是正整数，parent 用 /body', recovery: 'fix_params', severity: 'error' },

@@ -48,8 +48,12 @@ async function read(filePath, options = {}) {
     }
 
     if (!parsedText || parsedText.trim().length === 0) {
-      // 扫描件（无文字层）
-      throw new WorkspaceError('PARSE_FAIL', 'PDF 无文字层（可能是扫描件）', false)
+      // 扫描件（无文字层）→ 提示用 mineru 高精度解析（v0.7.0）
+      throw new WorkspaceError(
+        'PARSE_FAIL',
+        'PDF 无文字层（可能是扫描件）。可调用 mineru 高精度解析：在对话中说「用 mineru 解析 <文件名>」',
+        false
+      )
     }
 
     return {

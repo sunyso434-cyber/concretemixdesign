@@ -1034,6 +1034,39 @@ class SystemService {
   }
 
   /**
+   * 获取 MinerU 配置（v0.7.0）
+   * 仅管理用户个人 Token；内置 Token 由 mineruBuiltinToken.js 提供，不入库
+   * @returns {Promise<{userToken: string|null}>}
+   */
+  async getMineruConfig() {
+    const userToken = await this.getParamByName('mineruUserToken')
+    return {
+      userToken: userToken?.value || null
+    }
+  }
+
+  /**
+   * 保存 MinerU 配置（仅写入传入字段）
+   * @param {object} cfg - {userToken?}
+   * @returns {Promise<void>}
+   */
+  async saveMineruConfig(cfg = {}) {
+    const writes = []
+    if (cfg.userToken !== undefined) {
+      writes.push(this.setParam('mineruUserToken', cfg.userToken || '', 'ai', 'MinerU 用户个人 Token'))
+    }
+    await Promise.all(writes)
+  }
+
+  /**
+   * 清除 MinerU 用户配置（清空个人 Token，回退到内置 Token）
+   * @returns {Promise<void>}
+   */
+  async clearMineruConfig() {
+    await this.saveMineruConfig({ userToken: '' })
+  }
+
+  /**
    * 获取学术搜索配置（v11.2.0）
    * @returns {Promise<{provider: string, arxivFallback: boolean}>}
    */
