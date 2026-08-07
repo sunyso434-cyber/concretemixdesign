@@ -17,7 +17,14 @@ describe('Orchestrator.run 集成测试', () => {
   beforeEach(() => {
     mocks = {
       deepseekService: { chatWithToolsStream: jest.fn() },
-      skillRegistry: { getSkill: jest.fn(), getToolSchemas: jest.fn(() => []) },
+      skillRegistry: {
+        getSkill: jest.fn(),
+        getToolSchemas: jest.fn(() => []),
+        // soft skill 接线修复后 Orchestrator 会构造 SoftSkillInjector，
+        // 注入器在 tryActivate 时调用 listSoftSkills；这里没 soft skill，返回空数组即可
+        listSoftSkills: jest.fn(() => []),
+        getUserDir: jest.fn(() => null)
+      },
       skillExecutor: { execute: jest.fn() },
       agentMemoryService: {
         buildAgentMdBlock: jest.fn(async () => ''),

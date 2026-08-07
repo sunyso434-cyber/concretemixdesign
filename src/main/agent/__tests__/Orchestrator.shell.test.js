@@ -83,4 +83,42 @@ describe('Orchestrator 外壳', () => {
     expect(typeof passedInput.getState).toBe('function')
     expect(passedInput.getState()).toBe('idle')  // run() 已结束，进入 finally 后是 idle
   })
+
+  // 回归测试：soft skill 注入器在生产接线中应被实例化并传给 UnifiedStrategy
+  // 历史问题：Orchestrator 构造 UnifiedStrategy 时未传 softSkillInjector，
+  // 导致 UnifiedStrategy 内 this.softSkillInjector 恒为 null，L275/L428 注入分支永远不执行
+  test('Orchestrator 构造时应实例化 SoftSkillInjector 并传给 strategy', () => {
+    const fakeRegistry = {
+      getUserDir: jest.fn(() => '/tmp/test-skills'),
+      listSoftSkills: jest.fn(() => [])
+    }
+    const orch = new Orchestrator({
+      deepseekService: {},
+      skillRegistry: fakeRegistry,
+      skillExecutor: {},
+      agentMemoryService: {}
+    })
+
+    // 注入器实例存在
+    expect(orch._softSkillInjector).toBeTruthy()
+    // 注入器用的是同一个 skillRegistry
+    expect(orch._softSkillInjector.registry).toBe(fakeRegistry)
+    // baseDir 取自 skillRegistry.getUserDir()
+    expect(orch._softSkillInjector.baseDir).toBe('/tmp/test-skills')
+    // UnifiedStrategy 收到了同一个注入器实例（不是 null）
+    expect(orch.strategy.softSkillInjector).toBe(orch._softSkillInjector)
+  })
+
+  // skillRegistry 不带 getUserDir 时不应崩（兼容 mock 不全的旧测试）
+  test('skillRegistry 无 getUserDir 时 SoftSkillInjector 仍能构造（baseDir 降级 null）', () => {
+    const orch = new Orchestrator({
+      deepseekService: {},
+      skillRegistry: {},
+      skillExecutor: {},
+      agentMemoryService: {}
+    })
+    expect(orch._softSkillInjector).toBeTruthy()
+    expect(orch._softSkillInjector.baseDir).toBeNull()
+    expect(orch.strategy.softSkillInjector).toBe(orch._softSkillInjector)
+  })
 })
