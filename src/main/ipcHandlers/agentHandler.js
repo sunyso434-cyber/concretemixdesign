@@ -13,6 +13,8 @@ function _log(msg) {
   } catch (_) {}
   console.log(msg)
 }
+// context.logger 契约是「对象带 info/error 方法」(_createLogger 形状)；裸函数 _log 会导致 skill 里 logger?.info 炸
+const _logLogger = { info: _log, error: _log }
 const DeepSeekService = require('../services/DeepSeekService')
 const Orchestrator = require('../agent/Orchestrator')
 const SkillRegistry = require('../agent/SkillRegistry')
@@ -444,7 +446,7 @@ function registerAgentHandlers() {
       const todoManage = require('../skills/todo-manage')
       return await todoManage.execute(
         { action: 'list' },
-        { sessionId, logger: _log }
+        { sessionId, logger: _logLogger }
       )
     } catch (e) {
       _log(`[AgentHandler] todo:list 失败: ${e.message}`)
@@ -465,7 +467,7 @@ function registerAgentHandlers() {
       const todoManage = require('../skills/todo-manage')
       return await todoManage.execute(
         { action: 'approve_plan' },
-        { sessionId, logger: _log }
+        { sessionId, logger: _logLogger }
       )
     } catch (e) {
       _log(`[AgentHandler] todo:confirm-plan 失败: ${e.message}`)
@@ -484,7 +486,7 @@ function registerAgentHandlers() {
       const todoManage = require('../skills/todo-manage')
       return await todoManage.execute(
         { action: 'replace_plan', steps },
-        { sessionId, logger: _log }
+        { sessionId, logger: _logLogger }
       )
     } catch (e) {
       _log(`[AgentHandler] todo:replace-plan 失败: ${e.message}`)
@@ -500,7 +502,7 @@ function registerAgentHandlers() {
       const todoManage = require('../skills/todo-manage')
       return await todoManage.execute(
         { action: 'clear' },
-        { sessionId, logger: _log }
+        { sessionId, logger: _logLogger }
       )
     } catch (e) {
       _log(`[AgentHandler] todo:clear 失败: ${e.message}`)
