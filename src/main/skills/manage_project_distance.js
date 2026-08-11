@@ -30,14 +30,26 @@ module.exports = {
   async execute(args, context) {
     const { projectDistanceService, logger } = context
     const { action, id, projectName } = args
-    // 摊平字段 → data 对象（AI 直接传顶层参数）
     const FIELDS = ['projectName', 'branchId', 'distanceKm', 'baseTransportMin', 'peakStart1', 'peakEnd1', 'peakStart2', 'peakEnd2', 'peakFactor']
     const NUM_FIELDS = ['branchId', 'distanceKm', 'baseTransportMin', 'peakFactor']
     const num = (v) => { const n = Number(v); return isNaN(n) ? v : n }
+
+    // 数据源合并：兼容 DeepSeek V4 的 data对象/data字符串/type|properties错位/顶层摊平
+    let raw = {}
+    for (const src of [args.data, args.properties, args.type]) {
+      if (typeof src === 'string') { try { Object.assign(raw, JSON.parse(src)) } catch (_) {} }
+      else if (src && typeof src === 'object') Object.assign(raw, src)
+    }
+    if (raw.data && typeof raw.data === 'object' && !Array.isArray(raw.data)) {
+      Object.assign(raw, raw.data)
+    }
+    delete raw.data
+    for (const k of FIELDS) if (args[k] !== undefined) raw[k] = args[k]
+
     const data = {}
     for (const k of FIELDS) {
-      if (args[k] !== undefined && args[k] !== null && args[k] !== '') {
-        data[k] = NUM_FIELDS.includes(k) ? num(args[k]) : args[k]
+      if (raw[k] !== undefined && raw[k] !== null && raw[k] !== '') {
+        data[k] = NUM_FIELDS.includes(k) ? num(raw[k]) : raw[k]
       }
     }
 
