@@ -12,30 +12,34 @@ module.exports = {
     type: 'object',
     properties: {
       action: { type: 'string', enum: ['create', 'update', 'delete', 'list', 'getMatrix', 'getByProject'] },
-      id: { type: 'integer' },
-      projectName: { type: 'string' },
-      data: {
-        type: 'object',
-        description: 'create/update时必填。必须是JSON对象(不能是JSON字符串)，字段如下。必填: projectName,branchId,distanceKm,baseTransportMin',
-        properties: {
-          projectName: { type: 'string', description: '工程名称，必填' },
-          branchId: { type: 'integer', description: '搅拌站/分公司ID(西站=1等)，必填' },
-          distanceKm: { type: 'number', description: '距离 km，必填' },
-          baseTransportMin: { type: 'integer', description: '基础运输时间 min，必填' },
-          peakStart1: { type: 'string', description: '早高峰起 HH:mm，可选' },
-          peakEnd1: { type: 'string', description: '早高峰止 HH:mm，可选' },
-          peakStart2: { type: 'string', description: '晚高峰起 HH:mm，可选' },
-          peakEnd2: { type: 'string', description: '晚高峰止 HH:mm，可选' },
-          peakFactor: { type: 'number', description: '峰时系数，默认1.0，可选' }
-        }
-      }
+      id: { type: 'integer', description: 'update/delete时必填' },
+      projectName: { type: 'string', description: '工程名称，getByProject和create必填' },
+      // create/update 字段直接摊平到顶层（DeepSeek V4 对 flat 参数支持最好，嵌套 object 会传错）
+      branchId: { type: 'integer', description: '搅拌站/分公司ID(西站=1等)，create必填' },
+      distanceKm: { type: 'number', description: '距离 km，create必填' },
+      baseTransportMin: { type: 'integer', description: '基础运输时间 min，create必填' },
+      peakStart1: { type: 'string', description: '早高峰起 HH:mm，可选' },
+      peakEnd1: { type: 'string', description: '早高峰止 HH:mm，可选' },
+      peakStart2: { type: 'string', description: '晚高峰起 HH:mm，可选' },
+      peakEnd2: { type: 'string', description: '晚高峰止 HH:mm，可选' },
+      peakFactor: { type: 'number', description: '峰时系数，默认1.0，可选' }
     },
     required: ['action']
   },
 
   async execute(args, context) {
     const { projectDistanceService, logger } = context
-    const { action, id, projectName, data } = args
+    const { action, id, projectName } = args
+    // 摊平字段 → data 对象（AI 直接传顶层参数）
+    const FIELDS = ['projectName', 'branchId', 'distanceKm', 'baseTransportMin', 'peakStart1', 'peakEnd1', 'peakStart2', 'peakEnd2', 'peakFactor']
+    const NUM_FIELDS = ['branchId', 'distanceKm', 'baseTransportMin', 'peakFactor']
+    const num = (v) => { const n = Number(v); return isNaN(n) ? v : n }
+    const data = {}
+    for (const k of FIELDS) {
+      if (args[k] !== undefined && args[k] !== null && args[k] !== '') {
+        data[k] = NUM_FIELDS.includes(k) ? num(args[k]) : args[k]
+      }
+    }
 
     try {
       let result

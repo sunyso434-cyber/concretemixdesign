@@ -46,30 +46,25 @@ module.exports = {
     type: 'object',
     properties: {
       action: { type: 'string', enum: ['create', 'update', 'delete', 'listByPlan', 'listUnmatched', 'assign', 'import'] },
-      planId: { type: 'integer' },
-      detailId: { type: 'integer' },
-      id: { type: 'integer' },
-      data: {
-        type: 'object',
-        description: 'create/update时必填。必须是JSON对象(不能是JSON字符串)，字段如下。必填: mixerTowerNo,productionDate,productionTime,shipmentNo,projectName,pourLocation,strengthGrade,volume',
-        properties: {
-          mixerTowerNo: { type: 'string', description: '搅拌楼号，必填' },
-          productionDate: { type: 'string', description: '生产日期 YYYY-MM-DD，必填' },
-          productionTime: { type: 'string', description: '生产时间 HH:mm，必填' },
-          shipmentNo: { type: 'string', description: '发货号，必填' },
-          projectName: { type: 'string', description: '工程名称，必填' },
-          pourLocation: { type: 'string', description: '工程部位，必填' },
-          strengthGrade: { type: 'string', description: '标号如 C30，必填' },
-          volume: { type: 'number', description: '方量 m³，必填' },
-          taskOrderNo: { type: 'string', description: '任务单号，可选' },
-          constructionUnit: { type: 'string', description: '施工单位，可选' },
-          operator: { type: 'string', description: '操作工，可选' },
-          plateNo: { type: 'string', description: '车牌号，可选' },
-          vehicleNo: { type: 'string', description: '车号，可选' },
-          driver: { type: 'string', description: '驾驶员，可选' },
-          supplyMethod: { type: 'string', description: '供应方式，可选' }
-        }
-      },
+      planId: { type: 'integer', description: 'listByPlan/assign时必填' },
+      detailId: { type: 'integer', description: 'assign时必填' },
+      id: { type: 'integer', description: 'update/delete时必填' },
+      // create/update 字段直接摊平到顶层（DeepSeek V4 对 flat 参数支持最好，嵌套 object 会传错）
+      mixerTowerNo: { type: 'string', description: '搅拌楼号，create必填' },
+      productionDate: { type: 'string', description: '生产日期 YYYY-MM-DD，create必填' },
+      productionTime: { type: 'string', description: '生产时间 HH:mm，create必填' },
+      shipmentNo: { type: 'string', description: '发货号，create必填' },
+      projectName: { type: 'string', description: '工程名称，create必填' },
+      pourLocation: { type: 'string', description: '工程部位，create必填' },
+      strengthGrade: { type: 'string', description: '标号如 C30，create必填' },
+      volume: { type: 'number', description: '方量 m³，create必填' },
+      taskOrderNo: { type: 'string', description: '任务单号，可选' },
+      constructionUnit: { type: 'string', description: '施工单位，可选' },
+      operator: { type: 'string', description: '操作工，可选' },
+      plateNo: { type: 'string', description: '车牌号，可选' },
+      vehicleNo: { type: 'string', description: '车号，可选' },
+      driver: { type: 'string', description: '驾驶员，可选' },
+      supplyMethod: { type: 'string', description: '供应方式，可选' },
       filePath: { type: 'string', description: 'import时必填，工作区内Excel路径' }
     },
     required: ['action']
@@ -77,7 +72,17 @@ module.exports = {
 
   async execute(args, context) {
     const { vehicleDetailService, logger } = context
-    const { action, planId, detailId, id, data, filePath } = args
+    const { action, planId, detailId, id, filePath } = args
+    // 摊平字段 → data 对象（AI 直接传顶层参数）
+    const FIELDS = ['mixerTowerNo', 'productionDate', 'productionTime', 'shipmentNo', 'projectName', 'pourLocation', 'strengthGrade', 'volume', 'taskOrderNo', 'constructionUnit', 'operator', 'plateNo', 'vehicleNo', 'driver', 'supplyMethod']
+    const NUM_FIELDS = ['volume']
+    const num = (v) => { const n = Number(v); return isNaN(n) ? v : n }
+    const data = {}
+    for (const k of FIELDS) {
+      if (args[k] !== undefined && args[k] !== null && args[k] !== '') {
+        data[k] = NUM_FIELDS.includes(k) ? num(args[k]) : args[k]
+      }
+    }
 
     try {
       let result
