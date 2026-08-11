@@ -187,6 +187,10 @@ async function initSkillSystem() {
     dailyPlanService: require('../services/DailyPlanService'),
     vehicleDetailService: require('../services/VehicleDetailService'),
 
+    // === v0.8.0 Task 13：评估算法注入（场景A 计划评估 + 场景B 滚动优化）===
+    productionPlanEvaluator: require('../services/evaluators/ProductionPlanEvaluator'),
+    remainingSupplyOptimizer: require('../services/evaluators/RemainingSupplyOptimizer'),
+
     // === Task 4：vision 能力注入 ===
     // systemService / visionService 用单例（与 Orchestrator.systemService 共享 SystemService），
     // VisionService 配置是动态的（每次 execute 从 systemService.getVisionConfig 读取），构造时用空 cfg
