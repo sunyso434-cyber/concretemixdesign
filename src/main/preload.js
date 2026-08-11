@@ -109,7 +109,31 @@ const INVOKE_CHANNELS = new Set([
   'md:write',
   'md:watch',
   'md:unwatch',
-  'md:resolve'
+  'md:resolve',
+  // 生产供应计划
+  'dailyPlan:list',
+  'dailyPlan:listRecentProjects',
+  'dailyPlan:listWithDetails',
+  'dailyPlan:get',
+  'dailyPlan:create',
+  'dailyPlan:update',
+  'dailyPlan:delete',
+  'vehicleDetail:listByPlan',
+  'vehicleDetail:create',
+  'vehicleDetail:update',
+  'vehicleDetail:delete',
+  'vehicleDetail:assign',
+  'vehicleDetail:listUnmatched',
+  'capacity:getAll',
+  'capacity:getById',
+  'capacity:create',
+  'capacity:update',
+  'capacity:delete',
+  'distance:getMatrix',
+  'distance:getByProject',
+  'distance:create',
+  'distance:update',
+  'distance:delete'
 ])
 
 const EVENT_CHANNELS = new Set([
