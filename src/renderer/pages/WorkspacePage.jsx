@@ -22,6 +22,7 @@ const SchemesPage = lazy(() => import('./SchemesPage'))
 const SettingsPage = lazy(() => import('./SettingsPage'))
 const TrialRecordsPage = lazy(() => import('./TrialRecordsPage'))
 const RemotePanelPage = lazy(() => import('./RemotePanelPage'))
+const ProductionPlanPage = lazy(() => import('./ProductionPlanPage'))
 
 const LoadingFallback = () => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -256,6 +257,17 @@ function WorkspaceContent() {
             <div className="v9-manage-content">
               <Suspense fallback={<LoadingFallback />}>
                 <SchemesPage ref={schemesRef} />
+              </Suspense>
+            </div>
+          </div>
+        )}
+
+        {/* 生产供应计划视图：v0.8.0 新增 */}
+        {activeView === 'production-plan' && (
+          <div className="v9-manage-body">
+            <div className="v9-manage-content">
+              <Suspense fallback={<LoadingFallback />}>
+                <ProductionPlanPage />
               </Suspense>
             </div>
           </div>
