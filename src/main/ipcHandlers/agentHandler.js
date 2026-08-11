@@ -181,6 +181,12 @@ async function initSkillSystem() {
     materialBatchService: require('../services/MaterialBatchService'),
     auditLogService: require('../services/AuditLogService'),
 
+    // === v0.8.0 Task 13：生产供应计划 services 注入 ===
+    capacityConfigService: require('../services/CapacityConfigService'),
+    projectDistanceService: require('../services/ProjectDistanceService'),
+    dailyPlanService: require('../services/DailyPlanService'),
+    vehicleDetailService: require('../services/VehicleDetailService'),
+
     // === Task 4：vision 能力注入 ===
     // systemService / visionService 用单例（与 Orchestrator.systemService 共享 SystemService），
     // VisionService 配置是动态的（每次 execute 从 systemService.getVisionConfig 读取），构造时用空 cfg
