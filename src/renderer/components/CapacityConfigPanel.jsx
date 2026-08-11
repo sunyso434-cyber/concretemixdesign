@@ -8,6 +8,22 @@ export default function CapacityConfigPanel() {
   const [editingId, setEditingId] = useState(null)
   const [form] = Form.useForm()
 
+  // 打开时填充表单（Modal 打开后 Form 才挂载，避免 useForm 时序警告/编辑回填丢失）
+  const handleOpenChange = (open) => {
+    if (!open) return
+    if (editingId) {
+      const r = data.find(d => d.id === editingId)
+      if (r) form.setFieldsValue({
+        ...r,
+        mixerTowerNosStr: (r.mixerTowerNos || []).join(', '),
+        lineSpecStr: r.lineSpec ? JSON.stringify(r.lineSpec) : '',
+        mixCoefficientsStr: r.mixCoefficients ? JSON.stringify(r.mixCoefficients) : ''
+      })
+    } else {
+      form.resetFields()
+    }
+  }
+
   const loadData = async () => {
     setLoading(true)
     const res = await window.electronAPI.invoke('capacity:getAll')
@@ -57,7 +73,7 @@ export default function CapacityConfigPanel() {
       title: '操作', key: 'action',
       render: (_, r) => (
         <>
-          <Button size="small" onClick={() => { setEditingId(r.id); setModalOpen(true); form.setFieldsValue({ ...r, mixerTowerNosStr: (r.mixerTowerNos||[]).join(', '), lineSpecStr: r.lineSpec ? JSON.stringify(r.lineSpec) : '', mixCoefficientsStr: r.mixCoefficients ? JSON.stringify(r.mixCoefficients) : '' }) }}>编辑</Button>
+          <Button size="small" onClick={() => { setEditingId(r.id); setModalOpen(true) }}>编辑</Button>
           <Popconfirm title="确认删除？" onConfirm={() => handleDelete(r.id)}>
             <Button size="small" danger>删除</Button>
           </Popconfirm>
@@ -68,9 +84,9 @@ export default function CapacityConfigPanel() {
 
   return (
     <div>
-      <Button type="primary" onClick={() => { setEditingId(null); setModalOpen(true); form.resetFields() }} style={{ marginBottom: 16 }}>+ 新增分公司配置</Button>
+      <Button type="primary" onClick={() => { setEditingId(null); setModalOpen(true) }} style={{ marginBottom: 16 }}>+ 新增分公司配置</Button>
       <Table columns={columns} dataSource={data} rowKey="id" loading={loading} scroll={{ x: 1200 }} />
-      <Modal title={editingId ? '编辑产能配置' : '新增产能配置'} open={modalOpen} onOk={handleSave} onCancel={() => { setModalOpen(false); setEditingId(null); form.resetFields() }} destroyOnClose width={700}>
+      <Modal title={editingId ? '编辑产能配置' : '新增产能配置'} open={modalOpen} onOk={handleSave} onCancel={() => setModalOpen(false)} afterOpenChange={handleOpenChange} destroyOnHidden width={700}>
         <Form form={form} layout="vertical">
           <Form.Item name="branchName" label="分公司名称" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="lineCount" label="生产线数量" rules={[{ required: true }]}><InputNumber min={1} /></Form.Item>
@@ -85,8 +101,8 @@ export default function CapacityConfigPanel() {
           <Form.Item name="rentalTruckCount" label="外租车数"><InputNumber min={0} /></Form.Item>
           <Form.Item name="rentalTruckPrice" label="外租单价"><InputNumber min={0} /></Form.Item>
           <Form.Item name="rentalTruckCapacity" label="外租容量"><InputNumber min={0} /></Form.Item>
-          <Form.Item name="loadTimeMin" label="装料时间(min)"><InputNumber min={0} initialValue={10} /></Form.Item>
-          <Form.Item name="unloadTimeMin" label="卸料时间(min)"><InputNumber min={0} initialValue={10} /></Form.Item>
+          <Form.Item name="loadTimeMin" label="装料时间(min)" initialValue={10}><InputNumber min={0} /></Form.Item>
+          <Form.Item name="unloadTimeMin" label="卸料时间(min)" initialValue={10}><InputNumber min={0} /></Form.Item>
           <Form.Item name="lineSpecStr" label="生产线规格(JSON)"><Input placeholder='{"model":"hzs180"}' /></Form.Item>
           <Form.Item name="mixCoefficientsStr" label="搅拌系数(JSON)"><Input placeholder='{"C30":1.0,"C40":1.1}' /></Form.Item>
         </Form>

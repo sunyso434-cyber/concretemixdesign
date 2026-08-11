@@ -9,6 +9,17 @@ export default function ProjectDistancePanel() {
   const [editingId, setEditingId] = useState(null)
   const [form] = Form.useForm()
 
+  // 打开时填充表单（Modal 打开后 Form 才挂载，避免 useForm 时序警告/编辑回填丢失）
+  const handleOpenChange = (open) => {
+    if (!open) return
+    if (editingId) {
+      const r = data.find(d => d.id === editingId)
+      if (r) form.setFieldsValue({ ...r })
+    } else {
+      form.resetFields()
+    }
+  }
+
   const loadData = async () => {
     setLoading(true)
     const [distRes, capRes] = await Promise.all([
@@ -50,7 +61,7 @@ export default function ProjectDistancePanel() {
       title: '操作', key: 'action',
       render: (_, r) => (
         <>
-          <Button size="small" onClick={() => { setEditingId(r.id); setModalOpen(true); form.setFieldsValue({ ...r }) }}>编辑</Button>
+          <Button size="small" onClick={() => { setEditingId(r.id); setModalOpen(true) }}>编辑</Button>
           <Popconfirm title="确认删除？" onConfirm={async () => { const res = await window.electronAPI.invoke('distance:delete', { id: r.id }); if (res.success) { message.success('删除成功'); loadData() } else message.error(res.error.message) }}>
             <Button size="small" danger>删除</Button>
           </Popconfirm>
@@ -61,9 +72,9 @@ export default function ProjectDistancePanel() {
 
   return (
     <div>
-      <Button type="primary" onClick={() => { setEditingId(null); setModalOpen(true); form.resetFields() }} style={{ marginBottom: 16 }}>+ 新增距离记录</Button>
+      <Button type="primary" onClick={() => { setEditingId(null); setModalOpen(true) }} style={{ marginBottom: 16 }}>+ 新增距离记录</Button>
       <Table columns={columns} dataSource={data} rowKey="id" loading={loading} scroll={{ x: 900 }} />
-      <Modal title={editingId ? '编辑距离记录' : '新增距离记录'} open={modalOpen} onOk={handleSave} onCancel={() => { setModalOpen(false); setEditingId(null); form.resetFields() }} destroyOnClose width={700}>
+      <Modal title={editingId ? '编辑距离记录' : '新增距离记录'} open={modalOpen} onOk={handleSave} onCancel={() => setModalOpen(false)} afterOpenChange={handleOpenChange} destroyOnHidden width={700}>
         <Form form={form} layout="vertical">
           <Form.Item name="projectName" label="工程名称" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="branchId" label="站点" rules={[{ required: true }]}>

@@ -10,7 +10,7 @@ export default function DailyPlanForm({ open, editingId, initialValues, branches
   }
 
   return (
-    <Modal title={editingId ? '编辑计划' : '新增计划'} open={open} onOk={handleOk} onCancel={onCancel} destroyOnClose width={700}>
+    <Modal title={editingId ? '编辑计划' : '新增计划'} open={open} onOk={handleOk} onCancel={onCancel} destroyOnHidden width={700}>
       <Form form={form} layout="vertical" initialValues={initialValues}>
         <Form.Item name="planDate" label="计划日期" rules={[{ required: true }]}>
           <Input placeholder="YYYY-MM-DD" disabled={!!editingId} />

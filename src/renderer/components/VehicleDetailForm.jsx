@@ -8,7 +8,7 @@ export default function VehicleDetailForm({ open, editingId, initialValues, onSa
     onSave(values)
   }
   return (
-    <Modal title={editingId ? '编辑车次' : '手工补录车次'} open={open} onOk={handleOk} onCancel={onCancel} width={600} destroyOnClose>
+    <Modal title={editingId ? '编辑车次' : '手工补录车次'} open={open} onOk={handleOk} onCancel={onCancel} width={600} destroyOnHidden>
       <Form form={form} layout="vertical" initialValues={initialValues}>
         <Form.Item name="mixerTowerNo" label="搅拌楼号" rules={[{ required: true }]}><Input /></Form.Item>
         <Form.Item name="productionDate" label="生产日期" rules={[{ required: true }]}><Input placeholder="YYYY-MM-DD" /></Form.Item>
