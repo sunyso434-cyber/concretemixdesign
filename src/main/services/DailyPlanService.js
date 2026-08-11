@@ -5,6 +5,11 @@ const MATCH_KEYS = ['planDate', 'projectName', 'pourLocation', 'strengthGrade', 
 
 class DailyPlanService {
   async create(data) {
+    if (!data) {
+      const err = new Error('计划数据缺失')
+      err.code = 'E-VALIDATION'
+      throw err
+    }
     if (!data.boundMixDesignId) {
       const err = new Error('配合比方案必填')
       err.code = 'E-PLAN-005'

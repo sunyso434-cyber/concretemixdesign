@@ -13,7 +13,24 @@ module.exports = {
     properties: {
       action: { type: 'string', enum: ['create', 'update', 'delete', 'get'] },
       id: { type: 'integer' },
-      data: { type: 'object', description: 'create/update时必填，含planDate/projectName/pourLocation/strengthGrade/branchId/volume/plannedSendTime/expectedDuration/boundMixDesignId等' },
+      data: {
+        type: 'object',
+        description: 'create/update时必填。必须是JSON对象(不能是JSON字符串)，字段如下。必填: planDate,projectName,pourLocation,strengthGrade,branchId,volume,plannedSendTime,expectedDuration,boundMixDesignId',
+        properties: {
+          planDate: { type: 'string', description: '计划日期 YYYY-MM-DD，必填' },
+          projectName: { type: 'string', description: '项目名称，必填' },
+          constructionUnit: { type: 'string', description: '施工单位，可选' },
+          pourLocation: { type: 'string', description: '浇筑部位，必填' },
+          receiveMethod: { type: 'string', description: '收件方式(微信/短信/app)，可选' },
+          strengthGrade: { type: 'string', description: '标号如 C30，必填' },
+          volume: { type: 'number', description: '方量 m³，必填' },
+          branchId: { type: 'integer', description: '发料分公司ID(西站=1等)，必填' },
+          plannedSendTime: { type: 'string', description: '计划发料时间 HH:mm，必填' },
+          expectedDuration: { type: 'number', description: '预计持续时间 小时，必填' },
+          boundMixDesignId: { type: 'integer', description: '配合比方案ID，必填' },
+          remarks: { type: 'string', description: '备注，可选' }
+        }
+      },
       forceDelete: { type: 'boolean', description: '删除时有车次是否强制删除，默认false' }
     },
     required: ['action']

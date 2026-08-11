@@ -14,7 +14,21 @@ module.exports = {
       action: { type: 'string', enum: ['create', 'update', 'delete', 'list', 'getMatrix', 'getByProject'] },
       id: { type: 'integer' },
       projectName: { type: 'string' },
-      data: { type: 'object' }
+      data: {
+        type: 'object',
+        description: 'create/update时必填。必须是JSON对象(不能是JSON字符串)，字段如下。必填: projectName,branchId,distanceKm,baseTransportMin',
+        properties: {
+          projectName: { type: 'string', description: '工程名称，必填' },
+          branchId: { type: 'integer', description: '搅拌站/分公司ID(西站=1等)，必填' },
+          distanceKm: { type: 'number', description: '距离 km，必填' },
+          baseTransportMin: { type: 'integer', description: '基础运输时间 min，必填' },
+          peakStart1: { type: 'string', description: '早高峰起 HH:mm，可选' },
+          peakEnd1: { type: 'string', description: '早高峰止 HH:mm，可选' },
+          peakStart2: { type: 'string', description: '晚高峰起 HH:mm，可选' },
+          peakEnd2: { type: 'string', description: '晚高峰止 HH:mm，可选' },
+          peakFactor: { type: 'number', description: '峰时系数，默认1.0，可选' }
+        }
+      }
     },
     required: ['action']
   },

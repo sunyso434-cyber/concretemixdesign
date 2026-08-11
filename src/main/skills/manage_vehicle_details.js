@@ -49,7 +49,27 @@ module.exports = {
       planId: { type: 'integer' },
       detailId: { type: 'integer' },
       id: { type: 'integer' },
-      data: { type: 'object' },
+      data: {
+        type: 'object',
+        description: 'create/update时必填。必须是JSON对象(不能是JSON字符串)，字段如下。必填: mixerTowerNo,productionDate,productionTime,shipmentNo,projectName,pourLocation,strengthGrade,volume',
+        properties: {
+          mixerTowerNo: { type: 'string', description: '搅拌楼号，必填' },
+          productionDate: { type: 'string', description: '生产日期 YYYY-MM-DD，必填' },
+          productionTime: { type: 'string', description: '生产时间 HH:mm，必填' },
+          shipmentNo: { type: 'string', description: '发货号，必填' },
+          projectName: { type: 'string', description: '工程名称，必填' },
+          pourLocation: { type: 'string', description: '工程部位，必填' },
+          strengthGrade: { type: 'string', description: '标号如 C30，必填' },
+          volume: { type: 'number', description: '方量 m³，必填' },
+          taskOrderNo: { type: 'string', description: '任务单号，可选' },
+          constructionUnit: { type: 'string', description: '施工单位，可选' },
+          operator: { type: 'string', description: '操作工，可选' },
+          plateNo: { type: 'string', description: '车牌号，可选' },
+          vehicleNo: { type: 'string', description: '车号，可选' },
+          driver: { type: 'string', description: '驾驶员，可选' },
+          supplyMethod: { type: 'string', description: '供应方式，可选' }
+        }
+      },
       filePath: { type: 'string', description: 'import时必填，工作区内Excel路径' }
     },
     required: ['action']
