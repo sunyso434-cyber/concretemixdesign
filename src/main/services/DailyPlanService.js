@@ -30,18 +30,16 @@ class DailyPlanService {
       err.code = 'E-PLAN-001'
       throw err
     }
-    const warnings = []
-    const updateData = { ...data }
+    // 匹配键字段不可修改（spec §3.5）
     for (const key of MATCH_KEYS) {
-      if (key in updateData) {
-        delete updateData[key]
-        warnings.push(`匹配键字段 ${key} 不可修改，已忽略`)
+      if (key in data && data[key] !== row[key]) {
+        const err = new Error(`匹配键字段 ${key} 不可修改`)
+        err.code = 'E-PLAN-004'
+        throw err
       }
     }
-    await row.update(updateData)
-    const result = row.toJSON()
-    result.warnings = warnings
-    return result
+    await row.update(data)
+    return row.toJSON()
   }
 
   async delete(id, forceDelete = false) {

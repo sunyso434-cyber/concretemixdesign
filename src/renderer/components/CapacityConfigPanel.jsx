@@ -70,7 +70,7 @@ export default function CapacityConfigPanel() {
     <div>
       <Button type="primary" onClick={() => { setEditingId(null); setModalOpen(true); form.resetFields() }} style={{ marginBottom: 16 }}>+ 新增分公司配置</Button>
       <Table columns={columns} dataSource={data} rowKey="id" loading={loading} scroll={{ x: 1200 }} />
-      <Modal title={editingId ? '编辑产能配置' : '新增产能配置'} open={modalOpen} onOk={handleSave} onCancel={() => { setModalOpen(false); setEditingId(null); form.resetFields() }} width={700}>
+      <Modal title={editingId ? '编辑产能配置' : '新增产能配置'} open={modalOpen} onOk={handleSave} onCancel={() => { setModalOpen(false); setEditingId(null); form.resetFields() }} destroyOnClose width={700}>
         <Form form={form} layout="vertical">
           <Form.Item name="branchName" label="分公司名称" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="lineCount" label="生产线数量" rules={[{ required: true }]}><InputNumber min={1} /></Form.Item>

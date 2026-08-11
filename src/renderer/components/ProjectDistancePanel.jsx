@@ -63,7 +63,7 @@ export default function ProjectDistancePanel() {
     <div>
       <Button type="primary" onClick={() => { setEditingId(null); setModalOpen(true); form.resetFields() }} style={{ marginBottom: 16 }}>+ 新增距离记录</Button>
       <Table columns={columns} dataSource={data} rowKey="id" loading={loading} scroll={{ x: 900 }} />
-      <Modal title={editingId ? '编辑距离记录' : '新增距离记录'} open={modalOpen} onOk={handleSave} onCancel={() => { setModalOpen(false); setEditingId(null); form.resetFields() }} width={700}>
+      <Modal title={editingId ? '编辑距离记录' : '新增距离记录'} open={modalOpen} onOk={handleSave} onCancel={() => { setModalOpen(false); setEditingId(null); form.resetFields() }} destroyOnClose width={700}>
         <Form form={form} layout="vertical">
           <Form.Item name="projectName" label="工程名称" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="branchId" label="站点" rules={[{ required: true }]}>
