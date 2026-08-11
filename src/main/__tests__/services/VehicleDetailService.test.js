@@ -89,6 +89,17 @@ describe('VehicleDetailService', () => {
       expect(res.reason).toMatch(/mixerTowerNo/)
     })
 
+    // 8 个必填字段逐一缺失（spec 7.2 必填清单：mixerTowerNo/productionDate/productionTime/projectName/pourLocation/strengthGrade/volume/shipmentNo）
+    const requiredFields = ['productionDate', 'productionTime', 'projectName', 'pourLocation', 'strengthGrade', 'volume', 'shipmentNo']
+    for (const f of requiredFields) {
+      test(`T3b-${f} 缺 ${f} → reason=必填字段 ${f} 缺失`, () => {
+        const r = { ...validRow, [f]: undefined }
+        const res = _validateRow(r)
+        expect(res.valid).toBe(false)
+        expect(res.reason).toBe(`必填字段 ${f} 缺失`)
+      })
+    }
+
     test('T3c 方量=0 → reason=方量必须为正数', () => {
       const res = _validateRow({ ...validRow, volume: 0 })
       expect(res.valid).toBe(false)
