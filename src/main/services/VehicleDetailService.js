@@ -42,7 +42,12 @@ class VehicleDetailService {
   }
 
   async update(id, data) {
-    const row = await VehicleByPkOrThrow(id)
+    const row = await VehicleDetail.findByPk(id)
+    if (!row) {
+      const err = new Error('车次不存在')
+      err.code = 'VEHICLE_NOT_FOUND'
+      throw err
+    }
     await row.update(data)
     return row.toJSON()
   }
@@ -53,7 +58,12 @@ class VehicleDetailService {
   }
 
   async assignToPlan(detailId, planId) {
-    const row = await VehicleByPkOrThrow(detailId)
+    const row = await VehicleDetail.findByPk(detailId)
+    if (!row) {
+      const err = new Error('车次不存在')
+      err.code = 'VEHICLE_NOT_FOUND'
+      throw err
+    }
     const plan = await DailyPlan.findByPk(planId)
     if (!plan) {
       const err = new Error('计划不存在')
@@ -284,16 +294,6 @@ class VehicleDetailService {
       })
     }
   }
-}
-
-async function VehicleByPkOrThrow(id) {
-  const row = await VehicleDetail.findByPk(id)
-  if (!row) {
-    const err = new Error('车次不存在')
-    err.code = 'VEHICLE_NOT_FOUND'
-    throw err
-  }
-  return row
 }
 
 module.exports = new VehicleDetailService()
