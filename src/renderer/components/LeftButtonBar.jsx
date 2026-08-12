@@ -1,6 +1,6 @@
 import React from 'react'
 import { Tooltip } from 'antd'
-import { DatabaseOutlined, AppstoreOutlined, SettingOutlined, MessageOutlined, ExperimentOutlined, WifiOutlined } from '@ant-design/icons'
+import { DatabaseOutlined, AppstoreOutlined, SettingOutlined, MessageOutlined, ExperimentOutlined, WifiOutlined, ScheduleOutlined } from '@ant-design/icons'
 
 /**
  * LeftButtonBar - 最左侧竖排按钮区（微信风格）
@@ -18,6 +18,7 @@ const LeftButtonBar = ({ activeView, onSelect }) => {
     { key: 'chat', icon: <MessageOutlined />, label: '聊天', placement: 'right' },
     { key: 'materials', icon: <DatabaseOutlined />, label: '原材料管理', placement: 'right' },
     { key: 'schemes', icon: <AppstoreOutlined />, label: '方案管理', placement: 'right' },
+    { key: 'production-plan', icon: <ScheduleOutlined />, label: '生产计划', placement: 'right' },
     { key: 'trial-records', icon: <ExperimentOutlined />, label: '试配记录', placement: 'right' },
     { key: 'remote', icon: <WifiOutlined />, label: '远程连接', placement: 'right' },
     { key: 'settings', icon: <SettingOutlined />, label: '系统设置', placement: 'right' },

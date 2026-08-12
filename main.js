@@ -69,6 +69,7 @@ require('./src/main/ipcHandlers/agentHandler').registerAgentHandlers() // AI Age
 const { registerLlmHandlers } = require('./src/main/ipcHandlers/llmHandler')
 registerLlmHandlers()
 const remotePanelHandler = require('./src/main/ipcHandlers/remotePanelHandler') // R10：桌面「远程连接」面板 IPC
+require('./src/main/ipcHandlers/productionPlanHandler') // 生产供应计划 IPC 处理器（单例，require 即注册 23 个通道）
 // R11：远程服务组装层 + FanoutSink 的 webContents 包装（顶层纯 Node，不拉 electron）
 const remoteService = require('./src/main/remote')
 const { wrapWebContents } = require('./src/main/remote/FanoutSink')

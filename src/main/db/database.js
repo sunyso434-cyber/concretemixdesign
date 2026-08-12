@@ -82,6 +82,17 @@ const AgentCheckpoint = require('./models/AgentCheckpoint')
 const ChatSessionModel = require('./models/ChatSession')
 const ChatSession = ChatSessionModel(sequelize)
 
+// v0.8.0 生产供应计划
+const defineDailyPlan = require('./models/DailyPlan')
+const defineVehicleDetail = require('./models/VehicleDetail')
+const defineCapacityConfig = require('./models/CapacityConfig')
+const defineProjectDistance = require('./models/ProjectDistance')
+
+const DailyPlan = defineDailyPlan(sequelize)
+const VehicleDetail = defineVehicleDetail(sequelize)
+const CapacityConfig = defineCapacityConfig(sequelize)
+const ProjectDistance = defineProjectDistance(sequelize)
+
 // 关联：ChatSession 1 - N ChatHistory
 // constraints: false —— 不在 DB 层强制外键，因为 chat_history 是先于 ChatSession 写入的
 ChatSession.hasMany(ChatHistory, { foreignKey: 'sessionId', sourceKey: 'sessionId', constraints: false })
@@ -215,7 +226,7 @@ async function ensureMemoryFts() {
 
 async function syncModels() {
   // UserPreference 已在阶段 B 迁移中废弃，不在此处注册
-  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion, MaterialBatch, TrialTestRecord, SecurityLog, AgentCheckpoint]
+  const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion, MaterialBatch, TrialTestRecord, SecurityLog, AgentCheckpoint, DailyPlan, VehicleDetail, CapacityConfig, ProjectDistance]
   await runSchemaBaseline({ sequelize, models: allModels, dbPath })
   await ensureArchivedColumn()
   await ensureMemoryFts()
@@ -227,6 +238,19 @@ async function syncModels() {
   await SecurityLog.sync({ alter: false, force: false })
   // v0.4.0：agent_checkpoint 表（断点续跑：todo 快照 + last_step），幂等 sync
   await AgentCheckpoint.sync({ alter: false, force: false })
+
+  // v0.8.0 生产供应计划
+  await CapacityConfig.sync({ alter: false, force: false })
+  await ProjectDistance.sync({ alter: false, force: false })
+  await DailyPlan.sync({ alter: false, force: false })
+  await VehicleDetail.sync({ alter: false, force: false })
+
+  // v0.8.1：分公司绑定C30基准配合比（老库补列）
+  await ensureColumn(sequelize, 'capacity_configs', 'c30BaselineMixDesignId', 'INTEGER')
+
+  // 单字段性能索引（复合唯一索引已由 model indexes 定义，不重复建）
+  await sequelize.query('CREATE INDEX IF NOT EXISTS idx_daily_plans_date ON daily_plans (planDate)')
+  await sequelize.query('CREATE INDEX IF NOT EXISTS idx_vehicle_details_planId ON vehicle_details (planId)')
 
   // A3：为 materials 表添加 currentBatchId 字段（幂等）
   await ensureColumn(sequelize, 'materials', 'currentBatchId', 'INTEGER')
@@ -325,3 +349,7 @@ module.exports.MaterialBatch = MaterialBatch
 module.exports.TrialTestRecord = TrialTestRecord
 module.exports.SecurityLog = SecurityLog
 module.exports.AgentCheckpoint = AgentCheckpoint
+module.exports.DailyPlan = DailyPlan
+module.exports.VehicleDetail = VehicleDetail
+module.exports.CapacityConfig = CapacityConfig
+module.exports.ProjectDistance = ProjectDistance
