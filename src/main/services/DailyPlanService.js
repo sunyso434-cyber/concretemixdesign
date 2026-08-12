@@ -10,11 +10,7 @@ class DailyPlanService {
       err.code = 'E-VALIDATION'
       throw err
     }
-    if (!data.boundMixDesignId) {
-      const err = new Error('配合比方案必填')
-      err.code = 'E-PLAN-005'
-      throw err
-    }
+    // v0.8.1：配合比改为分公司绑定，计划不再校验 boundMixDesignId
     try {
       const row = await DailyPlan.create(data)
       return row.toJSON()

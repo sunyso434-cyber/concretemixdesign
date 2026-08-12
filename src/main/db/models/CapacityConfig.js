@@ -20,6 +20,9 @@ module.exports = (sequelize) => {
     loadTimeMin: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 10 },
     unloadTimeMin: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 10 },
     mixCoefficients: { type: DataTypes.JSON, allowNull: false, defaultValue: { C30: 1.0 } },
+    // v0.8.1：分公司绑定的 C30 基准配合比ID（用于成本对比时取材料成本）
+    // 不加外键约束，删除配合比时由服务层处理解绑
+    c30BaselineMixDesignId: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
     createdAt: { type: DataTypes.DATE, allowNull: false },
     updatedAt: { type: DataTypes.DATE, allowNull: false }
   }, {

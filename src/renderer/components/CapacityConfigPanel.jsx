@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { Table, Button, Modal, Form, Input, InputNumber, message, Popconfirm } from 'antd'
+import { Table, Button, Modal, Form, Input, InputNumber, Select, message, Popconfirm } from 'antd'
 
 export default function CapacityConfigPanel() {
   const [data, setData] = useState([])
+  const [c30MixDesigns, setC30MixDesigns] = useState([]) // v0.8.1：C30 标号的配合比列表（用于下拉选）
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
@@ -28,6 +29,11 @@ export default function CapacityConfigPanel() {
     setLoading(true)
     const res = await window.electronAPI.invoke('capacity:getAll')
     if (res.success) setData(res.data)
+    // v0.8.1：拉取 C30 配合比列表用于下拉
+    const mdRes = await window.electronAPI.invoke('getAllMixDesigns')
+    if (mdRes.success) {
+      setC30MixDesigns(mdRes.data.filter(m => m.strength === 'C30'))
+    }
     setLoading(false)
   }
 
@@ -69,6 +75,15 @@ export default function CapacityConfigPanel() {
     { title: '电车(数/单价/容量)', key: 'elec', render: (_, r) => `${r.selfElecTruckCount}/${r.selfElecTruckPrice}/${r.selfElecTruckCapacity}` },
     { title: '外租(数/单价/容量)', key: 'rental', render: (_, r) => `${r.rentalTruckCount}/${r.rentalTruckPrice}/${r.rentalTruckCapacity}` },
     { title: '装卸料(min)', key: 'time', render: (_, r) => `${r.loadTimeMin}/${r.unloadTimeMin}` },
+    // v0.8.1：C30 基准配合比列
+    {
+      title: 'C30基准配合比', key: 'c30Mix',
+      render: (_, r) => {
+        if (!r.c30BaselineMixDesignId) return <span style={{ color: '#999' }}>未绑定</span>
+        const m = c30MixDesigns.find(x => x.id === r.c30BaselineMixDesignId)
+        return m ? `${m.name || '方案' + m.id} (${m.totalCost || 0}元/方)` : `#${r.c30BaselineMixDesignId}(已删)`
+      }
+    },
     {
       title: '操作', key: 'action',
       render: (_, r) => (
@@ -85,7 +100,7 @@ export default function CapacityConfigPanel() {
   return (
     <div>
       <Button type="primary" onClick={() => { setEditingId(null); setModalOpen(true) }} style={{ marginBottom: 16 }}>+ 新增分公司配置</Button>
-      <Table columns={columns} dataSource={data} rowKey="id" loading={loading} scroll={{ x: 1200 }} />
+      <Table columns={columns} dataSource={data} rowKey="id" loading={loading} scroll={{ x: 1400 }} />
       <Modal title={editingId ? '编辑产能配置' : '新增产能配置'} open={modalOpen} onOk={handleSave} onCancel={() => setModalOpen(false)} afterOpenChange={handleOpenChange} destroyOnHidden width={700}>
         <Form form={form} layout="vertical">
           <Form.Item name="branchName" label="分公司名称" rules={[{ required: true }]}><Input /></Form.Item>
@@ -105,6 +120,12 @@ export default function CapacityConfigPanel() {
           <Form.Item name="unloadTimeMin" label="卸料时间(min)" initialValue={10}><InputNumber min={0} /></Form.Item>
           <Form.Item name="lineSpecStr" label="生产线规格(JSON)"><Input placeholder='{"model":"hzs180"}' /></Form.Item>
           <Form.Item name="mixCoefficientsStr" label="搅拌系数(JSON)"><Input placeholder='{"C30":1.0,"C40":1.1}' /></Form.Item>
+          {/* v0.8.1：C30 基准配合比（用于成本对比，必须选 C30 标号的方案） */}
+          <Form.Item name="c30BaselineMixDesignId" label="C30基准配合比(用于成本对比)" extra="从配合比库中选一个C30标号方案，用于跨分公司成本对比">
+            <Select allowClear placeholder="选择C30配合比方案">
+              {c30MixDesigns.map(m => <Select.Option key={m.id} value={m.id}>{m.name || `方案${m.id}`} ({m.totalCost || 0}元/方)</Select.Option>)}
+            </Select>
+          </Form.Item>
         </Form>
       </Modal>
     </div>

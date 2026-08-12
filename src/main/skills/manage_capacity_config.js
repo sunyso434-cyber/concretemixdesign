@@ -6,8 +6,8 @@
 module.exports = {
   name: 'manage_capacity_config',
   category: 'manage',
-  description: '管理各分公司产能配置(生产线/运输车/搅拌系数/搅拌楼号映射)。action: create|update|delete|list|get。create/update需传data(含branchName,lineCount,c30Efficiency,mixerTowerNos,selfOilTruckCount等)。搅拌楼号跨记录查重(一个楼号只能配一个站)。删除时有引用会拒绝。',
-  version: '1.0.0',
+  description: '管理各分公司产能配置(生产线/运输车/搅拌系数/搅拌楼号映射/C30基准配合比)。action: create|update|delete|list|get。create/update需传data(含branchName,lineCount,c30Efficiency,mixerTowerNos,selfOilTruckCount,c30BaselineMixDesignId等)。搅拌楼号跨记录查重(一个楼号只能配一个站)。c30BaselineMixDesignId必须指向C30标号的配合比方案。删除时有引用会拒绝。',
+  version: '1.1.0',
   parameters: {
     type: 'object',
     properties: {
@@ -29,7 +29,8 @@ module.exports = {
       rentalTruckCapacity: { type: 'number', description: '外租容量 m³，默认8' },
       loadTimeMin: { type: 'integer', description: '装料时间 min，默认10' },
       unloadTimeMin: { type: 'integer', description: '卸料时间 min，默认10' },
-      mixCoefficients: { type: 'object', description: '搅拌系数 JSON，如{"C30":1.0,"C40":1.1}' }
+      mixCoefficients: { type: 'object', description: '搅拌系数 JSON，如{"C30":1.0,"C40":1.1}' },
+      c30BaselineMixDesignId: { type: 'integer', description: 'C30基准配合比方案ID(用于成本对比)，必须指向C30标号的配合比，可选' }
     },
     required: ['action']
   },
@@ -37,8 +38,8 @@ module.exports = {
   async execute(args, context) {
     const { capacityConfigService, logger } = context
     const { action, id } = args
-    const FIELDS = ['branchName', 'lineCount', 'lineSpec', 'mixerTowerNos', 'selfOilTruckCount', 'selfOilTruckPrice', 'selfOilTruckCapacity', 'selfElecTruckCount', 'selfElecTruckPrice', 'selfElecTruckCapacity', 'rentalTruckCount', 'rentalTruckPrice', 'rentalTruckCapacity', 'loadTimeMin', 'unloadTimeMin', 'mixCoefficients']
-    const NUM_FIELDS = ['lineCount', 'selfOilTruckCount', 'selfOilTruckPrice', 'selfOilTruckCapacity', 'selfElecTruckCount', 'selfElecTruckPrice', 'selfElecTruckCapacity', 'rentalTruckCount', 'rentalTruckPrice', 'rentalTruckCapacity', 'loadTimeMin', 'unloadTimeMin']
+    const FIELDS = ['branchName', 'lineCount', 'lineSpec', 'mixerTowerNos', 'selfOilTruckCount', 'selfOilTruckPrice', 'selfOilTruckCapacity', 'selfElecTruckCount', 'selfElecTruckPrice', 'selfElecTruckCapacity', 'rentalTruckCount', 'rentalTruckPrice', 'rentalTruckCapacity', 'loadTimeMin', 'unloadTimeMin', 'mixCoefficients', 'c30BaselineMixDesignId']
+    const NUM_FIELDS = ['lineCount', 'selfOilTruckCount', 'selfOilTruckPrice', 'selfOilTruckCapacity', 'selfElecTruckCount', 'selfElecTruckPrice', 'selfElecTruckCapacity', 'rentalTruckCount', 'rentalTruckPrice', 'rentalTruckCapacity', 'loadTimeMin', 'unloadTimeMin', 'c30BaselineMixDesignId']
     const JSON_FIELDS = ['lineSpec', 'mixerTowerNos', 'mixCoefficients']
     const num = (v) => { const n = Number(v); return isNaN(n) ? v : n }
     const parseJson = (v) => { if (typeof v === 'string') { try { return JSON.parse(v) } catch (_) { return v } } return v }

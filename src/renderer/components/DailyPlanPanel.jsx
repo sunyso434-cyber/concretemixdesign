@@ -6,7 +6,6 @@ import VehicleDetailSubTable from './VehicleDetailSubTable'
 export default function DailyPlanPanel({ date, branchId }) {
   const [data, setData] = useState([])
   const [branches, setBranches] = useState([])
-  const [mixDesigns, setMixDesigns] = useState([])
   const [projectNames, setProjectNames] = useState([])
   const [loading, setLoading] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
@@ -16,13 +15,12 @@ export default function DailyPlanPanel({ date, branchId }) {
     setLoading(true)
     const res = await window.electronAPI.invoke('dailyPlan:listWithDetails', { date, branchId })
     if (res.success) setData(res.data)
-    const [capRes, mdRes, pnRes] = await Promise.all([
+    // v0.8.1：配合比改为分公司绑定，不再拉取 getAllMixDesigns
+    const [capRes, pnRes] = await Promise.all([
       window.electronAPI.invoke('capacity:getAll'),
-      window.electronAPI.invoke('getAllMixDesigns'),
       window.electronAPI.invoke('dailyPlan:listRecentProjects')
     ])
     if (capRes.success) setBranches(capRes.data)
-    if (mdRes.success) setMixDesigns(mdRes.data)
     if (pnRes.success) setProjectNames(pnRes.data)
     setLoading(false)
   }
@@ -104,7 +102,6 @@ export default function DailyPlanPanel({ date, branchId }) {
         editingId={editingId}
         initialValues={editingId ? data.find(d => d.id === editingId) : { planDate: date }}
         branches={branches}
-        mixDesigns={mixDesigns}
         existingProjectNames={projectNames}
         onSave={handleSave}
         onCancel={() => { setFormOpen(false); setEditingId(null) }}

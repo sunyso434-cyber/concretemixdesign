@@ -245,6 +245,9 @@ async function syncModels() {
   await DailyPlan.sync({ alter: false, force: false })
   await VehicleDetail.sync({ alter: false, force: false })
 
+  // v0.8.1：分公司绑定C30基准配合比（老库补列）
+  await ensureColumn(sequelize, 'capacity_configs', 'c30BaselineMixDesignId', 'INTEGER')
+
   // 单字段性能索引（复合唯一索引已由 model indexes 定义，不重复建）
   await sequelize.query('CREATE INDEX IF NOT EXISTS idx_daily_plans_date ON daily_plans (planDate)')
   await sequelize.query('CREATE INDEX IF NOT EXISTS idx_vehicle_details_planId ON vehicle_details (planId)')

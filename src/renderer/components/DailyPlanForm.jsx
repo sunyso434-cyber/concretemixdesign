@@ -1,7 +1,8 @@
 import React from 'react'
 import { Modal, Form, Input, InputNumber, Select, AutoComplete } from 'antd'
 
-export default function DailyPlanForm({ open, editingId, initialValues, branches, mixDesigns, existingProjectNames, onSave, onCancel }) {
+// v0.8.1：配合比改为分公司绑定（CapacityConfig.c30BaselineMixDesignId），计划表单不再有"配合比方案"选择项
+export default function DailyPlanForm({ open, editingId, initialValues, branches, existingProjectNames, onSave, onCancel }) {
   const [form] = Form.useForm()
 
   const handleOk = async () => {
@@ -39,11 +40,6 @@ export default function DailyPlanForm({ open, editingId, initialValues, branches
         </Form.Item>
         <Form.Item name="expectedDuration" label="预计持续时间(h)" rules={[{ required: true }]}>
           <InputNumber min={0} step={0.5} style={{ width: '100%' }} />
-        </Form.Item>
-        <Form.Item name="boundMixDesignId" label="配合比方案" rules={[{ required: true }]}>
-          <Select>
-            {mixDesigns.map(m => <Select.Option key={m.id} value={m.id}>{m.name || `方案${m.id}`}</Select.Option>)}
-          </Select>
         </Form.Item>
         <Form.Item name="constructionUnit" label="施工单位"><Input /></Form.Item>
         <Form.Item name="receiveMethod" label="收件方式">

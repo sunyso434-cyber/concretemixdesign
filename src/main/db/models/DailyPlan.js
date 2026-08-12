@@ -14,7 +14,9 @@ module.exports = (sequelize) => {
     plannedSendTime: { type: DataTypes.STRING, allowNull: false },
     equipmentInfo: { type: DataTypes.JSON, allowNull: true },
     expectedDuration: { type: DataTypes.FLOAT, allowNull: false },
-    boundMixDesignId: { type: DataTypes.INTEGER, allowNull: false },
+    // v0.8.1：配合比改为分公司绑定（CapacityConfig.c30BaselineMixDesignId），此字段废弃
+    // 保留列以兼容老库数据，新逻辑不再使用
+    boundMixDesignId: { type: DataTypes.INTEGER, allowNull: true, defaultValue: null },
     remarks: { type: DataTypes.STRING, allowNull: true },
     createdAt: { type: DataTypes.DATE, allowNull: false },
     updatedAt: { type: DataTypes.DATE, allowNull: false }

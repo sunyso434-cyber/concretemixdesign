@@ -1,4 +1,4 @@
-const { CapacityConfig, DailyPlan, VehicleDetail, ProjectDistance } = require('../db/database')
+const { CapacityConfig, DailyPlan, VehicleDetail, ProjectDistance, MixDesign } = require('../db/database')
 
 class CapacityConfigService {
   async getAll() {
@@ -19,6 +19,10 @@ class CapacityConfigService {
   async create(data) {
     // 搅拌楼号跨记录查重
     await this._checkMixerTowerNosConflict(data.mixerTowerNos || [])
+    // v0.8.1：校验 C30 基准配合比
+    if (data.c30BaselineMixDesignId !== undefined && data.c30BaselineMixDesignId !== null) {
+      await this._validateC30MixDesign(data.c30BaselineMixDesignId)
+    }
     const row = await CapacityConfig.create(data)
     return row.toJSON()
   }
@@ -33,8 +37,30 @@ class CapacityConfigService {
     if (data.mixerTowerNos) {
       await this._checkMixerTowerNosConflict(data.mixerTowerNos, id)
     }
+    // v0.8.1：校验 C30 基准配合比
+    if (data.c30BaselineMixDesignId !== undefined && data.c30BaselineMixDesignId !== null) {
+      await this._validateC30MixDesign(data.c30BaselineMixDesignId)
+    }
     await row.update(data)
     return row.toJSON()
+  }
+
+  /**
+   * v0.8.1：校验配合比存在且为 C30
+   */
+  async _validateC30MixDesign(mixDesignId) {
+    if (!mixDesignId) return
+    const mixDesign = await MixDesign.findByPk(mixDesignId)
+    if (!mixDesign) {
+      const err = new Error(`配合比方案(id=${mixDesignId})不存在`)
+      err.code = 'E-CAP-003'
+      throw err
+    }
+    if (mixDesign.strength !== 'C30') {
+      const err = new Error(`配合比方案(id=${mixDesignId})标号为${mixDesign.strength}，C30基准方案必须是C30标号`)
+      err.code = 'E-CAP-003'
+      throw err
+    }
   }
 
   async delete(id) {

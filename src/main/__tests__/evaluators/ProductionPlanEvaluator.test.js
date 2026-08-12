@@ -9,6 +9,7 @@ const _calcComprehensiveSuggestions = (...args) => I._calcComprehensiveSuggestio
 const _isPeak = (...args) => I._isPeak(...args)
 const _isCapacityAvailable = (...args) => I._isCapacityAvailable(...args)
 const _isTransportAvailable = (...args) => I._isTransportAvailable(...args)
+const _getC30MaterialCost = (...args) => I._getC30MaterialCost(...args)
 
 describe('ProductionPlanEvaluator', () => {
   // ===== T1: 单计划不超载（绿）=====
@@ -147,6 +148,46 @@ describe('ProductionPlanEvaluator', () => {
       expect(result).toHaveLength(1)
       expect(result[0].suggestions[0].type).toBe('change_branch')
       expect(result[0].suggestions[0].to).toBe(2)
+    })
+  })
+
+  // ===== T6 (v0.8.1): _getC30MaterialCost 纯函数 =====
+  // 覆盖：已绑定C30 / 未绑定 / 配合比不存在 / 配合比标号非C30
+  describe('_getC30MaterialCost (v0.8.1)', () => {
+    test('T6a 已绑C30且配合比存在 → 返回 totalCost', () => {
+      const config = { c30BaselineMixDesignId: 100 }
+      const mixCostMap = { 100: { totalCost: 280, strength: 'C30' } }
+      expect(_getC30MaterialCost(config, mixCostMap)).toBe(280)
+    })
+
+    test('T6b 未绑 c30BaselineMixDesignId=null → 返回 null', () => {
+      const config = { c30BaselineMixDesignId: null }
+      const mixCostMap = { 100: { totalCost: 280, strength: 'C30' } }
+      expect(_getC30MaterialCost(config, mixCostMap)).toBeNull()
+    })
+
+    test('T6b2 未绑 c30BaselineMixDesignId=undefined → 返回 null', () => {
+      const config = {}
+      const mixCostMap = { 100: { totalCost: 280, strength: 'C30' } }
+      expect(_getC30MaterialCost(config, mixCostMap)).toBeNull()
+    })
+
+    test('T6c 配合比ID指向的记录已删除 → 返回 null', () => {
+      const config = { c30BaselineMixDesignId: 999 }
+      const mixCostMap = { 100: { totalCost: 280, strength: 'C30' } }
+      expect(_getC30MaterialCost(config, mixCostMap)).toBeNull()
+    })
+
+    test('T6d 配合比标号被改成C40（防御性） → 返回 null', () => {
+      const config = { c30BaselineMixDesignId: 100 }
+      const mixCostMap = { 100: { totalCost: 300, strength: 'C40' } }
+      expect(_getC30MaterialCost(config, mixCostMap)).toBeNull()
+    })
+
+    test('T6e totalCost=0 → 返回 0（不当作 null）', () => {
+      const config = { c30BaselineMixDesignId: 100 }
+      const mixCostMap = { 100: { totalCost: 0, strength: 'C30' } }
+      expect(_getC30MaterialCost(config, mixCostMap)).toBe(0)
     })
   })
 })
