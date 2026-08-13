@@ -2,7 +2,8 @@
 
 // RemoteImageApi 测试（R9）：
 //   - 鉴权：token 无效/缺失 → { ok:false, error:'UNAUTHORIZED', status:401 }（不写文件）
-//   - 大小限制：body > 10MB → { ok:false, error:'IMAGE_TOO_LARGE', status:413 }
+//   - 大小限制：body > 50MB → { ok:false, error:'IMAGE_TOO_LARGE', status:413 }
+//   - 读取异常：连接重置 → CONNECTION_RESET；读超时 → UPLOAD_TIMEOUT(408)；其他 → BAD_REQUEST
 //   - 扩展名白名单：jpg/jpeg/png/webp 通过；其他类型拒绝
 //   - 保存：写入 当前工作区/raw/images/<name>（复用 visionHandler.saveImageToWorkspace），返回 { ok:true, path, name }
 //   - 重名：已存在 → 时间戳后缀
@@ -91,21 +92,76 @@ describe('RemoteImageApi', () => {
   })
 
   describe('大小限制', () => {
-    test('body 超过 10MB → { ok:false, error:IMAGE_TOO_LARGE, status:413 }', async () => {
+    test('body 超过 50MB → { ok:false, error:IMAGE_TOO_LARGE, status:413 }', async () => {
       const api = new RemoteImageApi({ auth, workspaceManager: manager })
-      const big = Buffer.alloc(10 * 1024 * 1024 + 1, 1) // 10MB + 1
+      const big = Buffer.alloc(50 * 1024 * 1024 + 1, 1) // 50MB + 1
       const r = await api.handleUpload(makeReq({ body: big }), { token: 'ok-token' })
 
       expect(r).toEqual({ ok: false, error: 'IMAGE_TOO_LARGE', status: 413 })
       expect(fs.promises.writeFile).not.toHaveBeenCalled()
     })
 
-    test('恰好 10MB 允许通过（边界）', async () => {
+    test('恰好 50MB 允许通过（边界）', async () => {
       const api = new RemoteImageApi({ auth, workspaceManager: manager })
-      const exactly = Buffer.alloc(10 * 1024 * 1024, 1)
+      const exactly = Buffer.alloc(50 * 1024 * 1024, 1)
       const r = await api.handleUpload(makeReq({ body: exactly }), { token: 'ok-token' })
 
       expect(r.ok).toBe(true)
+    })
+  })
+
+  describe('读取 body 异常分类', () => {
+    // 构造一个只发 error、不发 data/end 的假请求
+    function makeErrorReq(err) {
+      const req = new EventEmitter()
+      req.headers = {}
+      req.url = '/api/image?name=a.jpg'
+      req.method = 'POST'
+      req.destroy = () => { req.destroyed = true }
+      process.nextTick(() => req.emit('error', err))
+      return req
+    }
+
+    test('连接重置（ECONNRESET，弱网/网关断开）→ CONNECTION_RESET', async () => {
+      const api = new RemoteImageApi({ auth, workspaceManager: manager })
+      const err = new Error('socket hang up')
+      err.code = 'ECONNRESET'
+      const r = await api.handleUpload(makeErrorReq(err), { token: 'ok-token' })
+
+      expect(r.error).toBe('CONNECTION_RESET')
+      expect(r.status).toBe(400)
+      expect(fs.promises.writeFile).not.toHaveBeenCalled()
+    })
+
+    test('EPIPE 也归类为 CONNECTION_RESET', async () => {
+      const api = new RemoteImageApi({ auth, workspaceManager: manager })
+      const err = new Error('write EPIPE')
+      err.code = 'EPIPE'
+      const r = await api.handleUpload(makeErrorReq(err), { token: 'ok-token' })
+
+      expect(r.error).toBe('CONNECTION_RESET')
+    })
+
+    test('读取超时（无数据也无 end）→ UPLOAD_TIMEOUT, status:408', async () => {
+      const api = new RemoteImageApi({ auth, workspaceManager: manager, readBodyTimeoutMs: 30 })
+      const req = new EventEmitter()
+      req.headers = {}
+      req.url = '/api/image?name=a.jpg'
+      req.method = 'POST'
+      req.destroy = () => { req.destroyed = true }
+      const r = await api.handleUpload(req, { token: 'ok-token' })
+
+      expect(r.error).toBe('UPLOAD_TIMEOUT')
+      expect(r.status).toBe(408)
+    })
+
+    test('其他读取错误（非连接重置/超时）→ BAD_REQUEST', async () => {
+      const api = new RemoteImageApi({ auth, workspaceManager: manager })
+      const err = new Error('parse error')
+      const r = await api.handleUpload(makeErrorReq(err), { token: 'ok-token' })
+
+      expect(r.error).toBe('BAD_REQUEST')
+      expect(r.status).toBe(400)
     })
   })
 

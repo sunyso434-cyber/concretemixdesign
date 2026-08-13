@@ -16,13 +16,16 @@
 const path = require('path')
 const { saveImageToWorkspace } = require('../ipcHandlers/visionHandler')
 
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024 // 10MB
+const MAX_IMAGE_BYTES = 50 * 1024 * 1024 // 50MB（2026-08 老板决策：10MB 太小，手机原图常超限）
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
+// 读取请求 body 的超时上限（大图 + 弱网需要时间；超时 → 408 UPLOAD_TIMEOUT，避免连接永久挂起）
+const BODY_READ_TIMEOUT_MS = 120 * 1000
 
 class RemoteImageApi {
-  constructor({ auth, workspaceManager } = {}) {
+  constructor({ auth, workspaceManager, readBodyTimeoutMs } = {}) {
     this._auth = auth || null
     this._workspaceManager = workspaceManager || null
+    this._readBodyTimeoutMs = readBodyTimeoutMs || BODY_READ_TIMEOUT_MS
   }
 
   _resolveWorkspaceManager() {
@@ -56,13 +59,24 @@ class RemoteImageApi {
       return { ok: false, error: 'UNSUPPORTED_TYPE', status: 415 }
     }
 
-    // 3. 读取 body（流式，超 10MB 即拒）
+    // 3. 读取 body（流式，超 50MB 即拒；带超时与错误分类，失败必打日志便于排查）
     let buffer
     try {
-      buffer = await this._readBody(req)
+      buffer = await this._readBody(req, this._readBodyTimeoutMs)
     } catch (err) {
-      if (err && err.message === 'BODY_TOO_LARGE') {
+      const msg = err && err.message
+      if (msg === 'BODY_TOO_LARGE') {
         return { ok: false, error: 'IMAGE_TOO_LARGE', status: 413 }
+      }
+      if (msg === 'BODY_READ_TIMEOUT') {
+        console.error('[RemoteImageApi] 读取上传 body 超时（>', this._readBodyTimeoutMs, 'ms）')
+        return { ok: false, error: 'UPLOAD_TIMEOUT', status: 408 }
+      }
+      // 连接被对端/中间链路重置（弱网、Nginx/Caddy 断开、frpc 隧道抖动）→ 单独分类
+      const code = err && err.code
+      console.error('[RemoteImageApi] 读取上传 body 失败:', code || (err && err.message) || err)
+      if (code === 'ECONNRESET' || code === 'EPIPE' || code === 'ECONNABORTED' || msg === 'aborted') {
+        return { ok: false, error: 'CONNECTION_RESET', status: 400 }
       }
       return { ok: false, error: 'BAD_REQUEST', status: 400 }
     }
@@ -107,22 +121,40 @@ class RemoteImageApi {
     return seg ? seg.trim() : ''
   }
 
-  /** 流式读取请求 body，超过 10MB 即拒绝（不接收超大 payload）。 */
-  _readBody(req) {
+  /** 流式读取请求 body，超过 50MB 即拒绝（不接收超大 payload）；超时/连接中断以错误抛给调用方分类。 */
+  _readBody(req, timeoutMs) {
     return new Promise((resolve, reject) => {
       const chunks = []
       let total = 0
+      let settled = false
+      const timer = setTimeout(() => {
+        settled = true
+        try { req.destroy() } catch (_) {}
+        reject(new Error('BODY_READ_TIMEOUT'))
+      }, timeoutMs)
+      const fail = (err) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        reject(err)
+      }
       req.on('data', (chunk) => {
+        if (settled) return
         total += chunk.length
         if (total > MAX_IMAGE_BYTES) {
-          reject(new Error('BODY_TOO_LARGE'))
+          fail(new Error('BODY_TOO_LARGE'))
           try { req.destroy() } catch (_) {}
           return
         }
         chunks.push(chunk)
       })
-      req.on('end', () => resolve(Buffer.concat(chunks)))
-      req.on('error', reject)
+      req.on('end', () => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(Buffer.concat(chunks))
+      })
+      req.on('error', (err) => fail(err))
     })
   }
 }

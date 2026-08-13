@@ -156,6 +156,8 @@ class _PairPageState extends State<PairPage> {
         return '配对码无效（需 8 位字母数字）';
       case 'INVALID_ADDR':
         return '服务器地址无效，请确认二维码来自砼智电脑端';
+      case 'BAD_RESPONSE':
+        return '连接失败：请确认电脑端已开机、在线且远程连接正常，稍后重试';
       default:
         return '配对失败：${error ?? '未知错误'}';
     }

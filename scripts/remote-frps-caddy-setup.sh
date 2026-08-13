@@ -8,19 +8,18 @@
 #   - Ubuntu 24.04
 #
 # 拓扑 B1（云端 TLS 终结，Caddy 替代 nginx）：
-#   手机 wss://www.concreteagent.cloud/concrete/ws
-#     → Caddy 443 终结 TLS（www site，证书复用现有）
+#   手机 wss://<pcId>.concreteagent.cloud/concrete/ws（pcId 为电脑端唯一编号子域名）
+#     → Caddy 443 终结 TLS（*.concreteagent.cloud 通配符 site，证书复用现有通配符证书）
 #     → handle /concrete/* + uri strip_prefix /concrete → 127.0.0.1:8080（frps vhostHTTPPort）
-#     → frps 按 customDomains(www.concreteagent.cloud) 路由 → 电脑端 frpc → RemoteServer
+#     → frps 按 customDomains(<pcId>.concreteagent.cloud) 路由 → 对应电脑端 frpc → RemoteServer
 #
-# 主站 concreteagent.cloud 不受影响（砼智用独立的 www site，只新增不改现有块）
+# 主站 concreteagent.cloud 不受影响（砼智用独立的通配符子域名 site，只新增不改现有块）
 #
 # 用法：sudo bash remote-frps-caddy-setup.sh [--token <token>]（或用 FRP_TOKEN 环境变量）
 # ============================================================
 set -euo pipefail
 
 FRP_VERSION="0.60.0"
-DOMAIN="www.concreteagent.cloud"
 TOKEN="${FRP_TOKEN:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -88,20 +87,43 @@ systemctl enable frps >/dev/null 2>&1 || true
 systemctl restart frps
 echo "   frps 状态：$(systemctl is-active frps)"
 
-# ---------- 4) Caddyfile 追加 www site（幂等，只新增不改现有块） ----------
+# ---------- 4) Caddyfile 追加 www site（幂等；旧版无 request_body 的块自动升级） ----------
 echo "== [4/4] 配置 Caddy /concrete/ 反代 =="
+NEED_APPEND=1
 if grep -q "砼智远程版" /etc/caddy/Caddyfile; then
-  echo "   Caddyfile 已包含砼智配置，跳过追加"
-else
+  if grep -q "request_body" /etc/caddy/Caddyfile && grep -q '\*\.concreteagent\.cloud' /etc/caddy/Caddyfile; then
+    echo "   Caddyfile 已包含最新砼智配置（通配符子域名 + request_body 50MiB），跳过追加"
+    NEED_APPEND=0
+  else
+    echo "   Caddyfile 含旧版砼智配置 → 先移除旧块，再追加新块"
+    cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.bak.$(date +%Y%m%d%H%M)"
+    python3 - /etc/caddy/Caddyfile <<'PY'
+import sys
+p = sys.argv[1]
+src = open(p, encoding='utf-8').read()
+idx = src.find('砼智远程版')
+if idx != -1:
+    line_start = src.rfind('\n', 0, idx) + 1
+    open(p, 'w', encoding='utf-8').write(src[:line_start])
+PY
+  fi
+fi
+if [[ "$NEED_APPEND" == "1" ]]; then
   cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.bak.$(date +%Y%m%d%H%M)"
   cat >> /etc/caddy/Caddyfile <<'EOF'
 
 # ---- 砼智远程版：/concrete/ 子路径 → frps vhostHTTPPort(8080) → 电脑端 frpc ----
-www.concreteagent.cloud {
+# 通配符子域名 *.concreteagent.cloud：电脑端多电脑并存方案用 <pcId>.concreteagent.cloud 子域名，
+# 手机扫码连 wss://<pcId>.concreteagent.cloud/concrete/ws（frps 按 customDomains 精确路由到对应电脑）
+# request_body 50MiB：与电脑端/手机端 MAX_IMAGE_BYTES（50MB）对齐，防止大图在网关被截断
+*.concreteagent.cloud {
     tls /etc/caddy/ssl/concreteagent.cloud_bundle.crt /etc/caddy/ssl/concreteagent.cloud.key
 
     handle /concrete/* {
         uri strip_prefix /concrete
+        request_body {
+            max_size 50MiB
+        }
         reverse_proxy 127.0.0.1:8080
     }
     handle {
@@ -109,7 +131,7 @@ www.concreteagent.cloud {
     }
 }
 EOF
-  echo "   已追加 www site（备份: /etc/caddy/Caddyfile.bak.*）"
+  echo "   已追加 site（*.concreteagent.cloud 通配符 + request_body 50MiB；备份: /etc/caddy/Caddyfile.bak.*）"
 fi
 
 caddy validate --config /etc/caddy/Caddyfile
@@ -128,5 +150,5 @@ echo "frps : $(systemctl is-active frps)  (systemd 已开机自启)"
 echo "caddy: $(systemctl is-active caddy)"
 echo "监听 : 7000（frpc 连入）; 127.0.0.1:8080（Caddy vhost）"
 echo "TOKEN: ${TOKEN}"
-echo "手机端地址: wss://www.concreteagent.cloud/concrete/ws"
+echo "手机端地址: wss://<pcId>.concreteagent.cloud/concrete/ws（电脑端面板扫码显示实际地址）"
 echo "=========================================="

@@ -1,6 +1,7 @@
 // ignore_for_file: file_names
 // 文件名 ImageUploadService 为任务简报指定的 PascalCase 命名，保持原样。
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -42,13 +43,22 @@ class UploadResult {
 ///
 /// 证书：腾讯云正规域名证书，系统自动受信任，不含任何跳过校验逻辑。
 class ImageUploadService {
-  ImageUploadService({http.Client? httpClient})
-      : _http = httpClient ?? http.Client();
+  ImageUploadService({
+    http.Client? httpClient,
+    this.uploadTimeout = const Duration(seconds: 150),
+  }) : _http = httpClient ?? http.Client();
 
   final http.Client _http;
 
-  /// 图片大小上限（与电脑端 R9 MAX_IMAGE_BYTES 一致）：10MB。
-  static const int maxImageBytes = 10 * 1024 * 1024;
+  /// 单次上传超时（大图 + 弱网给足时间；超时自动重试一次后仍失败 → UPLOAD_TIMEOUT）。
+  final Duration uploadTimeout;
+
+  /// 图片大小上限（与电脑端 R9 MAX_IMAGE_BYTES 一致）：50MB。
+  /// 2026-08 老板决策：10MB 太小，手机高像素原图常超限。
+  static const int maxImageBytes = 50 * 1024 * 1024;
+
+  /// 最大尝试次数：首传失败（网络类错误）后自动重试一次，抗弱网抖动。
+  static const int maxAttempts = 2;
 
   /// 上传一张图片。
   ///
@@ -85,7 +95,7 @@ class ImageUploadService {
     // 3. 文件名：取路径最后一段（basename），随 X-Filename 头上传
     final name = path.split(RegExp(r'[\\/]')).last;
 
-    // 4. 读字节 + POST 原始 body
+    // 4. 读字节（内存中一次，重试复用同一份字节）
     final List<int> bytes;
     try {
       bytes = await file.readAsBytes();
@@ -93,22 +103,39 @@ class ImageUploadService {
       return const UploadResult(ok: false, error: 'FILE_READ_ERROR');
     }
 
-    final http.Response resp;
-    try {
-      resp = await _http.post(
-        uploadUrl,
-        headers: {
-          'Authorization': 'Bearer $token',
-          'X-Filename': name,
-          'Content-Type': 'application/octet-stream',
-        },
-        body: bytes,
-      );
-    } catch (_) {
-      return const UploadResult(ok: false, error: 'NETWORK_ERROR');
+    // 5. POST 原始 body：带超时；网络类失败（超时/网络异常，没拿到响应）自动重试一次。
+    //    服务端明确返回的错误（ok:false）不重试——那是确定性问题，重试无意义。
+    var lastNetworkError = 'NETWORK_ERROR';
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      http.Response? resp;
+      try {
+        resp = await _http
+            .post(
+              uploadUrl,
+              headers: {
+                'Authorization': 'Bearer $token',
+                'X-Filename': name,
+                'Content-Type': 'application/octet-stream',
+              },
+              body: bytes,
+            )
+            .timeout(uploadTimeout);
+      } on TimeoutException {
+        lastNetworkError = 'UPLOAD_TIMEOUT';
+      } catch (_) {
+        lastNetworkError = 'NETWORK_ERROR';
+      }
+      if (resp == null) {
+        if (attempt < maxAttempts) continue; // 网络类失败 → 重试一次
+        return UploadResult(ok: false, error: lastNetworkError);
+      }
+      return _parseResponse(resp, name);
     }
+    return const UploadResult(ok: false, error: 'NETWORK_ERROR'); // 不可达（防御）
+  }
 
-    // 5. 解析 JSON 响应（与 R9 `{ ok, path, name }` / `{ ok, error }` 对齐）
+  /// 解析服务端 JSON 响应（与 R9 `{ ok, path, name }` / `{ ok, error }` 对齐）。
+  UploadResult _parseResponse(http.Response resp, String fallbackName) {
     final Map<String, dynamic> body;
     try {
       final decoded = jsonDecode(resp.body);
@@ -135,7 +162,7 @@ class ImageUploadService {
     return UploadResult(
       ok: true,
       path: savedPath,
-      name: body['name'] as String? ?? name,
+      name: body['name'] as String? ?? fallbackName,
     );
   }
 }

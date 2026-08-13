@@ -583,6 +583,10 @@ class _ChatPageState extends State<ChatPage> {
         return '配对地址无效';
       case 'NETWORK_ERROR':
         return '上传失败：网络异常';
+      case 'UPLOAD_TIMEOUT':
+        return '上传超时，请检查网络后重试';
+      case 'CONNECTION_RESET':
+        return '网络中断，图片上传失败，请重试';
       case 'UPLOAD_FAILED':
         return '上传失败，请重试';
       default:
