@@ -6,6 +6,7 @@ const WebSearchService = require('../../services/WebSearchService')
 describe('WebSearchService', () => {
   beforeEach(() => {
     axios.post.mockReset()
+    axios.get.mockReset()
   })
 
   test('bocha 正常返回，映射为 {title,url,snippet,source}', async () => {
@@ -27,6 +28,47 @@ describe('WebSearchService', () => {
     const svc = new WebSearchService({ provider: 'tavily', apiKey: 'tvly-x' })
     const results = await svc.search('规范', 3)
     expect(results[0]).toEqual({ title: 'T', url: 'https://t.com', snippet: '正文T', source: 'tavily' })
+  })
+
+  test('tinyfish 正常返回，results 映射为 {title,url,snippet,source}', async () => {
+    axios.get.mockResolvedValue({
+      data: {
+        results: [
+          { title: '标题A', url: 'https://a.com', snippet: '摘要A', site_name: 'a.com' },
+          { title: '标题B', url: 'https://b.com', snippet: '摘要B' }
+        ],
+        total_results: 2
+      }
+    })
+    const svc = new WebSearchService({ provider: 'tinyfish', apiKey: 'tf-x' })
+    const results = await svc.search('混凝土规范', 5)
+    expect(results).toHaveLength(2)
+    expect(results[0]).toEqual({ title: '标题A', url: 'https://a.com', snippet: '摘要A', source: 'tinyfish' })
+    // 验证请求：GET + X-API-Key 头 + query 参数
+    const [calledUrl, opts] = axios.get.mock.calls[0]
+    expect(calledUrl).toBe('https://api.search.tinyfish.ai')
+    expect(opts.headers['X-API-Key']).toBe('tf-x')
+    expect(opts.params.query).toBe('混凝土规范')
+  })
+
+  test('tinyfish count 截断（slice 到 count 条）', async () => {
+    axios.get.mockResolvedValue({
+      data: { results: [
+        { title: 'T1', url: 'https://1.com', snippet: 's1' },
+        { title: 'T2', url: 'https://2.com', snippet: 's2' },
+        { title: 'T3', url: 'https://3.com', snippet: 's3' }
+      ] }
+    })
+    const svc = new WebSearchService({ provider: 'tinyfish', apiKey: 'tf-x' })
+    const results = await svc.search('q', 2)
+    expect(results).toHaveLength(2)
+    expect(results[1].title).toBe('T2')
+  })
+
+  test('tinyfish 401 → E-LLM-401', async () => {
+    axios.get.mockRejectedValue({ response: { status: 401 } })
+    const svc = new WebSearchService({ provider: 'tinyfish', apiKey: 'bad' })
+    await expect(svc.search('q')).rejects.toMatchObject({ code: 'E-LLM-401' })
   })
 
   test('count 越界被 clamp 到 1-10', async () => {

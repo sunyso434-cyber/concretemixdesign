@@ -44,6 +44,12 @@ describe('web-search-config 技能组', () => {
       await get('configure_web_search').execute({ provider: 'tavily', apiKey: 'tvly-x', enabled: false }, { systemService: ss })
       expect(ss.saveWebSearchConfig).toHaveBeenCalledWith({ provider: 'tavily', apiKey: 'tvly-x', enabled: false })
     })
+
+    test('tinyfish 正常保存（key 可同时用于 web_fetch）', async () => {
+      const r = await get('configure_web_search').execute({ provider: 'tinyfish', apiKey: 'tf-abc123' }, { systemService: ss })
+      expect(r.success).toBe(true)
+      expect(ss.saveWebSearchConfig).toHaveBeenCalledWith({ provider: 'tinyfish', apiKey: 'tf-abc123', enabled: true })
+    })
   })
 
   describe('get_web_search_config', () => {

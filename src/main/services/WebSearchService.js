@@ -49,6 +49,29 @@ const PROVIDERS = {
         source: 'tavily'
       }))
     }
+  },
+  // TinyFish：海外免费源（search 30 次/分钟，fetch 150 URL/分钟，共用同一 key）
+  // 文档：https://docs.tinyfish.ai/search-api/reference
+  // 注意：TinyFish Search 无 count 参数，返回默认结果集后在客户端 slice 截断到 count 条
+  tinyfish: {
+    url: 'https://api.search.tinyfish.ai',
+    async search(query, count, apiKey, timeout) {
+      const res = await axios.get(
+        this.url,
+        {
+          params: { query },
+          headers: { 'X-API-Key': apiKey },
+          timeout
+        }
+      )
+      const items = (res.data?.results || []).slice(0, count)
+      return items.map(r => ({
+        title: r.title || '',
+        url: r.url || '',
+        snippet: r.snippet || '',
+        source: 'tinyfish'
+      }))
+    }
   }
 }
 

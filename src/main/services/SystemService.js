@@ -318,13 +318,25 @@ class SystemService {
           paramName: 'webSearchProvider',
           paramValue: 'bocha',
           paramType: 'ai',
-          description: '搜索服务商（bocha/tavily）'
+          description: '搜索服务商（bocha/tavily/tinyfish）'
         },
         {
           paramName: 'webSearchApiKey',
           paramValue: '',
           paramType: 'ai',
           description: '搜索 API 密钥'
+        },
+        {
+          paramName: 'webFetchProvider',
+          paramValue: 'auto',
+          paramType: 'ai',
+          description: '网页抓取服务商（auto/jina/tinyfish），auto 时按 web_search 配置自动选择'
+        },
+        {
+          paramName: 'webFetchEnabled',
+          paramValue: 'true',
+          paramType: 'ai',
+          description: '网页抓取功能开关'
         },
         {
           paramName: 'academicSearchProvider',
@@ -1031,6 +1043,46 @@ class SystemService {
    */
   async clearWebSearchConfig() {
     await this.saveWebSearchConfig({ enabled: false, apiKey: '' })
+  }
+
+  /**
+   * 获取网页抓取配置（v0.8.x 新增，配合 web_fetch 技能）
+   * 注意：web_fetch 不单独存 key，tinyfish 复用 web_search 的 apiKey
+   * @returns {Promise<{enabled: boolean, provider: string}>}  provider: auto|jina|tinyfish
+   */
+  async getWebFetchConfig() {
+    const [enabled, provider] = await Promise.all([
+      this.getParamByName('webFetchEnabled'),
+      this.getParamByName('webFetchProvider')
+    ])
+    return {
+      enabled: enabled?.value !== 'false',  // 默认 true（未初始化时也视为开启）
+      provider: provider?.value || 'auto'
+    }
+  }
+
+  /**
+   * 保存网页抓取配置（仅写入传入字段，其他保留不变）
+   * @param {object} cfg - {enabled?, provider?}
+   * @returns {Promise<void>}
+   */
+  async saveWebFetchConfig(cfg = {}) {
+    const writes = []
+    if (cfg.enabled !== undefined) {
+      writes.push(this.setParam('webFetchEnabled', String(!!cfg.enabled), 'ai', '网页抓取功能开关'))
+    }
+    if (cfg.provider !== undefined) {
+      writes.push(this.setParam('webFetchProvider', cfg.provider || 'auto', 'ai', '网页抓取服务商（auto/jina/tinyfish）'))
+    }
+    await Promise.all(writes)
+  }
+
+  /**
+   * 清除网页抓取配置（恢复默认：provider=auto, enabled=true）
+   * @returns {Promise<void>}
+   */
+  async clearWebFetchConfig() {
+    await this.saveWebFetchConfig({ provider: 'auto', enabled: true })
   }
 
   /**

@@ -87,7 +87,8 @@ const AI_ERROR_REGISTRY = {
   // ===== 联网搜索相关错误 =====
   'E-SEARCH-NOT-CONFIGURED': { title: '联网搜索未配置', hint: '请先说「配置联网搜索，服务商 bocha，api key 是 xxx」调用 configure_web_search', recovery: 'fix_settings', severity: 'error' },
   'E-SEARCH-INVALID-QUERY': { title: '搜索关键词无效', hint: '请提供 1-200 字的搜索关键词', recovery: 'fix_params', severity: 'error' },
-  'E-SEARCH-INVALID-PROVIDER': { title: '不支持的搜索服务商', hint: '目前仅支持 bocha / tavily，请重新配置', recovery: 'fix_settings', severity: 'error' },
+  'E-SEARCH-INVALID-PROVIDER': { title: '不支持的搜索/抓取服务商', hint: '搜索仅支持 bocha / tavily / tinyfish；抓取仅支持 auto / jina / tinyfish，请重新配置', recovery: 'fix_settings', severity: 'error' },
+  'E-SEARCH-FETCH-FAILED': { title: '网页抓取失败', hint: '目标 URL 可能无法访问、有反爬保护或渲染超时，可更换 URL 或稍后重试', recovery: 'retry_or_manual', severity: 'warn' },
 
   // ===== 学术搜索相关错误（v11.2.0）=====
   'E-SEARCH-NO-DOI': { title: 'URL 中未识别到 DOI', hint: '请直接提供 DOI（如 10.1016/j.xxx.2024.123）或论文标题', recovery: 'fix_params', severity: 'warn' },

@@ -8,7 +8,7 @@
 
 const { createError } = require('../agent/ErrorCodes')
 
-const SUPPORTED = ['bocha', 'tavily']
+const SUPPORTED = ['bocha', 'tavily', 'tinyfish']
 
 /** 脱敏 apiKey（与 vision-config 一致） */
 function maskApiKey(key) {
@@ -25,12 +25,12 @@ function maskApiKey(key) {
 const skills = [
   {
     name: 'configure_web_search',
-    description: '配置联网搜索 API（服务商 provider + api key）。联网搜索用于查询最新资料（规范条文、材料参数、行情等）。支持 bocha（博查，国内免费源）/ tavily（海外）。',
+    description: '配置联网搜索 API（服务商 provider + api key）。联网搜索用于查询最新资料（规范条文、材料参数、行情等）。支持 bocha（博查，国内免费源）/ tavily（海外）/ tinyfish（海外免费，search 30次/分钟；其 api key 同时可用于 web_fetch 抓取网页正文）。',
     version: '1.0.0',
     category: 'agent',
     isWrite: true,
     parameters: {
-      provider: { type: 'string', description: '搜索服务商：bocha（推荐，国内免费）或 tavily', required: true, enum: SUPPORTED },
+      provider: { type: 'string', description: '搜索服务商：bocha（国内免费）/ tavily（海外）/ tinyfish（海外免费，key 可同时用于 web_fetch）', required: true, enum: SUPPORTED },
       apiKey: { type: 'string', description: 'API 密钥', required: true },
       enabled: { type: 'boolean', description: '是否启用，默认 true', required: false }
     },

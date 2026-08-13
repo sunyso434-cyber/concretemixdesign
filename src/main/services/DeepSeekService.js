@@ -1036,8 +1036,20 @@ class DeepSeekService {
 
 何时调用：仅当工作区 wiki 知识不足以回答用户问题时才搜，不要每轮都搜。
 
-未配置时：引导用户说「配置联网搜索，服务商 bocha，api key 是 xxx」，调用 configure_web_search 完成配置。
+未配置时：引导用户说「配置联网搜索，服务商 bocha/tavily/tinyfish，api key 是 xxx」，调用 configure_web_search 完成配置。
+服务商说明：bocha（国内免费）/ tavily（海外）/ tinyfish（海外免费，其 key 同时可用于 web_fetch 抓取网页正文）。
 查看配置调 get_web_search_config，清除调 clear_web_search_config。
+
+## 网页抓取能力
+
+你可以调用 web_fetch 技能抓取任意 URL 的完整正文，返回干净的 Markdown/JSON/HTML/Text。
+web_search 返回的 URL 想看完整正文时调用 web_fetch（如规范全文、行情详情、技术博客、新闻报道）。
+
+provider 默认 auto：web_search 配了 tinyfish 就用 tinyfish（150 URL/分钟），否则用 Jina Reader（免 key，约 20 RPM）。
+两者都是国外服务，国内网络需开启全局代理或 TUN 模式；若用户网络无法访问，请改用 web_search 查看摘要。
+
+配置切换调 configure_web_fetch（provider: auto/jina/tinyfish），查看调 get_web_fetch_config，清除调 clear_web_fetch_config。
+注意：tinyfish 的 key 与 web_search 共用，不单独配置；选 tinyfish 前需先配 web_search 的 tinyfish key。
 
 ## 学术搜索能力
 

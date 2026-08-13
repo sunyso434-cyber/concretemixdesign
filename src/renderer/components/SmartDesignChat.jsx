@@ -297,6 +297,14 @@ const SmartDesignChat = () => {
 
   const streamSeqRef = useRef({ current: 0 })
   const inputRef = useRef(null)
+  // 获取 antd Input.TextArea 内的原生 textarea 节点
+  // antd v5 的 TextArea ref 是包装对象，setSelectionRange/selectionStart 等原生 API 在 resizableTextArea.textArea 上
+  const getNativeTextArea = useCallback(() => {
+    if (inputRef.current && inputRef.current.resizableTextArea && inputRef.current.resizableTextArea.textArea) {
+      return inputRef.current.resizableTextArea.textArea
+    }
+    return null
+  }, [])
   const inputAreaRef = useRef(null)  // Ctrl+V 粘贴作用域控制
   const slashMenuApiRef = useRef({ moveSelection: () => {}, getSelectedIndex: () => 0 })
   const chatListRef = useRef(null)  // 消息滚动容器，用于检测滚动到顶自动加载历史
@@ -1070,7 +1078,8 @@ const SmartDesignChat = () => {
         dispatch({ type: 'SET_INPUT', payload: result.newInput })
         setCursorPos(result.newCursor)
         setTimeout(() => {
-          if (inputRef.current) inputRef.current.setSelectionRange(result.newCursor, result.newCursor)
+          const ta = getNativeTextArea()
+          if (ta) ta.setSelectionRange(result.newCursor, result.newCursor)
         }, 0)
       }
       return
@@ -2196,9 +2205,10 @@ const SmartDesignChat = () => {
             dispatch({ type: 'SET_INPUT', payload: newBefore + state.input.slice(pos) })
             setCursorPos(newBefore.length)
             setTimeout(() => {
-              if (inputRef.current) {
-                inputRef.current.setSelectionRange(newBefore.length, newBefore.length)
-                inputRef.current.focus()
+              const ta = getNativeTextArea()
+              if (ta) {
+                ta.setSelectionRange(newBefore.length, newBefore.length)
+                ta.focus()
               }
             }, 0)
           }}

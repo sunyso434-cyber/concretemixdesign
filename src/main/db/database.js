@@ -224,6 +224,79 @@ async function ensureMemoryFts() {
   }
 }
 
+/**
+ * v0.8.x bugfix migration：把 daily_plans.boundMixDesignId 从 NOT NULL 改为允许 NULL
+ *
+ * 背景：v0.8.0 建表时 boundMixDesignId 是 NOT NULL，v0.8.1 废弃此字段（改为分公司绑定），
+ * 但 sync(alter:false) 不改列约束。create 计划时不传此字段 → NULL → NOT NULL 约束失败
+ * → Sequelize 误报为 SequelizeUniqueConstraintError → DailyPlanService 误报"计划重复"
+ *
+ * 幂等：检查 boundMixDesignId 列的 notnull 标志，已是 0 则跳过
+ * 安全：事务内重建表，保留全部数据和索引
+ */
+async function migrateDailyPlansNullableBoundMixDesignId(sequelize) {
+  const cols = await sequelize.query('PRAGMA table_info(daily_plans)', { type: sequelize.QueryTypes.SELECT })
+  const col = cols.find(c => c.name === 'boundMixDesignId')
+  if (!col || col.notnull === 0) return  // 已是 nullable，跳过
+
+  console.log('[migration] daily_plans.boundMixDesignId NOT NULL → nullable ...')
+  const t = await sequelize.transaction()
+  try {
+    // 1. 创建新表（boundMixDesignId 允许 NULL）
+    await sequelize.query(`
+      CREATE TABLE \`daily_plans_new\` (
+        \`id\` INTEGER PRIMARY KEY AUTOINCREMENT,
+        \`planDate\` VARCHAR(255) NOT NULL,
+        \`projectName\` VARCHAR(255) NOT NULL,
+        \`constructionUnit\` VARCHAR(255),
+        \`pourLocation\` VARCHAR(255) NOT NULL,
+        \`receiveMethod\` VARCHAR(255),
+        \`strengthGrade\` VARCHAR(255) NOT NULL,
+        \`volume\` FLOAT NOT NULL,
+        \`branchId\` INTEGER NOT NULL,
+        \`plannedSendTime\` VARCHAR(255) NOT NULL,
+        \`equipmentInfo\` JSON,
+        \`expectedDuration\` FLOAT NOT NULL,
+        \`boundMixDesignId\` INTEGER,
+        \`remarks\` VARCHAR(255),
+        \`createdAt\` DATETIME NOT NULL,
+        \`updatedAt\` DATETIME NOT NULL
+      )
+    `, { transaction: t })
+
+    // 2. 复制全部数据
+    await sequelize.query(`
+      INSERT INTO \`daily_plans_new\`
+      SELECT \`id\`, \`planDate\`, \`projectName\`, \`constructionUnit\`, \`pourLocation\`,
+             \`receiveMethod\`, \`strengthGrade\`, \`volume\`, \`branchId\`, \`plannedSendTime\`,
+             \`equipmentInfo\`, \`expectedDuration\`, \`boundMixDesignId\`, \`remarks\`,
+             \`createdAt\`, \`updatedAt\`
+      FROM \`daily_plans\`
+    `, { transaction: t })
+
+    // 3. 删旧表、重命名新表
+    await sequelize.query('DROP TABLE \`daily_plans\`', { transaction: t })
+    await sequelize.query('ALTER TABLE \`daily_plans_new\` RENAME TO \`daily_plans\`', { transaction: t })
+
+    // 4. 重建索引（旧索引随 DROP TABLE 一起删除）
+    await sequelize.query(
+      'CREATE UNIQUE INDEX `daily_plans_plan_date_project_name_pour_location_strength_grade_branch_id` ON `daily_plans` (`planDate`, `projectName`, `pourLocation`, `strengthGrade`, `branchId`)',
+      { transaction: t }
+    )
+    await sequelize.query(
+      'CREATE INDEX IF NOT EXISTS idx_daily_plans_date ON daily_plans (planDate)',
+      { transaction: t }
+    )
+
+    await t.commit()
+    console.log('[migration] daily_plans.boundMixDesignId 改为 nullable 完成')
+  } catch (e) {
+    await t.rollback()
+    console.error('[migration] daily_plans boundMixDesignId 迁移失败:', e.message)
+    throw e
+  }
+}
+
 async function syncModels() {
   // UserPreference 已在阶段 B 迁移中废弃，不在此处注册
   const allModels = [Material, MixDesign, SystemParam, OptimizationHistory, InsulationMaterial, PumpingFeeItem, SalesQuoteHistory, AppSetting, ChatHistory, CorrectionRule, ChatSession, AuditLog, SessionSummary, PreferenceSuggestion, MaterialBatch, TrialTestRecord, SecurityLog, AgentCheckpoint, DailyPlan, VehicleDetail, CapacityConfig, ProjectDistance]
@@ -244,6 +317,11 @@ async function syncModels() {
   await ProjectDistance.sync({ alter: false, force: false })
   await DailyPlan.sync({ alter: false, force: false })
   await VehicleDetail.sync({ alter: false, force: false })
+
+  // v0.8.x bugfix：daily_plans.boundMixDesignId 老库为 NOT NULL，但 v0.8.1 已废弃此字段（改为分公司绑定）
+  // sync(alter:false) 不改列约束，需一次性 migration 重建表把 boundMixDesignId 改为允许 NULL
+  // 否则 create 计划时传 NULL 会触发 NOT NULL 约束失败，被误报为"计划重复"(E-PLAN-002)
+  await migrateDailyPlansNullableBoundMixDesignId(sequelize)
 
   // v0.8.1：分公司绑定C30基准配合比（老库补列）
   await ensureColumn(sequelize, 'capacity_configs', 'c30BaselineMixDesignId', 'INTEGER')

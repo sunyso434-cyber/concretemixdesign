@@ -13,6 +13,7 @@ const svc = () => new WebFetchService({ timeout: 1000 })
 describe('WebFetchService', () => {
   beforeEach(() => {
     mockedAxios.get.mockReset()
+    mockedAxios.post.mockReset()
     WebFetchService._resetRateLimiterForTest()
   })
 
@@ -249,6 +250,144 @@ describe('WebFetchService', () => {
       expect(e.details.httpStatus).toBe(500)
     }
   })
+
+  // ============== tinyfish provider ==============
+  describe('tinyfish provider', () => {
+    const tfSvc = () => new WebFetchService({ provider: 'tinyfish', apiKey: 'tf-x', timeout: 1000 })
+
+    test('无 apiKey → E-SEARCH-NOT-CONFIGURED', async () => {
+      const s = new WebFetchService({ provider: 'tinyfish', timeout: 1000 })
+      await expect(s.fetch('https://x.com')).rejects.toMatchObject({
+        code: 'E-SEARCH-NOT-CONFIGURED',
+        hint: expect.stringContaining('configure_web_search')
+      })
+      expect(mockedAxios.post).not.toHaveBeenCalled()
+    })
+
+    test('正常返回 markdown：results[0].text 映射为 content', async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        data: {
+          results: [{ url: 'https://x.com', title: '标题X', text: '正文内容' }],
+          errors: []
+        }
+      })
+      const r = await tfSvc().fetch('https://x.com')
+      expect(r.success).toBe(true)
+      expect(r.format).toBe('markdown')
+      expect(r.title).toBe('标题X')
+      expect(r.content).toBe('正文内容')
+      expect(r.url).toBe('https://x.com')
+      // 验证请求：POST + X-API-Key + body（axios.post(url, body, config)）
+      const [calledUrl, body, config] = mockedAxios.post.mock.calls[0]
+      expect(calledUrl).toBe('https://api.fetch.tinyfish.ai')
+      expect(config.headers['X-API-Key']).toBe('tf-x')
+      expect(config.headers['Content-Type']).toBe('application/json')
+      expect(body.urls).toEqual(['https://x.com'])
+      expect(body.format).toBe('markdown')
+    })
+
+    test('text 格式映射为 markdown（body.format=markdown，返回 format=text）', async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { results: [{ url: 'https://x.com', title: '', text: '纯文本' }] }
+      })
+      const r = await tfSvc().fetch('https://x.com', { format: 'text' })
+      expect(r.format).toBe('text')
+      expect(r.content).toBe('纯文本')
+      expect(mockedAxios.post.mock.calls[0][1].format).toBe('markdown')
+    })
+
+    test('json/html 格式透传 body.format', async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { results: [{ url: 'https://x.com', title: 'J', text: '{}' }] }
+      })
+      await tfSvc().fetch('https://x.com', { format: 'json' })
+      expect(mockedAxios.post.mock.calls[0][1].format).toBe('json')
+
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { results: [{ url: 'https://x.com', title: 'H', text: '<p>' }] }
+      })
+      await tfSvc().fetch('https://x.com', { format: 'html' })
+      expect(mockedAxios.post.mock.calls[1][1].format).toBe('html')
+    })
+
+    test('selector 映射为 include_selectors 数组', async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { results: [{ url: 'https://x.com', title: '', text: '正文' }] }
+      })
+      await tfSvc().fetch('https://x.com', { selector: 'article.main' })
+      expect(mockedAxios.post.mock.calls[0][1].include_selectors).toEqual(['article.main'])
+    })
+
+    test('业务错误（errors[0] 有 code，无 result）→ E-SEARCH-FETCH-FAILED', async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { results: [], errors: [{ url: 'https://x.com', code: 'bot_blocked' }] }
+      })
+      await expect(tfSvc().fetch('https://x.com')).rejects.toMatchObject({
+        code: 'E-SEARCH-FETCH-FAILED',
+        hint: expect.stringContaining('反爬')
+      })
+    })
+
+    test('timeout 业务错误 → hint 含超时提示', async () => {
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { results: [], errors: [{ url: 'https://x.com', code: 'timeout' }] }
+      })
+      await expect(tfSvc().fetch('https://x.com')).rejects.toMatchObject({
+        code: 'E-SEARCH-FETCH-FAILED',
+        hint: expect.stringContaining('超时')
+      })
+    })
+
+    test('返回空 results 且无 errors → E-SEARCH-FETCH-FAILED', async () => {
+      mockedAxios.post.mockResolvedValueOnce({ data: { results: [], errors: [] } })
+      await expect(tfSvc().fetch('https://x.com')).rejects.toMatchObject({
+        code: 'E-SEARCH-FETCH-FAILED'
+      })
+    })
+
+    test('429 → E-LLM-429 + tinyfish 限流提示', async () => {
+      mockedAxios.post.mockRejectedValueOnce({ response: { status: 429 } })
+      await expect(tfSvc().fetch('https://x.com')).rejects.toMatchObject({
+        code: 'E-LLM-429',
+        hint: expect.stringContaining('tinyfish 限流')
+      })
+    })
+
+    test('401 → E-LLM-401', async () => {
+      mockedAxios.post.mockRejectedValueOnce({ response: { status: 401 } })
+      await expect(tfSvc().fetch('https://x.com')).rejects.toMatchObject({ code: 'E-LLM-401' })
+    })
+
+    test('网络错误 → E-NET-500 + TinyFish 代理提示', async () => {
+      mockedAxios.post.mockRejectedValueOnce({ code: 'ENOTFOUND' })
+      await expect(tfSvc().fetch('https://x.com')).rejects.toMatchObject({
+        code: 'E-NET-500',
+        hint: expect.stringContaining('TinyFish')
+      })
+    })
+
+    test('不支持的 provider → E-SEARCH-INVALID-PROVIDER', async () => {
+      const s = new WebFetchService({ provider: 'google', timeout: 1000 })
+      await expect(s.fetch('https://x.com')).rejects.toMatchObject({
+        code: 'E-SEARCH-INVALID-PROVIDER'
+      })
+    })
+
+    test('tinyfish 不受 jina 令牌桶约束', async () => {
+      // 先让 jina 限速器处于「刚调用」状态
+      const jinaSvc = new WebFetchService({ provider: 'jina', timeout: 1000 })
+      mockedAxios.get.mockResolvedValueOnce({ data: '# T\n正文' })
+      await jinaSvc.fetch('https://a.com')
+      const start = Date.now()
+      // tinyfish 调用应立即返回，不等 3 秒
+      mockedAxios.post.mockResolvedValueOnce({
+        data: { results: [{ url: 'https://b.com', title: '', text: 'x' }] }
+      })
+      await tfSvc().fetch('https://b.com')
+      const elapsed = Date.now() - start
+      expect(elapsed).toBeLessThan(500)
+    })
+  })
 })
 
 // ============== Skill 层入口测试 ==============
@@ -256,48 +395,111 @@ describe('web_fetch skill', () => {
   const skills = require('../../skills/web-fetch')
   const skill = skills.find(s => s.name === 'web_fetch')
 
+  // 构造 mock systemService：fetchCfg + searchCfg
+  const mockSS = (fetchCfg = { enabled: true, provider: 'auto' }, searchCfg = { enabled: false, provider: 'bocha', apiKey: null }) => ({
+    getWebFetchConfig: jest.fn().mockResolvedValue(fetchCfg),
+    getWebSearchConfig: jest.fn().mockResolvedValue(searchCfg)
+  })
+
+  beforeEach(() => {
+    mockedAxios.get.mockReset()
+    mockedAxios.post.mockReset()
+    WebFetchService._resetRateLimiterForTest()
+  })
+
   test('skill 元数据正确', () => {
     expect(skill).toBeDefined()
     expect(skill.name).toBe('web_fetch')
-    expect(skill.description).toContain('Jina')
+    expect(skill.version).toBe('1.1.0')
+    expect(skill.description).toContain('configure_web_fetch')
+    expect(skill.services).toContain('systemService')
     expect(skill.parameters.url.required).toBe(true)
     expect(skill.parameters.format.required).toBe(false)
     expect(skill.parameters.selector.required).toBe(false)
   })
 
+  test('无 systemService → E-SYS-999', async () => {
+    const r = await skill.execute({ url: 'https://x.com' }, {})
+    expect(r.errorCode).toBe('E-SYS-999')
+  })
+
   test('空 url → errorCode E-SEARCH-INVALID-QUERY', async () => {
-    const r = await skill.execute({ url: '' }, {})
+    const r = await skill.execute({ url: '' }, { systemService: mockSS() })
     expect(r.success).toBe(false)
     expect(r.errorCode).toBe('E-SEARCH-INVALID-QUERY')
   })
 
   test('非 http(s):// url → errorCode', async () => {
-    const r = await skill.execute({ url: 'ftp://x.com' }, {})
-    expect(r.success).toBe(false)
+    const r = await skill.execute({ url: 'ftp://x.com' }, { systemService: mockSS() })
     expect(r.errorCode).toBe('E-SEARCH-INVALID-QUERY')
   })
 
   test('非法 format → errorCode', async () => {
-    const r = await skill.execute({ url: 'https://x.com', format: 'pdf' }, {})
-    expect(r.success).toBe(false)
+    const r = await skill.execute({ url: 'https://x.com', format: 'pdf' }, { systemService: mockSS() })
     expect(r.errorCode).toBe('E-SEARCH-INVALID-QUERY')
   })
 
-  test('服务抛标准错误 → 透传 errorCode', async () => {
+  test('enabled=false → E-SEARCH-NOT-CONFIGURED + hint configure_web_fetch', async () => {
+    const r = await skill.execute({ url: 'https://x.com' }, { systemService: mockSS({ enabled: false, provider: 'auto' }) })
+    expect(r.errorCode).toBe('E-SEARCH-NOT-CONFIGURED')
+    expect(r.hint).toContain('configure_web_fetch')
+  })
+
+  test('auto + 无 tinyfish key → 走 jina，result.provider=jina', async () => {
+    mockedAxios.get.mockResolvedValueOnce({ data: '# 标题\n正文' })
+    const r = await skill.execute({ url: 'https://example.com' }, { systemService: mockSS() })
+    expect(r.success).toBe(true)
+    expect(r.provider).toBe('jina')
+    expect(r.title).toBe('标题')
+    expect(mockedAxios.get).toHaveBeenCalled()
+    expect(mockedAxios.post).not.toHaveBeenCalled()
+  })
+
+  test('auto + 有 tinyfish key → 走 tinyfish，result.provider=tinyfish', async () => {
+    mockedAxios.post.mockResolvedValueOnce({
+      data: { results: [{ url: 'https://example.com', title: 'TF标题', text: 'TF正文' }] }
+    })
+    const searchCfg = { enabled: true, provider: 'tinyfish', apiKey: 'tf-x' }
+    const r = await skill.execute({ url: 'https://example.com' }, { systemService: mockSS({ enabled: true, provider: 'auto' }, searchCfg) })
+    expect(r.success).toBe(true)
+    expect(r.provider).toBe('tinyfish')
+    expect(r.title).toBe('TF标题')
+    expect(mockedAxios.post).toHaveBeenCalled()
+    expect(mockedAxios.get).not.toHaveBeenCalled()
+    // 验证 tinyfish 调用用了 searchCfg 的 key
+    expect(mockedAxios.post.mock.calls[0][2].headers['X-API-Key']).toBe('tf-x')
+  })
+
+  test('provider=jina 强制走 jina（即使配了 tinyfish key）', async () => {
+    mockedAxios.get.mockResolvedValueOnce({ data: '# J标题' })
+    const searchCfg = { enabled: true, provider: 'tinyfish', apiKey: 'tf-x' }
+    const r = await skill.execute({ url: 'https://example.com' }, { systemService: mockSS({ enabled: true, provider: 'jina' }, searchCfg) })
+    expect(r.provider).toBe('jina')
+    expect(mockedAxios.get).toHaveBeenCalled()
+    expect(mockedAxios.post).not.toHaveBeenCalled()
+  })
+
+  test('provider=tinyfish + 无 tinyfish key → E-SEARCH-NOT-CONFIGURED + hint configure_web_search', async () => {
+    const r = await skill.execute({ url: 'https://x.com' }, { systemService: mockSS({ enabled: true, provider: 'tinyfish' }) })
+    expect(r.errorCode).toBe('E-SEARCH-NOT-CONFIGURED')
+    expect(r.hint).toContain('configure_web_search')
+  })
+
+  test('provider=tinyfish + 有 tinyfish key → 走 tinyfish', async () => {
+    mockedAxios.post.mockResolvedValueOnce({
+      data: { results: [{ url: 'https://x.com', title: '', text: '正文' }] }
+    })
+    const searchCfg = { enabled: true, provider: 'tinyfish', apiKey: 'tf-x' }
+    const r = await skill.execute({ url: 'https://x.com' }, { systemService: mockSS({ enabled: true, provider: 'tinyfish' }, searchCfg) })
+    expect(r.success).toBe(true)
+    expect(r.provider).toBe('tinyfish')
+  })
+
+  test('服务抛标准错误 → 透传 errorCode（jina 429）', async () => {
     mockedAxios.get.mockRejectedValueOnce({ response: { status: 429 } })
-    WebFetchService._resetRateLimiterForTest()
-    const r = await skill.execute({ url: 'https://x.com' }, {})
+    const r = await skill.execute({ url: 'https://x.com' }, { systemService: mockSS() })
     expect(r.success).toBe(false)
     expect(r.errorCode).toBe('E-LLM-429')
     expect(r.hint).toContain('Jina 免费层限流')
-  })
-
-  test('成功路径：返回正文', async () => {
-    mockedAxios.get.mockResolvedValueOnce({ data: '# 标题\n正文' })
-    WebFetchService._resetRateLimiterForTest()
-    const r = await skill.execute({ url: 'https://example.com' }, {})
-    expect(r.success).toBe(true)
-    expect(r.title).toBe('标题')
-    expect(r.content).toContain('正文')
   })
 })

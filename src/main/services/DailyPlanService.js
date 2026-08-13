@@ -15,7 +15,18 @@ class DailyPlanService {
       const row = await DailyPlan.create(data)
       return row.toJSON()
     } catch (e) {
-      if (e.name === 'SequelizeUniqueConstraintError') {
+      // SQLite 的 SQLITE_CONSTRAINT (errno 19) 涵盖 UNIQUE / NOT NULL / PRIMARY KEY 等多种约束
+      // Sequelize 会把 SQLITE_CONSTRAINT 统一归为 SequelizeUniqueConstraintError，需用原始 message 细分
+      const sqliteErr = e.parent
+      if (sqliteErr && sqliteErr.code === 'SQLITE_CONSTRAINT') {
+        const rawMsg = sqliteErr.message || ''
+        if (rawMsg.includes('NOT NULL')) {
+          // NOT NULL 约束失败：必填字段缺失（非计划重复）
+          const err = new Error(`必填字段缺失: ${rawMsg}`)
+          err.code = 'E-PLAN-005'
+          throw err
+        }
+        // UNIQUE 约束失败才是真正的"计划重复"
         const err = new Error('计划重复(同天同工程同部位同标号同站)')
         err.code = 'E-PLAN-002'
         throw err
