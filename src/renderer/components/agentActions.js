@@ -166,6 +166,30 @@ export function abortAgent({ dispatch, requestId, sessionId }) {
 }
 
 /**
+ * 暂停 Agent（输出优化：接通 StreamingAgentCard 卡内暂停按钮）
+ * 主进程 controlMixin.pause 仅当 state === 'running' 时切换为 'paused'；
+ * 渲染层乐观更新 status，保证 UI 立即响应（resume 同理）。
+ * @param {Object} args
+ * @param {Function} args.dispatch - reducer 的 dispatch
+ * @param {string} [args.sessionId] - 当前会话 ID（多会话并行时按 sessionId 路由）
+ */
+export function pauseAgent({ dispatch, sessionId }) {
+  window.electronAPI.invoke('agent:pause', { sessionId }).catch(() => {})
+  dispatch({ type: 'PAUSE' })
+}
+
+/**
+ * 恢复暂停的 Agent（输出优化：接通 StreamingAgentCard 卡内继续按钮）
+ * @param {Object} args
+ * @param {Function} args.dispatch - reducer 的 dispatch
+ * @param {string} [args.sessionId] - 当前会话 ID
+ */
+export function resumeAgent({ dispatch, sessionId }) {
+  window.electronAPI.invoke('agent:resume', { sessionId }).catch(() => {})
+  dispatch({ type: 'RESUME' })
+}
+
+/**
  * P0 断点续跑（Task 1.6）：检测崩溃窗口（纯 IPC，不含弹窗逻辑）
  *
  * @param {string} sessionId - 当前会话 ID
@@ -357,9 +381,12 @@ export async function switchSession({ dispatch, sessionId, state }) {
             role: m.role,
             content: m.content,
             toolCalls: m.toolCalls,
+            toolCallId: m.toolCallId,   // v0.9.x：tool 消息配对 assistant toolCalls 用（重建历史 timeline）
             timeline: (m.metadata && m.metadata.timeline) || [],
             stopReason: m.stopReason || null,
-            createdAt: m.createdAt
+            createdAt: m.createdAt,
+            // v0.9.x 输出优化：还原用户赞/踩状态（写于 metadata.feedback）
+            feedback: (m.metadata && m.metadata.feedback) || null
           }))
         })
       }
@@ -400,9 +427,12 @@ export async function loadMoreSessionMessages({ dispatch, sessionId, messages })
           role: m.role,
           content: m.content,
           toolCalls: m.toolCalls,
+          toolCallId: m.toolCallId,   // v0.9.x：tool 消息配对 assistant toolCalls 用（重建历史 timeline）
           timeline: (m.metadata && m.metadata.timeline) || [],
           stopReason: m.stopReason || null,
-          createdAt: m.createdAt
+          createdAt: m.createdAt,
+          // v0.9.x 输出优化：还原用户赞/踩状态（写于 metadata.feedback）
+          feedback: (m.metadata && m.metadata.feedback) || null
         }))
       })
     }
@@ -486,8 +516,13 @@ export function useAssistantPersistence() {
       sessionId: state.session.currentId,
       role: 'assistant',
       content: targetMsg.content || '',
-      metadata: { timeline: state.agent.timeline },
+      metadata: { timeline: state.agent.timeline, usage: state.agent.usage || null },
       stopReason
+    }).then((saved) => {
+      // v0.9.x 输出优化：回写落库后的消息 id，保证新消息也可赞/踩（MessageActions 依赖 id）
+      if (saved && saved.id) {
+        dispatch({ type: 'UPDATE_MESSAGE_ID', payload: { requestId: state.agent.requestId, id: saved.id } })
+      }
     }).catch(e => console.error('持久化 assistant 消息失败:', e))
 
     // agent 完成后刷新会话列表（此时后端 AI 摘要大概率已生成，可更新标题）

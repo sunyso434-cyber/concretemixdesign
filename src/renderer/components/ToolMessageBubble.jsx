@@ -1,12 +1,17 @@
-﻿import React, { useState } from 'react'
-import { Card, Button, Typography, Space, Tag } from 'antd'
+import React, { useState } from 'react'
+import { Card, Button, Typography, Space, Table } from 'antd'
 import { ToolOutlined, DownOutlined, RightOutlined } from '@ant-design/icons'
+import { resultToTableData } from '../utils/toolResultTable'
+import MixDesignResultCard from './MixDesignResultCard'
 
 const { Text } = Typography
 
 /**
  * ToolMessageBubble - 历史会话中 tool 消息的折叠显示
- * 检测 JSON 内容，自动折叠并显示摘要
+ *
+ * v0.9.x 输出优化：与 Timeline 工具块保持一致 —
+ * 展开后优先结构化展示（配合比卡片 / 表格），原始 JSON 收进"查看原始数据"折叠。
+ * 旧会话加载的 tool 消息因此也能获得与实时对话相同的视觉体验。
  */
 export default function ToolMessageBubble({ content }) {
   const [expanded, setExpanded] = useState(false)
@@ -32,11 +37,16 @@ export default function ToolMessageBubble({ content }) {
 
   const rawText = typeof content === 'string' ? content : JSON.stringify(content, null, 2)
 
+  // v0.9.x：结构化展示（与新对话 Timeline 工具块一致）
+  const mixDesignData = parsed && parsed.type === 'mix_design' && parsed.data ? parsed.data : null
+  const tableData = parsed && !mixDesignData ? resultToTableData(parsed) : null
+  const hasStructuredView = !!(mixDesignData || tableData)
+
   return (
     <Card
       size="small"
-      style={{ marginBottom: 8, maxWidth: 520, background: '#fafafa', borderColor: '#e8e8e8' }}
-      bodyStyle={{ padding: '8px 12px' }}
+      style={{ marginBottom: 8, maxWidth: 560, background: '#fafafa', borderColor: '#e8e8e8' }}
+      styles={{ body: { padding: '8px 12px' } }}
     >
       <Space direction="vertical" style={{ width: '100%' }} size={4}>
         <div
@@ -45,19 +55,44 @@ export default function ToolMessageBubble({ content }) {
         >
           <ToolOutlined style={{ color: '#8c8c8c', fontSize: 14 }} />
           <Text type="secondary" style={{ fontSize: 13, flex: 1 }}>{summary}</Text>
-          {rawText.length > 120 && (
+          {(rawText.length > 120 || hasStructuredView) && (
             <Button type="link" size="small" style={{ padding: 0, fontSize: 11 }}>
               {expanded ? <><DownOutlined /> 收起</> : <><RightOutlined /> 展开</>}
             </Button>
           )}
         </div>
         {expanded && (
-          <pre style={{
-            margin: 0, padding: '8px 10px', background: '#f0f0f0', borderRadius: 4,
-            fontSize: 12, maxHeight: 300, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all'
-          }}>
-            {rawText}
-          </pre>
+          <div style={{ width: '100%' }}>
+            {mixDesignData && (
+              <div style={{ margin: '4px 0' }}>
+                <MixDesignResultCard data={mixDesignData} />
+              </div>
+            )}
+            {tableData && (
+              <div style={{ margin: '4px 0' }}>
+                <Table
+                  size="small"
+                  columns={tableData.columns}
+                  dataSource={tableData.data}
+                  pagination={false}
+                  scroll={{ x: 'max-content' }}
+                  style={{ fontSize: 12 }}
+                />
+              </div>
+            )}
+            {/* 原始 JSON：收进折叠（与新对话"查看原始数据"一致） */}
+            <details style={{ marginTop: 4 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 11, color: '#999', userSelect: 'none' }}>
+                查看原始数据
+              </summary>
+              <pre style={{
+                margin: '4px 0 0 0', padding: '8px 10px', background: '#f0f0f0', borderRadius: 4,
+                fontSize: 12, maxHeight: 300, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all'
+              }}>
+                {rawText}
+              </pre>
+            </details>
+          </div>
         )}
       </Space>
     </Card>
@@ -71,6 +106,16 @@ function extractSummary(data) {
   if (data.materials && Array.isArray(data.materials)) {
     const types = [...new Set(data.materials.map(m => m.type).filter(Boolean))]
     return `材料库查询结果：${data.count || data.materials.length} 条材料 (${types.join('、')})`
+  }
+
+  // 配合比设计结果
+  if (data.type === 'mix_design' && data.data) {
+    const d = data.data
+    const parts = []
+    if (d.strength) parts.push(d.strength)
+    if (d.waterRatio) parts.push(`水胶比 ${d.waterRatio.toFixed(4)}`)
+    if (d.totalCost) parts.push(`成本 ¥${d.totalCost.toFixed(2)}`)
+    return `配合比设计结果${parts.length ? '：' + parts.join(' · ') : ''}`
   }
 
   // 带 success/count 的结构

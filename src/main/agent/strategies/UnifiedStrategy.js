@@ -527,6 +527,20 @@ class UnifiedStrategy {
     // 2. 主循环（流式）
     const toolSchemas = this.skillRegistry.getToolSchemas()
 
+    // v0.9.x 输出优化：估算上下文构成（system/tools/messages），供前端细分面板展示
+    // ⚠️ estimateTokens 只接受数组，这里直接用字符数估算（每 4 字符 ≈ 1 token）
+    try {
+      const estChars = (s) => Math.ceil(((s || '').length) / 4)
+      this._notifyProgress(webContents, {
+        type: 'context_stats',
+        breakdown: {
+          system: estChars(systemPrompt),
+          tools: estChars(JSON.stringify(toolSchemas || [])),
+          messages: estChars(JSON.stringify(messagesForLLM || []))
+        }
+      })
+    } catch (_) { /* 统计失败不影响主流程 */ }
+
     // v11.7.5: 获取全部 LLM 配置，用于 failover 自动切换
     let allLlmConfigs = null
     if (this.systemService && typeof this.systemService.getLlmConfigs === 'function') {
@@ -686,12 +700,26 @@ class UnifiedStrategy {
         response = result
 
         // v11.7.7: 通知前端当前路由到的 LLM 模型，让用户可感知路由状态
+        // v0.9.x 输出优化：附加本轮 token 用量（DeepSeek 流式最后一个 chunk 的 usage）与真实上下文上限，
+        // 供统计行与上下文圆环（真实 prompt_tokens / 真实 contextLimit）使用
         if (usedConfig) {
+          // v0.9.x：上下文上限取 LLM 设置里的 contextLimit（用户配置；_getConfig 兼容 config/legacy 两模式）
+          // ⚠️ 配置存储为字符串（如 "1023999"），必须 Number() 后再判断
+          let llmContextLimit = 200000
+          try {
+            const llmCfg = await this.deepseekService._getConfig()
+            const cl = Number(llmCfg && llmCfg.contextLimit)
+            if (Number.isFinite(cl) && cl > 0) {
+              llmContextLimit = cl
+            }
+          } catch (_) {}
           this._notifyProgress(webContents, {
             type: 'model_info',
             model: usedConfig.model || '',
             provider: usedConfig.provider || '',
             name: usedConfig.name || '',
+            usage: response?.usage || null,
+            contextLimit: llmContextLimit,
           })
         }
 

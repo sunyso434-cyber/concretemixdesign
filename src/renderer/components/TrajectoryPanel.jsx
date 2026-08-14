@@ -1,0 +1,278 @@
+import React, { useMemo, useState } from 'react'
+import { Drawer, Input, Segmented, Typography, Space, Badge, Empty, Divider } from 'antd'
+import {
+  BulbOutlined, ToolOutlined, CheckCircleOutlined, CloseCircleOutlined,
+  CaretRightOutlined, CaretDownOutlined, LoadingOutlined,
+} from '@ant-design/icons'
+import {
+  buildTrajectorySteps,
+  filterTrajectorySteps,
+} from '../utils/trajectorySteps'
+import { resultToTableData } from '../utils/toolResultTable'
+
+const { Text } = Typography
+
+// 工具中文名（与 StreamingAgentCard 保持一致的精简版）
+const TOOL_LABELS = {
+  list_available_materials: '查询材料库',
+  calculate_mix_design: '计算配合比',
+  optimize_mix_cost: '成本优化',
+  check_compliance: '规范审查',
+  predict_performance: '性能预测',
+  list_standards: '查询规范库',
+  reverse_sales_quote: '反向套价',
+  forward_sales_quote: '正向测算',
+  format_quote_report: '导出报价单',
+  save_mix_design: '保存方案',
+  workspace_writeFile: '生成报告',
+  workspace_search: '工作区搜索',
+  workspace_grep: '搜索文件内容',
+  workspace_readFile: '读取文件',
+  ask_user: '询问确认',
+  todo_manage: '任务清单',
+}
+
+/** 步骤摘要（折叠态显示） */
+function stepSummary(step) {
+  if (step.type === 'reasoning') {
+    const c = (step.content || '').trim()
+    return c ? c.slice(0, 48) + (c.length > 48 ? '…' : '') : '思考中…'
+  }
+  // tool
+  const args = step.args
+  const parts = []
+  if (args && typeof args === 'object') {
+    if (args.strength) parts.push(args.strength)
+    if (args.slump) parts.push(`坍落度 ${args.slump}mm`)
+    if (args.type) parts.push(`类型：${args.type}`)
+    if (args.filename) parts.push(args.filename)
+  }
+  const r = step.result
+  if (r && typeof r === 'object' && r.success === false && r.error) {
+    return `✗ ${typeof r.error === 'object' ? (r.error.message || JSON.stringify(r.error)) : r.error}`
+  }
+  if (r && typeof r === 'object' && r.count !== undefined) {
+    parts.push(`${r.count} 条`)
+  }
+  if (r && typeof r === 'object' && r.type === 'mix_design' && r.data) {
+    const d = r.data
+    if (d.waterRatio) parts.push(`水胶比 ${d.waterRatio.toFixed(4)}`)
+    if (d.totalCost) parts.push(`成本 ¥${d.totalCost.toFixed(2)}`)
+  }
+  if (parts.length === 0 && r && typeof r === 'object') {
+    const keys = Object.keys(r)
+    if (keys.length > 0 && r.success !== undefined) parts.push(r.success ? '成功' : '失败')
+  }
+  return parts.join(' | ') || '已执行'
+}
+
+/**
+ * v0.9.x 轨迹功能（阶段 1）：会话轨迹视图
+ *
+ * 按回合（assistant 消息）分组的步骤账本：思考 + 工具调用全过程，
+ * 支持搜索（工具名/参数/结果）、过滤（全部/工具/思考/失败）、步骤详情展开。
+ */
+const TrajectoryPanel = ({ open, messages, onClose }) => {
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState('all')
+  const [expandedKeys, setExpandedKeys] = useState(new Set())
+
+  const steps = useMemo(() => buildTrajectorySteps(messages), [messages])
+  const visible = useMemo(
+    () => filterTrajectorySteps(steps, query, filter),
+    [steps, query, filter]
+  )
+
+  // 按回合分组（保留顺序）
+  const groups = useMemo(() => {
+    const map = new Map()
+    for (const s of visible) {
+      if (!map.has(s.turn)) map.set(s.turn, [])
+      map.get(s.turn).push(s)
+    }
+    return [...map.entries()].map(([turn, list]) => {
+      const stats = list.find(s => s.msgStats)?.msgStats || null
+      return { turn, steps: list, stats }
+    })
+  }, [visible])
+
+  const toggle = (key) => {
+    setExpandedKeys(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const fmtTime = (ms) => (ms != null && ms >= 0) ? `${(ms / 1000).toFixed(1)}s` : null
+
+  const stepCount = steps.length
+  const toolCount = steps.filter(s => s.type === 'tool').length
+  const failCount = steps.filter(s => s.status === 'error').length
+
+  return (
+    <Drawer
+      title={
+        <Space size={8}>
+          <span>轨迹</span>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {stepCount} 步 · 工具 {toolCount}
+            {failCount > 0 && <Text type="danger" style={{ fontSize: 12 }}> · 失败 {failCount}</Text>}
+          </Text>
+        </Space>
+      }
+      width={520}
+      open={open}
+      onClose={onClose}
+      destroyOnHidden
+    >
+      <Space direction="vertical" style={{ width: '100%' }} size={8}>
+        <Input.Search
+          allowClear
+          placeholder="搜索工具/参数/结果…"
+          onChange={e => setQuery(e.target.value)}
+          value={query}
+          style={{ width: '100%' }}
+        />
+        <Segmented
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { label: '全部', value: 'all' },
+            { label: '工具', value: 'tool' },
+            { label: '思考', value: 'reasoning' },
+            { label: '失败', value: 'failed' },
+          ]}
+          block
+        />
+      </Space>
+
+      <Divider style={{ margin: '12px 0' }} />
+
+      {groups.length === 0 ? (
+        <Empty
+          description={stepCount === 0 ? '暂无轨迹数据（完成一次 AI 任务后可见）' : '无匹配步骤'}
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+        />
+      ) : (
+        groups.map(group => (
+          <div key={group.turn} style={{ marginBottom: 16 }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '4px 8px', background: 'var(--color-bg, #f5f5f7)',
+              borderRadius: 4, marginBottom: 4,
+            }}>
+              <Text strong style={{ fontSize: 12 }}>回合 {group.turn}</Text>
+              <Text type="secondary" style={{ fontSize: 11 }}>{group.steps.length} 步</Text>
+              {group.stats && fmtTime(group.stats.elapsedMs) && (
+                <Text type="secondary" style={{ fontSize: 11 }}>用时 {fmtTime(group.stats.elapsedMs)}</Text>
+              )}
+            </div>
+
+            {group.steps.map(step => {
+              const expanded = expandedKeys.has(step.key)
+              const isError = step.status === 'error'
+              const isRunning = step.status === 'running'
+              return (
+                <div key={step.key} style={{ marginBottom: 2 }}>
+                  <div
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      padding: '4px 8px', cursor: 'pointer', borderRadius: 4,
+                      background: isError ? 'rgba(255, 59, 48, 0.05)' : 'transparent',
+                    }}
+                    onClick={() => toggle(step.key)}
+                  >
+                    {step.type === 'reasoning'
+                      ? <BulbOutlined style={{ color: '#faad14', fontSize: 13 }} />
+                      : <ToolOutlined style={{ color: '#8c8c8c', fontSize: 13 }} />}
+                    <Text style={{ fontSize: 13, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {step.type === 'tool'
+                        ? (TOOL_LABELS[step.toolName] || step.toolName || '工具调用')
+                        : '思考过程'}
+                      <Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>{stepSummary(step)}</Text>
+                    </Text>
+                    {isRunning
+                      ? <LoadingOutlined style={{ color: 'var(--color-primary, #0071e3)', fontSize: 12 }} />
+                      : isError
+                        ? <CloseCircleOutlined style={{ color: 'var(--color-error, #FF3B30)', fontSize: 13 }} />
+                        : <CheckCircleOutlined style={{ color: 'var(--color-success, #34C759)', fontSize: 13 }} />}
+                    {expanded
+                      ? <CaretDownOutlined style={{ fontSize: 10, color: '#999' }} />
+                      : <CaretRightOutlined style={{ fontSize: 10, color: '#999' }} />}
+                  </div>
+
+                  {expanded && <StepDetail step={step} />}
+                </div>
+              )
+            })}
+          </div>
+        ))
+      )}
+    </Drawer>
+  )
+}
+
+/** 步骤详情（展开态）：思考全文 / 工具 args+result */
+function StepDetail({ step }) {
+  if (step.type === 'reasoning') {
+    return (
+      <div style={{ margin: '0 8px 6px 26px', padding: '6px 10px', background: 'var(--color-bg, #f5f5f7)', borderRadius: 4 }}>
+        <pre style={{ margin: 0, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.6, fontFamily: 'inherit', maxHeight: 300, overflowY: 'auto' }}>
+          {step.content || '（无内容）'}
+        </pre>
+      </div>
+    )
+  }
+
+  const tableData = step.result && typeof step.result === 'object' ? resultToTableData(step.result) : null
+  return (
+    <div style={{ margin: '0 8px 6px 26px', padding: '6px 10px', background: 'var(--color-bg, #f5f5f7)', borderRadius: 4 }}>
+      {step.args && typeof step.args === 'object' && Object.keys(step.args).length > 0 && (
+        <div style={{ marginBottom: 6 }}>
+          <Text strong style={{ fontSize: 11, color: '#666' }}>输入参数</Text>
+          <pre style={{ margin: '2px 0 0 0', fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit', maxHeight: 120, overflowY: 'auto' }}>
+            {JSON.stringify(step.args, null, 2)}
+          </pre>
+        </div>
+      )}
+      {step.result !== undefined && step.result !== null && (
+        <div>
+          <Text strong style={{ fontSize: 11, color: '#666' }}>执行结果</Text>
+          {tableData ? (
+            <div style={{ marginTop: 4 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    {tableData.columns.map(c => (
+                      <th key={c.key} style={{ border: '1px solid #e5e5e5', padding: '3px 6px', textAlign: 'left', background: '#fafafa' }}>{c.title}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {tableData.data.slice(0, 12).map(row => (
+                    <tr key={row.key}>
+                      {tableData.columns.map(c => (
+                        <td key={c.key} style={{ border: '1px solid #e5e5e5', padding: '3px 6px', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row[c.dataIndex]}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {tableData.data.length > 12 && (
+                <Text type="secondary" style={{ fontSize: 11 }}>…共 {tableData.data.length} 行</Text>
+              )}
+            </div>
+          ) : (
+            <pre style={{ margin: '2px 0 0 0', fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit', maxHeight: 200, overflowY: 'auto' }}>
+              {typeof step.result === 'string' ? step.result : JSON.stringify(step.result, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default TrajectoryPanel

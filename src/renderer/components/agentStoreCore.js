@@ -15,15 +15,22 @@ export const initialState = {
   input: '',
   attachment: null,
   contextRealTokens: 0,
+  // 上下文上限（主进程 cfg.deepseekContextLimit；SET_CONTEXT_STATS / model_info 更新；UI 分母）
+  contextLimit: 200000,
+  // v0.9.x 输出优化：上下文构成细分（{ system, tools, messages } token 估算，来自主进程 context_stats 事件）
+  contextBreakdown: null,
   agent: {
-    status: 'idle',         // idle | thinking | streaming | tool_calling | done | error | aborted
+    status: 'idle',         // idle | thinking | streaming | tool_calling | paused | done | error | aborted
     timeline: [],
     replyText: '',
     requestId: null,
     runMode: 'auto',
     // v11.7.7: 当前路由到的 LLM 信息（provider + model），用户可感知路由状态
     currentModel: '',
-    currentProvider: ''
+    currentProvider: '',
+    // v0.9.x 输出优化：本轮 token 用量（model_info 携带）与开始时间（统计行用）
+    usage: null,
+    startedAt: null
   },
   session: {
     currentId: null,
@@ -45,7 +52,7 @@ export const initialState = {
 // 注：原值 20 会导致大对象累积（含 analysisReport/preprocessedData），改为 3 控内存
 const SESSIONS_CACHE_LIMIT = 3
 
-export function mergeReplyToMessages(messages, reply, requestId, timeline, stopReason) {
+export function mergeReplyToMessages(messages, reply, requestId, timeline, stopReason, stats) {
   // 用 `=== true` 严格匹配：历史消息的 _streaming 是 undefined（spec 6.3），
   // 不会被误判为 falsy 跳过；只有当前正在流式输出的消息才是 true
   let idx = -1
@@ -64,12 +71,142 @@ export function mergeReplyToMessages(messages, reply, requestId, timeline, stopR
       _agentRequestId: requestId || next[idx]._agentRequestId,
       timeline,
       stopReason: stopReason || null,
+      // v0.9.x 输出优化：回合统计（elapsedMs / usage），统计行渲染用；无数据时为 undefined 不展示
+      stats,
       _streaming: false
     }
     return next
   }
   // 兜底追加：消息无内存标记（spec 6.3 — 历史消息不存 _streaming/_agentRequestId）
-  return [...messages, { role: 'assistant', content: reply || '', timeline, stopReason: stopReason || null }]
+  return [...messages, { role: 'assistant', content: reply || '', timeline, stopReason: stopReason || null, stats }]
+}
+
+/**
+ * v0.9.x 一致性修复：历史会话 timeline 重建（对齐 DSH——同一数据源、同一渲染路径）
+ *
+ * 旧版保存的历史会话里，assistant 消息只有 toolCalls（LLM 返回的工具调用），
+ * tool 消息单独存 result（content=JSON，toolCallId 与 assistant toolCalls 配对），
+ * 但没有 timeline → 加载后工具过程只能以 ToolMessageBubble 显示原始 JSON。
+ *
+ * 这里在加载时重建 timeline：assistant 的每个 toolCall 生成一个 tool 节点
+ * （toolName/args/result/status），与 StreamingAgentCard 实时渲染的结构一致；
+ * 被消费的 tool 消息从列表中移除（避免重复显示）。
+ */
+export function rebuildTimelines(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return messages
+
+  const result = []
+  // 待结算的 assistant（其后的 tool 消息配对给它）
+  let pending = null // { msg, toolCalls: [...{tc, matched}] }
+
+  const settlePending = () => {
+    if (!pending) return
+    const { msg, toolCalls } = pending
+    const rebuilt = []
+    for (const entry of toolCalls) {
+      const tc = entry.tc
+      const fn = tc && tc.function ? tc.function : {}
+      let args = null
+      try {
+        args = typeof fn.arguments === 'string' ? JSON.parse(fn.arguments) : (fn.arguments || null)
+      } catch (_) { args = null }
+      rebuilt.push({
+        type: 'tool',
+        toolName: fn.name || 'unknown',
+        args,
+        result: entry.matched || null,
+        status: 'done',
+        toolCallId: tc && tc.id ? tc.id : undefined,
+      })
+    }
+    result.push({ ...msg, timeline: rebuilt, _timelineRebuilt: true })
+    pending = null
+  }
+
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]
+    if (!m || typeof m !== 'object') {
+      settlePending()
+      result.push(m)
+      continue
+    }
+
+    if (m.role === 'assistant') {
+      settlePending()
+      const hasTimelineTools = Array.isArray(m.timeline) && m.timeline.some(t => t && t.type === 'tool')
+      const toolCalls = Array.isArray(m.toolCalls) ? m.toolCalls : []
+      if (!hasTimelineTools && toolCalls.length > 0) {
+        // 进入待结算：其后的 tool 消息将按 toolCallId 配对
+        pending = { msg: m, toolCalls: toolCalls.map(tc => ({ tc, matched: null })) }
+      } else {
+        result.push(m)
+      }
+    } else if (m.role === 'tool') {
+      if (pending) {
+        // 配对：优先 toolCallId 精确匹配，否则顺序取未匹配的
+        let target = null
+        if (m.toolCallId) {
+          target = pending.toolCalls.find(e => !e.matched && e.tc && e.tc.id === m.toolCallId) || null
+        }
+        if (!target) {
+          target = pending.toolCalls.find(e => !e.matched) || null
+        }
+        if (target) {
+          const raw = m.content
+          let parsed = null
+          if (typeof raw === 'string') {
+            try { parsed = JSON.parse(raw) } catch (_) { parsed = raw }
+          } else {
+            parsed = raw
+          }
+          target.matched = parsed
+          continue // 已消费：不再单独显示
+        }
+      }
+      result.push(m) // 无 assistant 可配对 → 单独显示（ToolMessageBubble）
+    } else {
+      settlePending()
+      result.push(m)
+    }
+  }
+  settlePending()
+  return result
+}
+
+/**
+ * v0.9.x 一致性修复：新旧对话渲染统一（对齐 DSH 的做法——同一渲染路径）
+ *
+ * 新对话运行中，工具调用展示在 assistant 消息的 timeline（StreamingAgentCard 工具块）；
+ * 旧会话加载时，同一条工具调用还有独立的 role='tool' 消息（ToolMessageBubble），
+ * 导致同一工具调用重复显示且样式不一致。
+ *
+ * 规则：若某条 role='tool' 消息之前最近的 assistant 消息 timeline 已含工具节点，
+ * 则隐藏该 tool 消息（已在 timeline 中展示）；老会话（timeline 无工具节点）
+ * 保留 tool 消息（由升级后的 ToolMessageBubble 结构化展示）。
+ */
+export function dedupeToolMessages(messages) {
+  if (!Array.isArray(messages)) return messages
+  let lastAssistantHasToolTimeline = false
+  const out = []
+  for (const m of messages) {
+    if (!m || typeof m !== 'object') {
+      out.push(m)
+      continue
+    }
+    if (m.role === 'assistant') {
+      const tl = m.timeline || (m.metadata && m.metadata.timeline) || []
+      lastAssistantHasToolTimeline = Array.isArray(tl) && tl.some(t => t && t.type === 'tool')
+      out.push(m)
+    } else if (m.role === 'tool') {
+      // 已在 assistant timeline 展示过 → 隐藏，避免重复
+      if (!lastAssistantHasToolTimeline) out.push(m)
+    } else {
+      // user 消息 = 新轮次开始，重置状态
+      if (m.role === 'user') lastAssistantHasToolTimeline = false
+      out.push(m)
+    }
+  }
+  return out
 }
 
 export function agentReducer(state, action) {
@@ -82,7 +219,9 @@ export function agentReducer(state, action) {
           status: 'thinking',
           timeline: [],
           replyText: '',
-          requestId: action.payload.requestId
+          requestId: action.payload.requestId,
+          usage: null,
+          startedAt: Date.now()   // v0.9.x 输出优化：记录本轮开始时刻，统计行算总耗时
         }
       }
     }
@@ -119,19 +258,37 @@ export function agentReducer(state, action) {
       // P3 commit 2 修复：保留所有字段（含 streaming / streamId / toolEvents / _dedupKey / classifiedError 等），
       // 仅规范化 timeline 和 stopReason 默认值。
       // 历史消息加载时的字段剥离由调用方（agentActions.js）在 dispatch 前完成。
-      const clean = action.payload.map(m => ({
+      // v0.9.x：先重建历史 timeline（旧会话 toolCalls+tool 消息 → 工具时间线），
+      // 再按"timeline 已含工具块则隐藏重复 tool 消息"去重，统一新旧对话渲染
+      const rebuilt = rebuildTimelines(action.payload)
+      const deduped = dedupeToolMessages(rebuilt)
+      const clean = deduped.map(m => ({
         ...m,
         timeline: m.timeline || m.metadata?.timeline || [],
-        stopReason: m.stopReason || null
+        stopReason: m.stopReason || null,
+        // v0.9.x 输出优化：历史消息还原统计行数据（metadata.usage 由 useAssistantPersistence 落库）
+        stats: m.stats || (m.metadata?.usage ? { usage: m.metadata.usage } : undefined)
       }))
       return { ...state, messages: clean }
+    }
+    case 'UPDATE_MESSAGE_ID': {
+      // v0.9.x 输出优化：assistant 消息落库后回写 DB id（赞/踩反馈依赖 messageId）
+      const { requestId, id } = action.payload || {}
+      if (!id) return state
+      const messages = state.messages.map(m =>
+        m._agentRequestId === requestId && m.role === 'assistant' && !m.id
+          ? { ...m, id }
+          : m
+      )
+      return { ...state, messages }
     }
     case 'PREPEND_MESSAGES': {
       // v9.1.0 新增：分页加载更早的历史消息，拼接到列表头部
       // 后端 getHistory 返回按时间正序排列的消息，直接前置即可
+      // v0.9.x：合并后同样重建 timeline + 去重，避免分页边界重复显示
       const existingIds = new Set(state.messages.map(m => m.id).filter(Boolean))
       const newMessages = action.payload.filter(m => !existingIds.has(m.id))
-      return { ...state, messages: [...newMessages, ...state.messages] }
+      return { ...state, messages: dedupeToolMessages(rebuildTimelines([...newMessages, ...state.messages])) }
     }
     case 'CLEAR_MESSAGES': {
       // v8.4.2：清空消息时同步重置 contextRealTokens，避免新对话污染
@@ -163,6 +320,14 @@ export function agentReducer(state, action) {
         ...state,
         contextRealTokens: action.payload.realTokens || 0,
         contextLimit: action.payload.contextLimit || state.contextLimit
+      }
+    }
+    case 'SET_CONTEXT_BREAKDOWN': {
+      // v0.9.x 输出优化：上下文构成细分（system/tools/messages），供圆环点击细分面板展示
+      const b = action.payload && action.payload.breakdown
+      return {
+        ...state,
+        contextBreakdown: b && typeof b === 'object' ? b : state.contextBreakdown
       }
     }
     case 'REASONING_START': {
@@ -237,8 +402,10 @@ export function agentReducer(state, action) {
     }
     case 'DONE': {
       const reply = action.payload.reply || state.agent.replyText
+      const elapsedMs = state.agent.startedAt ? Date.now() - state.agent.startedAt : null
       const updatedMessages = mergeReplyToMessages(
-        state.messages, reply, state.agent.requestId, state.agent.timeline, null
+        state.messages, reply, state.agent.requestId, state.agent.timeline, null,
+        { elapsedMs, usage: state.agent.usage }
       )
       return {
         ...state,
@@ -247,15 +414,31 @@ export function agentReducer(state, action) {
       }
     }
     case 'ABORT': {
+      const elapsedMs = state.agent.startedAt ? Date.now() - state.agent.startedAt : null
       const updatedMessages = mergeReplyToMessages(
         state.messages, state.agent.replyText, state.agent.requestId,
-        state.agent.timeline, 'aborted'
+        state.agent.timeline, 'aborted',
+        { elapsedMs, usage: state.agent.usage }
       )
       return {
         ...state,
         agent: { ...state.agent, status: 'aborted', replyText: '' },
         messages: updatedMessages
       }
+    }
+    case 'PAUSE': {
+      // 输出优化：卡内暂停按钮 → 仅运行中可暂停（主进程 controlMixin 同规则）
+      if (state.agent.status === 'running' || state.agent.status === 'streaming' || state.agent.status === 'thinking' || state.agent.status === 'tool_calling') {
+        return { ...state, agent: { ...state.agent, status: 'paused' } }
+      }
+      return state
+    }
+    case 'RESUME': {
+      // 输出优化：卡内继续按钮 → 仅暂停中可恢复
+      if (state.agent.status === 'paused') {
+        return { ...state, agent: { ...state.agent, status: 'running' } }
+      }
+      return state
     }
     case 'ERROR': {
       const { classifiedError, sessionId, requestId } = action.payload || {}
@@ -447,12 +630,14 @@ export function agentReducer(state, action) {
     }
     case 'SET_MODEL_INFO': {
       // v11.7.7: 记录当前路由到的 LLM provider 和 model，让用户可感知路由状态
+      // v0.9.x 输出优化：同时记录本轮 token 用量（统计行用）
       return {
         ...state,
         agent: {
           ...state.agent,
           currentModel: action.payload.model || '',
-          currentProvider: action.payload.provider || ''
+          currentProvider: action.payload.provider || '',
+          usage: action.payload.usage || state.agent.usage
         }
       }
     }

@@ -354,6 +354,11 @@ function registerAgentHandlers() {
     return executor.pause({ sessionId })
   })
 
+  // v0.9.x 输出优化：单条消息赞/踩反馈（写 chat_history.metadata.feedback）
+  ipcMain.handle('agent:setMessageFeedback', async (_event, { messageId, feedback }) => {
+    return agentMemoryService.setMessageFeedback({ messageId, feedback })
+  })
+
   ipcMain.handle('agent:resume', async (_event, { requestId, sessionId }) => {
     return executor.resume({ sessionId })
   })

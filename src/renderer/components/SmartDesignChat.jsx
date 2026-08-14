@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useDeferredValue } from 'react'
-import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip, Dropdown, Image } from 'antd'
+import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip, Dropdown, Image, Popover } from 'antd'
 import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, ProfileOutlined, HeartOutlined, DownOutlined, CheckOutlined, PauseCircleOutlined, PictureOutlined, ReloadOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -7,6 +7,9 @@ import ToolCallBubble from './ToolCallBubble'
 import ToolMessageBubble from './ToolMessageBubble'
 import SystemErrorBubble from './SystemErrorBubble'
 import StreamingAgentCard from './StreamingAgentCard'
+import MessageActions from './MessageActions'
+import ProducedFilesChips from './ProducedFilesChips'
+import TrajectoryPanel from './TrajectoryPanel'
 import TodoPanel from './TodoPanel'
 import PlanApprovalModal from './PlanApprovalModal'
 import FileMessageCard from './FileMessageCard'
@@ -25,7 +28,7 @@ import WorkspaceFilePopover from './WorkspaceFilePopover'
 import useChatState from '../hooks/useChatState'
 import { AgentStoreProvider, useAgentStore } from './AgentStore'
 import useAgentMode from './AgentMode'
-import { sendMessage, abortAgent, createSession, loadSessionList, switchSession, loadMoreSessionMessages, useAssistantPersistence, resumeFromCheckpoint, detectCrashWindow, rerunUnpairedTools, insertSteerMessage } from './agentActions'
+import { sendMessage, abortAgent, pauseAgent, resumeAgent, createSession, loadSessionList, switchSession, loadMoreSessionMessages, useAssistantPersistence, resumeFromCheckpoint, detectCrashWindow, rerunUnpairedTools, insertSteerMessage } from './agentActions'
 import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, processImageAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
 
 // 对话发图后同步保存到工作区 raw/images（老板 2026-08-02 决策：图片进原始素材区，AI 可索引）。
@@ -46,7 +49,8 @@ function saveChatImageToWorkspace(file, result) {
   return Promise.resolve()
 }
 import ContextIndicator from './ContextIndicator'
-import { getContextPercent, DEFAULT_CONTEXT_LIMIT } from '../utils/contextStats'
+import ContextBreakdownPanel from './ContextBreakdownPanel'
+import { getContextPercent, estimateTokens, DEFAULT_CONTEXT_LIMIT } from '../utils/contextStats'
 import { AnalysisReport } from './AnalysisReport'
 import { getAllMaterials } from '../services/MaterialService'
 import { buildAnalysisData } from '../utils/mixDesignParser'
@@ -254,6 +258,8 @@ const SmartDesignChat = () => {
   // ===== Hooks =====
   const chatState = useChatState()
   const { state, dispatch } = useAgentStore()
+  // v0.9.x 轨迹功能：轨迹面板开关
+  const [trajectoryOpen, setTrajectoryOpen] = useState(false)
   const reader = useMdReader()
   const handleOpenMd = async (path) => {
     const p = String(path || '').trim()
@@ -1876,14 +1882,46 @@ const SmartDesignChat = () => {
                 const percent = getContextPercent({
                   realTokens: state.contextRealTokens,
                   messages: state.messages,
-                  contextLimit: DEFAULT_CONTEXT_LIMIT
+                  contextLimit: state.contextLimit || DEFAULT_CONTEXT_LIMIT
                 })
+                // 细分面板数据：优先主进程 context_stats；无数据时用前端消息估算兜底（system/tools 不可知）
+                const fallbackBreakdown = state.contextBreakdown || (
+                  state.messages && state.messages.length > 0
+                    ? { system: 0, tools: 0, messages: estimateTokens(state.messages) }
+                    : null
+                )
                 return (
-                  <ContextIndicator
-                    percent={percent}
-                    loading={chatState.isCompressing}
-                    onClick={chatState.handleCompressContext}
-                  />
+                  <>
+                    <Popover
+                      placement="bottomRight"
+                      trigger="click"
+                      title="上下文占用"
+                      content={
+                        <ContextBreakdownPanel
+                          breakdown={fallbackBreakdown}
+                          onCompress={chatState.handleCompressContext}
+                          loading={chatState.isCompressing}
+                        />
+                      }
+                    >
+                      <span>
+                        <ContextIndicator
+                          percent={percent}
+                          loading={chatState.isCompressing}
+                        />
+                      </span>
+                    </Popover>
+                    {/* v0.9.x 轨迹功能：放在上下文圆圈旁边 */}
+                    <Tooltip title="轨迹（本次会话 AI 操作全过程）">
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<HistoryOutlined />}
+                        onClick={() => setTrajectoryOpen(true)}
+                        disabled={state.messages.length === 0}
+                      />
+                    </Tooltip>
+                  </>
                 )
               })()}
             </div>
@@ -2029,6 +2067,10 @@ const SmartDesignChat = () => {
                           showControls={!!item._streaming}
                           agentReplyText={item._streaming ? state.agent.replyText : ''}
                           isPaused={item._streaming ? state.agent.status === 'paused' : false}
+                          stats={item.stats}
+                          onPause={() => pauseAgent({ dispatch, sessionId: state.session.currentId })}
+                          onResume={() => resumeAgent({ dispatch, sessionId: state.session.currentId })}
+                          onAbort={() => abortAgent({ dispatch, requestId: state.agent.requestId, sessionId: state.session.currentId })}
                         />
                       )}
                       <MessageContent
@@ -2037,6 +2079,14 @@ const SmartDesignChat = () => {
                         agentReplyText={state.agent.replyText}
                         onOpenMd={handleOpenMd}
                       />
+                      {/* v0.9.x 输出优化：本轮产出文件 chips（从 timeline 提取） */}
+                      {item.role === 'assistant' && !item._streaming && (
+                        <ProducedFilesChips timeline={item.timeline} onOpenMd={handleOpenMd} />
+                      )}
+                      {/* v0.9.x 输出优化：assistant 消息操作条（复制/赞/踩） */}
+                      {item.role === 'assistant' && !item._streaming && (
+                        <MessageActions message={item} />
+                      )}
                       {/* 历史 todo 快照（只读）：留在上一轮 agent 输出中 */}
                       {item.todoSnapshot && (
                         <TodoPanel readOnly snapshot={item.todoSnapshot} />
@@ -2328,6 +2378,12 @@ const SmartDesignChat = () => {
       <LintReportModal
         visible={lintModalOpen}
         onClose={() => setLintModalOpen(false)}
+      />
+      {/* v0.9.x 轨迹功能：会话 AI 操作全过程视图 */}
+      <TrajectoryPanel
+        open={trajectoryOpen}
+        messages={state.messages}
+        onClose={() => setTrajectoryOpen(false)}
       />
     </div>
       {reader.state.isOpen && (

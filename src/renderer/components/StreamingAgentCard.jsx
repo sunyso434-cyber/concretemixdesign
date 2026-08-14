@@ -1,11 +1,13 @@
 import React, { useState, useDeferredValue } from 'react'
 import ReactMarkdown from 'react-markdown'
-import { Space, Typography, Button } from 'antd'
+import { Space, Typography, Button, Table } from 'antd'
 import {
   LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined,
   PauseCircleOutlined, PlayCircleOutlined, StopOutlined,
   CaretRightOutlined, CaretDownOutlined, BulbOutlined, ToolOutlined
 } from '@ant-design/icons'
+import { resultToTableData } from '../utils/toolResultTable'
+import MixDesignResultCard from './MixDesignResultCard'
 
 const { Text } = Typography
 
@@ -303,6 +305,8 @@ const ToolBlock = ({ item }) => {
   const label = TOOL_LABELS[item.toolName] || item.toolName || '未知工具'
   const argsSummary = renderArgsSummary(item.toolName, item.args)
   const resultSummary = item.result && item.status !== 'running' ? renderResultSummary(item.toolName, item.result) : ''
+  // v0.9.x 输出优化：结果含表格形数组 → 渲染 antd Table（材料列表/配合比明细/优化结果等）
+  const tableData = item.result && item.status === 'done' ? resultToTableData(item.result) : null
 
   return (
     <div style={{
@@ -359,7 +363,25 @@ const ToolBlock = ({ item }) => {
           {item.result && item.status !== 'running' && (
             <div style={{ marginBottom: 6 }}>
               <Text strong style={{ fontSize: 11, color: 'var(--color-text-secondary, #666)' }}>执行结果：</Text>
-              <div style={{ marginTop: 2 }}>{resultSummary || '已完成'}</div>
+              {/* v0.9.x 输出优化：配合比计算结果复用 MixDesignResultCard（只读展示） */}
+              {item.result && item.result.type === 'mix_design' && item.result.data ? (
+                <div style={{ marginTop: 4 }}>
+                  <MixDesignResultCard data={item.result.data} />
+                </div>
+              ) : tableData ? (
+                <div style={{ marginTop: 4 }}>
+                  <Table
+                    size="small"
+                    columns={tableData.columns}
+                    dataSource={tableData.data}
+                    pagination={false}
+                    scroll={{ x: 'max-content' }}
+                    style={{ fontSize: 12 }}
+                  />
+                </div>
+              ) : (
+                <div style={{ marginTop: 2 }}>{resultSummary || '已完成'}</div>
+              )}
             </div>
           )}
           {item.status === 'running' && (
@@ -427,16 +449,49 @@ const ToolBlock = ({ item }) => {
  * - `liveTimeline` — `state.agent.timeline`（流式过程中的实时数据）
  * - `live`         — true 时优先用 `liveTimeline`，让呼吸灯/三点动画真正转起来
  */
-const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyText, isPaused, showControls, onPause, onResume, onAbort }) => {
+/**
+ * v0.9.x 输出优化：回复统计行（用时 + token 用量）
+ * 数据来源：DONE/ABORT 时 mergeReplyToMessages 挂到消息上的 stats
+ * 历史消息从 metadata.usage 还原（无数据时不渲染）
+ */
+function formatTokenCount(n) {
+  if (!Number.isFinite(n) || n < 0) return null
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
+  return String(n)
+}
+
+const StatsLine = ({ stats }) => {
+  if (!stats) return null
+  const { elapsedMs, usage } = stats
+  const parts = []
+  if (elapsedMs != null && elapsedMs >= 0) {
+    parts.push(`用时 ${(elapsedMs / 1000).toFixed(1)}s`)
+  }
+  const prompt = usage && formatTokenCount(usage.prompt_tokens)
+  const completion = usage && formatTokenCount(usage.completion_tokens)
+  if (prompt) parts.push(`输入 ${prompt}`)
+  if (completion) parts.push(`输出 ${completion}`)
+  if (parts.length === 0) return null
+  return (
+    <div style={{ marginTop: 6, fontSize: 12, color: 'var(--color-text-tertiary, #999)' }} aria-label="回复统计">
+      {parts.join(' · ')}
+    </div>
+  )
+}
+
+const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyText, isPaused, showControls, onPause, onResume, onAbort, stats }) => {
   // v10.10.12 修复：agent 大段输出时 ReactMarkdown 每条 IPC 都重新解析整个字符串，
   // 文本越长越卡，到几万字渲染进程崩 → 白屏。useDeferredValue 让 React 自动降速，
   // 高频更新只在空闲时处理，UI 不再卡死。
   const deferredReplyText = useDeferredValue(agentReplyText)
   const rawTimeline = live && Array.isArray(liveTimeline) && liveTimeline.length ? liveTimeline : timeline
   const effectiveTimeline = Array.isArray(rawTimeline) ? rawTimeline : []
+  // v0.9.x 修复：store 运行中状态为 thinking/streaming/tool_calling（非 running），
+  // 工作态判断需覆盖全部，否则"暂停/继续/取消"按钮与"AI思考中"状态不显示
+  const isWorkingState = ['thinking', 'streaming', 'tool_calling', 'running'].includes(status)
   if (effectiveTimeline.length === 0) {
     // 如果没有 timeline，但 agent 在运行，显示 "AI思考中..."
-    if (status === 'running') {
+    if (isWorkingState) {
       return (
         <div style={{
           marginBottom: 4, padding: '6px 12px',
@@ -471,7 +526,7 @@ const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyTe
         padding: '4px 8px', marginBottom: 4
       }}>
         <Space size={6}>
-          {status === 'running' && hasRunningItems ? (
+          {isWorkingState && hasRunningItems ? (
             <>
               <LoadingOutlined style={{ color: 'var(--color-primary, #0071e3)', fontSize: 14 }} />
               <Text className="ai-thinking-text" style={{
@@ -481,6 +536,11 @@ const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyTe
               }}>
                 AI思考中
               </Text>
+            </>
+          ) : status === 'paused' ? (
+            <>
+              <PauseCircleOutlined style={{ color: 'var(--color-warning, #FF9500)', fontSize: 14 }} />
+              <Text style={{ fontSize: 13, color: 'var(--color-warning, #FF9500)' }}>已暂停</Text>
             </>
           ) : status === 'done' ? (
             <>
@@ -495,7 +555,7 @@ const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyTe
           ) : null}
         </Space>
 
-        {showControls && status === 'running' && (
+        {showControls && (isWorkingState || status === 'paused') && (
           <Space size={4}>
             {!isPaused ? (
               <Button size="small" type="text" icon={<PauseCircleOutlined />} onClick={onPause}>暂停</Button>
@@ -516,13 +576,16 @@ const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyTe
         ))}
       </div>
 
-      {/* 流式回复文本预览（仅 streaming 状态时显示） */}
-      {status === 'streaming' && agentReplyText && (
+      {/* 流式回复文本预览（streaming / paused 时显示） */}
+      {(status === 'streaming' || status === 'paused') && agentReplyText && (
         <div className="reply-preview" style={{ marginTop: 8, fontSize: 13, color: 'var(--color-text-secondary)' }}>
           <ReactMarkdown>{deferredReplyText}</ReactMarkdown>
           <span className="streaming-cursor">|</span>
         </div>
       )}
+
+      {/* v0.9.x 输出优化：回复统计行（用时 + token 用量，仅终态且有数据时显示） */}
+      {status === 'done' && <StatsLine stats={stats} />}
     </div>
   )
 }

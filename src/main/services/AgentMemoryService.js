@@ -575,6 +575,30 @@ class AgentMemoryService {
     }
   }
 
+  /**
+   * v0.9.x 输出优化：设置/清除单条消息的用户反馈（赞/踩）
+   * 反馈写入 chat_history.metadata.feedback，不新增字段（避免迁移）
+   * @param {Object} args
+   * @param {number} args.messageId - chat_history 主键 id
+   * @param {string|null} args.feedback - 'like' | 'dislike' | null（null = 取消反馈）
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  async setMessageFeedback({ messageId, feedback }) {
+    if (!messageId) return { success: false, error: '缺少 messageId' }
+    const valid = feedback === null || feedback === 'like' || feedback === 'dislike'
+    if (!valid) return { success: false, error: `非法反馈值: ${feedback}` }
+    const msg = await ChatHistory.findByPk(messageId)
+    if (!msg) return { success: false, error: '消息不存在' }
+    const metadata = msg.metadata && typeof msg.metadata === 'object' ? msg.metadata : {}
+    if (feedback === null) {
+      delete metadata.feedback
+    } else {
+      metadata.feedback = feedback
+    }
+    await msg.update({ metadata })
+    return { success: true, feedback: metadata.feedback || null }
+  }
+
 }
 
 module.exports = new AgentMemoryService()

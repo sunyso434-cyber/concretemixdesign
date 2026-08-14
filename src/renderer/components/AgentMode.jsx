@@ -78,11 +78,23 @@ export default function useAgentMode() {
 
       switch (eventType) {
         // v11.7.7: 记录当前路由到的 LLM 模型信息，用户可感知路由状态
+        // v0.9.x 输出优化: 附带 usage（token 用量）供统计行展示；
+        // 并用真实 prompt_tokens 更新上下文圆环（比字符估算准确，每次任务后刷新）
         case 'model_info':
           dispatch({
             type: 'SET_MODEL_INFO',
-            payload: { model: data.model, provider: data.provider }
+            payload: { model: data.model, provider: data.provider, usage: data.usage || null }
           })
+          if (data.usage && typeof data.usage.prompt_tokens === 'number') {
+            dispatch({
+              type: 'SET_CONTEXT_STATS',
+              payload: {
+                realTokens: data.usage.prompt_tokens,
+                // 配置存储可能是字符串（如 "1023999"），统一转数字（圆环分母）
+                contextLimit: data.contextLimit !== undefined ? (Number(data.contextLimit) || undefined) : undefined
+              }
+            })
+          }
           return
         case 'reasoning_start':
           dispatch({ type: 'REASONING_START', payload: { roundIndex: data.roundIndex } })
@@ -136,6 +148,14 @@ export default function useAgentMode() {
           }
           message.success('上下文已自动压缩，释放了对话空间')
           break
+        case 'context_stats':
+          // v0.9.x 输出优化：上下文构成细分（system/tools/messages）
+          // 只更新细分面板；不更新圆环（避免任务开始时的估算值让圆环跳变，
+          // 圆环统一用 model_info 的真实 prompt_tokens）
+          if (data.breakdown) {
+            dispatch({ type: 'SET_CONTEXT_BREAKDOWN', payload: { breakdown: data.breakdown } })
+          }
+          return
         default:
           // 旧格式兼容（无 type 字段的旧事件）
           if (data.status === 'done' && data.result?.reply) {
