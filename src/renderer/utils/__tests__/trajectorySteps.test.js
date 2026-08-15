@@ -40,6 +40,19 @@ describe('buildTrajectorySteps', () => {
     expect(out[1]).toMatchObject({ turn: 1, type: 'tool', toolName: 'list_available_materials', args: { type: '粉煤灰' }, result: { count: 7 } })
     expect(out[2]).toMatchObject({ turn: 2, toolName: 'calculate_mix_design' })
   })
+
+  test('步骤携带每步耗时与 toolCallId（轨迹阶段2）', () => {
+    const out = buildTrajectorySteps([
+      mkMsg(1, [
+        { type: 'tool', toolName: 'calculate_mix_design', status: 'done', elapsedMs: 1234, toolCallId: 'call_abc' },
+        { type: 'tool', toolName: 'workspace_search', status: 'done' }, // 旧数据无 elapsedMs
+      ]),
+    ])
+    expect(out[0].elapsedMs).toBe(1234)
+    expect(out[0].toolCallId).toBe('call_abc')
+    expect(out[1].elapsedMs).toBeNull()
+    expect(out[1].toolCallId).toBeUndefined()
+  })
 })
 
 describe('filterTrajectorySteps', () => {

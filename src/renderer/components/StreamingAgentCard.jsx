@@ -4,7 +4,7 @@ import { Space, Typography, Button, Table } from 'antd'
 import {
   LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined,
   PauseCircleOutlined, PlayCircleOutlined, StopOutlined,
-  CaretRightOutlined, CaretDownOutlined, BulbOutlined, ToolOutlined
+  CaretRightOutlined, CaretDownOutlined, BulbOutlined, ToolOutlined, HistoryOutlined
 } from '@ant-design/icons'
 import { resultToTableData } from '../utils/toolResultTable'
 import MixDesignResultCard from './MixDesignResultCard'
@@ -298,7 +298,7 @@ const ReasoningBlock = ({ item }) => {
 }
 
 /** 单个工具块 */
-const ToolBlock = ({ item }) => {
+const ToolBlock = ({ item, onInspectTool }) => {
   const [expanded, setExpanded] = useState(false)
   const [showRaw, setShowRaw] = useState(false) // ponytail: 给开发/调试留的 JSON 折叠开关，默认收起
   const isRunning = item.status === 'running'
@@ -387,12 +387,26 @@ const ToolBlock = ({ item }) => {
           {item.status === 'running' && (
             <div style={{ color: 'var(--color-primary, #0071e3)', fontStyle: 'italic' }}>正在执行...</div>
           )}
+          {/* v0.9.x 轨迹阶段2：跨视图跳转——在轨迹面板中定位该工具调用 */}
+          {onInspectTool && item.toolCallId && item.status !== 'running' && (
+            <Button
+              type="link"
+              size="small"
+              icon={<HistoryOutlined />}
+              style={{ padding: 0, fontSize: 11, marginTop: 2 }}
+              onClick={(e) => {
+                e.stopPropagation()
+                onInspectTool(item.toolCallId)
+              }}
+            >
+              在轨迹中查看
+            </Button>
+          )}
           {/* ponytail: 给开发/调试留的原始 JSON 折叠开关，默认收起 */}
           <details style={{ marginTop: 4 }}>
             <summary style={{ cursor: 'pointer', fontSize: 11, color: 'var(--color-text-secondary, #999)', userSelect: 'none' }}>
               查看原始数据
-            </summary>
-            {item.args && Object.keys(item.args).length > 0 && (
+            </summary>            {item.args && Object.keys(item.args).length > 0 && (
               <div style={{ marginTop: 4 }}>
                 <Text strong style={{ fontSize: 10 }}>args：</Text>
                 <pre style={{
@@ -479,7 +493,7 @@ const StatsLine = ({ stats }) => {
   )
 }
 
-const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyText, isPaused, showControls, onPause, onResume, onAbort, stats }) => {
+const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyText, isPaused, showControls, onPause, onResume, onAbort, stats, onInspectTool }) => {
   // v10.10.12 修复：agent 大段输出时 ReactMarkdown 每条 IPC 都重新解析整个字符串，
   // 文本越长越卡，到几万字渲染进程崩 → 白屏。useDeferredValue 让 React 自动降速，
   // 高频更新只在空闲时处理，UI 不再卡死。
@@ -572,7 +586,7 @@ const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyTe
         {effectiveTimeline.map((item, index) => (
           item.type === 'reasoning'
             ? <ReasoningBlock key={`r-${item.roundIndex ?? index}`} item={item} />
-            : <ToolBlock key={`t-${item.toolCallId || item.id || index}`} item={item} />
+            : <ToolBlock key={`t-${item.toolCallId || item.id || index}`} item={item} onInspectTool={onInspectTool} />
         ))}
       </div>
 

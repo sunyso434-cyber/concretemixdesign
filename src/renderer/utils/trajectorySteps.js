@@ -42,6 +42,10 @@ export function buildTrajectorySteps(messages) {
         result: item.type === 'tool' ? item.result : undefined,
         content: item.type === 'reasoning' ? item.content : undefined,
         status: item.status || 'done',
+        // v0.9.x 轨迹阶段2：每步精确耗时（TOOL_DONE/ERROR 埋点；旧数据为 null）
+        elapsedMs: typeof item.elapsedMs === 'number' ? item.elapsedMs : null,
+        // 工具调用 id（跨视图跳转定位用）
+        toolCallId: item.toolCallId || undefined,
       })
     })
   }

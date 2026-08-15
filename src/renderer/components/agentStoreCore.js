@@ -379,7 +379,8 @@ export function agentReducer(state, action) {
           timeline: [...state.agent.timeline, {
             type: 'tool', toolCallId: action.payload.toolCallId,
             toolName: action.payload.toolName, args: action.payload.args || {},
-            status: 'running', collapsed: true
+            status: 'running', collapsed: true,
+            startedAt: Date.now()   // v0.9.x 轨迹阶段2：工具开始时刻（算每步耗时）
           }]
         }
       }
@@ -387,7 +388,11 @@ export function agentReducer(state, action) {
     case 'TOOL_DONE': {
       const timeline = state.agent.timeline.map(item =>
         item.type === 'tool' && item.toolCallId === action.payload.toolCallId
-          ? { ...item, status: 'done', result: action.payload.result }
+          ? {
+              ...item, status: 'done', result: action.payload.result,
+              // v0.9.x 轨迹阶段2：每步精确耗时（无 startedAt 的旧数据为 null）
+              elapsedMs: item.startedAt ? Date.now() - item.startedAt : null
+            }
           : item
       )
       return { ...state, agent: { ...state.agent, status: 'streaming', timeline } }
@@ -395,7 +400,10 @@ export function agentReducer(state, action) {
     case 'TOOL_ERROR': {
       const timeline = state.agent.timeline.map(item =>
         item.type === 'tool' && item.toolCallId === action.payload.toolCallId
-          ? { ...item, status: 'error', error: action.payload.error }
+          ? {
+              ...item, status: 'error', error: action.payload.error,
+              elapsedMs: item.startedAt ? Date.now() - item.startedAt : null
+            }
           : item
       )
       return { ...state, agent: { ...state.agent, timeline } }

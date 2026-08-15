@@ -258,8 +258,9 @@ const SmartDesignChat = () => {
   // ===== Hooks =====
   const chatState = useChatState()
   const { state, dispatch } = useAgentStore()
-  // v0.9.x 轨迹功能：轨迹面板开关
+  // v0.9.x 轨迹功能：轨迹面板开关 + 跨视图跳转定位（工具调用 id）
   const [trajectoryOpen, setTrajectoryOpen] = useState(false)
+  const [trajectoryFocus, setTrajectoryFocus] = useState(null)
   const reader = useMdReader()
   const handleOpenMd = async (path) => {
     const p = String(path || '').trim()
@@ -2071,6 +2072,11 @@ const SmartDesignChat = () => {
                           onPause={() => pauseAgent({ dispatch, sessionId: state.session.currentId })}
                           onResume={() => resumeAgent({ dispatch, sessionId: state.session.currentId })}
                           onAbort={() => abortAgent({ dispatch, requestId: state.agent.requestId, sessionId: state.session.currentId })}
+                          onInspectTool={(toolCallId) => {
+                            // v0.9.x 轨迹阶段2：聊天工具块 → 轨迹面板定位
+                            setTrajectoryFocus(toolCallId)
+                            setTrajectoryOpen(true)
+                          }}
                         />
                       )}
                       <MessageContent
@@ -2384,6 +2390,7 @@ const SmartDesignChat = () => {
         open={trajectoryOpen}
         messages={state.messages}
         onClose={() => setTrajectoryOpen(false)}
+        focusToolCallId={trajectoryFocus}
       />
     </div>
       {reader.state.isOpen && (

@@ -1,8 +1,8 @@
-import React, { useMemo, useState } from 'react'
-import { Drawer, Input, Segmented, Typography, Space, Badge, Empty, Divider } from 'antd'
+import React, { useMemo, useState, useRef, useEffect } from 'react'
+import { Drawer, Input, Segmented, Typography, Space, Badge, Empty, Divider, Button } from 'antd'
 import {
   BulbOutlined, ToolOutlined, CheckCircleOutlined, CloseCircleOutlined,
-  CaretRightOutlined, CaretDownOutlined, LoadingOutlined,
+  CaretRightOutlined, CaretDownOutlined, LoadingOutlined, UnorderedListOutlined,
 } from '@ant-design/icons'
 import {
   buildTrajectorySteps,
@@ -72,16 +72,40 @@ function stepSummary(step) {
  * 按回合（assistant 消息）分组的步骤账本：思考 + 工具调用全过程，
  * 支持搜索（工具名/参数/结果）、过滤（全部/工具/思考/失败）、步骤详情展开。
  */
-const TrajectoryPanel = ({ open, messages, onClose }) => {
+const TrajectoryPanel = ({ open, messages, onClose, focusToolCallId }) => {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
   const [expandedKeys, setExpandedKeys] = useState(new Set())
+  const listRef = useRef(null)
 
   const steps = useMemo(() => buildTrajectorySteps(messages), [messages])
   const visible = useMemo(
     () => filterTrajectorySteps(steps, query, filter),
     [steps, query, filter]
   )
+
+  // v0.9.x 轨迹阶段2：跨视图跳转定位（聊天工具块 → 轨迹面板展开并滚动到该步骤）
+  const focusKey = useMemo(() => {
+    if (!focusToolCallId) return null
+    const hit = steps.find(s => s.type === 'tool' && s.toolCallId === focusToolCallId)
+    return hit ? hit.key : null
+  }, [focusToolCallId, steps])
+
+  useEffect(() => {
+    if (!open || !focusKey) return
+    // 展开目标步骤（含其回合下同组），再滚动定位
+    setExpandedKeys(prev => new Set(prev).add(focusKey))
+    const timer = setTimeout(() => {
+      const el = listRef.current && listRef.current.querySelector(`[data-step-key="${focusKey}"]`)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 150)
+    return () => clearTimeout(timer)
+  }, [open, focusKey])
+
+  const allExpanded = visible.length > 0 && visible.every(s => expandedKeys.has(s.key))
+  const toggleAll = () => {
+    setExpandedKeys(allExpanded ? new Set() : new Set(visible.map(s => s.key)))
+  }
 
   // 按回合分组（保留顺序）
   const groups = useMemo(() => {
@@ -106,6 +130,10 @@ const TrajectoryPanel = ({ open, messages, onClose }) => {
   }
 
   const fmtTime = (ms) => (ms != null && ms >= 0) ? `${(ms / 1000).toFixed(1)}s` : null
+  const fmtTokens = (n) => {
+    if (!Number.isFinite(n) || n <= 0) return null
+    return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n))
+  }
 
   const stepCount = steps.length
   const toolCount = steps.filter(s => s.type === 'tool').length
@@ -121,6 +149,19 @@ const TrajectoryPanel = ({ open, messages, onClose }) => {
             {failCount > 0 && <Text type="danger" style={{ fontSize: 12 }}> · 失败 {failCount}</Text>}
           </Text>
         </Space>
+      }
+      extra={
+        visible.length > 0 && (
+          <Button
+            type="text"
+            size="small"
+            icon={<UnorderedListOutlined />}
+            onClick={toggleAll}
+            title={allExpanded ? '全部收起' : '全部展开'}
+          >
+            {allExpanded ? '全部收起' : '全部展开'}
+          </Button>
+        )
       }
       width={520}
       open={open}
@@ -156,7 +197,8 @@ const TrajectoryPanel = ({ open, messages, onClose }) => {
           image={Empty.PRESENTED_IMAGE_SIMPLE}
         />
       ) : (
-        groups.map(group => (
+        <div ref={listRef}>
+        {groups.map(group => (
           <div key={group.turn} style={{ marginBottom: 16 }}>
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8,
@@ -168,6 +210,10 @@ const TrajectoryPanel = ({ open, messages, onClose }) => {
               {group.stats && fmtTime(group.stats.elapsedMs) && (
                 <Text type="secondary" style={{ fontSize: 11 }}>用时 {fmtTime(group.stats.elapsedMs)}</Text>
               )}
+              {/* v0.9.x 轨迹阶段2：回合 token 消耗（真实 usage） */}
+              {group.stats && group.stats.usage && fmtTokens(group.stats.usage.total_tokens) && (
+                <Text type="secondary" style={{ fontSize: 11 }}>token {fmtTokens(group.stats.usage.total_tokens)}</Text>
+              )}
             </div>
 
             {group.steps.map(step => {
@@ -175,7 +221,7 @@ const TrajectoryPanel = ({ open, messages, onClose }) => {
               const isError = step.status === 'error'
               const isRunning = step.status === 'running'
               return (
-                <div key={step.key} style={{ marginBottom: 2 }}>
+                <div key={step.key} data-step-key={step.key} style={{ marginBottom: 2 }}>
                   <div
                     style={{
                       display: 'flex', alignItems: 'center', gap: 6,
@@ -193,6 +239,10 @@ const TrajectoryPanel = ({ open, messages, onClose }) => {
                         : '思考过程'}
                       <Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>{stepSummary(step)}</Text>
                     </Text>
+                    {/* v0.9.x 轨迹阶段2：每步精确耗时 */}
+                    {step.elapsedMs != null && (
+                      <Text type="secondary" style={{ fontSize: 11 }}>{fmtTime(step.elapsedMs)}</Text>
+                    )}
                     {isRunning
                       ? <LoadingOutlined style={{ color: 'var(--color-primary, #0071e3)', fontSize: 12 }} />
                       : isError
@@ -208,7 +258,8 @@ const TrajectoryPanel = ({ open, messages, onClose }) => {
               )
             })}
           </div>
-        ))
+        ))}
+        </div>
       )}
     </Drawer>
   )
