@@ -1880,12 +1880,19 @@ const SmartDesignChat = () => {
                 </Tooltip>
               )}
               {(() => {
-                // v0.9.x 修复：圆环实时统计——消息变化即更新
-                // system/tools 用任务开始时的构成估算（变化小）；messages 实时估算（随会话增长）
+                // v0.9.x 上下文占比（修复）：
+                // 1. 真实值优先——DeepSeek 每次请求返回 usage.prompt_tokens（含系统/工具/历史/工具结果），
+                //    model_info 事件每轮任务后更新，大型任务（工具结果大）也准确；
+                // 2. 前端估算兜底——任务间隙消息增长时实时补充（estimateTokens 只看消息文本，
+                //    不含工具结果，因此与真实值取较大者）；
+                // 3. 清空/压缩会重置 contextRealTokens（见 agentStoreCore CLEAR_MESSAGES/COMPRESS_MESSAGES）。
                 const sysToolsTokens = (state.contextBreakdown?.system || 0) + (state.contextBreakdown?.tools || 0)
                 const msgTokens = estimateTokens(state.messages)
+                const estimated = sysToolsTokens + msgTokens
+                const real = typeof state.contextRealTokens === 'number' ? state.contextRealTokens : 0
+                const total = Math.max(estimated, real)
                 const limit = state.contextLimit || DEFAULT_CONTEXT_LIMIT
-                const percent = Math.min(1, Math.max(0, (sysToolsTokens + msgTokens) / limit))
+                const percent = Math.min(1, Math.max(0, total / limit))
                 // 细分面板数据：优先主进程 context_stats；无数据时用前端消息估算兜底（system/tools 不可知）
                 const fallbackBreakdown = state.contextBreakdown || (
                   state.messages && state.messages.length > 0
@@ -1901,6 +1908,7 @@ const SmartDesignChat = () => {
                       content={
                         <ContextBreakdownPanel
                           breakdown={fallbackBreakdown}
+                          realTokens={state.contextRealTokens}
                           onCompress={chatState.handleCompressContext}
                           loading={chatState.isCompressing}
                         />

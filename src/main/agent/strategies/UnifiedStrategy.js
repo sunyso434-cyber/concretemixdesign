@@ -713,12 +713,27 @@ class UnifiedStrategy {
               llmContextLimit = cl
             }
           } catch (_) {}
+          // 防御：部分代理网关（如 opencode.ai 中转）不回传 usage → 用字符估算兜底，
+          // 保证上下文圆环/统计行始终有值（真实 usage 优先）
+          let llmUsage = response?.usage || null
+          if (!llmUsage) {
+            try {
+              const estChars = (s) => Math.ceil(((s || '').length) / 4)
+              const promptTokens = estChars(systemPrompt) + estChars(JSON.stringify(toolSchemas || [])) + estChars(JSON.stringify(trimmedMessages || []))
+              const completionTokens = estChars(response?.content || '')
+              llmUsage = {
+                prompt_tokens: promptTokens,
+                completion_tokens: completionTokens,
+                total_tokens: promptTokens + completionTokens,
+              }
+            } catch (_) {}
+          }
           this._notifyProgress(webContents, {
             type: 'model_info',
             model: usedConfig.model || '',
             provider: usedConfig.provider || '',
             name: usedConfig.name || '',
-            usage: response?.usage || null,
+            usage: llmUsage,
             contextLimit: llmContextLimit,
           })
         }

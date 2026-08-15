@@ -292,7 +292,8 @@ export function agentReducer(state, action) {
     }
     case 'CLEAR_MESSAGES': {
       // v8.4.2：清空消息时同步重置 contextRealTokens，避免新对话污染
-      return { ...state, messages: [], contextRealTokens: 0 }
+      // v0.9.x：同时清 contextBreakdown（上下文归零）
+      return { ...state, messages: [], contextRealTokens: 0, contextBreakdown: null }
     }
     case 'COMPRESS_MESSAGES': {
       const { summary, recentMessages } = action.payload
@@ -304,7 +305,10 @@ export function agentReducer(state, action) {
       }
       return {
         ...state,
-        messages: [compactedMessage, ...(recentMessages || [])]
+        messages: [compactedMessage, ...(recentMessages || [])],
+        // v0.9.x：压缩后上下文变小，重置真实值（下次任务后由 usage 重新校准）
+        contextRealTokens: 0,
+        contextBreakdown: null
       }
     }
     case 'SET_TODOS': {

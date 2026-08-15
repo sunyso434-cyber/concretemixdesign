@@ -16,7 +16,7 @@ const SEGMENTS = [
   { key: 'messages', label: '对话消息', color: '#52c41a' },
 ]
 
-const ContextBreakdownPanel = ({ breakdown, onCompress, loading }) => {
+const ContextBreakdownPanel = ({ breakdown, realTokens, onCompress, loading }) => {
   const total = breakdown
     ? (Number(breakdown.system) || 0) + (Number(breakdown.tools) || 0) + (Number(breakdown.messages) || 0)
     : 0
@@ -59,6 +59,13 @@ const ContextBreakdownPanel = ({ breakdown, onCompress, loading }) => {
         </>
       ) : (
         <Text type="secondary" style={{ fontSize: 12 }}>暂无构成数据（运行一次 AI 任务后可见）</Text>
+      )}
+      {/* v0.9.x：LLM 反馈的实际用量（DeepSeek usage.prompt_tokens，含工具结果，最准） */}
+      {typeof realTokens === 'number' && realTokens > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginTop: 4, paddingTop: 6, borderTop: '1px dashed #e5e5e5' }}>
+          <Text style={{ fontSize: 12 }}>实际用量（最近请求）</Text>
+          <Text strong style={{ fontSize: 12 }}>{fmt(realTokens)} token</Text>
+        </div>
       )}
       <div style={{ marginTop: 8, textAlign: 'right' }}>
         <Button
