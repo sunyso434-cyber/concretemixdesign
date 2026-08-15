@@ -300,7 +300,6 @@ const ReasoningBlock = ({ item }) => {
 /** 单个工具块 */
 const ToolBlock = ({ item, onInspectTool }) => {
   const [expanded, setExpanded] = useState(false)
-  const [showRaw, setShowRaw] = useState(false) // ponytail: 给开发/调试留的 JSON 折叠开关，默认收起
   const isRunning = item.status === 'running'
   const label = TOOL_LABELS[item.toolName] || item.toolName || '未知工具'
   const argsSummary = renderArgsSummary(item.toolName, item.args)
@@ -402,37 +401,6 @@ const ToolBlock = ({ item, onInspectTool }) => {
               在轨迹中查看
             </Button>
           )}
-          {/* ponytail: 给开发/调试留的原始 JSON 折叠开关，默认收起 */}
-          <details style={{ marginTop: 4 }}>
-            <summary style={{ cursor: 'pointer', fontSize: 11, color: 'var(--color-text-secondary, #999)', userSelect: 'none' }}>
-              查看原始数据
-            </summary>            {item.args && Object.keys(item.args).length > 0 && (
-              <div style={{ marginTop: 4 }}>
-                <Text strong style={{ fontSize: 10 }}>args：</Text>
-                <pre style={{
-                  margin: '2px 0 0 0', fontSize: 10,
-                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                  fontFamily: 'inherit', background: 'rgba(0,0,0,0.03)',
-                  padding: '4px 8px', borderRadius: 3,
-                  maxHeight: 120, overflowY: 'auto'
-                }}>{JSON.stringify(item.args, null, 2)}</pre>
-              </div>
-            )}
-            {item.result && (
-              <div style={{ marginTop: 4 }}>
-                <Text strong style={{ fontSize: 10 }}>result：</Text>
-                <pre style={{
-                  margin: '2px 0 0 0', fontSize: 10,
-                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                  fontFamily: 'inherit', background: 'rgba(0,0,0,0.03)',
-                  padding: '4px 8px', borderRadius: 3,
-                  maxHeight: 150, overflowY: 'auto'
-                }}>
-                  {typeof item.result === 'string' ? item.result : JSON.stringify(item.result, null, 2)}
-                </pre>
-              </div>
-            )}
-          </details>
         </div>
       )}
 
