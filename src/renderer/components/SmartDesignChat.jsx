@@ -50,7 +50,7 @@ function saveChatImageToWorkspace(file, result) {
 }
 import ContextIndicator from './ContextIndicator'
 import ContextBreakdownPanel from './ContextBreakdownPanel'
-import { getContextPercent, estimateTokens, DEFAULT_CONTEXT_LIMIT } from '../utils/contextStats'
+import { estimateTokens, DEFAULT_CONTEXT_LIMIT } from '../utils/contextStats'
 import { AnalysisReport } from './AnalysisReport'
 import { getAllMaterials } from '../services/MaterialService'
 import { buildAnalysisData } from '../utils/mixDesignParser'
@@ -1880,11 +1880,12 @@ const SmartDesignChat = () => {
                 </Tooltip>
               )}
               {(() => {
-                const percent = getContextPercent({
-                  realTokens: state.contextRealTokens,
-                  messages: state.messages,
-                  contextLimit: state.contextLimit || DEFAULT_CONTEXT_LIMIT
-                })
+                // v0.9.x 修复：圆环实时统计——消息变化即更新
+                // system/tools 用任务开始时的构成估算（变化小）；messages 实时估算（随会话增长）
+                const sysToolsTokens = (state.contextBreakdown?.system || 0) + (state.contextBreakdown?.tools || 0)
+                const msgTokens = estimateTokens(state.messages)
+                const limit = state.contextLimit || DEFAULT_CONTEXT_LIMIT
+                const percent = Math.min(1, Math.max(0, (sysToolsTokens + msgTokens) / limit))
                 // 细分面板数据：优先主进程 context_stats；无数据时用前端消息估算兜底（system/tools 不可知）
                 const fallbackBreakdown = state.contextBreakdown || (
                   state.messages && state.messages.length > 0
@@ -2385,10 +2386,12 @@ const SmartDesignChat = () => {
         visible={lintModalOpen}
         onClose={() => setLintModalOpen(false)}
       />
-      {/* v0.9.x 轨迹功能：会话 AI 操作全过程视图 */}
+      {/* v0.9.x 轨迹功能：会话 AI 操作全过程视图（含实时同步的运行中步骤） */}
       <TrajectoryPanel
         open={trajectoryOpen}
         messages={state.messages}
+        liveTimeline={state.agent.timeline}
+        agentStatus={state.agent.status}
         onClose={() => setTrajectoryOpen(false)}
         focusToolCallId={trajectoryFocus}
       />
