@@ -72,16 +72,43 @@ function stepSummary(step) {
  * 按回合（assistant 消息）分组的步骤账本：思考 + 工具调用全过程，
  * 支持搜索（工具名/参数/结果）、过滤（全部/工具/思考/失败）、步骤详情展开。
  */
-const TrajectoryPanel = ({ open, messages, onClose, focusToolCallId }) => {
+const TrajectoryPanel = ({ open, messages, liveTimeline, agentStatus, onClose, focusToolCallId }) => {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
   const [expandedKeys, setExpandedKeys] = useState(new Set())
   const listRef = useRef(null)
 
   const steps = useMemo(() => buildTrajectorySteps(messages), [messages])
+
+  // v0.9.x 轨迹阶段2：实时同步——AI 干活过程中把 agent.liveTimeline 附加为"进行中回合"
+  const isAgentWorking = ['thinking', 'streaming', 'tool_calling', 'running', 'paused'].includes(agentStatus)
+  const liveSteps = useMemo(() => {
+    if (!isAgentWorking || !Array.isArray(liveTimeline) || liveTimeline.length === 0) return []
+    const turn = steps.length > 0 ? steps[steps.length - 1].turn + 1 : 1
+    return liveTimeline
+      .filter(item => item && typeof item === 'object')
+      .map((item, ti) => ({
+        key: `live-${turn}-${ti}`,
+        turn,
+        msgId: null,
+        msgContent: '',
+        msgStats: null,
+        type: item.type === 'reasoning' ? 'reasoning' : 'tool',
+        toolName: item.type === 'tool' ? item.toolName : undefined,
+        args: item.type === 'tool' ? item.args : undefined,
+        result: item.type === 'tool' ? item.result : undefined,
+        content: item.type === 'reasoning' ? item.content : undefined,
+        status: item.status || 'running',
+        elapsedMs: typeof item.elapsedMs === 'number' ? item.elapsedMs : null,
+        toolCallId: item.toolCallId || undefined,
+        live: true,
+      }))
+  }, [liveTimeline, isAgentWorking, steps])
+
+  const allSteps = useMemo(() => [...steps, ...liveSteps], [steps, liveSteps])
   const visible = useMemo(
-    () => filterTrajectorySteps(steps, query, filter),
-    [steps, query, filter]
+    () => filterTrajectorySteps(allSteps, query, filter),
+    [allSteps, query, filter]
   )
 
   // v0.9.x 轨迹阶段2：跨视图跳转定位（聊天工具块 → 轨迹面板展开并滚动到该步骤）
@@ -135,9 +162,10 @@ const TrajectoryPanel = ({ open, messages, onClose, focusToolCallId }) => {
     return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n))
   }
 
-  const stepCount = steps.length
-  const toolCount = steps.filter(s => s.type === 'tool').length
-  const failCount = steps.filter(s => s.status === 'error').length
+  const stepCount = allSteps.length
+  const toolCount = allSteps.filter(s => s.type === 'tool').length
+  const failCount = allSteps.filter(s => s.status === 'error').length
+  const hasLive = liveSteps.length > 0
 
   return (
     <Drawer
@@ -147,6 +175,7 @@ const TrajectoryPanel = ({ open, messages, onClose, focusToolCallId }) => {
           <Text type="secondary" style={{ fontSize: 12 }}>
             {stepCount} 步 · 工具 {toolCount}
             {failCount > 0 && <Text type="danger" style={{ fontSize: 12 }}> · 失败 {failCount}</Text>}
+            {hasLive && <Text style={{ fontSize: 12, color: 'var(--color-primary, #0071e3)' }}> · 进行中…</Text>}
           </Text>
         </Space>
       }
@@ -193,7 +222,7 @@ const TrajectoryPanel = ({ open, messages, onClose, focusToolCallId }) => {
 
       {groups.length === 0 ? (
         <Empty
-          description={stepCount === 0 ? '暂无轨迹数据（完成一次 AI 任务后可见）' : '无匹配步骤'}
+          description={stepCount === 0 ? '暂无轨迹数据（AI 干活时实时显示）' : '无匹配步骤'}
           image={Empty.PRESENTED_IMAGE_SIMPLE}
         />
       ) : (
@@ -207,6 +236,9 @@ const TrajectoryPanel = ({ open, messages, onClose, focusToolCallId }) => {
             }}>
               <Text strong style={{ fontSize: 12 }}>回合 {group.turn}</Text>
               <Text type="secondary" style={{ fontSize: 11 }}>{group.steps.length} 步</Text>
+              {group.steps.some(s => s.live) && (
+                <Text style={{ fontSize: 11, color: 'var(--color-primary, #0071e3)', fontStyle: 'italic' }}>进行中</Text>
+              )}
               {group.stats && fmtTime(group.stats.elapsedMs) && (
                 <Text type="secondary" style={{ fontSize: 11 }}>用时 {fmtTime(group.stats.elapsedMs)}</Text>
               )}
