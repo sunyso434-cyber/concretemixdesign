@@ -468,9 +468,9 @@ const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyTe
   const deferredReplyText = useDeferredValue(agentReplyText)
   const rawTimeline = live && Array.isArray(liveTimeline) && liveTimeline.length ? liveTimeline : timeline
   const effectiveTimeline = Array.isArray(rawTimeline) ? rawTimeline : []
-  // v0.9.x 修复：store 运行中状态为 thinking/streaming/tool_calling（非 running），
-  // 工作态判断需覆盖全部，否则"暂停/继续/取消"按钮与"AI思考中"状态不显示
-  const isWorkingState = ['thinking', 'streaming', 'tool_calling', 'running'].includes(status)
+  // v0.9.x 修复：store 工作态枚举为 thinking/streaming/tool_calling（'running' 是主进程
+  // 状态机的枚举，前端从未设置——RESUME 已精确恢复暂停前状态，不再需要兼容）
+  const isWorkingState = ['thinking', 'streaming', 'tool_calling'].includes(status)
   if (effectiveTimeline.length === 0) {
     // 如果没有 timeline，但 agent 在运行，显示 "AI思考中..."
     if (isWorkingState) {

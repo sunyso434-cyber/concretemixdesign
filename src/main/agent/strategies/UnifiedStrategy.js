@@ -529,6 +529,8 @@ class UnifiedStrategy {
 
     // v0.9.x 输出优化：估算上下文构成（system/tools/messages），供前端细分面板展示
     // ⚠️ estimateTokens 只接受数组，这里直接用字符数估算（每 4 字符 ≈ 1 token）
+    // 修复：messages 用 trimmedMessages（实际发给 LLM 的），与下方 model_info 兜底估算
+    // 口径一致——原 messagesForLLM 是压缩后未裁剪的，trim 触发后两处数字对不上
     try {
       const estChars = (s) => Math.ceil(((s || '').length) / 4)
       this._notifyProgress(webContents, {
@@ -536,7 +538,7 @@ class UnifiedStrategy {
         breakdown: {
           system: estChars(systemPrompt),
           tools: estChars(JSON.stringify(toolSchemas || [])),
-          messages: estChars(JSON.stringify(messagesForLLM || []))
+          messages: estChars(JSON.stringify(trimmedMessages || []))
         }
       })
     } catch (_) { /* 统计失败不影响主流程 */ }

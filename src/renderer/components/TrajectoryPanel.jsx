@@ -81,7 +81,8 @@ const TrajectoryPanel = ({ open, messages, liveTimeline, agentStatus, onClose, f
   const steps = useMemo(() => buildTrajectorySteps(messages), [messages])
 
   // v0.9.x 轨迹阶段2：实时同步——AI 干活过程中把 agent.liveTimeline 附加为"进行中回合"
-  const isAgentWorking = ['thinking', 'streaming', 'tool_calling', 'running', 'paused'].includes(agentStatus)
+  // （'running' 是主进程状态枚举，前端 store 从未设置，不在判断内）
+  const isAgentWorking = ['thinking', 'streaming', 'tool_calling', 'paused'].includes(agentStatus)
   const liveSteps = useMemo(() => {
     if (!isAgentWorking || !Array.isArray(liveTimeline) || liveTimeline.length === 0) return []
     const turn = steps.length > 0 ? steps[steps.length - 1].turn + 1 : 1
@@ -112,11 +113,14 @@ const TrajectoryPanel = ({ open, messages, liveTimeline, agentStatus, onClose, f
   )
 
   // v0.9.x 轨迹阶段2：跨视图跳转定位（聊天工具块 → 轨迹面板展开并滚动到该步骤）
+  // 修复：AI 干活中工具刚完成时位于 liveTimeline（进行中回合），历史 steps 里没有——
+  // 只查 steps 会静默失败（点了没反应）。先查历史，再查进行中。
   const focusKey = useMemo(() => {
     if (!focusToolCallId) return null
     const hit = steps.find(s => s.type === 'tool' && s.toolCallId === focusToolCallId)
+      || liveSteps.find(s => s.type === 'tool' && s.toolCallId === focusToolCallId)
     return hit ? hit.key : null
-  }, [focusToolCallId, steps])
+  }, [focusToolCallId, steps, liveSteps])
 
   useEffect(() => {
     if (!open || !focusKey) return

@@ -295,6 +295,63 @@ describe('agentReducer - SET_CONTEXT_STATS', () => {
     expect(next.contextRealTokens).toBe(500)
     expect(next.contextLimit).toBe(512000)
   })
+
+  // v0.9.x 圆环修复：真实值落点快照（real + 增量估算的基础）
+  test('更新真实值时记录消息数快照 contextRealTokensAt', () => {
+    const stateWithMsgs = {
+      ...initialState,
+      messages: [
+        { role: 'user', content: 'a' },
+        { role: 'assistant', content: 'b' },
+        { role: 'user', content: 'c' }
+      ]
+    }
+    const next = agentReducer(stateWithMsgs, {
+      type: 'SET_CONTEXT_STATS',
+      payload: { realTokens: 80000 }
+    })
+    expect(next.contextRealTokens).toBe(80000)
+    expect(next.contextRealTokensAt).toBe(3)
+  })
+})
+
+describe('agentReducer - PAUSE/RESUME（v0.9.x 精确恢复暂停前状态）', () => {
+  const working = (status) => ({ ...initialState, agent: { ...initialState.agent, status } })
+
+  test('thinking/streaming/tool_calling 可暂停，且记录 prevStatus', () => {
+    for (const s of ['thinking', 'streaming', 'tool_calling']) {
+      const next = agentReducer(working(s), { type: 'PAUSE' })
+      expect(next.agent.status).toBe('paused')
+      expect(next.agent.prevStatus).toBe(s)
+    }
+  })
+
+  test('RESUME 恢复暂停前的工作态（非 running）', () => {
+    const paused = agentReducer(working('tool_calling'), { type: 'PAUSE' })
+    const next = agentReducer(paused, { type: 'RESUME' })
+    expect(next.agent.status).toBe('tool_calling')
+    expect(next.agent.prevStatus).toBeNull()
+  })
+
+  test('paused 无 prevStatus 时 RESUME 兜底为 streaming（流式预览可见）', () => {
+    const paused = { ...initialState, agent: { ...initialState.agent, status: 'paused', prevStatus: null } }
+    const next = agentReducer(paused, { type: 'RESUME' })
+    expect(next.agent.status).toBe('streaming')
+  })
+
+  test('idle/done/error/paused 不可暂停', () => {
+    for (const s of ['idle', 'done', 'error', 'paused']) {
+      const next = agentReducer(working(s), { type: 'PAUSE' })
+      expect(next.agent.status).toBe(s)
+    }
+  })
+
+  test('非 paused 状态不可 RESUME', () => {
+    for (const s of ['idle', 'streaming', 'done']) {
+      const next = agentReducer(working(s), { type: 'RESUME' })
+      expect(next.agent.status).toBe(s)
+    }
+  })
 })
 
 describe('SET_SESSION_ARCHIVED', () => {

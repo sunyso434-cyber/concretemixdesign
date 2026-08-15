@@ -65,18 +65,32 @@ export function getIndicatorDashOffset(percent, circumference) {
 
 /**
  * 生成 tooltip 文案
- * - < 80%："已使用 N%"
- * - >= 80%："已使用 N%（建议压缩）"
+ * - < 80%："已使用 N%"（传 token 时："已使用 N.N% · 约 Xk / Yk token"）
+ * - >= 80%：追加"（建议压缩）"
+ * - v0.9.x 圆环修复：百分比保留 1 位小数并附 token 绝对值——
+ *   大 contextLimit 配置下每轮对话只涨零点几个百分点，
+ *   整数百分比 + 22px 圆环肉眼根本看不出变化
  *
+ * @param {number} percent 0-1
+ * @param {number} [usedTokens] 已用 token（可选，展示用）
+ * @param {number} [limitTokens] 上限 token（可选，展示用）
  * @returns {string}
  */
-export function getIndicatorTooltip(percent) {
+export function getIndicatorTooltip(percent, usedTokens, limitTokens) {
   const safe = clampPercent(percent)
-  const pct = Math.round(safe * 100)
-  if (safe >= RED_THRESHOLD) {
-    return `已使用 ${pct}%（建议压缩）`
+  const pct = (safe * 100).toFixed(1)
+  const fmtK = (n) => {
+    if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return null
+    return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n))
   }
-  return `已使用 ${pct}%`
+  const used = fmtK(usedTokens)
+  const limit = fmtK(limitTokens)
+  let text = `已使用 ${pct}%`
+  if (used && limit) text += ` · 约 ${used} / ${limit} token`
+  if (safe >= RED_THRESHOLD) {
+    text += '（建议压缩）'
+  }
+  return text
 }
 
 /**

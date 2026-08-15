@@ -15,12 +15,17 @@ export const initialState = {
   input: '',
   attachment: null,
   contextRealTokens: 0,
+  // v0.9.x 圆环修复：真实值落点时的消息数快照——之后新增的消息（回复/新提问）
+  // 用估算叠加到真实基数上，圆环随对话实时上涨（SmartDesignChat 圆环计算用）
+  contextRealTokensAt: 0,
   // 上下文上限（主进程 cfg.deepseekContextLimit；SET_CONTEXT_STATS / model_info 更新；UI 分母）
   contextLimit: 200000,
   // v0.9.x 输出优化：上下文构成细分（{ system, tools, messages } token 估算，来自主进程 context_stats 事件）
   contextBreakdown: null,
   agent: {
     status: 'idle',         // idle | thinking | streaming | tool_calling | paused | done | error | aborted
+    // v0.9.x 修复：暂停前的工作态（RESUME 精确恢复，避免流式预览/呼吸灯判断错乱）
+    prevStatus: null,
     timeline: [],
     replyText: '',
     requestId: null,
@@ -279,6 +284,8 @@ export function agentReducer(state, action) {
         ...state,
         messages: clean,
         contextRealTokens: restoredReal,
+        // v0.9.x 圆环修复：还原真实值时同步记快照（真实值覆盖到当前全部消息）
+        contextRealTokensAt: restoredReal > 0 ? clean.length : 0,
         // v0.9.x：主进程 LLM 配置的真实上下文上限（圆环分母；配置存储可能是字符串）
         contextLimit: action.contextLimit !== undefined ? (Number(action.contextLimit) || state.contextLimit) : state.contextLimit
       }
@@ -304,8 +311,8 @@ export function agentReducer(state, action) {
     }
     case 'CLEAR_MESSAGES': {
       // v8.4.2：清空消息时同步重置 contextRealTokens，避免新对话污染
-      // v0.9.x：同时清 contextBreakdown（上下文归零）
-      return { ...state, messages: [], contextRealTokens: 0, contextBreakdown: null }
+      // v0.9.x：同时清 contextBreakdown 与快照（上下文归零）
+      return { ...state, messages: [], contextRealTokens: 0, contextRealTokensAt: 0, contextBreakdown: null }
     }
     case 'COMPRESS_MESSAGES': {
       const { summary, recentMessages } = action.payload
@@ -320,6 +327,7 @@ export function agentReducer(state, action) {
         messages: [compactedMessage, ...(recentMessages || [])],
         // v0.9.x：压缩后上下文变小，重置真实值（下次任务后由 usage 重新校准）
         contextRealTokens: 0,
+        contextRealTokensAt: 0,
         contextBreakdown: null
       }
     }
@@ -332,9 +340,12 @@ export function agentReducer(state, action) {
     }
     case 'SET_CONTEXT_STATS': {
       // v8.4.2：支持同时更新 contextLimit；不传时保持原值
+      // v0.9.x 圆环修复：记录真实值对应的消息数快照——之后新增的消息（assistant 回复/用户新消息）
+      // 用估算叠加到真实基数上，圆环随对话实时上涨（原 max(估算, 真实) 被大真实值压住不动）
       return {
         ...state,
         contextRealTokens: action.payload.realTokens || 0,
+        contextRealTokensAt: state.messages.length,
         contextLimit: action.payload.contextLimit || state.contextLimit
       }
     }
@@ -451,16 +462,19 @@ export function agentReducer(state, action) {
       }
     }
     case 'PAUSE': {
-      // 输出优化：卡内暂停按钮 → 仅运行中可暂停（主进程 controlMixin 同规则）
-      if (state.agent.status === 'running' || state.agent.status === 'streaming' || state.agent.status === 'thinking' || state.agent.status === 'tool_calling') {
-        return { ...state, agent: { ...state.agent, status: 'paused' } }
+      // 输出优化：卡内暂停按钮 → 仅工作态可暂停（前端枚举 thinking/streaming/tool_calling；
+      // 'running' 是主进程状态机枚举，前端从未设置，勿混用）
+      // 暂停前状态记入 prevStatus，RESUME 时精确恢复（否则流式预览/呼吸灯判断错乱）
+      const s = state.agent.status
+      if (s === 'thinking' || s === 'streaming' || s === 'tool_calling') {
+        return { ...state, agent: { ...state.agent, status: 'paused', prevStatus: s } }
       }
       return state
     }
     case 'RESUME': {
-      // 输出优化：卡内继续按钮 → 仅暂停中可恢复
+      // 输出优化：卡内继续按钮 → 仅暂停中可恢复，回到暂停前的工作态
       if (state.agent.status === 'paused') {
-        return { ...state, agent: { ...state.agent, status: 'running' } }
+        return { ...state, agent: { ...state.agent, status: state.agent.prevStatus || 'streaming', prevStatus: null } }
       }
       return state
     }

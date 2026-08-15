@@ -99,16 +99,27 @@ describe('ContextIndicator.utils', () => {
   })
 
   describe('getIndicatorTooltip', () => {
-    test('蓝色档显示"已使用 N%"', () => {
-      expect(getIndicatorTooltip(0.65)).toBe('已使用 65%')
-      expect(getIndicatorTooltip(0.5)).toBe('已使用 50%')
-      expect(getIndicatorTooltip(0.79)).toBe('已使用 79%')
+    // v0.9.x 圆环修复：百分比保留 1 位小数（大 contextLimit 下每轮只涨零点几个点，
+    // 整数 + 22px 圆环肉眼看不出变化），传 token 时附绝对值
+    test('蓝色档显示"已使用 N.N%"', () => {
+      expect(getIndicatorTooltip(0.65)).toBe('已使用 65.0%')
+      expect(getIndicatorTooltip(0.5)).toBe('已使用 50.0%')
+      expect(getIndicatorTooltip(0.79)).toBe('已使用 79.0%')
     })
 
-    test('红色档（>= 80%）显示"已使用 N%（建议压缩）"', () => {
-      expect(getIndicatorTooltip(0.85)).toBe('已使用 85%（建议压缩）')
-      expect(getIndicatorTooltip(0.8)).toBe('已使用 80%（建议压缩）')
-      expect(getIndicatorTooltip(1)).toBe('已使用 100%（建议压缩）')
+    test('红色档（>= 80%）显示"已使用 N.N%（建议压缩）"', () => {
+      expect(getIndicatorTooltip(0.85)).toBe('已使用 85.0%（建议压缩）')
+      expect(getIndicatorTooltip(0.8)).toBe('已使用 80.0%（建议压缩）')
+      expect(getIndicatorTooltip(1)).toBe('已使用 100.0%（建议压缩）')
+    })
+
+    test('带 token 参数时附"约 Xk / Yk token"', () => {
+      expect(getIndicatorTooltip(0.65, 52000, 80000)).toBe('已使用 65.0% · 约 52.0k / 80.0k token')
+      expect(getIndicatorTooltip(0.8, 520000, 650000)).toBe('已使用 80.0% · 约 520.0k / 650.0k token（建议压缩）')
+    })
+
+    test('不传 token 时保持旧格式（兼容）', () => {
+      expect(getIndicatorTooltip(0.65, undefined, undefined)).toBe('已使用 65.0%')
     })
 
     test('红色档 tooltip 必须包含"建议压缩"', () => {

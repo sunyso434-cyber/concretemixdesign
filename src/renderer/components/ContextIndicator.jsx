@@ -34,14 +34,14 @@ import {
   clampPercent
 } from './ContextIndicator.utils'
 
-const ContextIndicator = ({ percent = 0, loading = false, onClick = () => {} }) => {
+const ContextIndicator = ({ percent = 0, loading = false, onClick = () => {}, usedTokens, limitTokens }) => {
   // 老板约束：< 50% 不渲染
   if (getIndicatorVisibility(percent) === 'hidden') return null
 
   const safePercent = clampPercent(percent)
   const strokeColor = getIndicatorColor(safePercent)
   const dashOffset = getIndicatorDashOffset(safePercent, CIRCUMFERENCE)
-  const tooltipText = getIndicatorTooltip(safePercent)
+  const tooltipText = getIndicatorTooltip(safePercent, usedTokens, limitTokens)
   const buttonProps = getIndicatorButtonProps(safePercent, loading, onClick)
 
   return (
