@@ -269,7 +269,19 @@ export function agentReducer(state, action) {
         // v0.9.x 输出优化：历史消息还原统计行数据（metadata.usage 由 useAssistantPersistence 落库）
         stats: m.stats || (m.metadata?.usage ? { usage: m.metadata.usage } : undefined)
       }))
-      return { ...state, messages: clean }
+      // v0.9.x 修复：还原上下文真实用量——最近一条 assistant 消息的 usage.prompt_tokens
+      // （LLM 反馈的实际上下文，含全部历史+工具结果；打开旧会话时不再从 0 估算）
+      const lastWithUsage = [...clean].reverse().find(m => m.stats && m.stats.usage && m.stats.usage.prompt_tokens)
+      const restoredReal = lastWithUsage && typeof lastWithUsage.stats.usage.prompt_tokens === 'number'
+        ? lastWithUsage.stats.usage.prompt_tokens
+        : 0
+      return {
+        ...state,
+        messages: clean,
+        contextRealTokens: restoredReal,
+        // v0.9.x：主进程 LLM 配置的真实上下文上限（圆环分母；配置存储可能是字符串）
+        contextLimit: action.contextLimit !== undefined ? (Number(action.contextLimit) || state.contextLimit) : state.contextLimit
+      }
     }
     case 'UPDATE_MESSAGE_ID': {
       // v0.9.x 输出优化：assistant 消息落库后回写 DB id（赞/踩反馈依赖 messageId）

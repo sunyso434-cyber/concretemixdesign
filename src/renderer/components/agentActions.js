@@ -376,6 +376,8 @@ export async function switchSession({ dispatch, sessionId, state }) {
       if (currentMessages.length === 0) {
         dispatch({
           type: 'SET_MESSAGES',
+          // v0.9.x：附带主进程 LLM 配置的上下文上限（圆环分母）
+          contextLimit: r.contextLimit,
           payload: r.messages.map(m => ({
             id: m.id,
             role: m.role,

@@ -588,7 +588,14 @@ function registerAgentHandlers() {
       const { timeline, ...restMetadata } = m.metadata
       return { ...m, metadata: restMetadata }
     })
-    return { success: true, messages: slimMessages }
+    // v0.9.x：附带 LLM 配置的上下文上限（圆环分母；配置存储可能是字符串，须 Number()）
+    let contextLimit = 200000
+    try {
+      const activeCfg = await SystemService.getActiveLlmConfig()
+      const cl = Number(activeCfg && activeCfg.contextLimit)
+      if (Number.isFinite(cl) && cl > 0) contextLimit = cl
+    } catch (_) {}
+    return { success: true, messages: slimMessages, contextLimit }
   })
 
   ipcMain.handle('agent:deleteSession', async (_event, { sessionId }) => {
