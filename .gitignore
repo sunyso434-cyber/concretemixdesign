@@ -96,6 +96,8 @@ skills-lock.json
 temp-agency-agents/
 
 # 根目录杂项（日志/截图/临时文件，归档到 _archive/）
+.tmp/
+temp-system-prompt-*.md
 *.log
 build-*.log
 bug*.png
