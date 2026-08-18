@@ -1,57 +1,10 @@
 const { app, BrowserWindow, ipcMain, protocol, dialog } = require('electron')
-const path = require('path')
 const fs = require('fs')
 const { cleanupOldSessions } = require('./src/main/db/services/SessionCleanupService')
+const { setupLogging } = require('./src/main/log')
 
-// 设置日志文件路径（在 app ready 后获取）
-let logFilePath = null
-function initLogPath() {
-  try {
-    logFilePath = path.join(app.getPath('userData'), 'app.log')
-  } catch (e) {
-    logFilePath = path.join(__dirname, 'app.log')
-  }
-}
-
-// 日志写入改为异步 buffer 模式（避免同步 IO 阻塞主进程事件循环）
-let _logBuffer = []
-let _logFlushTimer = null
-function logToFile(message) {
-  if (!logFilePath) initLogPath()
-  const timestamp = new Date().toISOString()
-  _logBuffer.push(`[${timestamp}] ${message}\n`)
-  // 500ms 批量写入
-  if (!_logFlushTimer) {
-    _logFlushTimer = setTimeout(() => {
-      const data = _logBuffer.join('')
-      _logBuffer = []
-      _logFlushTimer = null
-      try {
-        fs.appendFile(logFilePath, data, 'utf8', () => {})
-      } catch (e) {}
-    }, 500)
-  }
-}
-
-// 覆盖 console.log 以便所有日志都输出到文件
-const originalLog = console.log
-const originalError = console.error
-const originalWarn = console.warn
-console.log = function(...args) {
-  const message = args.join(' ')
-  originalLog.apply(console, args)
-  logToFile('[LOG] ' + message)
-}
-console.error = function(...args) {
-  const message = args.join(' ')
-  originalError.apply(console, args)
-  logToFile('[ERROR] ' + message)
-}
-console.warn = function(...args) {
-  const message = args.join(' ')
-  originalWarn.apply(console, args)
-  logToFile('[WARN] ' + message)
-}
+// 初始化日志：按天切分文件 + 单日大小兜底 + 30 天自动清理（覆盖 console.* 落地到文件）
+setupLogging()
 
 const { sequelize, syncModels } = require('./src/main/db/database')
 // 导入IPC处理器
