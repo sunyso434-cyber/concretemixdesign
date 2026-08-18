@@ -6,13 +6,6 @@ const path = require('path')
 jest.mock('electron', () => ({
   app: { getPath: jest.fn() }
 }))
-jest.mock('electron-log/main', () => ({
-  initialize: jest.fn(),
-  transports: { file: {}, console: {} },
-  log: jest.fn(),
-  error: jest.fn(),
-  warn: jest.fn()
-}))
 
 const { app } = require('electron')
 const { cleanupOldLogs, todayFileName } = require('../log')

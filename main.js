@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, protocol, dialog } = require('electron')
+const path = require('path')
 const fs = require('fs')
 const { cleanupOldSessions } = require('./src/main/db/services/SessionCleanupService')
 const { setupLogging } = require('./src/main/log')
