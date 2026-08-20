@@ -58,7 +58,7 @@ describe('sendMessage - 回归测试（防 t.error is not a function）', () => 
   })
 
   test('1. 空消息：直接 return，不调任何 IPC', async () => {
-    await sendMessage({ dispatch, sessionId: 's1', message: '   ', runMode: 'auto' })
+    await sendMessage({ dispatch, sessionId: 's1', message: '   ' })
     expect(invokeMock).not.toHaveBeenCalled()
     expect(mockMessageError).not.toHaveBeenCalled()
   })
@@ -70,7 +70,7 @@ describe('sendMessage - 回归测试（防 t.error is not a function）', () => 
       return Promise.resolve({})
     })
 
-    await sendMessage({ dispatch, sessionId: 's1', message: '帮我设计C30', runMode: 'auto' })
+    await sendMessage({ dispatch, sessionId: 's1', message: '帮我设计C30' })
 
     expect(mockMessageError).not.toHaveBeenCalled()
     expect(dispatch).toHaveBeenCalledWith({ type: 'ADD_MESSAGE', payload: { role: 'user', content: '帮我设计C30' } })
@@ -89,7 +89,7 @@ describe('sendMessage - 回归测试（防 t.error is not a function）', () => 
       return Promise.resolve({})
     })
 
-    await sendMessage({ dispatch, sessionId: 's1', message: 'test', runMode: 'auto' })
+    await sendMessage({ dispatch, sessionId: 's1', message: 'test' })
 
     // v10.2.0：toast 格式升级为 [CODE] title — hint
     expect(mockMessageError).toHaveBeenCalledTimes(1)
@@ -114,7 +114,7 @@ describe('sendMessage - 回归测试（防 t.error is not a function）', () => 
       return Promise.resolve({})
     })
 
-    await sendMessage({ dispatch, sessionId: 's1', message: 'test', runMode: 'auto' })
+    await sendMessage({ dispatch, sessionId: 's1', message: 'test' })
 
     expect(mockMessageError).toHaveBeenCalledTimes(1)
     expect(mockMessageError).toHaveBeenCalledWith('AI 执行失败')
@@ -127,7 +127,7 @@ describe('sendMessage - 回归测试（防 t.error is not a function）', () => 
       return Promise.resolve({})
     })
 
-    await sendMessage({ dispatch, sessionId: 's1', message: 'test', runMode: 'auto' })
+    await sendMessage({ dispatch, sessionId: 's1', message: 'test' })
 
     // v10.2.0：catch 块用 [EXCEPTION] title 格式
     expect(mockMessageError).toHaveBeenCalledTimes(1)
@@ -153,7 +153,7 @@ describe('sendMessage - 回归测试（防 t.error is not a function）', () => 
       return Promise.resolve({})
     })
 
-    await sendMessage({ dispatch, sessionId: 's1', message: '这是一条特殊消息 🎉', runMode: 'auto' })
+    await sendMessage({ dispatch, sessionId: 's1', message: '这是一条特殊消息 🎉' })
 
     expect(savedUserContent).toBe('这是一条特殊消息 🎉')
     expect(runUserMessage).toBe('这是一条特殊消息 🎉')

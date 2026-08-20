@@ -2619,6 +2619,75 @@ body {
   flex-shrink: 0;
 }
 
+/* v0.9.4 会话/轨迹并列视图 tab（参考 DSH 布局：只能切换，不可关闭） */
+.v9-chat-header-tabs {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  flex-shrink: 0;
+}
+
+.v9-header-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  position: relative;
+  transition: color 150ms ease;
+}
+
+.v9-header-tab:hover:not(:disabled):not(.active) {
+  color: var(--text-primary);
+}
+
+.v9-header-tab.active {
+  color: var(--brand);
+  font-weight: 500;
+}
+
+/* 激活下划线：压在头部底边线上，浏览器 tab 风格 */
+.v9-header-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 0;
+  height: 2px;
+  background: var(--brand);
+  border-radius: 1px;
+}
+
+.v9-header-tab:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* v0.9.4 轨迹视图：与"会话"并列的内嵌面板（原右侧抽屉改版） */
+.smart-design-chat .trajectory-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px;
+}
+
+.smart-design-chat .trajectory-toolbar {
+  flex-shrink: 0;
+}
+
+.smart-design-chat .trajectory-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 /* 工作区选择器 */
 .v9-ws-selector {
   display: flex;

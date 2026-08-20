@@ -113,7 +113,7 @@ describe('agentReducer', () => {
 
   test('终态（done）不自转 idle', () => {
     const state = { ...initialState, agent: { ...initialState.agent, status: 'done' } }
-    const next = agentReducer(state, { type: 'SET_RUN_MODE', payload: 'auto' })
+    const next = agentReducer(state, { type: 'SET_INPUT', payload: 'x' })
     expect(next.agent.status).toBe('done')
   })
 
@@ -159,21 +159,14 @@ describe('agentReducer', () => {
     expect(next.messages[0]._agentRequestId).toBeUndefined()
   })
 
-  test('RESET_AGENT 重置 agent 字段（保留 runMode）', () => {
+  test('RESET_AGENT 重置 agent 字段', () => {
     const state = {
       ...initialState,
-      agent: { ...initialState.agent, status: 'streaming', replyText: 'x', runMode: 'auto' }
+      agent: { ...initialState.agent, status: 'streaming', replyText: 'x' }
     }
     const next = agentReducer(state, { type: 'RESET_AGENT' })
     expect(next.agent.status).toBe('idle')
     expect(next.agent.replyText).toBe('')
-    expect(next.agent.runMode).toBe('auto')
-  })
-
-  test('SET_RUN_MODE 切换运行模式', () => {
-    const state = { ...initialState }
-    const next = agentReducer(state, { type: 'SET_RUN_MODE', payload: 'auto' })
-    expect(next.agent.runMode).toBe('auto')
   })
 
   test('SET_CONFIRMATION 存 AI 确认请求', () => {

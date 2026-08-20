@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react'
-import { Drawer, Input, Segmented, Typography, Space, Badge, Empty, Divider, Button } from 'antd'
+import { Input, Segmented, Typography, Space, Empty, Divider, Button } from 'antd'
 import {
   BulbOutlined, ToolOutlined, CheckCircleOutlined, CloseCircleOutlined,
   CaretRightOutlined, CaretDownOutlined, LoadingOutlined, UnorderedListOutlined,
@@ -71,8 +71,11 @@ function stepSummary(step) {
  *
  * 按回合（assistant 消息）分组的步骤账本：思考 + 工具调用全过程，
  * 支持搜索（工具名/参数/结果）、过滤（全部/工具/思考/失败）、步骤详情展开。
+ *
+ * v0.9.4 改版：由右侧抽屉改为与"会话"并列的内嵌 tab 视图（参考 DSH 布局），
+ * 组件仅在轨迹 tab 激活时挂载（卸载即重置状态，等同原 destroyOnHidden）。
  */
-const TrajectoryPanel = ({ open, messages, liveTimeline, agentStatus, onClose, focusToolCallId }) => {
+const TrajectoryPanel = ({ messages, liveTimeline, agentStatus, focusToolCallId }) => {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
   const [expandedKeys, setExpandedKeys] = useState(new Set())
@@ -123,7 +126,7 @@ const TrajectoryPanel = ({ open, messages, liveTimeline, agentStatus, onClose, f
   }, [focusToolCallId, steps, liveSteps])
 
   useEffect(() => {
-    if (!open || !focusKey) return
+    if (!focusKey) return
     // 展开目标步骤（含其回合下同组），再滚动定位
     setExpandedKeys(prev => new Set(prev).add(focusKey))
     const timer = setTimeout(() => {
@@ -131,7 +134,7 @@ const TrajectoryPanel = ({ open, messages, liveTimeline, agentStatus, onClose, f
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
     }, 150)
     return () => clearTimeout(timer)
-  }, [open, focusKey])
+  }, [focusKey])
 
   const allExpanded = visible.length > 0 && visible.every(s => expandedKeys.has(s.key))
   const toggleAll = () => {
@@ -172,65 +175,60 @@ const TrajectoryPanel = ({ open, messages, liveTimeline, agentStatus, onClose, f
   const hasLive = liveSteps.length > 0
 
   return (
-    <Drawer
-      title={
-        <Space size={8}>
-          <span>轨迹</span>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {stepCount} 步 · 工具 {toolCount}
-            {failCount > 0 && <Text type="danger" style={{ fontSize: 12 }}> · 失败 {failCount}</Text>}
-            {hasLive && <Text style={{ fontSize: 12, color: 'var(--color-primary, #0071e3)' }}> · 进行中…</Text>}
-          </Text>
-        </Space>
-      }
-      extra={
-        visible.length > 0 && (
-          <Button
-            type="text"
-            size="small"
-            icon={<UnorderedListOutlined />}
-            onClick={toggleAll}
-            title={allExpanded ? '全部收起' : '全部展开'}
-          >
-            {allExpanded ? '全部收起' : '全部展开'}
-          </Button>
-        )
-      }
-      width={520}
-      open={open}
-      onClose={onClose}
-      destroyOnHidden
-    >
-      <Space direction="vertical" style={{ width: '100%' }} size={8}>
-        <Input.Search
-          allowClear
-          placeholder="搜索工具/参数/结果…"
-          onChange={e => setQuery(e.target.value)}
-          value={query}
-          style={{ width: '100%' }}
-        />
-        <Segmented
-          value={filter}
-          onChange={setFilter}
-          options={[
-            { label: '全部', value: 'all' },
-            { label: '工具', value: 'tool' },
-            { label: '思考', value: 'reasoning' },
-            { label: '失败', value: 'failed' },
-          ]}
-          block
-        />
-      </Space>
+    <div className="trajectory-view">
+      {/* 工具条：统计行 + 搜索/过滤（全宽布局） */}
+      <div className="trajectory-toolbar">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <Space size={8}>
+            <span style={{ fontWeight: 600 }}>轨迹</span>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {stepCount} 步 · 工具 {toolCount}
+              {failCount > 0 && <Text type="danger" style={{ fontSize: 12 }}> · 失败 {failCount}</Text>}
+              {hasLive && <Text style={{ fontSize: 12, color: 'var(--color-primary, #0071e3)' }}> · 进行中…</Text>}
+            </Text>
+          </Space>
+          {visible.length > 0 && (
+            <Button
+              type="text"
+              size="small"
+              icon={<UnorderedListOutlined />}
+              onClick={toggleAll}
+              title={allExpanded ? '全部收起' : '全部展开'}
+            >
+              {allExpanded ? '全部收起' : '全部展开'}
+            </Button>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <Input.Search
+            allowClear
+            placeholder="搜索工具/参数/结果…"
+            onChange={e => setQuery(e.target.value)}
+            value={query}
+            style={{ flex: 1, minWidth: 200 }}
+          />
+          <Segmented
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { label: '全部', value: 'all' },
+              { label: '工具', value: 'tool' },
+              { label: '思考', value: 'reasoning' },
+              { label: '失败', value: 'failed' },
+            ]}
+          />
+        </div>
+        <Divider style={{ margin: '12px 0 8px 0' }} />
+      </div>
 
-      <Divider style={{ margin: '12px 0' }} />
-
+      {/* 步骤账本：按回合分组，独立滚动 */}
       {groups.length === 0 ? (
         <Empty
           description={stepCount === 0 ? '暂无轨迹数据（AI 干活时实时显示）' : '无匹配步骤'}
           image={Empty.PRESENTED_IMAGE_SIMPLE}
         />
       ) : (
-        <div ref={listRef}>
+        <div className="trajectory-body" ref={listRef}>
         {groups.map(group => (
           <div key={group.turn} style={{ marginBottom: 16 }}>
             <div style={{
@@ -297,7 +295,7 @@ const TrajectoryPanel = ({ open, messages, liveTimeline, agentStatus, onClose, f
         ))}
         </div>
       )}
-    </Drawer>
+    </div>
   )
 }
 

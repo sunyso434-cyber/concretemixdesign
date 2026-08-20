@@ -354,7 +354,6 @@ class WorkspaceManager extends EventEmitter {
    *   - 加 recursive 选项（LLM 看 wiki 树）
    *   - 加 includeDirs 选项（LLM 看 wiki 顶层目录）
    *   - 加 withIngestStatus 选项（LLM 一眼判断 root 文件是否摄入）
-   *   - 默认行为不变，兼容 WorkspaceFilePopover 等现有调用方
    */
   async listFiles(subdir, options = {}) {
     if (this._state.status !== 'ready') {

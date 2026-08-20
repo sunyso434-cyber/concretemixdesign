@@ -44,10 +44,9 @@ function newSessionId() {
  * @param {Function} args.dispatch - reducer 的 dispatch
  * @param {string} args.sessionId - 当前会话 ID
  * @param {string} args.message - 用户消息
- * @param {string} [args.runMode] - 运行模式 auto | collaborative
  * @param {Array} [args.attachments] - 图片附件数组 [{ type, base64, originalName, sizeKB, width, height }]
  */
-export async function sendMessage({ dispatch, sessionId, message: userMessage, runMode, attachments }) {
+export async function sendMessage({ dispatch, sessionId, message: userMessage, attachments }) {
   if (!userMessage || !userMessage.trim()) return
 
   // 0. 确保 sessionId 有效（如果为空，创建新会话）
@@ -63,7 +62,7 @@ export async function sendMessage({ dispatch, sessionId, message: userMessage, r
   const requestId = 'agent-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6)
 
   // [DEBUG] 记录发送消息
-  console.log('[AgentChat] 📤 发送消息', { requestId, sessionId: effectiveSessionId, messageLen: userMessage.length, runMode })
+  console.log('[AgentChat] 📤 发送消息', { requestId, sessionId: effectiveSessionId, messageLen: userMessage.length })
 
   // 2. 重置 Agent 状态
   dispatch({ type: 'SEND_MESSAGE', payload: { requestId } })
@@ -101,7 +100,7 @@ export async function sendMessage({ dispatch, sessionId, message: userMessage, r
   try {
     console.log('[AgentChat] ⏳ 等待 agent:run 返回...', { requestId })
     const r = await window.electronAPI.invoke('agent:run', {
-      requestId, sessionId: effectiveSessionId, message: userMessage, mode: runMode, attachments: attachments || []
+      requestId, sessionId: effectiveSessionId, message: userMessage, attachments: attachments || []
     })
     console.log('[AgentChat] 📨 agent:run 返回', { requestId, success: r?.success, resultSuccess: r?.result?.success, error: r?.result?.error })
 

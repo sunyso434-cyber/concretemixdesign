@@ -29,7 +29,6 @@ export const initialState = {
     timeline: [],
     replyText: '',
     requestId: null,
-    runMode: 'auto',
     // v11.7.7: 当前路由到的 LLM 信息（provider + model），用户可感知路由状态
     currentModel: '',
     currentProvider: '',
@@ -530,9 +529,6 @@ export function agentReducer(state, action) {
       // v9.0.0 补充21：切换欢迎页/消息列表显隐
       return { ...state, session: { ...state.session, welcomeVisible: action.payload } }
     }
-    case 'SET_RUN_MODE': {
-      return { ...state, agent: { ...state.agent, runMode: action.payload } }
-    }
     case 'SET_CONFIRMATION': {
       return { ...state, confirmation: action.payload }
     }
@@ -546,8 +542,7 @@ export function agentReducer(state, action) {
           status: 'idle',
           timeline: [],
           replyText: '',
-          requestId: null,
-          runMode: state.agent.runMode
+          requestId: null
         }
       }
     }
@@ -615,7 +610,7 @@ export function agentReducer(state, action) {
       return {
         ...state,
         messages: [],
-        agent: { ...initialState.agent, runMode: state.agent.runMode },
+        agent: initialState.agent,
         session: { ...state.session, currentId: sid }
       }
     }

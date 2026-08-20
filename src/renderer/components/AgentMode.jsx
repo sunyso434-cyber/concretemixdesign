@@ -11,18 +11,6 @@ export default function useAgentMode() {
   const { state, dispatch } = useAgentStore()
   const agentRequestIdRef = useRef(null)
 
-  // 读取运行模式（应用启动时执行一次，spec 3.1）
-  useEffect(() => {
-    window.electronAPI.invoke('get-param-by-name', 'agentDefaultMode')
-      .then(defaultMode => {
-        const runMode = defaultMode?.data?.value
-        if (runMode === 'auto' || runMode === 'collaborative') {
-          dispatch({ type: 'SET_RUN_MODE', payload: runMode })
-        }
-      })
-      .catch(() => {})
-  }, [dispatch])
-
   // 同步 currentRequestId 到 ref（用于 stop 时获取 requestId）
   useEffect(() => {
     agentRequestIdRef.current = state.agent.requestId

@@ -144,15 +144,6 @@ export const PARAM_CONFIG = {
     type: 'input',
     description: '用于 AI 配合比分析的 DeepSeek API 密钥',
   },
-  agentDefaultMode: {
-    label: 'Agent 默认模式',
-    type: 'select',
-    description: '新对话的默认运行模式',
-    options: [
-      { value: 'collaborative', label: '协作模式（AI建议需确认，推荐）' },
-      { value: 'auto', label: '全自动模式（AI自主完成所有步骤）' },
-    ],
-  },
 }
 
 /**

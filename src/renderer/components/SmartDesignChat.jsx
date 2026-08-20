@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef, useDeferredValue } from 'react'
-import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Checkbox, Segmented, Layout, Tooltip, Dropdown, Image, Popover } from 'antd'
-import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, DeleteOutlined, FileTextOutlined, FileExcelOutlined, BarChartOutlined, HistoryOutlined, ThunderboltOutlined, TeamOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, ProfileOutlined, HeartOutlined, DownOutlined, CheckOutlined, PauseCircleOutlined, PictureOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Button, Input, Space, Avatar, List, Alert, message, Modal, Typography, Upload, Tag, Layout, Tooltip, Dropdown, Image, Popover } from 'antd'
+import { SendOutlined, ClearOutlined, RobotOutlined, UserOutlined, BulbOutlined, PlusOutlined, HistoryOutlined, MessageOutlined, AppstoreOutlined, SettingOutlined, FolderOpenOutlined, HeartOutlined, DownOutlined, CheckOutlined, PauseCircleOutlined, PictureOutlined, ReloadOutlined } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import ToolCallBubble from './ToolCallBubble'
 import ToolMessageBubble from './ToolMessageBubble'
 import SystemErrorBubble from './SystemErrorBubble'
 import StreamingAgentCard from './StreamingAgentCard'
@@ -13,10 +12,6 @@ import TrajectoryPanel from './TrajectoryPanel'
 import TodoPanel from './TodoPanel'
 import PlanApprovalModal from './PlanApprovalModal'
 import FileMessageCard from './FileMessageCard'
-import MixDesignResultCard from './MixDesignResultCard'
-import OptimizationResultCard from './OptimizationResultCard'
-import MaterialPicker from './MaterialPicker'
-import SalesQuoteResultCard from './SalesQuoteResultCard'
 import LintReportModal from './LintReportModal'
 import DecisionGate from './DecisionGate'
 import MemorySidebar from './MemorySidebar'
@@ -24,12 +19,11 @@ import SlashCommandMenu from './SlashCommandMenu'
 import MdReaderPanel from './MdReaderPanel'
 import { useMdReader } from './useMdReader'
 import WelcomeScreen from './WelcomeScreen'
-import WorkspaceFilePopover from './WorkspaceFilePopover'
 import useChatState from '../hooks/useChatState'
 import { AgentStoreProvider, useAgentStore } from './AgentStore'
 import useAgentMode from './AgentMode'
 import { sendMessage, abortAgent, pauseAgent, resumeAgent, createSession, loadSessionList, switchSession, loadMoreSessionMessages, useAssistantPersistence, resumeFromCheckpoint, detectCrashWindow, rerunUnpairedTools, insertSteerMessage } from './agentActions'
-import { getAttachmentType, processExcelAttachment, processMarkdownAttachment, processImageAttachment, filterMaterialsForUnmatched } from '../utils/attachmentHelper'
+import { getAttachmentType, processImageAttachment } from '../utils/attachmentHelper'
 
 // 对话发图后同步保存到工作区 raw/images（老板 2026-08-02 决策：图片进原始素材区，AI 可索引）。
 // best effort：保存失败仅告警，不影响对话流程。
@@ -51,21 +45,7 @@ function saveChatImageToWorkspace(file, result) {
 import ContextIndicator from './ContextIndicator'
 import ContextBreakdownPanel from './ContextBreakdownPanel'
 import { estimateTokens, DEFAULT_CONTEXT_LIMIT } from '../utils/contextStats'
-import { AnalysisReport } from './AnalysisReport'
-import { getAllMaterials } from '../services/MaterialService'
-import { buildAnalysisData } from '../utils/mixDesignParser'
 import { parseMixedMessage, isInCommandMode, tabComplete, buildAllCommandNames, normalizeCursorPos } from '../utils/slashCommandParser'
-import extractErrorMessage from '../utils/extractErrorMessage'
-import {
-  CONTRAST_MATERIAL_LABELS,
-  extractAnalysisPayload,
-  removeContrastData,
-  createToolSummary,
-  mergeToolEvent,
-  materialMatchesSlotType,
-  getUnfilledMaterialSlotsForMix,
-  buildPerMixMaterialQueue,
-} from './SmartDesignChat.core'
 
 const { Text } = Typography
 const { Content } = Layout
@@ -82,8 +62,6 @@ const QUICK_PROMPTS = [
   { label: '对比材料', message: '帮我对比不同水泥对配合比的影响' },
   { label: '/ 查看技能', message: '/', isSlash: true },
 ]
-
-const CHAT_STREAM_EVENT = 'aiAnalysis:chatStream:event'
 
 /**
  * MessageContent (spec 6.1)
@@ -258,8 +236,9 @@ const SmartDesignChat = () => {
   // ===== Hooks =====
   const chatState = useChatState()
   const { state, dispatch } = useAgentStore()
-  // v0.9.x 轨迹功能：轨迹面板开关 + 跨视图跳转定位（工具调用 id）
-  const [trajectoryOpen, setTrajectoryOpen] = useState(false)
+  // v0.9.x 轨迹功能：会话/轨迹并列视图切换（参考 DSH 布局，只能切换不可关闭）
+  // + 跨视图跳转定位（工具调用 id）
+  const [activeView, setActiveView] = useState('chat')
   const [trajectoryFocus, setTrajectoryFocus] = useState(null)
   const reader = useMdReader()
   const handleOpenMd = async (path) => {
@@ -302,7 +281,6 @@ const SmartDesignChat = () => {
   const { agentRequestIdRef } = useAgentMode() // 纯事件监听器
   useAssistantPersistence() // 副作用 hook（done/aborted 时自动持久化）
 
-  const streamSeqRef = useRef({ current: 0 })
   const inputRef = useRef(null)
   // 获取 antd Input.TextArea 内的原生 textarea 节点
   // antd v5 的 TextArea ref 是包装对象，setSelectionRange/selectionStart 等原生 API 在 resizableTextArea.textArea 上
@@ -321,6 +299,20 @@ const SmartDesignChat = () => {
 
   // 阶段 3 任务 3.3：AI 计划审批弹窗状态（pendingApproval=true 时挂起）
   const [planApproval, setPlanApproval] = useState({ visible: false, steps: [] })
+
+  // v0.9.4 轨迹 tab：AI 提问（ask_user）/计划审批弹出时若正在轨迹视图，自动切回会话视图让用户看到并作答
+  useEffect(() => {
+    if ((state.confirmation || planApproval.visible) && activeView === 'trajectory') {
+      setActiveView('chat')
+    }
+  }, [state.confirmation, planApproval.visible, activeView])
+
+  // v0.9.4 轨迹 tab：无消息（清空对话/切到空会话）时轨迹不可用，自动切回会话视图
+  useEffect(() => {
+    if (activeView === 'trajectory' && state.messages.length === 0) {
+      setActiveView('chat')
+    }
+  }, [activeView, state.messages.length])
 
   // 派生：Agent 是否在工作中（流式/思考/工具调用）
   const isAgentBusy = ['streaming', 'thinking', 'tool_calling'].includes(state.agent.status)
@@ -729,20 +721,6 @@ const SmartDesignChat = () => {
     })
   }, [dispatch])
 
-  // 添加技能结果消息
-  const appendSkillResult = useCallback((result) => {
-    dispatch({
-      type: 'ADD_MESSAGE',
-      payload: {
-        id: `skill-${Date.now()}`,
-        role: 'assistant',
-        content: result.message || '技能执行完成',
-        timestamp: Date.now(),
-        toolCall: result.data ? { status: 'done', type: result.type, data: result.data } : null
-      }
-    })
-  }, [dispatch])
-
   // 清空对话（先中止运行中的 Agent，再重置状态）
   // 前置声明原因：handleClearCommand / handleSend 的 useCallback 依赖数组引用了它，
   // 若在它之前声明则触发 TDZ（暂时性死区），生产构建 minify 后会报
@@ -859,8 +837,6 @@ const SmartDesignChat = () => {
           } else {
             messagesToSend.push(`请使用 ${result.skillName} 技能`)
           }
-        } else if (result.action === 'skill') {
-          appendSkillResult(result)
         } else {
           message.success(result.message)
         }
@@ -874,12 +850,11 @@ const SmartDesignChat = () => {
       await sendMessage({
         dispatch,
         sessionId: state.session.currentId,
-        message: messagesToSend.join(' '),
-        runMode: state.agent.runMode
+        message: messagesToSend.join(' ')
       })
     }
     dispatch({ type: 'SET_INPUT', payload: '' })
-  }, [dispatch, state.session.currentId, state.agent.runMode, appendSystemMessage, appendSkillResult])
+  }, [dispatch, state.session.currentId, appendSystemMessage])
 
   // 统一发送处理（支持混合命令+文本）
   // 发送聊天消息（统一使用 Agent 模式）
@@ -890,7 +865,6 @@ const SmartDesignChat = () => {
     const userMessage = state.input.trim()
     dispatch({ type: 'SET_INPUT', payload: '' })
     const currentAttachments = chatState.attachments
-    chatState.setAttachment(null)
     chatState.setAttachments([])
     // v9.0.0 补充21：发送首条消息后隐藏欢迎页
     setWelcomeVisible(false)
@@ -899,7 +873,6 @@ const SmartDesignChat = () => {
       dispatch,
       sessionId: state.session.currentId,
       message: userMessage,
-      runMode: state.agent.runMode,
       attachments: currentAttachments.length > 0 ? currentAttachments : undefined
     })
   }
@@ -984,7 +957,7 @@ const SmartDesignChat = () => {
     }
 
     await executeRemainingCommands(commandParts, textParts)
-  }, [state.input, state.session.currentId, state.agent.runMode, handleClearCommand, handleClearChat, handleSendChat, executeRemainingCommands, dispatch])
+  }, [state.input, state.session.currentId, handleClearCommand, handleClearChat, handleSendChat, executeRemainingCommands, dispatch])
 
   // 批 B Task 1.10/1.11：steer 插话 + followUp 追加任务（agent 忙时入队，显示到消息流带标签）
   // steer：AI 正在干活时插入新指令，下一轮 LLM 看到（入 steeringQueue）
@@ -1006,15 +979,14 @@ const SmartDesignChat = () => {
         await sendMessage({
           dispatch,
           sessionId: state.session.currentId,
-          message: msg,
-          runMode: state.agent.runMode
+          message: msg
         })
       }
     } catch (e) {
       console.error('[steer] 失败:', e)
       message.error('插话失败')
     }
-  }, [state.input, state.session.currentId, state.agent.runMode, dispatch])
+  }, [state.input, state.session.currentId, dispatch])
 
   const _doFollowUp = useCallback(async () => {
     const msg = state.input.trim()
@@ -1032,15 +1004,14 @@ const SmartDesignChat = () => {
         await sendMessage({
           dispatch,
           sessionId: state.session.currentId,
-          message: msg,
-          runMode: state.agent.runMode
+          message: msg
         })
       }
     } catch (e) {
       console.error('[followUp] 失败:', e)
       message.error('追加任务失败')
     }
-  }, [state.input, state.session.currentId, state.agent.runMode, dispatch])
+  }, [state.input, state.session.currentId, dispatch])
 
   // Task 13（Alt+Enter 立即插话）：走 agent:steer_immediate（steer 入队 + 中断当前 LLM 循环 + 取消 ask_user）
   // - 成功：立即响应插话（前端带 _steerImmediate 标签显示用户消息）
@@ -1057,13 +1028,13 @@ const SmartDesignChat = () => {
         message.success('已中断当前操作，AI 将立即响应插话')
       } else {
         message.info('AI 已结束或状态异常，改为普通发送')
-        await sendMessage({ dispatch, sessionId: state.session.currentId, message: msg, runMode: state.agent.runMode })
+        await sendMessage({ dispatch, sessionId: state.session.currentId, message: msg })
       }
     } catch (e) {
       console.error('[steer_immediate] 失败:', e)
       message.error('立即插话失败')
     }
-  }, [state.input, state.session.currentId, state.agent.runMode, dispatch])
+  }, [state.input, state.session.currentId, dispatch])
 
   // 输入框键盘事件（斜杠菜单导航 + Tab 补全 + Enter 发送）
   const handleInputKeyDown = useCallback((e) => {
@@ -1138,611 +1109,6 @@ const SmartDesignChat = () => {
       return
     }
   }, [showSlashMenu, state.input, state.agent.requestId, cursorPos, availableSkills, isAgentBusy, dispatch, handleSend, _doSteer, _doSteerImmediate])
-
-  // ===== 流式聊天辅助函数 =====
-  const createStreamRequestId = () => {
-    streamSeqRef.current += 1
-    return `smart-chat-stream-${Date.now()}-${streamSeqRef.current}`
-  }
-
-  const updateStreamMessage = (streamId, updater) => {
-    dispatch({ type: 'SET_MESSAGES', payload: state.messages.map(item => (
-      item.streamId === streamId ? updater(item) : item
-    )) })
-  }
-
-  const buildAssistantMessageFromResult = (result) => {
-    const chatMsg = { role: 'assistant', content: result?.reply || '', toolCalls: null }
-
-    if (result?.messages) {
-      const toolMsgs = result.messages.filter(m => m.role === 'tool')
-      const allMaterialsMap = new Map()
-      for (const toolMsg of toolMsgs) {
-        try {
-          const parsed = JSON.parse(toolMsg.content)
-          if (parsed.success && parsed.materials && parsed.materials.length > 0) {
-            for (const mat of parsed.materials) {
-              if (mat.id) {
-                allMaterialsMap.set(mat.id, mat)
-              }
-            }
-          }
-        } catch (_) { /* ignore */ }
-      }
-      const allMaterials = [...allMaterialsMap.values()]
-      if (allMaterials.length > 0) {
-        chatMsg.materialPicker = { materials: allMaterials }
-        chatMsg.materialPicker.pickerId = chatState.createMaterialPickerId()
-      }
-      if (toolMsgs.length > 0) {
-        const lastToolResult = toolMsgs[toolMsgs.length - 1]
-        try {
-          const parsed = JSON.parse(lastToolResult.content)
-          if (parsed.type) {
-            chatMsg.toolCall = {
-              status: parsed.success ? 'done' : 'error',
-              type: parsed.type,
-              data: parsed.data || parsed
-            }
-          }
-        } catch (_) { /* ignore */ }
-      }
-    }
-
-    if (result?.intent === 'analysis_mode') {
-      chatMsg.analysisIntent = true
-    }
-
-    return chatMsg
-  }
-
-  const applyFinalChatResult = (streamId, result) => {
-    const finalMsg = buildAssistantMessageFromResult(result)
-    // 拍 todo 快照：当前 todo 非空时存入消息，供只读回看
-    const todoSnapshot = (latestTodoRef.current.todos.length > 0)
-      ? {
-          todos: latestTodoRef.current.todos.map(t => ({ ...t })),
-          summary: { ...latestTodoRef.current.summary }
-        }
-      : null
-    updateStreamMessage(streamId, item => ({
-      ...item,
-      ...finalMsg,
-      // 流式事件中已设置 toolCall 时，不被 finalMsg 的 null 覆盖
-      toolCall: item.toolCall || finalMsg.toolCall,
-      content: item.content?.trim() ? item.content : finalMsg.content,
-      streaming: false,
-      toolEvents: (item.toolEvents || []).map(tool => (
-        tool.status === 'loading' ? { ...tool, status: 'done' } : tool
-      )),
-      todoSnapshot
-    }))
-  }
-
-  const handleChatStreamEvent = (streamId, payload) => {
-    if (payload.type === 'reasoning_delta') {
-      updateStreamMessage(streamId, item => ({
-        ...item,
-        reasoning: `${item.reasoning || ''}${payload.content || ''}`
-      }))
-      return
-    }
-
-    if (payload.type === 'text_delta') {
-      updateStreamMessage(streamId, item => ({
-        ...item,
-        content: `${item.content || ''}${payload.content || ''}`
-      }))
-      return
-    }
-
-    if (payload.type === 'tool_start') {
-      updateStreamMessage(streamId, item => ({
-        ...item,
-        toolEvents: mergeToolEvent(item.toolEvents, {
-          id: payload.toolCallId,
-          toolName: payload.toolName,
-          status: 'loading',
-          summary: createToolSummary(payload.toolName, payload.args)
-        })
-      }))
-      return
-    }
-
-    if (payload.type === 'tool_done' || payload.type === 'tool_error') {
-      const toolResult = payload.result
-      updateStreamMessage(streamId, item => {
-        const next = {
-          ...item,
-          toolEvents: mergeToolEvent(item.toolEvents, {
-            id: payload.toolCallId,
-            toolName: payload.toolName,
-            status: payload.type === 'tool_error' ? 'error' : 'done',
-            summary: createToolSummary(payload.toolName, payload.args),
-            error: extractErrorMessage(payload.error) || extractErrorMessage(toolResult?.error)
-          })
-        }
-        // tool_done 携带了可视化结果，直接构建 toolCall 以渲染结果卡片（含保存按钮）
-        if (payload.type === 'tool_done' && toolResult?.type && toolResult?.data) {
-          next.toolCall = {
-            status: 'done',
-            type: toolResult.type,
-            data: toolResult.data
-          }
-        }
-        return next
-      })
-      return
-    }
-
-    if (payload.type === 'error') {
-      // P3 commit 2 A段：固化流式消息 + 追加错误气泡 + 幂等去重
-      const { error: classifiedError, sessionId, requestId } = payload
-      const dupKey = `${sessionId}::${requestId}::${classifiedError.code}`
-      if (Array.isArray(state.messages) && state.messages.some(m => m.type === 'error' && m._dedupKey === dupKey)) return
-      const next = state.messages.map(m =>
-        m.streaming ? { ...m, stopReason: 'error', streaming: false } : m
-      )
-      dispatch({ type: 'SET_MESSAGES', payload: [
-        ...next,
-        { type: 'error', classifiedError, _dedupKey: dupKey, timestamp: Date.now() }
-      ]})
-      return
-    }
-
-    if (payload.type === 'usage') {
-      // 主进程在 chatWithAIStream 完成后回传的 token 用量
-      // 真实 tokens 优先于前端估算，触发 ContextIndicator 刷新圆环
-      if (typeof payload.realTokens === 'number' && payload.realTokens >= 0) {
-        dispatch({
-          type: 'SET_CONTEXT_STATS',
-          payload: { realTokens: payload.realTokens }
-        })
-      }
-    }
-  }
-
-  const runStreamingChat = async (userMessage, context = {}) => {
-    const requestId = createStreamRequestId()
-    const streamId = requestId
-    let listenerId = null
-
-    dispatch({ type: 'ADD_MESSAGE', payload: {
-      role: 'assistant',
-      content: '',
-      streamId,
-      streaming: true,
-      toolEvents: []
-    } })
-
-    try {
-      listenerId = window.electronAPI.on(CHAT_STREAM_EVENT, (payload) => {
-        if (!payload || payload.requestId !== requestId) return
-        handleChatStreamEvent(streamId, payload)
-      })
-
-      const result = await window.electronAPI.invoke('aiAnalysis:chatStream', {
-        requestId,
-        message: userMessage,
-        context
-      })
-      applyFinalChatResult(streamId, result)
-      return result
-    } catch (error) {
-      updateStreamMessage(streamId, item => ({
-        ...item,
-        content: item.content || `AI 回复失败：${error.message}`,
-        streaming: false,
-        toolEvents: (item.toolEvents || []).map(tool => (
-          tool.status === 'loading' ? { ...tool, status: 'error', error: error.message } : tool
-        ))
-      }))
-      // P3 commit 2 B段：将原始错误发回主进程分类，主进程回发 classified error 事件
-      window.electronAPI.invoke('aiAnalysis:chatStream:reportError', {
-        sessionId: state.session.currentId,
-        requestId,
-        rawErrorMessage: error?.message || String(error),
-        rawErrorStack: error?.stack || null,
-      }).catch(() => {})
-      throw error
-    } finally {
-      if (listenerId) {
-        window.electronAPI.removeListener(listenerId)
-      }
-    }
-  }
-
-  const handleSaveFromCard = async (cardData) => {
-    try {
-      const bestSol = cardData.bestSolution || {}
-      const source = cardData.bestSolution ? bestSol : cardData
-      const strength = cardData.strength || source.strength
-      const slump = cardData.slump || source.slump
-      const now = new Date()
-      const timestamp = now.toLocaleString('zh-CN', { hour12: false })
-
-      // 审查 N13：保存前加载材料库，根据材料 ID 查完整对象，不再透传 AI 返回的不完整数据
-      const rawSelected = source.selectedMaterials || cardData.selectedMaterials || bestSol.selectedMaterials || {}
-      const allMaterials = await getAllMaterials()
-      const fullMaterialDetails = {}
-      for (const [key, val] of Object.entries(rawSelected)) {
-        if (val == null) continue
-        // 处理数组（sand/stone 多选场景）：逐项查库
-        if (Array.isArray(val)) {
-          fullMaterialDetails[key] = val.map(item => {
-            const id = item?.id ?? item
-            return id != null ? (allMaterials.find(m => String(m.id) === String(id)) || item) : item
-          })
-        } else {
-          // 单值：val 可能是完整对象（含 id），也可能是原始 ID
-          const materialId = val?.id ?? val
-          if (materialId == null) continue
-          fullMaterialDetails[key] = allMaterials.find(m => String(m.id) === String(materialId)) || val
-        }
-      }
-
-      const saveData = {
-        name: `${strength || 'AI'}${cardData.bestSolution ? '成本优化方案' : '智能设计方案'} - ${timestamp}`,
-        projectName: 'AI智能设计',
-        strength,
-        slump,
-        waterRatio: source.waterRatio || cardData.waterRatio || bestSol.waterRatio,
-        sandRatio: source.sandRatio || cardData.sandRatio || bestSol.sandRatio,
-        density: source.density || cardData.density || bestSol.density,
-        materials: source.materials || cardData.materials || bestSol.materials,
-        materialCosts: source.materialCosts || cardData.materialCosts || bestSol.materialCosts,
-        totalCost: source.totalCost || cardData.totalCost || bestSol.totalCost,
-        materialDetails: fullMaterialDetails,
-        fineAggregateBreakdown: source.fineAggregateBreakdown || cardData.fineAggregateBreakdown || bestSol.fineAggregateBreakdown,
-        coarseAggregateBreakdown: source.coarseAggregateBreakdown || cardData.coarseAggregateBreakdown || bestSol.coarseAggregateBreakdown,
-        status: 'AI生成'
-      }
-      const result = await window.electronAPI.invoke('createMixDesign', saveData)
-      if (!result?.success) {
-        throw new Error(extractErrorMessage(result?.error) || '保存失败')
-      }
-      message.success('方案已保存')
-    } catch (error) {
-      message.error('保存失败: ' + error.message)
-    }
-  }
-
-  const handleMaterialConfirm = async (selectedMaterials, pickerId = null) => {
-    // 设计模式：pendingMaterialPicker 为空，材料来自聊天消息中的 materialPicker
-    if (!chatState.pendingMaterialPicker) {
-      const grouped = {}
-      for (const mat of selectedMaterials) {
-        if (!grouped[mat.type]) grouped[mat.type] = []
-        grouped[mat.type].push(mat.name)
-      }
-      const parts = Object.entries(grouped).map(([type, names]) => `${type}：${names.join('、')}`)
-      const summary = `我选择以下材料：${parts.join('；')}。请根据这些材料设计配合比。`
-      chatState.markMaterialPickerDone(pickerId)
-      dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: summary } })
-      await handleDesignMode(summary, { selectedMaterials })
-      return
-    }
-
-    const queue = buildPerMixMaterialQueue(
-      chatState.pendingMaterialPicker.mixDesigns,
-      chatState.pendingMaterialPicker.materialMapping
-    )
-    const current = queue[0]
-    if (!current) {
-      message.warning('当前没有待补充的材料')
-      return
-    }
-
-    const newMapping = {}
-    for (const mixId of Object.keys(chatState.pendingMaterialPicker.materialMapping)) {
-      newMapping[mixId] = { ...chatState.pendingMaterialPicker.materialMapping[mixId] }
-    }
-
-    const slots = current.slots
-    const pool = [...selectedMaterials]
-    for (const slot of slots) {
-      const idx = pool.findIndex(m => materialMatchesSlotType(m, slot.type))
-      if (idx < 0) continue
-      const [mat] = pool.splice(idx, 1)
-      const row = { ...newMapping[slot.mixId] }
-      row[slot.key] = mat
-      newMapping[slot.mixId] = row
-    }
-
-    if (slots.length > 0 && pool.length === selectedMaterials.length) {
-      message.warning('未能将所选材料对应到本配合比的缺失槽位，请确认类型与 Excel 一致后重试')
-      return
-    }
-
-    const stillMissing = getUnfilledMaterialSlotsForMix(current.mix, newMapping[current.mixId])
-    if (stillMissing.length > 0) {
-      message.warning(`编号 ${current.mixId} 仍有 ${stillMissing.length} 项材料未选择，请选齐后确认`)
-      return
-    }
-
-    const grouped = {}
-    for (const mat of selectedMaterials) {
-      if (!grouped[mat.type]) grouped[mat.type] = []
-      grouped[mat.type].push(mat.name)
-    }
-    const parts = Object.entries(grouped).map(([type, names]) => `${type}：${names.join('、')}`)
-    const msg = `编号 ${current.mixId}：${parts.join('；')}`
-
-    const summary = [...(chatState.pendingMaterialPicker.materialPickSummary || []), msg]
-    const nextQueue = buildPerMixMaterialQueue(chatState.pendingMaterialPicker.mixDesigns, newMapping)
-
-    if (nextQueue.length === 0) {
-      const customPrompt = [chatState.pendingMaterialPicker.initialUserPrompt, ...summary].filter(Boolean).join('\n')
-      dispatch({ type: 'SET_INPUT', payload: summary.join('；') })
-      executeAnalysis(chatState.pendingMaterialPicker.mixDesigns, newMapping, { customPrompt })
-      chatState.setPendingMaterialPicker(null)
-      return
-    }
-
-    const next = nextQueue[0]
-    dispatch({ type: 'ADD_MESSAGE', payload: {
-      role: 'assistant',
-      content: `编号 **${current.mixId}** 已补充完成。请继续为 **编号 ${next.mixId}**（${next.strengthGrade || '—'}）选择材料：`
-    } })
-    chatState.setPendingMaterialPicker({
-      ...chatState.pendingMaterialPicker,
-      materialMapping: newMapping,
-      materialPickSummary: summary,
-      pickerKey: `${Date.now()}-${next.mixId}-${next.slots.length}`
-    })
-    dispatch({ type: 'SET_INPUT', payload: msg })
-    message.success(`编号 ${current.mixId} 材料已保存`)
-  }
-
-  // 进入分析模式
-  const handleEnterAnalysisMode = async (attachment, userMessage) => {
-    chatState.setAnalysisMode(true)
-
-    try {
-      let mixDesigns = []
-      let materialMapping = {}
-
-      if (attachment) {
-        // 处理附件
-        if (attachment.type === 'xlsx') {
-          const result = await processExcelAttachment(attachment.file)
-          mixDesigns = result.mixDesigns
-          materialMapping = result.materialMapping
-
-          // 如果有未匹配的材料，自动弹出材料选择器
-          if (result.unmatchedMaterials && result.unmatchedMaterials.size > 0) {
-            const allMaterials = await getAllMaterials()
-            const perMixQueue = buildPerMixMaterialQueue(mixDesigns, materialMapping)
-            if (perMixQueue.length === 0) {
-              message.warning('存在未匹配材料但无法逐条定位，将按当前映射尝试分析')
-              await executeAnalysis(mixDesigns, materialMapping, { customPrompt: userMessage })
-              return
-            }
-            const first = perMixQueue[0]
-            const mixCount = perMixQueue.length
-            dispatch({ type: 'ADD_MESSAGE', payload: {
-              role: 'assistant',
-              content: mixCount > 1
-                ? `有 **${mixCount}** 条配合比存在材料未自动匹配（共 ${result.unmatchedMaterials.size} 类名称未对上库），将**按表格顺序逐条**补充。\n\n请先为 **编号 ${first.mixId}**（${first.strengthGrade || '—'}）选择材料：`
-                : `检测到 **${result.unmatchedMaterials.size}** 类材料未能自动匹配。\n\n请为 **编号 ${first.mixId}**（${first.strengthGrade || '—'}）选择材料：`
-            } })
-            chatState.setPendingMaterialPicker({
-              mixDesigns,
-              materialMapping,
-              allMaterials: allMaterials || [],
-              unmatchedMaterials: result.unmatchedMaterials,
-              initialUserPrompt: userMessage || '',
-              materialPickSummary: [],
-              pickerKey: `${Date.now()}-${first.mixId}-${first.slots.length}`
-            })
-            return
-          }
-        } else if (attachment.type === 'md') {
-          const content = await processMarkdownAttachment(attachment.file)
-          // 将 Markdown 内容发送给 AI 分析
-          const mdMessage = `请分析以下 Markdown 文档内容：\n\n${content}`
-          dispatch({ type: 'ADD_MESSAGE', payload: { role: 'user', content: mdMessage } })
-          await runStreamingChat(mdMessage)
-          return
-        }
-      } else if (userMessage) {
-        dispatch({ type: 'ADD_MESSAGE', payload: {
-          role: 'assistant',
-          content: '正在分析文本中的配合比数据...'
-        } })
-      }
-
-      // 执行分析（使用用户发送时的文案作为试验目的等补充说明）
-      await executeAnalysis(mixDesigns, materialMapping, { customPrompt: userMessage })
-    } catch (error) {
-      message.error('进入分析模式失败: ' + error.message)
-      chatState.setAnalysisMode(false)
-    }
-  }
-
-  // 使用已确定的模式执行分析（跳过 prepare 步骤，避免重复检测）
-  const executeAnalysisWithModes = async (mixDesigns, materialMapping, effectivePrompt, { modes, preprocessedData }) => {
-    // v10.5.0：智能解析模块已移除，提示用户使用其他工具
-    message.warning('智能解析模块已在 v10.5.0 移除。如需分析配合比数据，可使用 calculate_mix_design / optimize_mix_cost / predict_performance 等工具。')
-    chatState.setAnalysisMode(false)
-    return
-    /* v10.5.0 disabled
-    try {
-      const analysisDataBuilt = buildAnalysisData(mixDesigns, materialMapping)
-      chatState.setAnalysisData(analysisDataBuilt)
-
-      const result = await window.electronAPI.invoke('aiAnalysis:analyze', {
-        data: analysisDataBuilt,
-        customPrompt: (typeof effectivePrompt === 'string' ? effectivePrompt : '') || '',
-        analysisModes: modes,
-        preprocessedData
-      })
-
-      const { report, textualReply } = extractAnalysisPayload(result)
-
-      if (report && modes.length > 0) {
-        report.analysisModes = modes
-        report.preprocessedData = preprocessedData
-      }
-
-      const intro = '## 分析报告\n\n已根据当前配合比数据生成结构化报告，请查看下方卡片。'
-      let content = '分析完成'
-      if (report && textualReply) {
-        content = intro
-      } else if (textualReply) {
-        content = textualReply
-      } else if (report) {
-        content = intro
-      }
-
-      dispatch({ type: 'ADD_MESSAGE', payload: { role: 'assistant', content, analysisReport: report } })
-      chatState.setAnalysisResult(report)
-    } catch (error) {
-      message.error('分析执行失败: ' + error.message)
-      chatState.setAnalysisMode(false)
-    }
-  }
-
-  // 执行AI分析
-  const executeAnalysis = async (mixDesigns, materialMapping, opts = {}) => {
-    // v10.5.0：智能解析模块已移除，提示用户使用其他工具
-    message.warning('智能解析模块已在 v10.5.0 移除。如需分析配合比数据，可使用 calculate_mix_design / optimize_mix_cost / predict_performance 等工具。')
-    chatState.setAnalysisMode(false)
-    return
-    /* v10.5.0 disabled
-    try {
-      const effectivePrompt = opts.customPrompt !== undefined && opts.customPrompt !== null ? opts.customPrompt : state.input
-
-      // 先构建完整的分析数据（包含 analysisRequirements）
-      const analysisDataBuilt = buildAnalysisData(mixDesigns, materialMapping)
-      chatState.setAnalysisData(analysisDataBuilt)
-
-      // ========== NEW: 调用 analysis:prepare 进行模式识别和数值预处理 ==========
-      let analysisModes = []
-      let preprocessedData = null
-      let prepareResult = null
-      try {
-        prepareResult = await window.electronAPI.invoke('analysis:prepare', {
-          data: analysisDataBuilt,
-          customPrompt: (typeof effectivePrompt === 'string' ? effectivePrompt : '') || '',
-          selectedContrastMaterials: opts.selectedContrastMaterials || null
-        })
-        if (prepareResult.modes?.length > 0) {
-          analysisModes = prepareResult.modes
-          preprocessedData = prepareResult.preprocessedData
-        }
-      } catch (e) {
-        console.warn('分析预处理失败，将使用通用分析模式:', e)
-      }
-
-      // ========== Task 7: 多材料变化边界处理 ==========
-      if (!opts.selectedContrastMaterials
-          && prepareResult?.material_contrast?.changed_materials?.length > 1
-          && prepareResult.material_contrast?.source === 'auto_detected') {
-        // 多类材料同时变化，询问用户
-        const changedMats = prepareResult.material_contrast.changed_materials
-
-        const chatMsg = {
-          role: 'assistant',
-          content: `检测到${changedMats.map(m => CONTRAST_MATERIAL_LABELS[m] || m).join('、')}与之前不一致，请问需要对比哪种材料？`,
-          materialPicker: {
-            type: 'contrast_selection',
-            options: changedMats.map(mat => ({
-              label: CONTRAST_MATERIAL_LABELS[mat] || mat,
-              value: mat
-            })),
-            multipleSelect: true,
-            onSelect: (selected) => {
-              if (selected.length === 0) {
-                // 不进行材料对比，仅做参数趋势
-                executeAnalysisWithModes(mixDesigns, materialMapping, effectivePrompt, {
-                  modes: prepareResult.modes.filter(m => m !== 'material_contrast'),
-                  preprocessedData: removeContrastData(prepareResult.preprocessedData)
-                })
-              } else {
-                // 用户选择了对比材料
-                executeAnalysis(mixDesigns, materialMapping, {
-                  customPrompt: effectivePrompt,
-                  selectedContrastMaterials: selected
-                })
-              }
-            }
-          }
-        }
-
-        dispatch({ type: 'ADD_MESSAGE', payload: chatMsg })
-        chatState.setContrastPickerSelected([])
-        return
-      }
-      // ========== END Task 7 ==========
-
-      const result = await window.electronAPI.invoke('aiAnalysis:analyze', {
-        data: analysisDataBuilt,
-        customPrompt: (typeof effectivePrompt === 'string' ? effectivePrompt : '') || '',
-        analysisModes,      // NEW
-        preprocessedData    // NEW
-      })
-
-      const { report, textualReply } = extractAnalysisPayload(result)
-
-      // ========== NEW: Attach modes and preprocessedData to report ==========
-      if (report && analysisModes.length > 0) {
-        report.analysisModes = analysisModes
-        report.preprocessedData = preprocessedData
-      }
-
-      const intro = '## 分析报告\n\n已根据当前配合比数据生成结构化报告，请查看下方卡片。'
-      let content = '分析完成'
-      if (report && textualReply) {
-        content = intro
-      } else if (textualReply) {
-        content = textualReply
-      } else if (report) {
-        content = intro
-      }
-
-      const chatMsg = {
-        role: 'assistant',
-        content,
-        analysisReport: report
-      }
-
-      dispatch({ type: 'ADD_MESSAGE', payload: chatMsg })
-      chatState.setAnalysisResult(report)
-    } catch (error) {
-      message.error('分析执行失败: ' + error.message)
-      chatState.setAnalysisMode(false)
-    }
-    */
-  }
-
-  // 分析模式后续追问
-  const handleAnalysisFollowUp = async (userMessage) => {
-    try {
-      // 将用户消息和分析数据一起发送给AI
-      const context = {
-        analysisData: chatState.analysisData,
-        analysisResult: chatState.analysisResult,
-        mixDesigns: chatState.analysisData?.mixDesigns || [],
-        materialMapping: {},  // 从 analysisData 中提取
-        mode: 'follow_up'
-      }
-
-      await runStreamingChat(userMessage, context)
-    } catch (error) {
-      message.error('追问失败: ' + error.message)
-    }
-  }
-
-  // 设计模式处理（原有些逻辑）
-  const handleDesignMode = async (userMessage, extraContext = {}) => {
-    try {
-      await runStreamingChat(userMessage, { ...extraContext })
-    } catch (error) {
-      message.error('发送消息失败: ' + error.message)
-    }
-  }
-
 
   const handleQuickPrompt = (msg) => {
     if (msg === '/') {
@@ -1853,16 +1219,26 @@ const SmartDesignChat = () => {
               {/* 会话标题 */}
               <span className="v9-chat-title">{currentSessionTitle}</span>
             </div>
+            {/* v0.9.4 会话/轨迹并列视图 tab（参考 DSH 布局：只能切换，不可关闭） */}
+            <div className="v9-chat-header-tabs">
+              <button
+                className={`v9-header-tab${activeView === 'chat' ? ' active' : ''}`}
+                onClick={() => setActiveView('chat')}
+              >
+                <MessageOutlined style={{ fontSize: 12 }} />
+                会话
+              </button>
+              <button
+                className={`v9-header-tab${activeView === 'trajectory' ? ' active' : ''}`}
+                onClick={() => { setActiveView('trajectory'); setTrajectoryFocus(null) }}
+                disabled={state.messages.length === 0}
+                title={state.messages.length === 0 ? '暂无轨迹数据' : '查看本次会话 AI 操作全过程'}
+              >
+                <HistoryOutlined style={{ fontSize: 12 }} />
+                轨迹
+              </button>
+            </div>
             <div className="v9-chat-header-right">
-              <Segmented
-                size="small"
-                value={state.agent.runMode}
-                onChange={val => dispatch({ type: 'SET_RUN_MODE', payload: val })}
-                options={[
-                  { label: <Tooltip title="协作模式"><TeamOutlined /></Tooltip>, value: 'collaborative' },
-                  { label: <Tooltip title="全自动模式"><ThunderboltOutlined /></Tooltip>, value: 'auto' }
-                ]}
-              />
               <Tooltip title="🩺 Wiki 健康检查">
                 <Button
                   type="text"
@@ -1930,22 +1306,13 @@ const SmartDesignChat = () => {
                         />
                       </span>
                     </Popover>
-                    {/* v0.9.x 轨迹功能：放在上下文圆圈旁边 */}
-                    <Tooltip title="轨迹（本次会话 AI 操作全过程）">
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<HistoryOutlined />}
-                        onClick={() => setTrajectoryOpen(true)}
-                        disabled={state.messages.length === 0}
-                      />
-                    </Tooltip>
                   </>
                 )
               })()}
             </div>
           </div>
 
+          {activeView === 'chat' ? (<>
           <div className="smart-chat-list" ref={chatListRef}>
         {welcomeVisible ? (
           // v9.0.0 补充21：欢迎页（左侧最近会话 + 右侧欢迎语 + 顶部工作区状态条）
@@ -1990,92 +1357,6 @@ const SmartDesignChat = () => {
                   {item.role === 'assistant' && <Avatar src={ASSISTANT_AVATAR_SRC} className="chat-avatar smart-assistant-message-avatar" />}
                   {item.role === 'assistant' ? (
                     <div className="smart-chat-body-assistant" style={{ flex: 1, minWidth: 0 }}>
-                      {item.toolCall && item.toolCall.status === 'done' && (
-                        <>
-                          {item.toolCall.type === 'mix_design' && (
-                            <MixDesignResultCard data={item.toolCall.data} onSave={handleSaveFromCard} />
-                          )}
-                          {item.toolCall.type === 'optimization' && (
-                            <OptimizationResultCard data={item.toolCall.data} onSave={handleSaveFromCard} />
-                          )}
-                          {item.toolCall.type === 'sales_quote' && (
-                            <SalesQuoteResultCard data={item.toolCall.data} pumpingFeeItems={chatState.pumpingFeeItems} />
-                          )}
-                        </>
-                      )}
-                      {item.materialPicker?.type === 'contrast_selection' && (
-                        <div style={{
-                          border: '1px solid #d9d9d9', borderRadius: 8, padding: 12,
-                          marginBottom: 8, background: '#fafafa'
-                        }}>
-                          <Text strong style={{ display: 'block', marginBottom: 8 }}>请选择要对比的材料（可多选）：</Text>
-                          <div style={{ marginBottom: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                            {item.materialPicker.options.map(opt => (
-                              <Checkbox
-                                key={opt.value}
-                                checked={chatState.contrastPickerSelected.includes(opt.value)}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    chatState.setContrastPickerSelected(prev => [...prev, opt.value])
-                                  } else {
-                                    chatState.setContrastPickerSelected(prev => prev.filter(v => v !== opt.value))
-                                  }
-                                }}
-                              >
-                                {opt.label}
-                              </Checkbox>
-                            ))}
-                          </div>
-                          <Button
-                            type="primary"
-                            size="small"
-                            onClick={() => {
-                              item.materialPicker.onSelect([...chatState.contrastPickerSelected])
-                              chatState.setContrastPickerSelected([])
-                            }}
-                          >
-                            确认对比
-                          </Button>
-                        </div>
-                      )}
-                      {item.toolEvents?.length > 0 && (
-                        <div style={{ marginBottom: 8 }}>
-                          {item.toolEvents.map(tool => (
-                            <ToolCallBubble
-                              key={tool.id}
-                              status={tool.status}
-                              toolName={tool.toolName}
-                              summary={tool.summary}
-                              error={tool.error}
-                            />
-                          ))}
-                        </div>
-                      )}
-                      {!item.toolEvents?.length && item.toolCall?.status === 'loading' && (
-                        <ToolCallBubble status="loading" toolName={item.toolCall.type} />
-                      )}
-                      {item.analysisReport && (
-                        <div className="analysis-report-wrapper" style={{ marginBottom: 12, maxWidth: '100%' }}>
-                          <Alert type="info" showIcon icon={<BarChartOutlined />} message="分析报告已生成" style={{ marginBottom: 8 }} />
-                          <AnalysisReport result={item.analysisReport} />
-                        </div>
-                      )}
-                      {item.options && (
-                        <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                          {item.options.map((opt, idx) => (
-                            <Button key={idx} size="small" type="primary" onClick={() => {
-                              if (opt === '手动选择材料' && chatState.pendingMaterialPicker) {
-                                chatState.setPendingMaterialPicker(null)
-                              } else if (opt === '继续分析' && chatState.pendingMaterialPicker) {
-                                executeAnalysis(chatState.pendingMaterialPicker.mixDesigns, chatState.pendingMaterialPicker.materialMapping, { customPrompt: state.input })
-                                chatState.setPendingMaterialPicker(null)
-                              }
-                            }}>
-                              {opt}
-                            </Button>
-                          ))}
-                        </div>
-                      )}
                       {((item._streaming && state.agent.timeline?.length > 0) ||
                         (item.timeline && item.timeline.length > 0)) && (
                         <StreamingAgentCard
@@ -2091,9 +1372,9 @@ const SmartDesignChat = () => {
                           onResume={() => resumeAgent({ dispatch, sessionId: state.session.currentId })}
                           onAbort={() => abortAgent({ dispatch, requestId: state.agent.requestId, sessionId: state.session.currentId })}
                           onInspectTool={(toolCallId) => {
-                            // v0.9.x 轨迹阶段2：聊天工具块 → 轨迹面板定位
+                            // v0.9.x 轨迹阶段2：聊天工具块 → 轨迹视图定位
                             setTrajectoryFocus(toolCallId)
-                            setTrajectoryOpen(true)
+                            setActiveView('trajectory')
                           }}
                         />
                       )}
@@ -2123,23 +1404,12 @@ const SmartDesignChat = () => {
                           ))}
                         </div>
                       )}
-                      {item.materialPicker && !chatState.isMaterialPickerDone(item.materialPicker.pickerId) && item.materialPicker.type !== 'contrast_selection' && (
-                        <MaterialPicker
-                          materials={item.materialPicker.materials || chatState.pendingMaterialPicker?.allMaterials}
-                          onConfirm={(selectedMaterials) => handleMaterialConfirm(selectedMaterials, item.materialPicker.pickerId)}
-                        />
-                      )}
                     </div>
                   ) : (
                     item.role === 'tool' ? (
                       <ToolMessageBubble content={item.content} />
                     ) : (
                       <div className="smart-chat-bubble-user">
-                        {item.attachment && (
-                          <Tag icon={item.attachment.type === 'xlsx' ? <FileExcelOutlined /> : <FileTextOutlined />} style={{ marginBottom: 8, color: 'inherit' }}>
-                            {item.attachment.name}
-                          </Tag>
-                        )}
                         {item.attachments && item.attachments.length > 0 && (
                           <div className="image-attachments" style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                             {item.attachments.map((att) => (
@@ -2194,51 +1464,10 @@ const SmartDesignChat = () => {
             }}
           />
         )}
-        {chatState.pendingMaterialPicker && (() => {
-          const q = buildPerMixMaterialQueue(
-            chatState.pendingMaterialPicker.mixDesigns,
-            chatState.pendingMaterialPicker.materialMapping
-          )
-          const active = q[0]
-          const activeTokens = active
-            ? new Set(active.slots.map(s => s.token))
-            : new Set(chatState.pendingMaterialPicker.unmatchedMaterials || [])
-          return (
-            <div style={{ paddingLeft: 40, paddingRight: 16, paddingBottom: 12 }}>
-              {active && (
-                <Alert
-                  type="warning"
-                  showIcon
-                  style={{ marginBottom: 10 }}
-                  message={`当前：编号 ${active.mixId}（${active.strengthGrade || '—'}）`}
-                  description={q.length > 1 ? `共 ${q.length} 条待补充，完成本条后自动进入下一条。` : '请为本条配合比选择缺失的材料。'}
-                />
-              )}
-              <MaterialPicker
-                key={chatState.pendingMaterialPicker.pickerKey || 'analysis-material-picker'}
-                materials={filterMaterialsForUnmatched(
-                  chatState.pendingMaterialPicker.allMaterials || [],
-                  activeTokens
-                )}
-                onConfirm={(selectedMaterials) => handleMaterialConfirm(selectedMaterials)}
-              />
-            </div>
-          )
-        })()}
         <div ref={chatState.chatEndRef} />
       </div>
 
       <div className="smart-chat-tags-row">
-        {chatState.attachment && (
-          <Tag
-            icon={chatState.attachment.type === 'xlsx' ? <FileExcelOutlined /> : <FileTextOutlined />}
-            closable
-            onClose={() => chatState.setAttachment(null)}
-            className="attachment-tag"
-          >
-            {chatState.attachment.name}
-          </Tag>
-        )}
         {chatState.attachments.length > 0 && chatState.attachments.map((att) => (
           <Tag
             key={att.key}
@@ -2250,17 +1479,6 @@ const SmartDesignChat = () => {
             {att.originalName} ({att.sizeKB}KB)
           </Tag>
         ))}
-        {chatState.analysisMode && (
-          <Tag icon={<BarChartOutlined />} color="blue" className="analysis-mode-tag">
-            分析模式
-            <DeleteOutlined style={{ marginLeft: 4, cursor: 'pointer' }} onClick={() => {
-              chatState.setAnalysisMode(false)
-              chatState.setAnalysisData(null)
-              chatState.setAnalysisResult(null)
-              chatState.setPendingMaterialPicker(null)
-            }} />
-          </Tag>
-        )}
       </div>
       <div className="smart-chat-input-area" style={{ position: 'relative' }} ref={inputAreaRef}>
         <SlashCommandMenu
@@ -2308,7 +1526,7 @@ const SmartDesignChat = () => {
           <AppstoreOutlined className="smart-chat-input-prefix" />
           <Input.TextArea
             ref={inputRef}
-            placeholder={chatState.analysisMode ? '输入你的追问，或继续对话...' : '输入 "/" 查看可用技能，或直接输入需求...'}
+            placeholder='输入 "/" 查看可用技能，或直接输入需求...'
             value={state.input}
             onChange={handleInputChange}
             onKeyDown={handleInputKeyDown}
@@ -2320,21 +1538,10 @@ const SmartDesignChat = () => {
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
           <Space size={0}>
-            {/* 工作区文件列表（已选工作区才显示） */}
-            {workspacePath && (
-              <WorkspaceFilePopover workspacePath={workspacePath}>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ProfileOutlined />}
-                  title="工作区文件（手动导入到知识库）"
-                />
-              </WorkspaceFilePopover>
-            )}
             <Upload
               showUploadList={false}
               multiple
-              accept=".jpg,.jpeg,.png,.webp,.xlsx,.xls,.md"
+              accept=".jpg,.jpeg,.png,.webp"
               beforeUpload={async (file) => {
                 const type = getAttachmentType(file.name)
                 if (type === 'image') {
@@ -2349,16 +1556,13 @@ const SmartDesignChat = () => {
                   } catch (err) {
                     message.error(err.message)
                   }
-                } else if (type === 'unsupported') {
-                  message.error('仅支持图片（jpg/png/webp）、Excel 和 Markdown 文件')
                 } else {
-                  // xlsx / md：现行逻辑
-                  chatState.setAttachment({ file, type, name: file.name })
+                  message.error('仅支持图片（jpg/png/webp）文件')
                 }
                 return false
               }}
             >
-              <Button type="text" size="small" icon={<PlusOutlined />} title="上传附件" />
+              <Button type="text" size="small" icon={<PlusOutlined />} title="上传图片" />
             </Upload>
             <Button
               type="text"
@@ -2399,18 +1603,18 @@ const SmartDesignChat = () => {
           )}
         </div>
       </div>
+      </>) : (
+        /* v0.9.x 轨迹功能：会话 AI 操作全过程视图（含实时同步的运行中步骤） */
+        <TrajectoryPanel
+          messages={state.messages}
+          liveTimeline={state.agent.timeline}
+          agentStatus={state.agent.status}
+          focusToolCallId={trajectoryFocus}
+        />
+      )}
       <LintReportModal
         visible={lintModalOpen}
         onClose={() => setLintModalOpen(false)}
-      />
-      {/* v0.9.x 轨迹功能：会话 AI 操作全过程视图（含实时同步的运行中步骤） */}
-      <TrajectoryPanel
-        open={trajectoryOpen}
-        messages={state.messages}
-        liveTimeline={state.agent.timeline}
-        agentStatus={state.agent.status}
-        onClose={() => setTrajectoryOpen(false)}
-        focusToolCallId={trajectoryFocus}
       />
     </div>
       {reader.state.isOpen && (

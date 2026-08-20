@@ -267,12 +267,6 @@ class SystemService {
           description: 'AI Agent 功能开关'
         },
         {
-          paramName: 'agentDefaultMode',
-          paramValue: 'collaborative',
-          paramType: 'ai',
-          description: 'Agent 默认模式：chat/collaborative/auto'
-        },
-        {
           paramName: 'visionEnabled',
           paramValue: 'false',
           paramType: 'ai',
