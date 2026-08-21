@@ -18,8 +18,12 @@ module.exports = {
   collectCoverageFrom: [
     'src/main/agent/**/*.js',
     'src/main/utils/**/*.js',
+    // 优化项 6：核心服务测试补充后，覆盖率统计扩大到 services（MixDesign/GeneticOptimizer/SalesQuote 等）
+    'src/main/services/**/*.js',
     '!src/main/agent/**/__tests__/**',
-    '!src/main/agent/**/__fixtures__/**'
+    '!src/main/agent/**/__fixtures__/**',
+    '!src/main/services/**/__tests__/**',
+    '!src/main/services/**/__fixtures__/**'
   ],
   coverageThreshold: {
     'src/main/agent/mdInstructionBuilder.js': { lines: 90, branches: 90 },
