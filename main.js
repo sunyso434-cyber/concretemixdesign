@@ -486,15 +486,30 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) await createWindow()
   })
 
-  // 退出前强制 flush 未导出的会话
-  app.on('before-quit', async () => {
-    if (global.chatHistorySync?.flush) {
-      await global.chatHistorySync.flush()
+  // 退出前强制 flush 未导出的会话 + 异步日志队列兜底落盘
+  // preventDefault + 标志位防重入：异步清理完成后再真正退出，避免清理被进程退出截断
+  let _quitting = false
+  app.on('before-quit', async (e) => {
+    if (_quitting) return
+    e.preventDefault()
+    _quitting = true
+    try {
+      if (global.chatHistorySync?.flush) {
+        await global.chatHistorySync.flush()
+      }
+    } catch (err) {
+      console.warn('[main] 退出时会话 flush 失败:', err.message)
     }
+    // 异步日志队列兜底落盘（asyncLogWriter 300ms 批量写入）
+    try {
+      const { flushAll: flushLogWriters } = require('./src/main/utils/asyncLogWriter')
+      await flushLogWriters()
+    } catch (_) {} // 日志兜底失败不阻塞退出
     // 内置隧道（R12）：退出时停 frpc + 停远程监听，避免 frpc 孤儿进程残留
     await remoteService.stop().catch((err) => {
       console.warn('[main] 退出时远程服务清理失败:', err.message)
     })
+    app.quit()
   })
 }).catch(error => {
   console.error('[main] 启动失败:', error)

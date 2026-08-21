@@ -13,7 +13,6 @@
  * 升级判断：任一计数器 >= threshold → fatal
  */
 
-const fs = require('fs')
 const path = require('path')
 const os = require('os')
 const { buildSystemPrompt } = require('../systemPromptBuilder')
@@ -23,7 +22,7 @@ const errorHandler = require('../../utils/errorHandler')
 const { DEFAULT_AGENT_MAX_STEPS } = require('../../utils/agentConstants')
 const { getInstance: getAgentMdService } = require('../agentMd')
 const { classifyError } = require('../errorClassifier')
-const { rotateIfNeeded } = require('../../utils/logRotator')
+const { createAsyncLogWriter } = require('../../utils/asyncLogWriter')
 const { tryWithFailover } = require('../../services/llmFailover')
 const DeepSeekService = require('../../services/DeepSeekService')
 const MemoryTierService = require('../../services/MemoryTierService')
@@ -33,12 +32,10 @@ const eventBus = require('../EventBus')
 
 // 诊断日志：写到 agent-debug.log（与 agentHandler._log 同一文件）
 const _diagLogFile = path.join(os.homedir(), '.concrete-mixdesign', 'agent-debug.log')
+// 异步批量写入（300ms 合并落盘，退出前由 main.js before-quit 调 flushAll 兜底）
+const _diagLogWriter = createAsyncLogWriter(_diagLogFile)
 function _diagLog(msg) {
-  const line = `[${new Date().toISOString()}] [UnifiedStrategy] ${msg}\n`
-  try {
-    rotateIfNeeded(_diagLogFile, { maxSize: 5 * 1024 * 1024, maxFiles: 5 })
-    fs.appendFileSync(_diagLogFile, line)
-  } catch (_) {}
+  _diagLogWriter.append(`[${new Date().toISOString()}] [UnifiedStrategy] ${msg}\n`)
   console.log(`[UnifiedStrategy] ${msg}`)
 }
 

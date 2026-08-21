@@ -2,15 +2,12 @@ const { ipcMain, shell } = require('electron')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
-const { rotateIfNeeded } = require('../utils/logRotator')
+const { createAsyncLogWriter } = require('../utils/asyncLogWriter')
 const _logFile = path.join(os.homedir(), '.concrete-mixdesign', 'agent-debug.log')
+// 异步批量写入（300ms 合并落盘，退出前由 main.js before-quit 调 flushAll 兜底）
+const _logWriter = createAsyncLogWriter(_logFile)
 function _log(msg) {
-  const line = `[${new Date().toISOString()}] ${msg}\n`
-  try {
-    // 写入前先按 5MB 阈值轮转，保留 5 个旧文件
-    rotateIfNeeded(_logFile, { maxSize: 5 * 1024 * 1024, maxFiles: 5 })
-    fs.appendFileSync(_logFile, line)
-  } catch (_) {}
+  _logWriter.append(`[${new Date().toISOString()}] ${msg}\n`)
   console.log(msg)
 }
 // context.logger 契约是「对象带 info/error 方法」(_createLogger 形状)；裸函数 _log 会导致 skill 里 logger?.info 炸
