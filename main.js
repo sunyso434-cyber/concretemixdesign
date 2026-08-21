@@ -1,7 +1,6 @@
 const { app, BrowserWindow, ipcMain, protocol, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
-const { cleanupOldSessions } = require('./src/main/db/services/SessionCleanupService')
 const { setupLogging } = require('./src/main/log')
 
 // 初始化日志：按天切分文件 + 单日大小兜底 + 30 天自动清理（覆盖 console.* 落地到文件）
@@ -400,28 +399,10 @@ app.whenReady().then(async () => {
   global.summaryExtractor = summaryExtractor   // 仅在 main 启动时设置一次
   console.log('[main] P5 阶段：KGExtractor + SummaryExtractor 已实例化（searchGraph 启用）')
 
-  // 定时清理 30 天前的老会话（每 24 小时）
-  setInterval(async () => {
-    try {
-      const result = await cleanupOldSessions({ keepDays: 30 })
-      if (result.deleted > 0) {
-        console.log(`[Cleanup] 清理了 ${result.deleted} 条老消息`)
-      }
-    } catch (err) {
-      console.error('[Cleanup] 失败:', err.message)
-    }
-  }, 24 * 60 * 60 * 1000)
-
-  // P0：每日幂律衰减（对标 Mneme power-law decay）
-  const MemoryTierService = require('./src/main/services/MemoryTierService')
-  setInterval(async () => {
-    try {
-      const result = await MemoryTierService.applyDecay()
-      if (result.updated > 0) console.log(`[MemoryDecay] 衰减了 ${result.updated} 条记忆`)
-    } catch (err) {
-      console.error('[MemoryDecay] 失败:', err.message)
-    }
-  }, 24 * 60 * 60 * 1000)
+  // 定时维护（会话清理 + 记忆衰减）：启动 60 秒后首次检查，AppSetting 时间戳幂等
+  // 修复原 setInterval(24h) 需连续运行满 24h 才首次触发、桌面短开场景永不执行的问题
+  const { scheduleMaintenance } = require('./src/main/services/MaintenanceSchedulerService')
+  scheduleMaintenance()
 
   // 重新注册 7 个 workspace 伪 Skill（searchGraph 闭包现在能拿到 kgExtractor）
   try {
