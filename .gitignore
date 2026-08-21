@@ -88,6 +88,10 @@ db/
 !src/main/db/
 !src/main/db/models/
 
+# 本地数据库文件（含测试用户数据，不入仓）
+src/*.db
+src/test-user-data/
+
 # AI 工具/记忆配置（个人开发环境，不入仓）
 .superpowers/
 memory/
