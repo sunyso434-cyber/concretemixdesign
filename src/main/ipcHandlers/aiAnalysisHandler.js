@@ -59,28 +59,6 @@ const executeToolCall = async (toolName, args) => {
   }
 
   switch (toolName) {
-    case 'list_standards': {
-      const standards = await standardKnowledgeService.listStandards()
-      const category = args.category ? String(args.category).replace(/类$/, '') : ''
-      const filtered = category
-        ? standards.filter(s => String(s.category || '').includes(category))
-        : standards
-      return {
-        success: true,
-        type: 'standards_list',
-        count: filtered.length,
-        standards: filtered.map(s => ({
-          id: s.id,
-          name: s.name,
-          version: s.version,
-          category: s.category || '其他',
-          aliases: s.aliases || [],
-          totalClauses: s.totalClauses || 0,
-          quality: s.quality || null
-        }))
-      }
-    }
-
     case 'list_available_materials': {
       const materials = await MaterialService.getAllMaterials()
       if (args.type) {

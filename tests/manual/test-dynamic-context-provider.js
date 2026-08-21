@@ -200,7 +200,7 @@ console.log('\n=== 测试check类别 ===')
   const context = provider.getServices(skill)
 
   assert(context.materialService !== undefined, 'check类别应该包含materialService')
-  assert(context.complianceService !== undefined, 'check类别应该包含complianceService')
+  assert(context.complianceService === undefined, 'check类别不应该包含已删除的complianceService')
   assert(context.knowledgeService !== undefined, 'check类别应该包含knowledgeService')
   assert(context.mixDesignService === undefined, 'check类别不应该包含mixDesignService')
 }

@@ -88,10 +88,10 @@ const REPORT_SKILL_MATRIX = `## 5 类报告 → 必调 Skill 矩阵（软约束�
 
 老板的典型 5 类报告生成场景，按以下 Skill 顺序调用（LLM 可视情况跳过）：
 
-1. **配合比设计报告** → \`calculate_mix_design\` → \`performance_prediction\` → \`compliance_check\`
+1. **配合比设计报告** → \`calculate_mix_design\` → \`performance_prediction\`
 2. **多方案对比** → \`calculate_mix_design\` × N → \`cost_optimization\`
 3. **报价单** → \`calculate_mix_design\` → \`prepare_quote_draft\`
-4. **原材料检测报告** → \`performance_prediction\` + \`compliance_check\`
+4. **原材料检测报告** → \`performance_prediction\`
 5. **PDF 知识源报告** → (不调计算 Skill) → 仅用 \`workspace_search\` / \`workspace_readPage\` 检索
 
 ## workspace 工具软提示

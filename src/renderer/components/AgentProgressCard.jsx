@@ -22,7 +22,6 @@ const TOOL_LABELS = {
   list_available_materials: '查询材料库',
   calculate_mix_design: '计算配合比',
   optimize_mix_cost: '成本优化',
-  check_compliance: '规范审查',
   predict_performance: '性能预测',
   prepare_sales_quote_draft: '生成报价草稿（已废弃）',
   calculate_sales_quote: '计算报价（已废弃）',

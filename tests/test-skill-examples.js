@@ -27,7 +27,6 @@ const mockContext = {
   materialService: { getAllMaterials: async () => [] },
   mixDesignService: { calculateMixDesign: async () => ({}) },
   mixDesignOptimizer: { optimize: async () => ({}) },
-  complianceService: { checkCompliance: async () => ({}) },
   knowledgeService: { searchClauses: async () => [] },
   salesQuoteCalculation: {},
   salesQuoteHistory: {},

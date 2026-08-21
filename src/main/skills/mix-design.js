@@ -389,7 +389,7 @@ module.exports = {
         type: 'mix_design',
         data: { ...result, materialDetails },
         draftId,
-        suggestions: ['是否需要成本优化？', '是否需要规范审查？']
+        suggestions: ['是否需要成本优化？']
       }
     } catch (error) {
       logger.error('配合比计算失败:', error)

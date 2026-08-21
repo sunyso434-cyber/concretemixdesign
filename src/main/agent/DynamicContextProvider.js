@@ -12,7 +12,7 @@ class DynamicContextProvider {
       query: ['materialService', 'knowledgeService'],
       calculate: ['materialService', 'mixDesignService'],
       optimize: ['materialService', 'mixDesignService', 'mixDesignOptimizer'],
-      check: ['materialService', 'complianceService', 'knowledgeService'],
+      check: ['materialService', 'knowledgeService'],
       sales: ['materialService', 'salesQuoteCalculation', 'salesQuoteHistory'],
       all: Object.keys(allServices)
     }

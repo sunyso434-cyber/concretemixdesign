@@ -16,9 +16,7 @@ const TOOL_LABELS = {
   list_available_materials: '查询材料库',
   calculate_mix_design: '计算配合比',
   optimize_mix_cost: '成本优化',
-  check_compliance: '规范审查',
   predict_performance: '性能预测',
-  list_standards: '查询规范库',
   prepare_sales_quote_draft: '准备报价草稿（已废弃）',
   calculate_sales_quote: '计算报价（已废弃）',
   create_sales_quote_rule: '创建报价规则（已废弃）',
@@ -95,14 +93,6 @@ function renderResultSummary(toolName, result) {
       if (bestCost) text += `，最优成本 ${Number(bestCost).toFixed(1)} 元/m³`
       return text
     }
-    case 'check_compliance': {
-      const violations = result.data?.violations || result.violations || []
-      const warnings = result.data?.warnings || result.warnings || []
-      const passed = result.data?.passed ?? result.passed
-      if (passed) return '符合规范 ✓'
-      const total = violations.length + warnings.length
-      return total ? `不符合规范：${violations.length} 项违规、${warnings.length} 项警告（合计 ${total} 条）` : '不符合规范'
-    }
     case 'predict_performance': {
       const d = result.data || {}
       const parts = []
@@ -115,10 +105,6 @@ function renderResultSummary(toolName, result) {
     }
     case 'save_mix_design':
       return result.message ? `✓ ${result.message}` : '✓ 方案已保存'
-    case 'list_standards': {
-      const count = result.count ?? result.standards?.length ?? 0
-      return count ? `找到 ${count} 条规范` : '查询完成'
-    }
     case 'prepare_sales_quote_draft':
     case 'calculate_sales_quote': {
       return '已废弃(v10.10)'
@@ -156,9 +142,6 @@ function renderArgsSummary(toolName, args = {}) {
     if (toolName === 'optimize_mix_cost' && args.gridStep) parts.push(`步长 ${args.gridStep}`)
     return parts.filter(Boolean).join(' | ')
   }
-  if (toolName === 'check_compliance') {
-    return args.mixDesign?.strengthGrade || args.mixDesign?.strength || '规范审查'
-  }
   if (toolName === 'save_mix_design') {
     return args.schemeName || args.name || '保存方案'
   }
@@ -182,9 +165,6 @@ function renderArgsSummary(toolName, args = {}) {
   }
   if (toolName === 'format_quote_report') {
     return args.filename || '导出报价单'
-  }
-  if (toolName === 'list_standards') {
-    return args.category || args.keyword || '查询规范库'
   }
   return ''
 }

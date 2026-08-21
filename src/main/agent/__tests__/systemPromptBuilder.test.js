@@ -171,12 +171,12 @@ describe('buildSystemPrompt 注入 5 类报告 Skill 矩阵（Task 4.3 软约束
     expect(prompt).toContain('PDF 知识源报告')
   })
 
-  test('buildSystemPrompt 应包含全部关键 Skill 名（calculate_mix_design / cost_optimization / prepare_quote_draft / compliance_check / performance_prediction）', () => {
+  test('buildSystemPrompt 应包含全部关键 Skill 名（calculate_mix_design / cost_optimization / prepare_quote_draft / performance_prediction）', () => {
     const prompt = buildSystemPrompt({})
     expect(prompt).toContain('calculate_mix_design')
     expect(prompt).toContain('cost_optimization')
     expect(prompt).toContain('prepare_quote_draft')
-    expect(prompt).toContain('compliance_check')
+    expect(prompt).not.toContain('compliance_check')
     expect(prompt).toContain('performance_prediction')
   })
 
