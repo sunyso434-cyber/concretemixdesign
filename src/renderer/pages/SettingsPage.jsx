@@ -1,5 +1,9 @@
 // src/renderer/pages/SettingsPage.jsx
 import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react'
+// 优化项 5：设置页迁移样板——activeTab/params/加载状态迁入 settingsSlice（Redux），
+// 页内临时编辑状态（modifiedParams/modalVisible 等）保留 useState（渐进迁移）
+import { useSelector, useDispatch } from 'react-redux'
+import { setActiveTab, setParams, setParamsLoading } from '../store/settingsSlice'
 import { downloadTemplate, TEMPLATES } from '../utils/templateDownloader'
 import { Card, Button, message, Space, Typography, Alert, Divider, List, Tag, Modal, Input, Select, Form, Popconfirm, Spin, Switch, Tooltip } from 'antd'
 import { SaveOutlined, ReloadOutlined, DownloadOutlined, UploadOutlined, BookOutlined, ExperimentOutlined, SettingOutlined, DatabaseOutlined, RobotOutlined, AppstoreOutlined, WarningOutlined, PlusOutlined, DeleteOutlined, CheckCircleOutlined, ApiOutlined, EyeInvisibleOutlined } from '@ant-design/icons'
@@ -17,36 +21,37 @@ const { Text, Paragraph } = Typography
 const PARAM_TAB_KEYS = ['JGJ55标准', '备份设置', '技能管理']
 
 const SettingsPage = forwardRef((props, ref) => {
-  const [params, setParams] = useState([])
+  // Redux：跨组件共享的设置状态（导航切换页签/参数列表/加载状态）
+  const dispatch = useDispatch()
+  const activeTab = useSelector(s => s.settings.activeTab)
+  const params = useSelector(s => s.settings.params)
   const [modifiedParams, setModifiedParams] = useState({})
-  const [loading, setLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState('LLM管理')
 
   const [exportWizardVisible, setExportWizardVisible] = useState(false)
   const [importWizardVisible, setImportWizardVisible] = useState(false)
   const [restoreModalVisible, setRestoreModalVisible] = useState(false)
   const [selectedBackupPath, setSelectedBackupPath] = useState('')
 
-  // 暴露给父组件的方法：切换标签页
+  // 暴露给父组件的方法：切换标签页（父组件 ref 调用保留，内部走 Redux dispatch）
   useImperativeHandle(ref, () => ({
     switchTab: (tab) => {
-      setActiveTab(tab)
+      dispatch(setActiveTab(tab))
     }
   }), [])
 
   useEffect(() => {
     const loadParams = async () => {
-      setLoading(true)
+      dispatch(setParamsLoading(true))
       try {
         const result = await window.electronAPI.invoke('get-all-params')
         if (result.success) {
-          setParams(result.data)
+          dispatch(setParams(result.data))
         }
       } catch (e) {
         message.error('加载参数失败')
       } finally {
-        setLoading(false)
+        dispatch(setParamsLoading(false))
       }
     }
     loadParams()
@@ -111,7 +116,7 @@ const SettingsPage = forwardRef((props, ref) => {
         return next
       })
       const result = await window.electronAPI.invoke('get-all-params')
-      if (result.success) setParams(result.data)
+      if (result.success) dispatch(setParams(result.data))
     } catch (e) {
       message.error('保存失败')
     } finally {
