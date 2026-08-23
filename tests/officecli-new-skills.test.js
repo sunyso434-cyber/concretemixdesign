@@ -1,9 +1,15 @@
 // officecli 新技能端到端验证（真实 officecli 1.0.143）
+// 二进制不入 git（CI 环境没有）——无二进制时整套自动 skip，本地正常跑
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
 
 const bridge = require('../src/main/officecli/officecli-bridge')
+
+const binaryExists = (() => {
+  try { return fs.existsSync(bridge.getBinaryPath()) } catch { return false }
+})()
+const describeReal = binaryExists ? describe : describe.skip
 
 let tmpDir
 let testDocx
@@ -13,11 +19,11 @@ beforeAll(async () => {
   testDocx = path.join(tmpDir, 'test.docx')
 
   // 创建测试 docx
-  bridge.createDocument(testDocx, 'docx')
+  await bridge.createDocument(testDocx, 'docx')
   // 加 3 个段落
-  bridge.execOfficeCliSync(['add', testDocx, '/body', '--type', 'paragraph', '--prop', 'text=第一段正文'])
-  bridge.execOfficeCliSync(['add', testDocx, '/body', '--type', 'paragraph', '--prop', 'text=第二段内容', '--prop', 'style=Normal'])
-  bridge.execOfficeCliSync(['add', testDocx, '/body', '--type', 'paragraph', '--prop', 'text=第三段'])
+  await bridge.execOfficeCliAsync(['add', testDocx, '/body', '--type', 'paragraph', '--prop', 'text=第一段正文'])
+  await bridge.execOfficeCliAsync(['add', testDocx, '/body', '--type', 'paragraph', '--prop', 'text=第二段内容', '--prop', 'style=Normal'])
+  await bridge.execOfficeCliAsync(['add', testDocx, '/body', '--type', 'paragraph', '--prop', 'text=第三段'])
 })
 
 afterAll(() => {
@@ -29,48 +35,48 @@ afterAll(() => {
   }
 })
 
-describe('queryElements（修复后）', () => {
-  test('默认 JSON 模式查询段落', () => {
-    const result = bridge.queryElements(testDocx, 'paragraph')
+describeReal('queryElements（修复后）', () => {
+  test('默认 JSON 模式查询段落', async () => {
+    const result = await bridge.queryElements(testDocx, 'paragraph')
     expect(result.success).toBe(true)
     expect(result.data.matches).toBe(3)
     expect(result.data.results.length).toBe(3)
   })
 
-  test('属性过滤查询', () => {
-    const result = bridge.queryElements(testDocx, 'paragraph[style=Normal]')
+  test('属性过滤查询', async () => {
+    const result = await bridge.queryElements(testDocx, 'paragraph[style=Normal]')
     expect(result.data.matches).toBeGreaterThanOrEqual(1)
   })
 
-  test('find 文本过滤', () => {
-    const result = bridge.queryElements(testDocx, 'paragraph', { find: '第二段' })
+  test('find 文本过滤', async () => {
+    const result = await bridge.queryElements(testDocx, 'paragraph', { find: '第二段' })
     expect(result.data.matches).toBe(1)
   })
 
-  test('compact 模式返回文本', () => {
-    const result = bridge.queryElements(testDocx, 'paragraph', { compact: true })
+  test('compact 模式返回文本', async () => {
+    const result = await bridge.queryElements(testDocx, 'paragraph', { compact: true })
     expect(typeof result).toBe('string')
     expect(result).toContain('/body/p')
     expect(result).toContain('total:')
   })
 })
 
-describe('batchExecute（原子事务）', () => {
-  test('原子模式：成功执行多条命令', () => {
+describeReal('batchExecute（原子事务）', () => {
+  test('原子模式：成功执行多条命令', async () => {
     const commands = [
       { command: 'add', parent: '/body', type: 'paragraph', props: { text: '批量加的段落' } },
       { command: 'set', path: '/body/p[1]', props: { bold: 'true' } },
     ]
-    const result = bridge.execOfficeCliSync(['batch', testDocx, '--commands', JSON.stringify(commands)])
+    const result = await bridge.execOfficeCliAsync(['batch', testDocx, '--commands', JSON.stringify(commands)])
     expect(result.stdout).toBeDefined()
     // 验证：第一个段落应该加粗了
-    const q = bridge.queryElements(testDocx, 'paragraph', { find: '第一段正文' })
+    const q = await bridge.queryElements(testDocx, 'paragraph', { find: '第一段正文' })
     expect(q.data.matches).toBe(1)
   })
 
-  test('原子模式：失败时全回滚', () => {
+  test('原子模式：失败时全回滚', async () => {
     // 先记下当前段落数
-    const before = bridge.queryElements(testDocx, 'paragraph')
+    const before = await bridge.queryElements(testDocx, 'paragraph')
     const beforeCount = before.data.matches
 
     // 故意写一个会失败的命令（不存在的路径）
@@ -80,25 +86,25 @@ describe('batchExecute（原子事务）', () => {
     ]
     let threw = false
     try {
-      bridge.execOfficeCliSync(['batch', testDocx, '--commands', JSON.stringify(commands)])
+      await bridge.execOfficeCliAsync(['batch', testDocx, '--commands', JSON.stringify(commands)])
     } catch (e) {
       threw = true
     }
     expect(threw).toBe(true)
 
     // 验证：段落数没变（回滚了）
-    const after = bridge.queryElements(testDocx, 'paragraph')
+    const after = await bridge.queryElements(testDocx, 'paragraph')
     expect(after.data.matches).toBe(beforeCount)
   })
 })
 
-describe('refreshDocument（加 --json）', () => {
-  test('调用不报错（Windows + Word 环境）', () => {
+describeReal('refreshDocument（加 --json）', () => {
+  test('调用不报错（Windows + Word 环境）', async () => {
     // refresh 需要 Windows + Word，CI 环境可能没有，所以只验证不抛异常
     let threw = false
     let result
     try {
-      result = bridge.refreshDocument(testDocx)
+      result = await bridge.refreshDocument(testDocx)
     } catch (e) {
       threw = true
     }
@@ -109,9 +115,9 @@ describe('refreshDocument（加 --json）', () => {
   })
 })
 
-describe('readFileStats', () => {
-  test('返回统计 JSON', () => {
-    const result = bridge.readFileStats(testDocx)
+describeReal('readFileStats', () => {
+  test('返回统计 JSON', async () => {
+    const result = await bridge.readFileStats(testDocx)
     expect(result).toBeDefined()
     expect(typeof result).toBe('object')
     // docx stats 应该有段落数等
@@ -119,9 +125,9 @@ describe('readFileStats', () => {
   })
 })
 
-describe('renderAsHtml', () => {
-  test('返回 HTML 字符串', () => {
-    const result = bridge.renderAsHtml(testDocx)
+describeReal('renderAsHtml', () => {
+  test('返回 HTML 字符串', async () => {
+    const result = await bridge.renderAsHtml(testDocx)
     expect(typeof result).toBe('string')
     expect(result.length).toBeGreaterThan(50)
     // HTML 应该包含段落内容

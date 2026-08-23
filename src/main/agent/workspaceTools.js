@@ -574,7 +574,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         const officecli = require('../officecli/officecli-bridge')
 
         // 检查 OfficeCLI 是否可用
-        const avail = officecli.checkAvailability()
+        const avail = await officecli.checkAvailability()
         if (!avail.available) {
           return ErrorCodes.createError('CLI_UNAVAILABLE',
             `OfficeCLI 不可用: ${avail.error}`,
@@ -611,22 +611,22 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           let content
 
           if (mode === 'text') {
-            content = officecli.readFileAsText(fullPath)
+            content = await officecli.readFileAsText(fullPath)
             return { success: true, data: { filePath: args.filePath, mode, content } }
           } else if (mode === 'annotated') {
-            content = officecli.readFileAsAnnotated(fullPath)
+            content = await officecli.readFileAsAnnotated(fullPath)
             return { success: true, data: { filePath: args.filePath, mode, content } }
           } else if (mode === 'stats') {
             // v0.3.2：统计信息（单元格数/公式数/错误数/数据类型分布）
-            content = officecli.readFileStats(fullPath)
+            content = await officecli.readFileStats(fullPath)
             return { success: true, data: { filePath: args.filePath, mode, content } }
           } else if (mode === 'html') {
             // v0.3.2：渲染为 HTML，前端可预览
-            content = officecli.renderAsHtml(fullPath)
+            content = await officecli.renderAsHtml(fullPath)
             return { success: true, data: { filePath: args.filePath, mode, content } }
           } else {
             // outline（默认）：结构化大纲 JSON
-            content = officecli.readFileStructure(fullPath)
+            content = await officecli.readFileStructure(fullPath)
             return { success: true, data: { filePath: args.filePath, mode, content } }
           }
         } catch (err) {
@@ -747,7 +747,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         const officecli = require('../officecli/officecli-bridge')
 
         // 检查 OfficeCLI 是否可用
-        const avail = officecli.checkAvailability()
+        const avail = await officecli.checkAvailability()
         if (!avail.available) {
           return ErrorCodes.createError('CLI_UNAVAILABLE',
             `OfficeCLI 不可用: ${avail.error}`,
@@ -786,13 +786,13 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
 
             if (action === 'replace') {
               // 替换文本：set <file> <path> --find <find> --replace <replace>
-              officecli.replaceText(fullPath, elPath, find, replace)
+              await officecli.replaceText(fullPath, elPath, find, replace)
               results.push({ action, find, replace, status: 'ok' })
             } else if (action === 'set') {
               // 设置文本+格式：set <file> <path> --prop text=<value> --prop key=val ...
               // v11.7.0：UNSUPPORTED_PROP 错误码透传
               try {
-                officecli.setElementText(fullPath, elPath, value, op.props || {})
+                await officecli.setElementText(fullPath, elPath, value, op.props || {})
                 results.push({ action, path: elPath, value, props: op.props, status: 'ok' })
               } catch (err) {
                 if (/UNSUPPORTED|not supported/i.test(err.message)) {
@@ -814,11 +814,11 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
                   addArgs.push('--prop', `${k}=${v}`)
                 }
               }
-              officecli.execOfficeCliSync(addArgs)
+              await officecli.execOfficeCliAsync(addArgs)
               results.push({ action, path: elPath, value, type: addType, props: op.props, status: 'ok' })
             } else if (action === 'add_table') {
               // v11.7.0 新增：专用于添加表格（rows/cols/colWidths/rowsData）
-              officecli.addTable(fullPath, elPath, {
+              await officecli.addTable(fullPath, elPath, {
                 rows: op.rows,
                 cols: op.cols,
                 colWidths: op.colWidths,
@@ -830,7 +830,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
               results.push({ action, path: elPath, rows: op.rows, cols: op.cols, status: 'ok' })
             } else if (action === 'remove') {
               // 删除元素：remove <file> <path>
-              officecli.execOfficeCliSync(['remove', fullPath, elPath])
+              await officecli.execOfficeCliAsync(['remove', fullPath, elPath])
               results.push({ action, path: elPath, status: 'ok' })
             } else {
               results.push({ action, status: 'skipped', reason: `不支持的操作: ${action}` })
@@ -884,7 +884,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           enum: ['atomic', 'best-effort', 'stop-on-error']
         }
       },
-      (args) => {
+      async (args) => {
         const wm = getWM()
         const current = wm.current ? wm.current() : null
         if (!current || !current.path) {
@@ -897,7 +897,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           return ErrorCodes.createError('E-PARAM-INVALID', e.message, '写类 office 操作路径必须位于当前打开的工作区内', { retryable: false })
         }
         const officecli = require('../officecli/officecli-bridge')
-        const avail = officecli.checkAvailability()
+        const avail = await officecli.checkAvailability()
         if (!avail.available) {
           return ErrorCodes.createError('OFFICECLI_UNAVAILABLE', avail.error || 'officecli 不可用', '请确认 officecli 已安装', { retryable: false })
         }
@@ -913,9 +913,9 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           let result
           if (json.length < 50000) {
             cliArgs.push('--commands', json)
-            result = officecli.execOfficeCliSync(cliArgs)
+            result = await officecli.execOfficeCliAsync(cliArgs)
           } else {
-            result = officecli.execOfficeCliSync(cliArgs, { input: json })
+            result = await officecli.execOfficeCliAsync(cliArgs, { input: json })
           }
           // 解析输出
           let parsed
@@ -961,7 +961,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         compact: { type: 'boolean', required: false, description: '紧凑模式：每元素一行（默认 false）' },
         fields: { type: 'string', required: false, description: '追加额外列，如 "x,y,width"（仅 compact 模式）' }
       },
-      (args) => {
+      async (args) => {
         const wm = getWM()
         const current = wm.current ? wm.current() : null
         if (!current || !current.path) {
@@ -974,7 +974,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           return ErrorCodes.createError('E-PARAM-INVALID', e.message, '请使用工作区内相对路径', { retryable: false })
         }
         const officecli = require('../officecli/officecli-bridge')
-        const avail = officecli.checkAvailability()
+        const avail = await officecli.checkAvailability()
         if (!avail.available) {
           return ErrorCodes.createError('OFFICECLI_UNAVAILABLE', avail.error || 'officecli 不可用', '请确认 officecli 已安装', { retryable: false })
         }
@@ -983,7 +983,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           if (args.find) opts.find = args.find
           if (args.compact) opts.compact = true
           if (args.fields) opts.fields = args.fields
-          const result = officecli.queryElements(fullPath, args.selector, opts)
+          const result = await officecli.queryElements(fullPath, args.selector, opts)
           return {
             success: true,
             data: {
@@ -1008,7 +1008,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       {
         filePath: { type: 'string', required: true, description: '工作区相对路径，仅 .docx' }
       },
-      (args) => {
+      async (args) => {
         const wm = getWM()
         const current = wm.current ? wm.current() : null
         if (!current || !current.path) {
@@ -1021,12 +1021,12 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           return ErrorCodes.createError('E-PARAM-INVALID', e.message, '请使用工作区内相对路径', { retryable: false })
         }
         const officecli = require('../officecli/officecli-bridge')
-        const avail = officecli.checkAvailability()
+        const avail = await officecli.checkAvailability()
         if (!avail.available) {
           return ErrorCodes.createError('OFFICECLI_UNAVAILABLE', avail.error || 'officecli 不可用', '请确认 officecli 已安装', { retryable: false })
         }
         try {
-          const result = officecli.refreshDocument(fullPath)
+          const result = await officecli.refreshDocument(fullPath)
           return {
             success: true,
             data: {
@@ -1063,7 +1063,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       async (args) => {
         const officecli = require('../officecli/officecli-bridge')
 
-        const avail = officecli.checkAvailability()
+        const avail = await officecli.checkAvailability()
         if (!avail.available) {
           return ErrorCodes.createError('CLI_UNAVAILABLE',
             `OfficeCLI 不可用: ${avail.error}`,
@@ -1080,7 +1080,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         }
 
         try {
-          const result = officecli.createDocument(fullPath, args.type)
+          const result = await officecli.createDocument(fullPath, args.type)
           return {
             success: true,
             data: {
@@ -1122,7 +1122,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       async (args) => {
         const officecli = require('../officecli/officecli-bridge')
 
-        const avail = officecli.checkAvailability()
+        const avail = await officecli.checkAvailability()
         if (!avail.available) {
           return ErrorCodes.createError('CLI_UNAVAILABLE',
             `OfficeCLI 不可用: ${avail.error}`,
@@ -1149,7 +1149,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         }
 
         try {
-          const result = officecli.mergeTemplate(fullTemplate, fullOutput, args.data)
+          const result = await officecli.mergeTemplate(fullTemplate, fullOutput, args.data)
           return {
             success: true,
             data: {
@@ -1202,7 +1202,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       },
       async (args) => {
         const officecli = require('../officecli/officecli-bridge')
-        const avail = officecli.checkAvailability()
+        const avail = await officecli.checkAvailability()
         if (!avail.available) {
           return ErrorCodes.createError('CLI_UNAVAILABLE', `OfficeCLI 不可用: ${avail.error}`, '请确认 OfficeCLI 已正确安装', { retryable: false })
         }
@@ -1221,10 +1221,10 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
 
         try {
           if (args.action === 'move') {
-            officecli.moveElement(fullPath, args.sourcePath, args.after)
+            await officecli.moveElement(fullPath, args.sourcePath, args.after)
             return { success: true, data: { action: 'move', sourcePath: args.sourcePath, after: args.after } }
           } else if (args.action === 'swap') {
-            officecli.swapElements(fullPath, args.path1, args.path2)
+            await officecli.swapElements(fullPath, args.path1, args.path2)
             return { success: true, data: { action: 'swap', path1: args.path1, path2: args.path2 } }
           }
           return { success: false, code: 'PARAM_INVALID_TYPE', title: `不支持的操作: ${args.action}` }
@@ -1245,7 +1245,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       },
       async (args) => {
         const officecli = require('../officecli/officecli-bridge')
-        const avail = officecli.checkAvailability()
+        const avail = await officecli.checkAvailability()
         if (!avail.available) {
           return ErrorCodes.createError('CLI_UNAVAILABLE', `OfficeCLI 不可用: ${avail.error}`, '', { retryable: false })
         }
@@ -1263,7 +1263,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         }
 
         try {
-          const result = officecli.validateDocument(fullPath)
+          const result = await officecli.validateDocument(fullPath)
           return { success: true, data: { filePath: args.filePath, output: result.stdout } }
         } catch (err) {
           return ErrorCodes.createError('VALIDATE_FAILED', `校验失败: ${err.message}`, '文件可能被非法修改', { retryable: true })
@@ -1296,7 +1296,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       },
       async (args) => {
         const officecli = require('../officecli/officecli-bridge')
-        const avail = officecli.checkAvailability()
+        const avail = await officecli.checkAvailability()
         if (!avail.available) {
           return ErrorCodes.createError('CLI_UNAVAILABLE', `OfficeCLI 不可用: ${avail.error}`, '', { retryable: false })
         }
@@ -1321,7 +1321,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         }
 
         try {
-          const result = officecli.importCsv(fullTarget, '/', fullSource, {
+          const result = await officecli.importCsv(fullTarget, '/', fullSource, {
             sheet: args.sheet, startCell: args.startCell, delimiter: args.delimiter
           })
           return { success: true, data: { filePath: args.filePath, sourceFile: args.sourceFile, output: result.stdout } }
@@ -1364,7 +1364,7 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       },
       async (args) => {
         const officecli = require('../officecli/officecli-bridge')
-        const avail = officecli.checkAvailability()
+        const avail = await officecli.checkAvailability()
         if (!avail.available) { return ErrorCodes.createError('CLI_UNAVAILABLE', `OfficeCLI 不可用: ${avail.error}`, '', { retryable: false }) }
 
         const wm = getWM()
@@ -1379,12 +1379,12 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
 
         try {
           if (args.action === 'read') {
-            return { success: true, data: { action: 'read', part: args.part, content: officecli.rawPart(fullPath, args.part || '/document') } }
+            return { success: true, data: { action: 'read', part: args.part, content: await officecli.rawPart(fullPath, args.part || '/document') } }
           } else if (args.action === 'write') {
-            officecli.rawSetPart(fullPath, args.part || '/document', args.content)
+            await officecli.rawSetPart(fullPath, args.part || '/document', args.content)
             return { success: true, data: { action: 'write', part: args.part, message: 'XML part 已写入' } }
           } else if (args.action === 'dump') {
-            return { success: true, data: { action: 'dump', subtree: args.subtree, script: officecli.dumpSubtree(fullPath, args.subtree || '/') } }
+            return { success: true, data: { action: 'dump', subtree: args.subtree, script: await officecli.dumpSubtree(fullPath, args.subtree || '/') } }
           }
           return { success: false, code: 'PARAM_INVALID_TYPE', title: `不支持的操作: ${args.action}` }
         } catch (err) {
@@ -1420,13 +1420,13 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
       },
       async (args) => {
         const officecli = require('../officecli/officecli-bridge')
-        const avail = officecli.checkAvailability()
+        const avail = await officecli.checkAvailability()
         if (!avail.available) {
           return ErrorCodes.createError('CLI_UNAVAILABLE', `OfficeCLI 不可用: ${avail.error}`, '请确认 OfficeCLI 已正确安装', { retryable: false })
         }
 
         try {
-          const result = officecli.officecliHelp({
+          const result = await officecli.officecliHelp({
             format: args.format, verb: args.verb, element: args.element, json: args.json
           })
           return { success: true, data: { format: args.format, verb: args.verb, element: args.element, result } }

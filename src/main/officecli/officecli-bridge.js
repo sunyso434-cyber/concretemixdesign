@@ -52,13 +52,15 @@ function getBinaryPath() {
  * 验证 OfficeCLI 是否可用
  * @returns {{ available: boolean, version?: string, path?: string, error?: string }}
  */
-function checkAvailability() {
+async function checkAvailability() {
   try {
     const binaryPath = getBinaryPath()
-    const result = execFileSync(binaryPath, ['--version'], { timeout: 5000, encoding: 'utf-8' })
+    // 2026-08-23 异步化：--version 也走 execFile，避免 5s 超时窗口阻塞主进程
+    // 走 module.exports 让测试能 spyOn(bridge, 'execOfficeCliAsync') 截到内部调用
+    const { stdout } = await module.exports.execOfficeCliAsync(['--version'], { timeout: 5000 })
     return {
       available: true,
-      version: result.trim(),
+      version: stdout.trim(),
       path: binaryPath,
     }
   } catch (err) {
@@ -115,7 +117,8 @@ function execOfficeCliAsync(args, options = {}) {
       maxBuffer: 50 * 1024 * 1024,
     }, (err, stdout, stderr) => {
       if (err) {
-        reject(new Error(stderr || err.message || 'OfficeCLI 执行失败'))
+        // 错误信息与 execOfficeCliSync 保持同一格式（2026-08-23 异步化统一）
+        reject(new Error(`OfficeCLI 错误: ${stderr || err.message || 'OfficeCLI 执行失败'}`))
         return
       }
       resolve({ stdout: stdout.trim(), stderr: stderr.trim() })
@@ -129,8 +132,8 @@ function execOfficeCliAsync(args, options = {}) {
  * @param {string} filePath - 文件绝对路径
  * @returns {Object} { paragraphs, tables, images, headings, ... }
  */
-function readFileStructure(filePath) {
-  const result = execOfficeCliSync(['view', filePath, 'outline', '--json'])
+async function readFileStructure(filePath) {
+  const result = await module.exports.execOfficeCliAsync(['view', filePath, 'outline', '--json'])
   return JSON.parse(result.stdout)
 }
 
@@ -140,8 +143,8 @@ function readFileStructure(filePath) {
  * @param {string} filePath
  * @returns {Object}
  */
-function readFileStats(filePath) {
-  const result = execOfficeCliSync(['view', filePath, 'stats', '--json'])
+async function readFileStats(filePath) {
+  const result = await module.exports.execOfficeCliAsync(['view', filePath, 'stats', '--json'])
   return JSON.parse(result.stdout)
 }
 
@@ -150,8 +153,8 @@ function readFileStats(filePath) {
  * @param {string} filePath
  * @returns {string} 纯文本
  */
-function readFileAsText(filePath) {
-  const result = execOfficeCliSync(['view', filePath, 'text'])
+async function readFileAsText(filePath) {
+  const result = await module.exports.execOfficeCliAsync(['view', filePath, 'text'])
   return result.stdout
 }
 
@@ -162,8 +165,8 @@ function readFileAsText(filePath) {
  * @param {string} filePath
  * @returns {Object}
  */
-function readFileAsAnnotated(filePath) {
-  const result = execOfficeCliSync(['view', filePath, 'annotated', '--json'])
+async function readFileAsAnnotated(filePath) {
+  const result = await module.exports.execOfficeCliAsync(['view', filePath, 'annotated', '--json'])
   return JSON.parse(result.stdout)
 }
 
@@ -190,7 +193,7 @@ function readFileAsAnnotated(filePath) {
  * @param {Object} [props] - 格式属性键值对
  * @returns {{ stdout: string }}
  */
-function setElementText(filePath, elementPath, value, props = {}) {
+async function setElementText(filePath, elementPath, value, props = {}) {
   const args = ['set', filePath, elementPath]
   // 如果传了 value 就加 text 属性
   if (value !== undefined && value !== null) {
@@ -200,8 +203,8 @@ function setElementText(filePath, elementPath, value, props = {}) {
   for (const [key, val] of Object.entries(props)) {
     args.push('--prop', `${key}=${val}`)
   }
-  // ponytail: 走 module.exports 让测试能 spyOn(bridge, 'execOfficeCliSync') 截到内部调用
-  return module.exports.execOfficeCliSync(args)
+  // ponytail: 走 module.exports 让测试能 spyOn(bridge, "execOfficeCliAsync") 截到内部调用
+  return await module.exports.execOfficeCliAsync(args)
 }
 
 /**
@@ -213,8 +216,8 @@ function setElementText(filePath, elementPath, value, props = {}) {
  * @param {string} replace - 替换文本
  * @returns {{ stdout: string }}
  */
-function replaceText(filePath, elementPath, find, replace) {
-  return execOfficeCliSync(['set', filePath, elementPath, '--find', find, '--replace', replace])
+async function replaceText(filePath, elementPath, find, replace) {
+  return await module.exports.execOfficeCliAsync(['set', filePath, elementPath, '--find', find, '--replace', replace])
 }
 
 /**
@@ -223,9 +226,9 @@ function replaceText(filePath, elementPath, find, replace) {
  * @param {Array<{ action: string, path?: string, value?: string }>} operations
  * @returns {{ stdout: string }}
  */
-function batchEdit(filePath, operations) {
+async function batchEdit(filePath, operations) {
   const batchJson = JSON.stringify({ file: filePath, operations })
-  return execOfficeCliSync(['batch', filePath], { input: batchJson })
+  return await module.exports.execOfficeCliAsync(['batch', filePath], { input: batchJson })
 }
 
 /**
@@ -238,14 +241,14 @@ function batchEdit(filePath, operations) {
  * @param {string} [options.input] - 若 commands 太大，改用 stdin 传 JSON
  * @returns {{ stdout: string }}
  */
-function batchExecute(filePath, commands, options = {}) {
+async function batchExecute(filePath, commands, options = {}) {
   const json = JSON.stringify(commands)
   // ponytail: < 50KB 走 --commands 参数，否则 stdin，避免命令行长度超限
   if (json.length < 50_000 && !options.input) {
-    // ponytail: 走 module.exports 让测试能 spyOn(bridge, 'execOfficeCliSync') 截到内部调用
-    return module.exports.execOfficeCliSync(['batch', filePath, '--commands', json])
+    // ponytail: 走 module.exports 让测试能 spyOn(bridge, "execOfficeCliAsync") 截到内部调用
+    return await module.exports.execOfficeCliAsync(['batch', filePath, '--commands', json])
   }
-  return module.exports.execOfficeCliSync(['batch', filePath], { input: json })
+  return await module.exports.execOfficeCliAsync(['batch', filePath], { input: json })
 }
 
 /**
@@ -265,7 +268,7 @@ function batchExecute(filePath, commands, options = {}) {
  * @param {string} [opts.before] - 在此元素之前插入
  * @returns {{ stdout: string }}
  */
-function addTable(filePath, parentPath, opts) {
+async function addTable(filePath, parentPath, opts) {
   if (!opts || !opts.rows || !opts.cols) {
     throw new Error('addTable 需要 opts.rows 和 opts.cols（正整数）')
   }
@@ -282,8 +285,8 @@ function addTable(filePath, parentPath, opts) {
       args.push('--prop', `${k}=${v}`)
     }
   }
-  // ponytail: 走 module.exports 让测试能 spyOn(bridge, 'execOfficeCliSync') 截到内部调用
-  const result = module.exports.execOfficeCliSync(args)
+  // ponytail: 走 module.exports 让测试能 spyOn(bridge, "execOfficeCliAsync") 截到内部调用
+  const result = await module.exports.execOfficeCliAsync(args)
 
   // ponytail: rowsData 走 setElementText 二次写入，避免 officecli 不支持的 --prop rows=JSON 形式
   if (opts.rowsData && result.stdout) {
@@ -310,8 +313,8 @@ function addTable(filePath, parentPath, opts) {
  * @param {string} targetAfter - 目标路径（移到其后）
  * @returns {{ stdout: string }}
  */
-function moveElement(filePath, sourcePath, targetAfter) {
-  return module.exports.execOfficeCliSync(['move', filePath, sourcePath, '--after', targetAfter])
+async function moveElement(filePath, sourcePath, targetAfter) {
+  return await module.exports.execOfficeCliAsync(['move', filePath, sourcePath, '--after', targetAfter])
 }
 
 /**
@@ -322,8 +325,8 @@ function moveElement(filePath, sourcePath, targetAfter) {
  * @param {string} path2
  * @returns {{ stdout: string }}
  */
-function swapElements(filePath, path1, path2) {
-  return module.exports.execOfficeCliSync(['swap', filePath, path1, path2])
+async function swapElements(filePath, path1, path2) {
+  return await module.exports.execOfficeCliAsync(['swap', filePath, path1, path2])
 }
 
 /**
@@ -337,7 +340,7 @@ function swapElements(filePath, path1, path2) {
  * @param {string} [opts.fields] - 追加额外列，如 'x,y,width'
  * @returns {Object|string} 默认返回 JSON 对象；compact 模式返回文本
  */
-function queryElements(filePath, selector, opts = {}) {
+async function queryElements(filePath, selector, opts = {}) {
   const selStr = typeof selector === 'string' ? selector : JSON.stringify(selector)
   const args = ['query', filePath, selStr]
   if (opts.compact) {
@@ -345,13 +348,13 @@ function queryElements(filePath, selector, opts = {}) {
     if (opts.find) args.push('--find', opts.find)
     args.push('--compact')
     if (opts.fields) args.push('--fields', opts.fields)
-    const result = module.exports.execOfficeCliSync(args)
+    const result = await module.exports.execOfficeCliAsync(args)
     return result.stdout
   }
   args.push('--json')
   if (opts.find) args.push('--find', opts.find)
   if (opts.fields) args.push('--fields', opts.fields)
-  const result = module.exports.execOfficeCliSync(args)
+  const result = await module.exports.execOfficeCliAsync(args)
   return JSON.parse(result.stdout)
 }
 
@@ -361,8 +364,8 @@ function queryElements(filePath, selector, opts = {}) {
  * @param {string} filePath
  * @returns {{ stdout: string }}
  */
-function validateDocument(filePath) {
-  return module.exports.execOfficeCliSync(['validate', filePath])
+async function validateDocument(filePath) {
+  return await module.exports.execOfficeCliAsync(['validate', filePath])
 }
 
 /**
@@ -373,8 +376,8 @@ function validateDocument(filePath) {
  * @param {string} filePath
  * @returns {Object} 刷新结果 JSON
  */
-function refreshDocument(filePath) {
-  const result = module.exports.execOfficeCliSync(['refresh', filePath, '--json'])
+async function refreshDocument(filePath) {
+  const result = await module.exports.execOfficeCliAsync(['refresh', filePath, '--json'])
   try {
     return JSON.parse(result.stdout)
   } catch {
@@ -395,12 +398,12 @@ function refreshDocument(filePath) {
  * @param {string} [opts.delimiter] - 分隔符，默认 ","
  * @returns {{ stdout: string }}
  */
-function importCsv(targetFile, parentPath, sourceFile, opts = {}) {
+async function importCsv(targetFile, parentPath, sourceFile, opts = {}) {
   const args = ['import', targetFile, parentPath, sourceFile]
   if (opts.sheet) args.push('--sheet', opts.sheet)
   if (opts.startCell) args.push('--startCell', opts.startCell)
   if (opts.delimiter) args.push('--delimiter', opts.delimiter)
-  return module.exports.execOfficeCliSync(args)
+  return await module.exports.execOfficeCliAsync(args)
 }
 
 /**
@@ -409,8 +412,8 @@ function importCsv(targetFile, parentPath, sourceFile, opts = {}) {
  * @param {string} filePath
  * @returns {Promise<{ stdout: string, stderr: string }>}
  */
-function openDocumentResident(filePath) {
-  return module.exports.execOfficeCliAsync(['open', filePath])
+async function openDocumentResident(filePath) {
+  return await module.exports.execOfficeCliAsync(['open', filePath])
 }
 
 /**
@@ -419,8 +422,8 @@ function openDocumentResident(filePath) {
  * @param {string} filePath
  * @returns {Promise<{ stdout: string, stderr: string }>}
  */
-function saveDocumentResident(filePath) {
-  return module.exports.execOfficeCliAsync(['save', filePath])
+async function saveDocumentResident(filePath) {
+  return await module.exports.execOfficeCliAsync(['save', filePath])
 }
 
 /**
@@ -429,8 +432,8 @@ function saveDocumentResident(filePath) {
  * @param {string} filePath
  * @returns {Promise<{ stdout: string, stderr: string }>}
  */
-function closeDocumentResident(filePath) {
-  return module.exports.execOfficeCliAsync(['close', filePath])
+async function closeDocumentResident(filePath) {
+  return await module.exports.execOfficeCliAsync(['close', filePath])
 }
 
 /**
@@ -440,8 +443,8 @@ function closeDocumentResident(filePath) {
  * @param {string} [subtreePath='/'] - 子树路径
  * @returns {string} 可重放的 batch 脚本
  */
-function dumpSubtree(filePath, subtreePath = '/') {
-  return module.exports.execOfficeCliSync(['dump', filePath, subtreePath]).stdout
+async function dumpSubtree(filePath, subtreePath = '/') {
+  return (await module.exports.execOfficeCliAsync(['dump', filePath, subtreePath])).stdout
 }
 
 /**
@@ -451,8 +454,8 @@ function dumpSubtree(filePath, subtreePath = '/') {
  * @param {string} [part='/document']
  * @returns {string} XML 内容
  */
-function rawPart(filePath, part = '/document') {
-  return module.exports.execOfficeCliSync(['raw', filePath, part]).stdout
+async function rawPart(filePath, part = '/document') {
+  return (await module.exports.execOfficeCliAsync(['raw', filePath, part])).stdout
 }
 
 /**
@@ -463,8 +466,8 @@ function rawPart(filePath, part = '/document') {
  * @param {string} content - XML 内容
  * @returns {{ stdout: string }}
  */
-function rawSetPart(filePath, part, content) {
-  return module.exports.execOfficeCliSync(['raw-set', filePath, part], { input: content })
+async function rawSetPart(filePath, part, content) {
+  return await module.exports.execOfficeCliAsync(['raw-set', filePath, part], { input: content })
 }
 
 /**
@@ -475,8 +478,8 @@ function rawSetPart(filePath, part, content) {
  * @param {string} content
  * @returns {{ stdout: string }}
  */
-function addPart(filePath, parent, content) {
-  return module.exports.execOfficeCliSync(['add-part', filePath, parent], { input: content })
+async function addPart(filePath, parent, content) {
+  return await module.exports.execOfficeCliAsync(['add-part', filePath, parent], { input: content })
 }
 
 /**
@@ -489,12 +492,12 @@ function addPart(filePath, parent, content) {
  * @param {boolean} [opts.json=false] - 输出 JSON 格式
  * @returns {string|Object} 帮助文本 或 JSON 对象
  */
-function officecliHelp(opts = {}) {
+async function officecliHelp(opts = {}) {
   const args = ['help', opts.format || 'all']
   if (opts.verb && opts.verb !== 'any') args.push(opts.verb)
   if (opts.element) args.push(opts.element)
   if (opts.json) args.push('--json')
-  const result = module.exports.execOfficeCliSync(args)
+  const result = await module.exports.execOfficeCliAsync(args)
   if (opts.json) {
     try { return JSON.parse(result.stdout) } catch { return result.stdout }
   }
@@ -506,8 +509,8 @@ function officecliHelp(opts = {}) {
  * @param {string} filePath
  * @returns {string} HTML 内容
  */
-function renderAsHtml(filePath) {
-  const result = execOfficeCliSync(['view', filePath, 'html'])
+async function renderAsHtml(filePath) {
+  const result = await module.exports.execOfficeCliAsync(['view', filePath, 'html'])
   return result.stdout
 }
 
@@ -518,10 +521,10 @@ function renderAsHtml(filePath) {
  * @param {string} [type] - 文档类型 docx/xlsx/pptx（默认从扩展名推断）
  * @returns {{ stdout: string }}
  */
-function createDocument(filePath, type) {
+async function createDocument(filePath, type) {
   const args = ['create', filePath, '--force']
   if (type) args.push('--type', type)
-  return execOfficeCliSync(args)
+  return await module.exports.execOfficeCliAsync(args)
 }
 
 /**
@@ -537,11 +540,11 @@ function createDocument(filePath, type) {
  * @param {boolean} [options.force=true] - 覆盖已有文件
  * @returns {{ stdout: string }}
  */
-function mergeTemplate(templatePath, outputPath, data, options = {}) {
+async function mergeTemplate(templatePath, outputPath, data, options = {}) {
   const dataArg = typeof data === 'string' ? data : JSON.stringify(data)
   const args = ['merge', templatePath, outputPath, '--data', dataArg]
   if (options.force !== false) args.push('--force')
-  return execOfficeCliSync(args)
+  return await module.exports.execOfficeCliAsync(args)
 }
 
 module.exports = {

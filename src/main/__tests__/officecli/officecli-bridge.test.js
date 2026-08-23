@@ -1,6 +1,7 @@
 const path = require('path')
-const { execFileSync } = require('child_process')
 
+// 2026-08-23 officecli 桥接全面异步化适配：
+// 所有上层函数返回 Promise，测试统一 await；spy 从 execOfficeCliSync 迁移到 execOfficeCliAsync
 describe('officecli-bridge', () => {
   let bridge
   let execSpy
@@ -11,9 +12,8 @@ describe('officecli-bridge', () => {
     // 设置开发环境标志，使路径解析走项目目录
     process.env.NODE_ENV = 'development'
     bridge = require('../../officecli/officecli-bridge')
-    // spy bridge 自己的 execOfficeCliSync（bridge 模块内已拿到 execFileSync 顶层引用，
-    // 直接 spy require('child_process') 不生效，必须 spy bridge 的 export）
-    execSpy = jest.spyOn(bridge, 'execOfficeCliSync').mockReturnValue({ stdout: '', stderr: '' })
+    // spy bridge 自己的 execOfficeCliAsync（bridge 内部经 module.exports 调用，spy export 可截获）
+    execSpy = jest.spyOn(bridge, 'execOfficeCliAsync').mockResolvedValue({ stdout: '', stderr: '' })
   })
 
   afterEach(() => {
@@ -65,39 +65,38 @@ describe('officecli-bridge', () => {
     })
   })
 
-  describe('checkAvailability', () => {
-    it('当二进制存在时应返回可用状态', () => {
-      const result = bridge.checkAvailability()
-      // 这个测试依赖环境是否真的下载了二进制
-      // 如果二进制不存在，返回 { available: false, error: ... }
-      expect(result).toHaveProperty('available')
-      if (result.available) {
-        expect(result).toHaveProperty('version')
-        expect(result).toHaveProperty('path')
-        expect(typeof result.version).toBe('string')
-        expect(result.version.length).toBeGreaterThan(0)
-      }
+  describe('checkAvailability（异步化：--version 走 execFile）', () => {
+    it('解析 --version 输出为可用状态', async () => {
+      execSpy.mockResolvedValueOnce({ stdout: 'officecli v1.2.3\n', stderr: '' })
+      const result = await bridge.checkAvailability()
+      expect(result.available).toBe(true)
+      expect(result.version).toBe('officecli v1.2.3')
+      expect(result.path).toContain('officecli')
+      // --version 应走异步通道
+      expect(execSpy).toHaveBeenCalledWith(['--version'], expect.anything())
     })
-  })
 
-  describe('readFileAsJson', () => {
-    it('不存在的文件应抛错', () => {
-      expect(() => bridge.readFileAsJson('/nonexistent/file.docx')).toThrow()
+    it('二进制执行失败时返回不可用状态', async () => {
+      execSpy.mockRejectedValueOnce(new Error('spawn 失败'))
+      const result = await bridge.checkAvailability()
+      expect(result.available).toBe(false)
+      expect(result.error).toContain('spawn 失败')
     })
   })
 
   describe('readFileAsText', () => {
-    it('不存在的文件应抛错', () => {
-      expect(() => bridge.readFileAsText('/nonexistent/file.docx')).toThrow()
+    it('不存在的文件应 reject', async () => {
+      execSpy.mockRejectedValueOnce(new Error('OfficeCLI 错误: 文件不存在'))
+      await expect(bridge.readFileAsText('/nonexistent/file.docx')).rejects.toThrow()
     })
   })
 
   // v11.7.0: addTable 桥接（老板速查手册需求）
   describe('addTable (v11.7.0)', () => {
-    it('add --type table --prop rows/cols/colWidths 参数拼装正确', () => {
+    it('add --type table --prop rows/cols/colWidths 参数拼装正确', async () => {
       // add table 一次 + 不传 rowsData 不再 setElementText → 1 次调用
-      execSpy.mockReturnValueOnce({ stdout: '/body/tbl[1]\n', stderr: '' })
-      bridge.addTable('/x.docx', '/body', {
+      execSpy.mockResolvedValueOnce({ stdout: '/body/tbl[1]\n', stderr: '' })
+      await bridge.addTable('/x.docx', '/body', {
         rows: 2, cols: 3, colWidths: [2000, 1500, 1500]
       })
       expect(execSpy).toHaveBeenCalledTimes(1)
@@ -113,9 +112,9 @@ describe('officecli-bridge', () => {
       expect(args).toContain('colWidths=2000,1500,1500')
     })
 
-    it('传 rowsData 时二次写单元格（每格 string）', () => {
-      execSpy.mockReturnValueOnce({ stdout: '/body/tbl[1]\n', stderr: '' })
-      bridge.addTable('/x.docx', '/body', {
+    it('传 rowsData 时二次写单元格（每格 string）', async () => {
+      execSpy.mockResolvedValueOnce({ stdout: '/body/tbl[1]\n', stderr: '' })
+      await bridge.addTable('/x.docx', '/body', {
         rows: 2, cols: 2,
         rowsData: [['A', 'B'], ['C', 'D']]
       })
@@ -128,15 +127,15 @@ describe('officecli-bridge', () => {
       expect(setCalls[0][0]).toContain('text=A')
     })
 
-    it('不传 rows/cols 抛错', () => {
-      expect(() => bridge.addTable('/x.docx', '/body', {})).toThrow(/rows.*cols/)
+    it('不传 rows/cols reject', async () => {
+      await expect(bridge.addTable('/x.docx', '/body', {})).rejects.toThrow(/rows.*cols/)
     })
   })
 
   // v11.7.0: batchExecute 桥接（按 officecli batch verb 真实 schema）
   describe('batchExecute (v11.7.0)', () => {
-    it('小 payload 走 --commands 参数', () => {
-      bridge.batchExecute('/x.docx', [
+    it('小 payload 走 --commands 参数', async () => {
+      await bridge.batchExecute('/x.docx', [
         { command: 'add', parent: '/body', type: 'paragraph', props: { text: 'a' } }
       ])
       expect(execSpy).toHaveBeenCalledTimes(1)
@@ -148,15 +147,15 @@ describe('officecli-bridge', () => {
       expect(JSON.parse(json)).toHaveLength(1)
     })
 
-    it('大 payload (>50KB) 走 stdin', () => {
+    it('大 payload (>50KB) 走 stdin', async () => {
       // 构造 > 50KB 的 commands
       const bigCommands = Array(2000).fill({ command: 'add', parent: '/body', type: 'paragraph', props: { text: 'x'.repeat(50) } })
-      bridge.batchExecute('/x.docx', bigCommands)
+      await bridge.batchExecute('/x.docx', bigCommands)
       expect(execSpy).toHaveBeenCalledTimes(1)
       const args = execSpy.mock.calls[0][0]
       expect(args[0]).toBe('batch')
       expect(args).not.toContain('--commands')
-      // execSync 第二参数含 input
+      // 第二参数含 input（stdin）
       const opts = execSpy.mock.calls[0][1]
       expect(opts.input).toBeDefined()
       expect(JSON.parse(opts.input)).toHaveLength(2000)
@@ -165,8 +164,8 @@ describe('officecli-bridge', () => {
 
   // v11.7.0: setElementText 注释列出完整 paragraph/run 属性（不破坏现有签名）
   describe('setElementText props 透传（v11.7.0）', () => {
-    it('props 完整透传到 --prop k=v', () => {
-      bridge.setElementText('/x.docx', '/body/p[1]', 'hi', {
+    it('props 完整透传到 --prop k=v', async () => {
+      await bridge.setElementText('/x.docx', '/body/p[1]', 'hi', {
         'font.ea': '仿宋',
         'font.latin': 'Times New Roman',
         size: '12pt',
@@ -189,8 +188,8 @@ describe('officecli-bridge', () => {
 
   // v11.7.0 P1: move/swap/query/validate/refresh/importCsv/resident
   describe('move + swap (v11.7.0 P1)', () => {
-    it('moveElement 参数拼装正确', () => {
-      bridge.moveElement('/x.docx', '/body/p[3]', '/body/p[1]')
+    it('moveElement 参数拼装正确', async () => {
+      await bridge.moveElement('/x.docx', '/body/p[3]', '/body/p[1]')
       const args = execSpy.mock.calls[0][0]
       expect(args[0]).toBe('move')
       expect(args[1]).toBe('/x.docx')
@@ -199,8 +198,8 @@ describe('officecli-bridge', () => {
       expect(args).toContain('/body/p[1]')
     })
 
-    it('swapElements 参数拼装正确', () => {
-      bridge.swapElements('/x.docx', '/body/p[1]', '/body/p[5]')
+    it('swapElements 参数拼装正确', async () => {
+      await bridge.swapElements('/x.docx', '/body/p[1]', '/body/p[5]')
       const args = execSpy.mock.calls[0][0]
       expect(args[0]).toBe('swap')
       expect(args).toContain('/body/p[1]')
@@ -209,27 +208,27 @@ describe('officecli-bridge', () => {
   })
 
   describe('query / validate / refresh (v11.7.0 P1)', () => {
-    it('queryElements 返回 JSON', () => {
-      execSpy.mockReturnValueOnce({ stdout: '[{"path":"/body/p[1]","text":"hi"}]', stderr: '' })
-      const r = bridge.queryElements('/x.docx', { element: 'p' })
+    it('queryElements 返回 JSON', async () => {
+      execSpy.mockResolvedValueOnce({ stdout: '[{"path":"/body/p[1]","text":"hi"}]', stderr: '' })
+      const r = await bridge.queryElements('/x.docx', { element: 'p' })
       expect(r).toHaveLength(1)
       expect(r[0].text).toBe('hi')
     })
 
-    it('validateDocument 参数拼装正确', () => {
-      bridge.validateDocument('/x.docx')
+    it('validateDocument 参数拼装正确', async () => {
+      await bridge.validateDocument('/x.docx')
       expect(execSpy.mock.calls[0][0][0]).toBe('validate')
     })
 
-    it('refreshDocument 参数拼装正确', () => {
-      bridge.refreshDocument('/x.docx')
+    it('refreshDocument 参数拼装正确', async () => {
+      await bridge.refreshDocument('/x.docx')
       expect(execSpy.mock.calls[0][0][0]).toBe('refresh')
     })
   })
 
   describe('importCsv (v11.7.0 P1)', () => {
-    it('importCsv 参数拼装正确', () => {
-      bridge.importCsv('/x.xlsx', '/', '/src/data.csv', { sheet: 'Data', startCell: 'B2', delimiter: ';' })
+    it('importCsv 参数拼装正确', async () => {
+      await bridge.importCsv('/x.xlsx', '/', '/src/data.csv', { sheet: 'Data', startCell: 'B2', delimiter: ';' })
       const args = execSpy.mock.calls[0][0]
       expect(args[0]).toBe('import')
       expect(args).toContain('--sheet')
@@ -243,28 +242,28 @@ describe('officecli-bridge', () => {
 
   // v11.7.0: officecliHelp
   describe('officecliHelp (v11.7.0)', () => {
-    it('帮助查询 docx 元素列表', () => {
-      bridge.officecliHelp({ format: 'docx' })
+    it('帮助查询 docx 元素列表', async () => {
+      await bridge.officecliHelp({ format: 'docx' })
       const args = execSpy.mock.calls[0][0]
       expect(args[0]).toBe('help')
       expect(args[1]).toBe('docx')
     })
 
-    it('帮助查询 docx paragraph add verb', () => {
-      bridge.officecliHelp({ format: 'docx', verb: 'add', element: 'paragraph' })
+    it('帮助查询 docx paragraph add verb', async () => {
+      await bridge.officecliHelp({ format: 'docx', verb: 'add', element: 'paragraph' })
       const args = execSpy.mock.calls[0][0]
       expect(args).toEqual(['help', 'docx', 'add', 'paragraph'])
     })
 
-    it('帮助查询 all 格式 JSON 输出', () => {
-      execSpy.mockReturnValueOnce({ stdout: '{"success":true}', stderr: '' })
-      const r = bridge.officecliHelp({ format: 'all', json: true })
+    it('帮助查询 all 格式 JSON 输出', async () => {
+      execSpy.mockResolvedValueOnce({ stdout: '{"success":true}', stderr: '' })
+      const r = await bridge.officecliHelp({ format: 'all', json: true })
       expect(execSpy.mock.calls[0][0]).toContain('--json')
       expect(r.success).toBe(true)
     })
 
-    it('verb=any 不传 verb 参数', () => {
-      bridge.officecliHelp({ format: 'pptx', verb: 'any', element: 'shape' })
+    it('verb=any 不传 verb 参数', async () => {
+      await bridge.officecliHelp({ format: 'pptx', verb: 'any', element: 'shape' })
       const args = execSpy.mock.calls[0][0]
       expect(args).toEqual(['help', 'pptx', 'shape'])  // 'any' 被过滤掉
     })
@@ -272,30 +271,30 @@ describe('officecli-bridge', () => {
 
   // v11.7.0 P2: dump/raw/rawSet/addPart
   describe('dump + raw (v11.7.0 P2)', () => {
-    it('dumpSubtree 参数拼装正确', () => {
-      execSpy.mockReturnValueOnce({ stdout: '[{"command":"add"}]', stderr: '' })
-      const r = bridge.dumpSubtree('/x.docx', '/body/tbl[1]')
+    it('dumpSubtree 参数拼装正确', async () => {
+      execSpy.mockResolvedValueOnce({ stdout: '[{"command":"add"}]', stderr: '' })
+      const r = await bridge.dumpSubtree('/x.docx', '/body/tbl[1]')
       expect(execSpy.mock.calls[0][0][0]).toBe('dump')
       expect(r).toContain('add')
     })
 
-    it('rawPart 默认 part /document', () => {
-      execSpy.mockReturnValueOnce({ stdout: '<w:document>...</w:document>', stderr: '' })
-      const r = bridge.rawPart('/x.docx')
+    it('rawPart 默认 part /document', async () => {
+      execSpy.mockResolvedValueOnce({ stdout: '<w:document>...</w:document>', stderr: '' })
+      const r = await bridge.rawPart('/x.docx')
       expect(execSpy.mock.calls[0][0][2]).toBe('/document')  // args[0]=raw, args[1]=file, args[2]=part
       expect(r).toContain('w:document')
     })
 
-    it('rawSetPart 走 stdin', () => {
-      bridge.rawSetPart('/x.docx', '/document', '<xml/>')
+    it('rawSetPart 走 stdin', async () => {
+      await bridge.rawSetPart('/x.docx', '/document', '<xml/>')
       const args = execSpy.mock.calls[0][0]
       const opts = execSpy.mock.calls[0][1]
       expect(args[0]).toBe('raw-set')
       expect(opts.input).toBe('<xml/>')
     })
 
-    it('addPart 走 stdin', () => {
-      bridge.addPart('/x.docx', '/styles', '<xml/>')
+    it('addPart 走 stdin', async () => {
+      await bridge.addPart('/x.docx', '/styles', '<xml/>')
       const args = execSpy.mock.calls[0][0]
       const opts = execSpy.mock.calls[0][1]
       expect(args[0]).toBe('add-part')

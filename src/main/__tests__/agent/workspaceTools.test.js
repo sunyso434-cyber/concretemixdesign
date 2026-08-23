@@ -428,11 +428,12 @@ describe('v11.7.0 officecli 全能力补齐 — 老板速查手册场景', () =>
   beforeEach(() => {
     // ① 先 require（此时 fs 未被 mock，babel 正常解析）
     officecli = require('../../officecli/officecli-bridge')
-    execSpy = jest.spyOn(officecli, 'execOfficeCliSync').mockReturnValue({ stdout: '', stderr: '' })
-    availSpy = jest.spyOn(officecli, 'checkAvailability').mockReturnValue({
+    // 2026-08-23 异步化适配：officecli 桥接全部返回 Promise，mock 用 mockResolvedValue
+    execSpy = jest.spyOn(officecli, 'execOfficeCliAsync').mockResolvedValue({ stdout: '', stderr: '' })
+    availSpy = jest.spyOn(officecli, 'checkAvailability').mockResolvedValue({
       available: true, version: '1.0.0', path: '/x/officecli.exe'
     })
-    addTableSpy = jest.spyOn(officecli, 'addTable').mockReturnValue({ stdout: '/body/tbl[1]', stderr: '' })
+    addTableSpy = jest.spyOn(officecli, 'addTable').mockResolvedValue({ stdout: '/body/tbl[1]', stderr: '' })
 
     // ② require 完成后再 patch fs（后续 skill.execute 的 fs.existsSync 调用走 mock）
     _fs.existsSync = jest.fn().mockReturnValue(true)
