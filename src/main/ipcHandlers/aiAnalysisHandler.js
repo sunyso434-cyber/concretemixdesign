@@ -40,7 +40,10 @@ let getDeepSeekService = defaultGetDeepSeekService
  * 检查API配置状态
  */
 const checkApiStatus = async () => {
-  const apiKey = await getDeepSeekApiKey()
+  // 2026-08-23 ESLint 首跑发现的真 bug：原代码调用了不存在的 getDeepSeekApiKey
+  // （渲染端查询 AI 状态时直接 ReferenceError）
+  const activeConfig = await SystemService.getActiveLlmConfig()
+  const apiKey = activeConfig && activeConfig.apiKey
   return {
     configured: !!apiKey,
     message: apiKey ? 'API已配置' : 'API未配置，请在系统设置中配置DeepSeek API密钥'
@@ -73,6 +76,10 @@ const executeToolCall = async (toolName, args) => {
       const missing = requiredParams.filter(p => args[p] === undefined || args[p] === null)
       if (missing.length > 0) {
         return { success: false, missingParams: missing, hint: `缺少必填参数: ${missing.join(', ')}，请向用户追问。` }
+      }
+      // 2026-08-23 修复：sandIds/stoneIds 来自 LLM 响应，非数组时 .map 直接 TypeError 打断整轮工具调用
+      if (!Array.isArray(args.sandIds) || !Array.isArray(args.stoneIds)) {
+        return { success: false, error: 'sandIds/stoneIds 必须是材料 ID 数组' }
       }
 
       const allMaterials = await MaterialService.getAllMaterials()
@@ -442,6 +449,10 @@ const clearChatHistory = async () => {
  * 分析预处理：识别分析类型 + 数值预处理
  */
 const prepareAnalysis = async (event, { data, customPrompt, selectedContrastMaterials }) => {
+  // 2026-08-23 修复：渲染端异常载荷（data 缺失）时直接降级，而非 TypeError
+  if (!data || typeof data !== 'object') {
+    return { modes: [], preprocessedData: null }
+  }
   const mixDesigns = data.mixDesigns || []
   const materialMapping = data.materialMapping || {}
 

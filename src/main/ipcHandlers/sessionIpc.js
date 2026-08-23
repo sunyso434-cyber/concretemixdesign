@@ -2,10 +2,31 @@
 // 由主文件 registerAgentHandlers 调用：registerSessionIpc(ipcMain, deps)
 // deps: { executor, agentMemoryService, log }
 // 拆分原则：仅移动注册闭包，channel 名、参数、返回结构原样保留。
+// 2026-08-23 工程化：统一 try/catch 包装（此前一半 handler DB 报错直接 reject 到渲染端，
+// 另一半返回 {success:false}，错误契约不一致）+ sessionId 非空校验。
 function registerSessionIpc(ipcMain, deps) {
   const { executor, agentMemoryService, log } = deps
 
-  ipcMain.handle('agent:listSessions', async () => {
+  const wrap = (channel, fn, fallback) => {
+    ipcMain.handle(channel, async (event, arg) => {
+      try {
+        return await fn(event, arg)
+      } catch (err) {
+        console.error(`[${channel}]`, err.message)
+        if (log && typeof log.error === 'function') log.error(`[${channel}] ${err.message}`)
+        return fallback ? fallback() : { success: false, error: err.message }
+      }
+    })
+  }
+
+  const requireSessionId = (arg) => {
+    if (!arg || typeof arg.sessionId !== 'string' || !arg.sessionId.trim()) {
+      throw new Error('缺少 sessionId')
+    }
+    return arg.sessionId
+  }
+
+  wrap('agent:listSessions', async () => {
     const { ChatHistory, ChatSession } = require('../db/database')
     const { fn, col, literal } = require('sequelize')
     // 取最近 50 个 sessionId
@@ -39,14 +60,15 @@ function registerSessionIpc(ipcMain, deps) {
   })
 
   // Task 2.15b: 按工作区分组列出所有会话
-  ipcMain.handle('agent:listSessionsGrouped', async () => {
+  wrap('agent:listSessionsGrouped', async () => {
     if (!global.chatHistorySync) {
       return { workspaces: [], unclassified: [] }
     }
     return await global.chatHistorySync.listSessionsGrouped()
-  })
+  }, () => ({ workspaces: [], unclassified: [] }))
 
-  ipcMain.handle('agent:getSessionMessages', async (_event, { sessionId, before }) => {
+  wrap('agent:getSessionMessages', async (_event, { sessionId, before }) => {
+    requireSessionId({ sessionId })
     const messages = await agentMemoryService.getHistory(sessionId, { limit: 20, before })
     // 剥离 metadata.timeline（大对象，含 reasoning + tool 结果）
     // 历史消息切回时不回放思考过程，只显示纯文本（DB 仍保留 timeline，需要时可单独查询）
@@ -66,7 +88,8 @@ function registerSessionIpc(ipcMain, deps) {
     return { success: true, messages: slimMessages, contextLimit }
   })
 
-  ipcMain.handle('agent:deleteSession', async (_event, { sessionId }) => {
+  wrap('agent:deleteSession', async (_event, { sessionId }) => {
+    requireSessionId({ sessionId })
     await agentMemoryService.deleteSession(sessionId)
     if (global.chatHistorySync?.invalidateGroupedCache) global.chatHistorySync.invalidateGroupedCache()
     // 清理工具结果缓存
@@ -78,7 +101,7 @@ function registerSessionIpc(ipcMain, deps) {
     return { success: true }
   })
 
-  ipcMain.handle('agent:archiveSession', async (_event, { sessionIds, archived }) => {
+  wrap('agent:archiveSession', async (_event, { sessionIds, archived }) => {
     const { ChatSession } = require('../db/database')
     const { applyArchive } = require('./archiveSessionCore')
     // M0-2：isRunning 走 executor.isSessionRunning（会话运行状态由 executor 的 sessionAgents 维护）
@@ -93,13 +116,14 @@ function registerSessionIpc(ipcMain, deps) {
     return { success: true, ...result }
   })
 
-  ipcMain.handle('agent:duplicateSession', async (_event, { sessionId }) => {
+  wrap('agent:duplicateSession', async (_event, { sessionId }) => {
+    requireSessionId({ sessionId })
     const result = await agentMemoryService.duplicateSession(sessionId)
     if (global.chatHistorySync?.invalidateGroupedCache) global.chatHistorySync.invalidateGroupedCache()
     return { success: true, sessionId: result.sessionId, sessionName: result.sessionName }
   })
 
-  ipcMain.handle('agent:createSession', async (_event, { sessionId, sessionName }) => {
+  wrap('agent:createSession', async (_event, { sessionId, sessionName }) => {
     // v9.0.0 补充21：改为调用 SessionService.ensureSession
     // 旧行为：立即写入默认时间戳标题。新行为：仅当调用方显式传 sessionName（非 null/undefined）时创建，否则保留空标题等首条消息摘要。
     // 旧渲染端 createSession 已不再调用本 IPC（首条消息才落库），保留 handler 仅作向后兼容。
@@ -121,31 +145,24 @@ function registerSessionIpc(ipcMain, deps) {
   })
 
   // v9.0.0 补充21：渲染端主动丢弃空会话（用户切换/关闭时清理）
-  ipcMain.handle('agent:discardSession', async (_event, { sessionId }) => {
-    try {
-      const SessionService = require('../db/services/SessionService')
-      const result = await SessionService.discardSessionIfEmpty(sessionId)
-      if (result.discarded && global.chatHistorySync?.invalidateGroupedCache) {
-        global.chatHistorySync.invalidateGroupedCache()
-      }
-      return { success: true, ...result }
-    } catch (err) {
-      return { success: false, error: err.message }
+  wrap('agent:discardSession', async (_event, { sessionId }) => {
+    const SessionService = require('../db/services/SessionService')
+    const result = await SessionService.discardSessionIfEmpty(sessionId)
+    if (result.discarded && global.chatHistorySync?.invalidateGroupedCache) {
+      global.chatHistorySync.invalidateGroupedCache()
     }
+    return { success: true, ...result }
   })
 
   // v9.0.0 补充21：欢迎页获取最近会话列表（含消息数 + 工作区路径）
-  ipcMain.handle('agent:listRecentSessions', async (_event, { limit = 10 } = {}) => {
-    try {
-      const SessionService = require('../db/services/SessionService')
-      const sessions = await SessionService.listRecentSessionsWithMeta(limit)
-      return { success: true, sessions }
-    } catch (err) {
-      return { success: false, error: err.message }
-    }
+  wrap('agent:listRecentSessions', async (_event, { limit = 10 } = {}) => {
+    const SessionService = require('../db/services/SessionService')
+    const sessions = await SessionService.listRecentSessionsWithMeta(limit)
+    return { success: true, sessions }
   })
 
-  ipcMain.handle('agent:getSessionInfo', async (_event, { sessionId }) => {
+  wrap('agent:getSessionInfo', async (_event, { sessionId }) => {
+    requireSessionId({ sessionId })
     const { ChatSession } = require('../db/database')
     const session = await ChatSession.findOne({ where: { sessionId } })
     return session ? {
@@ -157,7 +174,11 @@ function registerSessionIpc(ipcMain, deps) {
     } : null
   })
 
-  ipcMain.handle('agent:renameSession', async (_event, { sessionId, sessionName }) => {
+  wrap('agent:renameSession', async (_event, { sessionId, sessionName }) => {
+    requireSessionId({ sessionId })
+    if (typeof sessionName !== 'string' || !sessionName.trim()) {
+      throw new Error('会话名称不能为空')
+    }
     const { ChatSession } = require('../db/database')
     await ChatSession.update(
       { sessionName },
@@ -167,7 +188,7 @@ function registerSessionIpc(ipcMain, deps) {
     return { success: true }
   })
 
-  ipcMain.handle('agent:clearAllMemory', async () => {
+  wrap('agent:clearAllMemory', async () => {
     const { ChatHistory, ChatSession, CorrectionRule, SessionSummary, PreferenceSuggestion } = require('../db/database')
     // 注意：user_preferences 表已在阶段 B 迁移中删除，不在此处引用
     await ChatHistory.destroy({ where: {}, truncate: true })
@@ -191,20 +212,16 @@ function registerSessionIpc(ipcMain, deps) {
   })
 
   // P0：一次性历史回填 — 给老板一个手动触发按钮
-  ipcMain.handle('agent:backfillMemory', async () => {
+  wrap('agent:backfillMemory', async () => {
     const MemoryTierService = require('../services/MemoryTierService')
     const result = await MemoryTierService.backfillAll({ batchSize: 20, minMessages: 20, concurrency: 3 })
     return { success: true, ...result }
   })
 
-  ipcMain.handle('agent:saveCorrection', async (_event, correction) => {
-    try {
-      const LearningService = require('../services/LearningService')
-      await LearningService.saveCorrection(correction)
-      return { success: true }
-    } catch (error) {
-      return { success: false, error: error.message }
-    }
+  wrap('agent:saveCorrection', async (_event, correction) => {
+    const LearningService = require('../services/LearningService')
+    await LearningService.saveCorrection(correction)
+    return { success: true }
   })
 }
 

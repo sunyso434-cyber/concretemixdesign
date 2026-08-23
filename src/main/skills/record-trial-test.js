@@ -3,6 +3,9 @@
  * 将用户口述的配合比信息和实测值录入 TrialTestRecord 表
  * 自动计算与 XGBoost 预测值的偏差分析
  */
+// 2026-08-23 ESLint 首跑发现的真 bug：原代码直接使用未定义的 mixDesignService
+// （ReferenceError 被 try/catch 吞掉，表现为"关联方案取用量"功能静默失效）
+const MixDesignService = require('../services/MixDesignService')
 
 module.exports = {
   name: 'record_trial_test',
@@ -220,7 +223,7 @@ module.exports = {
     // 若有关联方案，自动从方案取各材料用量（AI 传的优先，用于完整用量表展示）
     if (args.mixDesignId) {
       try {
-        const design = await mixDesignService.getMixDesignById(args.mixDesignId)
+        const design = await MixDesignService.getMixDesignById(args.mixDesignId)
         if (design) {
           const designData = typeof design.toJSON === 'function' ? design.toJSON() : design
           const amounts = designData.materials || {}
