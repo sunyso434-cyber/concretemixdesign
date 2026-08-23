@@ -117,8 +117,9 @@ describe('calculateWaterReducingRate 减水率公式', () => {
     expect(await MixDesignService_Aggregate.calculateWaterReducingRate(28, 1.5, 1.8, spStd, null)).toBe(34)
   })
 
-  test('公式 4：标准型，调 C40=2.5 → C40 strengthDosage=2.5 → 减水率=28+20=48%', async () => {
-    expect(await MixDesignService_Aggregate.calculateWaterReducingRate(28, 1.5, 2.5, spStd, null)).toBe(48)
+  test('公式 4：标准型，调 C40=2.5 → C40 strengthDosage=2.5 → 数学值 48 被封顶到 40%', async () => {
+    // 数学值 = 28 + (2.5-1.5)/0.1 × 2 = 48；实现 clamp 到 [0,40] 防外推失真（2026-08-23 核对：clamp 为后加业务规则，断言随规则更新）
+    expect(await MixDesignService_Aggregate.calculateWaterReducingRate(28, 1.5, 2.5, spStd, null)).toBe(40)
   })
 
   test('公式 5：高效减水剂(1.2%, 30%, 2.5) → C30 默认 → 减水率 30%', async () => {
