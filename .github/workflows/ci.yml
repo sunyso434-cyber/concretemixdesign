@@ -1,0 +1,37 @@
+# CI（2026-08-23 第五批工程化引入）
+# 说明：
+# - lint 与 build 为严格门禁（必须绿）
+# - jest 目前为「基线宽松」模式：仓库存在 16 个既有失败套件（fixtures 丢失/断言过时，
+#   见 2026-08-22 审查报告），清理完成后把 continue-on-error 移除转为严格门禁
+# - Windows runner：与开发环境一致（Electron + sqlite3 原生模块 + 路径分隔符行为）
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  ci:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖（npm ci）
+        run: npm ci
+
+      - name: ESLint（严格：error 必须为 0）
+        run: npm run lint
+
+      - name: 前端构建（vite build）
+        run: npm run build
+
+      - name: Jest 测试（基线宽松：既有失败清理后转严格）
+        run: npx jest --silent
+        continue-on-error: true
