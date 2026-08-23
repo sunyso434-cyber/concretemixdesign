@@ -1,6 +1,10 @@
 // 数据库备份恢复方法集（从 SystemService.js 拆分，行为不变）
 // 通过 SystemService.prototype 挂载；纯 sqlite 文件拷贝，无实例状态依赖。
 
+const fs = require('fs')
+const path = require('path')
+const { app } = require('electron')
+
   // 备份数据库（内部使用，自动生成路径）
   async function backupDatabase() {
     try {

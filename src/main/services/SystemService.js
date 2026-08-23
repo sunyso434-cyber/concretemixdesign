@@ -9,16 +9,6 @@ const dataImportExport = require('./dataImportExport')
 const featureConfigs = require('./featureConfigs')
 const backupRestore = require('./backupRestore')
 
-// 惰性 require blueprint-loader 的 invalidateMaterialsCache，避免模块加载阶段引入 require 环
-function _invalidateMaterialsCache() {
-  try {
-    require('../skills/blueprint-loader').invalidateMaterialsCache()
-  } catch (error) {
-    // 缓存失效失败不阻塞材料导入
-    console.error('[SystemService] 失效材料缓存失败:', error.message)
-  }
-}
-
 class SystemService {
   // 获取所有系统参数
   async getAllParams() {
