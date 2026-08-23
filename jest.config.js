@@ -35,6 +35,8 @@ module.exports = {
   },
   // 单进程跑（避免 EventBus 单例跨文件污染）
   maxWorkers: 1,
+  // CI（Windows runner）上真实 SQLite 建表/PDF 全流程可能超 jest 默认 5s——放宽到 30s
+  testTimeout: 30000,
   // 显式隔离每个 test 的环境
   resetModules: false,
   setupFiles: ['<rootDir>/tests/jest.setup.js'],
