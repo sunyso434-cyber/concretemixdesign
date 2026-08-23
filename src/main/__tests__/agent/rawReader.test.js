@@ -56,7 +56,8 @@ describe('rawReader', () => {
     test('排除内部目录', () => {
       expect(isPathExcluded('wiki/index.md')).toBe(true)
       expect(isPathExcluded('reports/r.docx')).toBe(true)
-      expect(isPathExcluded('chat-history/s1.md')).toBe(true)
+      // chat-history 已迁入 wiki/ 子目录，由 wiki 前缀覆盖（顶层目录排除规则已随之移除）
+      expect(isPathExcluded('wiki/chat-history/s1.md')).toBe(true)
     })
 
     test('普通路径不排除', () => {

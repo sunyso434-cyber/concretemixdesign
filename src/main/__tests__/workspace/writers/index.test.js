@@ -1,27 +1,11 @@
 // writers 调度器测试
 // - 按 type 选 writer
 // - 未知 type 抛错
+// 2026-08-23 清理：docx/xlsx writer 已迁移 officecli（调度器仅支持 markdown），
+// 对应旧用例随功能移除；writers/docx.js 死文件一并删除
 const { write, listTypes } = require('../../../workspace/writers')
 
 describe('writers dispatcher', () => {
-  test('按 type 选 docx writer', async () => {
-    const buf = await write('docx', {
-      title: 't',
-      sections: [{ type: 'h1', content: 'hi' }]
-    })
-    expect(buf).toBeInstanceOf(Buffer)
-    expect(buf.length).toBeGreaterThan(1000)
-  })
-
-  test('按 type 选 xlsx writer', async () => {
-    const buf = await write('xlsx', {
-      title: 't',
-      sections: [{ type: 'table', rows: [['a', 'b']] }]
-    })
-    expect(buf).toBeInstanceOf(Buffer)
-    expect(buf[0]).toBe(0x50) // PK
-  })
-
   test('按 type 选 markdown writer', async () => {
     const buf = await write('markdown', {
       title: 't',
@@ -39,13 +23,17 @@ describe('writers dispatcher', () => {
     expect(buf.toString('utf-8')).toContain('world')
   })
 
-  test('未知 type 抛错', async () => {
+  test('未知 type 抛错（docx/xlsx 已迁移 officecli，不再由 writer 支持）', async () => {
+    await expect(write('docx', { title: 't', sections: [] }))
+      .rejects.toThrow(/unknown writer type/i)
     await expect(write('pdf', { title: 't', sections: [] }))
       .rejects.toThrow(/unknown writer type/i)
   })
 
   test('listTypes 返回支持的 writer 类型', () => {
     const types = listTypes()
-    expect(types).toEqual(expect.arrayContaining(['docx', 'xlsx', 'markdown', 'md']))
+    expect(types).toEqual(expect.arrayContaining(['markdown', 'md']))
+    expect(types).not.toContain('docx')
+    expect(types).not.toContain('xlsx')
   })
 })

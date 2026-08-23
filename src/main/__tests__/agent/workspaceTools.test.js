@@ -41,19 +41,21 @@ function makeMockKG() {
 }
 
 describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
-test('返回 20 个伪 Skill，名称集合与 brief 一致', () => {
+test('返回 26 个伪 Skill，名称集合与 brief 一致（2026-08-23 更新：v0.3.x 起 office/归档/分析系工具并入）', () => {
     const skills = buildWorkspaceSkills({
       workspaceManager: makeMockWM(),
       wikiEngine: makeMockWiki(),
       kgExtractor: null
     })
-    expect(skills).toHaveLength(20)
+    expect(skills).toHaveLength(26)
     const names = skills.map(s => s.name).sort()
     expect(names).toEqual([
       'workspace_grep', 'workspace_ingest', 'workspace_lint', 'workspace_listFiles',
       'workspace_readPage', 'workspace_search', 'workspace_searchGraph', 'workspace_writeFile',
       'workspace_readRaw', 'workspace_organize', 'workspace_recordAnswer',
-      'read_office_file', 'edit_office_file',
+      'workspace_analyze', 'workspace_mkdir', 'workspace_archiveReports',
+      'read_office_file', 'edit_office_file', 'batch_office_edit',
+      'query_office_elements', 'refresh_office_doc',
       'create_office_file', 'merge_office_template',
       'move_office_element', 'validate_office_file',
       'import_office_csv', 'officecli_raw', 'officecli_help'
@@ -278,7 +280,7 @@ test('返回 20 个伪 Skill，名称集合与 brief 一致', () => {
 
   // ===== 集成：SkillRegistry.register 能成功 =====
 
-  test('所有 20 个伪 Skill 能被 SkillRegistry.register 接受（验证 4 字段协议）', () => {
+  test('所有 26 个伪 Skill 能被 SkillRegistry.register 接受（验证 4 字段协议）', () => {
     const SkillRegistry = require('../../agent/SkillRegistry')
     const reg = new SkillRegistry()
     const skills = buildWorkspaceSkills({
@@ -289,14 +291,16 @@ test('返回 20 个伪 Skill，名称集合与 brief 一致', () => {
     for (const s of skills) {
       reg.register(s, { builtin: true, filePath: '<workspace-pseudo>' })
     }
-    expect(reg.size).toBe(20)
+    expect(reg.size).toBe(26)
     const schemas = reg.getToolSchemas()
     const names = schemas.map(sc => sc.function.name).sort()
     expect(names).toEqual([
       'workspace_grep', 'workspace_ingest', 'workspace_lint', 'workspace_listFiles',
       'workspace_readPage', 'workspace_search', 'workspace_searchGraph', 'workspace_writeFile',
       'workspace_readRaw', 'workspace_organize', 'workspace_recordAnswer',
-      'read_office_file', 'edit_office_file',
+      'workspace_analyze', 'workspace_mkdir', 'workspace_archiveReports',
+      'read_office_file', 'edit_office_file', 'batch_office_edit',
+      'query_office_elements', 'refresh_office_doc',
       'create_office_file', 'merge_office_template',
       'move_office_element', 'validate_office_file',
       'import_office_csv', 'officecli_raw', 'officecli_help'

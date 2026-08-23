@@ -14,7 +14,7 @@ describe('agent:run IPC 兼容性', () => {
   test('Orchestrator.run 返回 {success:true, result} 兼容', async () => {
     const orch = Orchestrator.create('unified', {
       deepseekService: { chatWithTools: jest.fn().mockResolvedValue({ content: 'ok' }) },
-      skillRegistry: { getToolSchemas: () => [] },
+      skillRegistry: { getToolSchemas: () => [], listSoftSkills: () => [] },
       skillExecutor: {},
       agentMemoryService: { buildAgentMdBlock: async () => '', buildHistoryMessages: async () => [], saveMessage: async () => {} }
     })
@@ -27,7 +27,7 @@ describe('agent:run IPC 兼容性', () => {
     // 模拟 D 阶段后的 errorHandler.fatal 流程
     const orch = Orchestrator.create('unified', {
       deepseekService: { chatWithTools: jest.fn().mockRejectedValue(new Error('fatal')) },
-      skillRegistry: { getToolSchemas: () => [] },
+      skillRegistry: { getToolSchemas: () => [], listSoftSkills: () => [] },
       skillExecutor: {},
       agentMemoryService: { buildAgentMdBlock: async () => '', buildHistoryMessages: async () => [], saveMessage: async () => {} }
     })

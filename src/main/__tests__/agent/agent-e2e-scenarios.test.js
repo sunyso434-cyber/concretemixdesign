@@ -47,6 +47,21 @@ jest.mock('../../db/database', () => ({
   CorrectionRule: { findAll: jest.fn(async () => []), destroy: jest.fn() }
 }))
 
+// 2026-08-23 修复：UnifiedStrategy 主循环内部用 failover config 直接 new DeepSeekService(config)，
+// 不再调用注入实例的 chatWithToolsStream（旧注释假设已过时）——必须 mock 类本身，
+// 由 makeFakeDeepseekService 把脚本化响应桥接到类实例上
+let mockChat = null
+jest.mock('../../services/DeepSeekService', () => {
+  return jest.fn().mockImplementation(function (config, sys) {
+    return {
+      config,
+      systemService: sys,
+      chatWithToolsStream: (...args) => mockChat(...args),
+      _getConfig: async () => ({ maxSteps: 20, apiKey: 'sk-test', contextLimit: 200000 })
+    }
+  })
+})
+
 jest.mock('sequelize', () => ({
   Op: { gt: Symbol('gt') }
 }))
@@ -95,9 +110,10 @@ function makeFakeDeepseekService(scriptedResponses) {
     idx++
     return typeof r === 'function' ? r() : r
   }
-  wrapped._getConfig = async () => ({ maxSteps: 10 })
+  wrapped._getConfig = async () => ({ maxSteps: 10, apiKey: 'sk-test', contextLimit: 200000 })
   wrapped.mock = { calls: callRecords }
-  // 关键：返回对象含 chatWithToolsStream 字段（UnifiedStrategy 调用 this.deepseekService.chatWithToolsStream）
+  // 桥接到类级 mock（UnifiedStrategy 内部 new DeepSeekService 走这里）
+  mockChat = wrapped
   return {
     chatWithToolsStream: wrapped,
     _getConfig: wrapped._getConfig,
@@ -229,7 +245,6 @@ describe('P4 E2E 场景 A/B/D/G/H（Task 4.5-4.8）', () => {
     })
 
     const result = await orchestrator.run({ sessionId: 'p4-e2e-A', message: '查抗渗混凝土水胶比' })
-
     expect(result.success).toBe(true)
     expect(result.content).toContain('已读全文')
 
@@ -272,9 +287,11 @@ describe('P4 E2E 场景 A/B/D/G/H（Task 4.5-4.8）', () => {
       () => ({
         content: null,
         tool_calls: [
+          // 2026-08-23 修复：docx writer 已移除（报告生成改走 officecli 系列），
+          // writeFile 仅支持 md —— 场景改为验证 md 报告全流程
           tc('c3', 'workspace_writeFile', {
-            type: 'docx',
-            filename: 'C30配合比报告.docx',
+            type: 'md',
+            filename: 'C30配合比报告.md',
             payload: {
               title: 'C30 配合比设计报告',
               sections: [
@@ -286,7 +303,7 @@ describe('P4 E2E 场景 A/B/D/G/H（Task 4.5-4.8）', () => {
           })
         ]
       }),
-      () => ({ content: '已生成 C30配合比报告.docx。', tool_calls: null })
+      () => ({ content: '已生成 C30配合比报告.md。', tool_calls: null })
     ]
 
     const { orchestrator, deepseekService } = setupAgent({
@@ -300,17 +317,14 @@ describe('P4 E2E 场景 A/B/D/G/H（Task 4.5-4.8）', () => {
     expect(result.success).toBe(true)
     expect(result.content).toContain('已生成')
 
-    // 验证 reports/C30配合比报告.docx 真实生成
+    // 验证 reports/C30配合比报告.md 真实生成
     const reportsDir = path.join(testPath, 'reports')
     expect(fsSync.existsSync(reportsDir)).toBe(true)
-    const docxPath = path.join(reportsDir, 'C30配合比报告.docx')
-    expect(fsSync.existsSync(docxPath)).toBe(true)
-    const buf = await fs.readFile(docxPath)
-    // docx 是 zip 格式：PK\x03\x04
-    expect(buf[0]).toBe(0x50)
-    expect(buf[1]).toBe(0x4b)
-    expect(buf[2]).toBe(0x03)
-    expect(buf[3]).toBe(0x04)
+    const reportPath = path.join(reportsDir, 'C30配合比报告.md')
+    expect(fsSync.existsSync(reportPath)).toBe(true)
+    const reportText = await fs.readFile(reportPath, 'utf-8')
+    expect(reportText).toContain('C30 配合比设计报告')
+    expect(reportText).toContain('水胶比 0.45')
 
     // 验证 ingest 真实执行（wiki 下应有 sources/设计参数-xxxxxx.md）
     const wikiLs = await mgr.listFiles('wiki')

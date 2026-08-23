@@ -42,7 +42,7 @@ const makeMocks = (orch) => {
   mockChat.mockReset()
   mockGetConfig.mockReset()
   mockGetConfig.mockResolvedValue({ maxSteps: 20, apiKey: 'sk-test' })
-  const skillRegistry = { getSkill: jest.fn(), getToolSchemas: jest.fn(() => []) }
+  const skillRegistry = { getSkill: jest.fn(), getToolSchemas: jest.fn(() => []), listSoftSkills: jest.fn(() => []) }
   const skillExecutor = { execute: jest.fn() }
   const agentMemoryService = {
     buildAgentMdBlock: jest.fn(async () => ''),

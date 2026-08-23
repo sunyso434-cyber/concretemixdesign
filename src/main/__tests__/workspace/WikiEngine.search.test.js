@@ -1,5 +1,6 @@
 const path = require('path')
 const fs = require('fs').promises
+const os = require('os')
 const { WorkspaceManager } = require('../../workspace/WorkspaceManager')
 const { WikiEngine } = require('../../workspace/WikiEngine')
 
@@ -7,7 +8,9 @@ describe('WikiEngine.search', () => {
   let mgr, wiki, testPath
 
   beforeEach(async () => {
-    testPath = path.join(__dirname, 'fixtures/wiki-search-test')
+    // 2026-08-23 修复：改用系统临时目录——此前 afterEach 会 rm 整个 git 跟踪的 fixtures 目录，
+    // 每次跑测试后 git status 变脏（fixtures 显示为已删除）
+    testPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-search-test-'))
     await fs.mkdir(testPath, { recursive: true })
     // 3 个测试文件（v1.5.3 修订：直接放工作区根目录，去掉 raw/）
     await fs.writeFile(path.join(testPath, '抗渗.md'), '# 抗渗混凝土\n\n抗渗混凝土水胶比不应大于 0.45。')

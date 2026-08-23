@@ -265,7 +265,7 @@ describe('P3 集成测试（Task 3.5-3.6：ingest→search→writeFile→chat-hi
 
   // ==================== Test 2: ingest .md → writeFile 写 reports/out.docx ====================
 
-  test('Test 2: ingest → writeFile 写 reports/out.docx（生成闭环）', async () => {
+  test('Test 2: ingest → writeFile 写 reports/report.md（生成闭环；docx writer 已迁移 officecli）', async () => {
     // 1) ingest 一个源文件（建立工作区状态）
     await fs.writeFile(path.join(testPath, '混凝土.md'), '# 混凝土\n\n配合比设计。')
     await wiki.ingest({ filename: '混凝土.md' })
@@ -273,8 +273,8 @@ describe('P3 集成测试（Task 3.5-3.6：ingest→search→writeFile→chat-hi
     // 2) LLM 模拟：调 writeFile 生成报告
     const result = await writeFile({
       workspaceManager: mgr,
-      type: 'docx',
-      filename: 'report.docx',
+      type: 'md',
+      filename: 'report.md',
       payload: {
         title: '混凝土配合比报告',
         sections: [
@@ -286,16 +286,17 @@ describe('P3 集成测试（Task 3.5-3.6：ingest→search→writeFile→chat-hi
     })
 
     // 3) 返回值结构（用 mgr.current().path 已 normalize 的路径）
-    const expectedPath = path.posix.join(mgr.current().path, 'reports', 'report.docx')
+    const expectedPath = path.posix.join(mgr.current().path, 'reports', 'report.md')
     expect(result.path).toBe(expectedPath)
-    expect(result.size).toBeGreaterThan(1000)
+    expect(result.size).toBeGreaterThan(0)
     expect(result.savedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
 
-    // 4) 文件真实落盘 + 是合法 docx（zip 头）
+    // 4) 文件真实落盘 + 内容正确（markdown 文本）
     const stat = await fs.stat(result.path)
     expect(stat.size).toBe(result.size)
-    const buf = await fs.readFile(result.path)
-    expect(isValidZip(buf)).toBe(true)
+    const md = await fs.readFile(result.path, 'utf-8')
+    expect(md).toContain('混凝土配合比报告')
+    expect(md).toContain('水胶比 0.45')
   })
 
   // ==================== Test 3: saveMessage 模拟 → 5s debounce → chat-history 磁盘导出 ====================
@@ -313,8 +314,11 @@ describe('P3 集成测试（Task 3.5-3.6：ingest→search→writeFile→chat-hi
 
     // 3) 5 秒内不能导出（debounce）—— 同步等待 4.5s
     await new Promise(r => setTimeout(r, 4500))
-    const slug = sessionId.substring(0, 8)
-    const mdPath = path.join(testPath, 'wiki', 'chat-history', slug, 'session.md')
+    // v10.x 起 _getSessionDirName 用完整安全化 sessionId（不再截 8 字符）；
+    // 路径必须用 mgr.current().path（WorkspaceManager open 时 normalize，Windows 临时目录
+    // 可能与 testPath 的斜杠/短名不一致——Test 2 已踩过此坑）
+    const chatDir = path.join(mgr.current().path, 'wiki', 'chat-history', sessionId)
+    const mdPath = path.join(chatDir, 'session.md')
     expect(fsSync.existsSync(mdPath)).toBe(false)
 
     // 4) 等待到 5.5s（debounce 应已触发 + IO 完成）
@@ -330,7 +334,7 @@ describe('P3 集成测试（Task 3.5-3.6：ingest→search→writeFile→chat-hi
     expect(content).toContain(`sessionId: ${sessionId}`)
 
     // 6) JSONL 也存在
-    const jsonlPath = path.join(testPath, 'wiki', 'chat-history', slug, 'session.jsonl')
+    const jsonlPath = path.join(chatDir, 'session.jsonl')
     expect(fsSync.existsSync(jsonlPath)).toBe(true)
     const jsonlContent = await fs.readFile(jsonlPath, 'utf-8')
     expect(jsonlContent).toContain('抗渗混凝土')
@@ -383,59 +387,8 @@ describe('P3 集成测试（Task 3.5-3.6：ingest→search→writeFile→chat-hi
     expect(combinedTypes.has('chatHistory')).toBe(true)
   })
 
-  // ==================== Test 5: writeFile 生成 xlsx → 验证 zip 结构 + sheet 名 ====================
-
-  test('Test 5: writeFile 生成 xlsx → 验证 zip 结构 + sheet 名 + 内容可被 xlsx 库读回', async () => {
-    // 1) ingest 一个源（建立工作区）
-    await fs.writeFile(path.join(testPath, '数据.md'), '# 数据\n\n基础数据。')
-    await wiki.ingest({ filename: '数据.md' })
-
-    // 2) writeFile 生成 xlsx
-    const result = await writeFile({
-      workspaceManager: mgr,
-      type: 'xlsx',
-      filename: 'data.xlsx',
-      payload: {
-        title: '配合比数据表',
-        sections: [
-          { type: 'table', sheetName: '配合比', rows: [
-            ['材料', '用量'],
-            ['水泥', 400],
-            ['水', 180]
-          ]},
-          { type: 'table', sheetName: '抗压强度', rows: [
-            ['龄期', '强度(MPa)'],
-            ['7d', 28.5]
-          ]}
-        ]
-      }
-    })
-
-    // 3) 文件存在 + 是合法 zip
-    const expectedPath = path.posix.join(mgr.current().path, 'reports', 'data.xlsx')
-    expect(result.path).toBe(expectedPath)
-    const buf = await fs.readFile(result.path)
-    expect(isValidZip(buf)).toBe(true)
-
-    // 4) zip 内含 xl/workbook.xml（xlsx 必有）
-    // 用 buffer.indexOf 扫描 PK\x03\x04 后跟 'xl/workbook.xml'
-    const searchBuf = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('xl/workbook.xml')])
-    const foundIdx = buf.indexOf(searchBuf.slice(4))  // 'xl/workbook.xml' 直接搜
-    // 更稳：找 'xl/workbook.xml' 字符串（xlsx 必含）
-    expect(buf.toString('binary').includes('xl/workbook.xml')).toBe(true)
-
-    // 5) 用 xlsx 库读回（验证真能反序列化）
-    const xlsx = require('xlsx')
-    const wb = xlsx.read(buf, { type: 'buffer' })
-    expect(wb.SheetNames).toContain('配合比')
-    expect(wb.SheetNames).toContain('抗压强度')
-
-    // 6) sheet 内容正确
-    const sheet1 = wb.Sheets['配合比']
-    const aoa1 = xlsx.utils.sheet_to_json(sheet1, { header: 1 })
-    expect(aoa1[0]).toEqual(['材料', '用量'])
-    expect(aoa1[1]).toEqual(['水泥', 400])
-  })
+  // ==================== Test 5 已删除（2026-08-23）====================
+  // xlsx writer 已迁移 officecli（writers 仅支持 markdown），旧用例随功能移除
 
   // ==================== 附加：完整闭环（综合 1+2+3+4）====================
 
@@ -479,8 +432,7 @@ describe('P3 集成测试（Task 3.5-3.6：ingest→search→writeFile→chat-hi
     expect(sync.pendingQueue.has(sessionId)).toBe(true)
     await sync.flushPendingExports()
 
-    const slug = sessionId.substring(0, 8)
-    const chatMdPath = path.join(testPath, 'wiki', 'chat-history', slug, 'session.md')
+    const chatMdPath = path.join(mgr.current().path, 'wiki', 'chat-history', sessionId, 'session.md')
     expect(fsSync.existsSync(chatMdPath)).toBe(true)
 
     // Stage 5: search 同时命中 wiki + chat-history

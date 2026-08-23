@@ -53,6 +53,21 @@ jest.mock('../../services/SystemService', () => ({
   })
 }))
 
+// ---- Mock DeepSeekService 类（2026-08-23 修复验收 4）----
+// UnifiedStrategy 主循环内部用 failover config 直接 new DeepSeekService(config)，
+// 注入实例的 chatWithToolsStream 不会被调用——需类级 mock 桥接
+let mockLLMClass = null
+jest.mock('../../services/DeepSeekService', () => {
+  return jest.fn().mockImplementation(function (config, sys) {
+    return {
+      config,
+      systemService: sys,
+      chatWithToolsStream: (...args) => mockLLMClass(...args),
+      _getConfig: async () => ({ maxSteps: 3, apiKey: 'sk-test', contextLimit: 200000 })
+    }
+  })
+})
+
 // ---- Mock electron（slashCommandHandler 需要 ipcMain） ----
 jest.mock('electron', () => ({
   ipcMain: {
@@ -198,7 +213,7 @@ describe('E2E 验收 1：ingest PDF / Word（老板清单第 1 条）', () => {
 // 验收 2：聊天 "按规范生成配合比报告" → docx 可打开
 // ============================================================
 
-describe('E2E 验收 2：docx 报告生成可打开（老板清单第 2 条）', () => {
+describe('E2E 验收 2：报告生成可打开（老板清单第 2 条；2026-08-23 docx writer 迁移 officecli 后改验 md）', () => {
   let wsPath, mgr
 
   beforeEach(async () => {
@@ -212,11 +227,11 @@ describe('E2E 验收 2：docx 报告生成可打开（老板清单第 2 条）',
     await rmTmpDir(wsPath)
   })
 
-  test('writeFile({type:"docx"}) → reports/*.docx 落盘 + Buffer 是合法 zip + 可被 docx parser 读回', async () => {
+  test('writeFile({type:"md"}) → reports/*.md 落盘 + 内容完整可读回', async () => {
     const result = await writeFile({
       workspaceManager: mgr,
-      type: 'docx',
-      filename: 'mix-report.docx',
+      type: 'md',
+      filename: 'mix-report.md',
       payload: {
         title: 'C30 配合比设计报告',
         sections: [
@@ -235,23 +250,16 @@ describe('E2E 验收 2：docx 报告生成可打开（老板清单第 2 条）',
       }
     })
 
-    // 1) 文件落盘 + 是 Buffer
-    expect(result.path).toBe(path.posix.join(wsPath.replace(/\\/g, '/'), 'reports', 'mix-report.docx'))
-    expect(result.size).toBeGreaterThan(1000)
+    // 1) 文件落盘
+    expect(result.path).toBe(path.posix.join(wsPath.replace(/\\/g, '/'), 'reports', 'mix-report.md'))
+    expect(result.size).toBeGreaterThan(0)
 
     // 2) 磁盘上确实存在
-    const stat = await fs.stat(path.join(wsPath, 'reports', 'mix-report.docx'))
+    const stat = await fs.stat(path.join(wsPath, 'reports', 'mix-report.md'))
     expect(stat.size).toBe(result.size)
 
-    // 3) Buffer 是合法 zip（docx 是 zip 容器）
-    const buf = await fs.readFile(path.join(wsPath, 'reports', 'mix-report.docx'))
-    expect(isValidZip(buf)).toBe(true)
-
-    // 4) 解压读 document.xml 验证内容（用 docx 库读回）
-    const { Document } = require('docx')
-    // 仅校验 Buffer 是合法 zip；用 mammoth 提取文字确认可读
-    const mammoth = require('mammoth')
-    const { value: text } = await mammoth.extractRawText({ buffer: buf })
+    // 3) 读回内容验证（markdown 文本）
+    const text = await fs.readFile(path.join(wsPath, 'reports', 'mix-report.md'), 'utf-8')
     expect(text).toContain('C30 配合比设计报告')
     expect(text).toContain('350')
   })
@@ -363,16 +371,18 @@ describe('E2E 验收 4：/rounds → 主循环停止（v10.2.0 范围 5-200）',
     // 1) 模拟 /rounds 3 已设置
     mockSystemParams.set('agentMaxSteps', { name: 'agentMaxSteps', value: '3', category: 'ai' })
 
-    // 2) mock deepseekService 让 _getConfig 返回 maxSteps=3
+    // 2) mock deepseekService 让 _getConfig 返回 maxSteps=3（须带 apiKey，llmFailover 会过滤无 key 配置）
     const llmCalls = jest.fn()
     const deepseekMock = {
-      _getConfig: jest.fn(async () => ({ maxSteps: 3 })),
+      _getConfig: jest.fn(async () => ({ maxSteps: 3, apiKey: 'sk-test' })),
       chatWithToolsStream: jest.fn(async () => {
         llmCalls()
         // 永远返回 tool_calls（永远要调工具，触发主循环跑满）
         return { content: null, tool_calls: [{ id: 'c1', function: { name: 'workspace.search', arguments: '{}' } }] }
       })
     }
+    // 桥接：UnifiedStrategy 内部 new DeepSeekService 走类 mock（见文件头部）
+    mockLLMClass = deepseekMock.chatWithToolsStream
 
     // 3) skill mock
     const skillRegistryMock = {

@@ -9,10 +9,10 @@
     "preview": "vite preview",
     "electron:dev": "set \"ELECTRON_RUN_AS_NODE=\" && cross-env NODE_ENV=development electron .",
     "electron:build": "cross-env NODE_ENV=production vite build && electron-builder",
-    "test": "jest",
+    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest",
     "test:manual": "node tests/manual/run-node-suites.js",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
+    "test:watch": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --watch",
+    "test:coverage": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --coverage",
     "lint": "eslint --no-warn-ignored \"src/**/*.js\" \"src/**/*.jsx\" main.js tests migrations *.config.js",
     "lint:fix": "eslint --no-warn-ignored --fix \"src/**/*.js\" \"src/**/*.jsx\" main.js tests migrations *.config.js"
   },

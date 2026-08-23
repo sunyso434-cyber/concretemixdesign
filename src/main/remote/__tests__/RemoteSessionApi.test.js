@@ -103,9 +103,10 @@ describe('RemoteSessionApi', () => {
       expect(ws.send).toHaveBeenCalledWith('agent:listSessions', {
         requestId: 'req-l',
         success: true,
+        // v10.x：sessions 条目新增 workspacePath（远程面板按工作区分组显示；无会话记录时为 null）
         sessions: [
-          { sessionId: 's1', lastActivity: '2026-01-01T00:00:00.000Z', sessionName: '会话A' },
-          { sessionId: 's2', lastActivity: '2026-01-02T00:00:00.000Z', sessionName: null }
+          { sessionId: 's1', lastActivity: '2026-01-01T00:00:00.000Z', sessionName: '会话A', workspacePath: null },
+          { sessionId: 's2', lastActivity: '2026-01-02T00:00:00.000Z', sessionName: null, workspacePath: null }
         ]
       })
     })
@@ -140,7 +141,7 @@ describe('RemoteSessionApi', () => {
         requestId: 'req-ar',
         success: true,
         sessions: [
-          { sessionId: 's1', lastActivity: '2026-01-01T00:00:00.000Z', sessionName: '会话A' }
+          { sessionId: 's1', lastActivity: '2026-01-01T00:00:00.000Z', sessionName: '会话A', workspacePath: null }
         ]
       })
     })

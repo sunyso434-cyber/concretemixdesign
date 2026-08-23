@@ -9,6 +9,7 @@
 
 const path = require('path')
 const fs = require('fs').promises
+const os = require('os')
 const { WorkspaceManager } = require('../../workspace/WorkspaceManager')
 const { WikiEngine } = require('../../workspace/WikiEngine')
 const { loadIndex, saveIndex } = require('../../workspace/index-store')
@@ -17,7 +18,9 @@ describe('WikiEngine.search 含 chat-history (Task 3.4)', () => {
   let mgr, wiki, testPath
 
   beforeEach(async () => {
-    testPath = path.join(__dirname, 'fixtures/wiki-search-chat-history-test')
+    // 2026-08-23 修复：改用系统临时目录——此前 afterEach 会 rm 整个 git 跟踪的 fixtures 目录，
+    // 每次跑测试后 git status 变脏（fixtures 显示为已删除）
+    testPath = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-search-ch-'))
     await fs.rm(testPath, { recursive: true, force: true })
     await fs.mkdir(testPath, { recursive: true })
     mgr = new WorkspaceManager()

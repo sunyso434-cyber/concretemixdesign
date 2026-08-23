@@ -25,11 +25,11 @@ describe('write-handler（Task 3.2）', () => {
     }
   }
 
-  test('写 docx 报告成功', async () => {
+  test('写 md 报告成功（docx writer 已迁移 officecli，writeFile 仅支持 md）', async () => {
     const result = await writeHandler.writeFile({
       workspaceManager: makeWM(),
-      type: 'docx',
-      filename: 'test-report.docx',
+      type: 'md',
+      filename: 'test-report.md',
       payload: {
         title: '测试',
         sections: [
@@ -38,7 +38,7 @@ describe('write-handler（Task 3.2）', () => {
         ]
       }
     })
-    expect(result.path).toContain('test-report.docx')
+    expect(result.path).toContain('test-report.md')
     expect(result.size).toBeGreaterThan(0)
     expect(fs.existsSync(result.path)).toBe(true)
   })
@@ -47,8 +47,8 @@ describe('write-handler（Task 3.2）', () => {
     const wm = { current: () => null }
     await expect(writeHandler.writeFile({
       workspaceManager: wm,
-      type: 'docx',
-      filename: 'x.docx',
+      type: 'md',
+      filename: 'x.md',
       payload: { title: 'x', sections: [] }
     })).rejects.toMatchObject({ code: 'NOT_OPEN' })
   })
@@ -84,7 +84,7 @@ describe('write-handler v9.1.0 防御性', () => {
   test('缺 type 时返回清晰 E-PARAM-MISSING 错误', async () => {
     const result = writeHandler.writeFile({
       workspaceManager: makeWM(),
-      filename: 'report.docx',
+      filename: 'report.md',
       payload: { title: 'x', sections: [] }
     })
     await expect(result).rejects.toBeInstanceOf(WorkspaceError)
@@ -97,7 +97,7 @@ describe('write-handler v9.1.0 防御性', () => {
   test('缺 filename 时返回清晰错误', async () => {
     const result = writeHandler.writeFile({
       workspaceManager: makeWM(),
-      type: 'docx',
+      type: 'md',
       payload: { title: 'x', sections: [] }
     })
     await expect(result).rejects.toMatchObject({
@@ -123,7 +123,7 @@ describe('write-handler v9.1.0 防御性', () => {
     const result = writeHandler.writeFile({
       workspaceManager: makeWM(),
       type: 'docx',
-      filename: 'report.docx',
+      filename: 'report.md',
       payload: { title: 'x', sections: 'not array' }
     })
     await expect(result).rejects.toMatchObject({
@@ -136,7 +136,7 @@ describe('write-handler v9.1.0 防御性', () => {
     const result = writeHandler.writeFile({
       workspaceManager: makeWM(),
       type: 'docx',
-      filename: 'report.docx',
+      filename: 'report.md',
       payload: { title: 'x', sections: null }
     })
     await expect(result).rejects.toMatchObject({

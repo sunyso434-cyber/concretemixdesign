@@ -1,35 +1,29 @@
 // src/main/services/__tests__/DailyPlanService.test.js
-const assert = require('assert')
-// ★ 从 Service import，不是自己定义副本
+// 2026-08-23 清理：原为裸 assert 脚本（自定义 run() + process.exitCode），jest 识别为 0 个用例
+// 直接报 "must contain at least one test" —— 改写为标准 jest 用例（逻辑与断言原样保留）
 const DailyPlanService = require('../DailyPlanService')
 const { deriveStatus, deriveOverBudget } = DailyPlanService
 
-function run(name, fn) {
-  try { fn(); console.log(`  ✓ ${name}`) }
-  catch (e) { console.error(`  ✗ ${name}: ${e.message}`); process.exitCode = 1 }
-}
+describe('DailyPlanService status 派生值（2.8：从 Service import，非副本）', () => {
+  test('executedVolume=0 → planned', () => {
+    expect(deriveStatus(0, 100)).toBe('planned')
+  })
 
-console.log('status派生值(2.8) - 从Service import:')
-run('executedVolume=0 → planned', () => {
-  assert.strictEqual(deriveStatus(0, 100), 'planned')
+  test('0<executedVolume<volume → executing', () => {
+    expect(deriveStatus(50, 100)).toBe('executing')
+  })
+
+  test('executedVolume>=volume → completed', () => {
+    expect(deriveStatus(100, 100)).toBe('completed')
+  })
+
+  test('executedVolume>volume → completed + overBudget', () => {
+    expect(deriveStatus(120, 100)).toBe('completed')
+    expect(deriveOverBudget(120, 100)).toBe(true)
+  })
+
+  test('删车次后executedVolume<volume → 自动回退到executing', () => {
+    // 派生值天然支持回退
+    expect(deriveStatus(80, 100)).toBe('executing')
+  })
 })
-
-run('0<executedVolume<volume → executing', () => {
-  assert.strictEqual(deriveStatus(50, 100), 'executing')
-})
-
-run('executedVolume>=volume → completed', () => {
-  assert.strictEqual(deriveStatus(100, 100), 'completed')
-})
-
-run('executedVolume>volume → completed + overBudget', () => {
-  assert.strictEqual(deriveStatus(120, 100), 'completed')
-  assert.strictEqual(deriveOverBudget(120, 100), true)
-})
-
-run('删车次后executedVolume<volume → 自动回退到executing', () => {
-  // 派生值天然支持回退
-  assert.strictEqual(deriveStatus(80, 100), 'executing')
-})
-
-console.log('\n测试完成')
