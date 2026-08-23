@@ -368,7 +368,8 @@ class MixDesignService_Database {
       } else {
         // 从材料提取实际细度模数，不再用默认 2.8
         const sandFM = this._extractSandFM(materials?.sand)
-        finalSandRatio = MixDesignService_Aggregate.calculateSandRatio(waterRatio, slump, sandFM)
+        // 2026-08-23 修复：传入上面检测的骨料类型——卵石时 JGJ 55 砂率加成 +2.5%（此前漏传导致永不生效）
+        finalSandRatio = MixDesignService_Aggregate.calculateSandRatio(waterRatio, slump, sandFM, aggregateType)
         sandRatioSource = `${(finalSandRatio * 100).toFixed(1)}%（计算值，FM=${sandFM.toFixed(2)}）`
       }
 

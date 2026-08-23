@@ -23,6 +23,8 @@ const { loadXGB, DMatrix, Booster } = require('@wlearn/xgboost')
 const { Effect } = require('effect')
 const { Sampler, SearchSpace, Study } = require('effect-search')
 const { convertXGBoostModel, validateConvertedModel } = require('./modelFormatConverter')
+// K 折切分用分组版（2026-08-23 泄漏修复）：过采样副本整组进同一折，详见 ./folds.js
+const { groupedKFold } = require('./folds')
 
 // ============ 常量定义 ============
 
@@ -131,42 +133,7 @@ const PARAM_MAP = {
 
 // ============ 工具函数 ============
 
-/**
- * 伪随机数生成器（mulberry32，可复现 sklearn 的 shuffle）
- */
-function mulberry32(seed) {
-  let s = seed
-  return function () {
-    let t = (s += 0x6D2B79F5)
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-function shuffleIndices(n, seed = 42) {
-  const rng = mulberry32(seed)
-  const idx = Array.from({ length: n }, (_, i) => i)
-  for (let i = n - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1))
-    ;[idx[i], idx[j]] = [idx[j], idx[i]]
-  }
-  return idx
-}
-
-function kFold(n, k = 5, seed = 42) {
-  const shuffled = shuffleIndices(n, seed)
-  const folds = []
-  const foldSize = Math.floor(n / k)
-  for (let i = 0; i < k; i++) {
-    const start = i * foldSize
-    const end = i === k - 1 ? n : (i + 1) * foldSize
-    const testIdx = shuffled.slice(start, end)
-    const trainIdx = shuffled.filter(x => !testIdx.includes(x))
-    folds.push({ train: trainIdx, test: testIdx })
-  }
-  return folds
-}
+// K 折切分改用分组版（2026-08-23 泄漏修复）：过采样副本整组进同一折，详见 ./folds.js
 
 function rmse(yTrue, yPred) {
   let sum = 0
@@ -276,8 +243,10 @@ function buildBoosterParams(params) {
  * @returns {{ rmse: number, r2: number }} 平均 RMSE 与平均 R²
  */
 function trainAndEvaluateCV(params, dataCache) {
-  const { X: XData, y: yData, nSamples, nFeatures } = dataCache
-  const folds = kFold(nSamples, 5, 42)
+  const { X: XData, y: yData, nFeatures } = dataCache
+  // 分组 K 折（2026-08-23 泄漏修复）：×5 过采样的同源副本整组进同一折，
+  // 训练折与测试折不再出现同一样本，TPE 调参与本函数返回的 rmse/r² 回归真实水平
+  const folds = groupedKFold(XData, yData, nFeatures, 5, 42)
   const rmseList = []
   const r2List = []
   const boosterParams = buildBoosterParams(params)

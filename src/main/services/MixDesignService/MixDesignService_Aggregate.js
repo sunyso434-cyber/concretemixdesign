@@ -582,7 +582,8 @@ class MixDesignService_Aggregate {
    * @param {number} waterRatio - 水胶比
    * @param {number} slump - 坍落度(mm)
    * @param {number} finenessModulus - 砂细度模数（默认2.8）
-   * @param {string} aggregateType - 骨料类型，'gravel'碎石或'cobble'卵石（默认gravel）
+   * @param {string} aggregateType - 骨料类型，碎石: 'gravel'/'碎石'，卵石: 'cobble'/'卵石'（默认碎石）
+   *   2026-08-23 修复：同时接受中英文（主流程按材料名检测出中文，此前只认英文导致卵石加成永不生效）
    * @returns {number} 砂率（小数形式，如0.38表示38%）
    */
   calculateSandRatio(waterRatio, slump, finenessModulus = 2.8, aggregateType = 'gravel') {
@@ -598,7 +599,7 @@ class MixDesignService_Aggregate {
     const fmEffect = (finenessModulus - 2.8) * 0.05 // 细度模数每增加0.1砂率增加0.5%
 
     // 卵石混凝土砂率比碎石高约2-3%
-    const aggregateBonus = aggregateType === 'cobble' ? 0.025 : 0
+    const aggregateBonus = (aggregateType === 'cobble' || aggregateType === '卵石') ? 0.025 : 0
 
     let sandRatio = baseSandRatio + waterRatioEffect + slumpEffect + fmEffect + aggregateBonus
 

@@ -127,6 +127,16 @@ class MixDesignOptimizer {
     const { constraints, userLimits = {}, maxAdmixtureRatio = 50 } = params
     if (cancellationToken?.cancelled) throw new Error('cancelled')
 
+    // 2026-08-23 修复：入口前置校验——此前未选砂/石时会在阶段 1/3 深处抛
+    // "Cannot read properties of null/undefined" 这类用户无法理解的 TypeError
+    const requireMaterial = (value, label) => {
+      const list = Array.isArray(value) ? value.filter(Boolean) : (value ? [value] : [])
+      if (list.length === 0) throw new Error(`优化前请先选择${label}材料`)
+    }
+    requireMaterial(constraints?.materials?.cement, '水泥')
+    requireMaterial(constraints?.materials?.sand, '砂（细骨料）')
+    requireMaterial(constraints?.materials?.stone, '石（粗骨料）')
+
     // 进度上报辅助
     const report = (phase, current, total, message) => {
       if (progressCallback) progressCallback({ phase, current, total, message })
@@ -191,6 +201,7 @@ class MixDesignOptimizer {
       fineAggregateRatios,
       T_FM,
       defaultSpDosage, defaultSp, stoneInitial,
+      aggregateType,
       constraints, cancellationToken
     })
     const top5WithSand = stage3Result.top5
@@ -254,13 +265,14 @@ class MixDesignOptimizer {
    * @param {number} params.defaultSpDosage - 默认减水剂掺量
    * @param {Object} params.defaultSp - 默认减水剂
    * @param {Object} params.stoneInitial - 阶段 1 选出的粗骨料
+   * @param {string} params.aggregateType - 粗骨料类型（'碎石'/'卵石'，卵石砂率加成用）
    * @param {Object} params.constraints - 性能约束（strength/slump）
    * @param {Object} params.cancellationToken - 取消令牌 { cancelled: boolean }
    * @returns {Promise<Array<Object>>} Top5 胶凝+细骨料组合（按总成本升序）
    */
   async _stage3Refine({
     top5Cementitious, materials, fineAggregateRatios, T_FM,
-    defaultSpDosage, defaultSp, stoneInitial,
+    defaultSpDosage, defaultSp, stoneInitial, aggregateType = '碎石',
     constraints, cancellationToken
   }) {
     const results = []
@@ -272,11 +284,14 @@ class MixDesignOptimizer {
 
       for (const fineRatio of fineAggregateRatios) {
         const blendedSand = this._blendFineAggregatesForCost(sandCandidates, fineRatio)
+        // 2026-08-23 防御：混砂结果为空（如砂候选意外为空）时跳过该组合，
+        // 此处位于 try 之外，不判空会让整个优化以 TypeError 中断
+        if (!blendedSand) continue
 
         if (!this._validateFinenessModulus(blendedSand.finenessModulus, T_FM, 0.5)) continue
 
         const sandRatio = this.mixDesignService.calculateSandRatio(
-          combo.waterRatio, constraints.slump, blendedSand.finenessModulus, 'gravel'
+          combo.waterRatio, constraints.slump, blendedSand.finenessModulus, aggregateType
         )
 
         // 阶段 3 不遍历减水剂品种，用参考减水剂 + 阶段 1 粗骨料

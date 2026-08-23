@@ -82,4 +82,28 @@ describe('calculateSandRatio 砂率公式', () => {
       expect(result).toBeLessThan(0.50)
     })
   })
+
+  describe('骨料类型（2026-08-23 卵石加成修复）', () => {
+    const base = () => MixDesignService_Aggregate.calculateSandRatio(0.45, 120, 2.8)
+
+    test("卵石（'cobble'）比碎石高 0.025", () => {
+      expect(MixDesignService_Aggregate.calculateSandRatio(0.45, 120, 2.8, 'cobble'))
+        .toBeCloseTo(base() + 0.025, 10)
+    })
+
+    test("卵石中文 '卵石' 与英文 'cobble' 等价（主流程按材料名检测出的是中文）", () => {
+      expect(MixDesignService_Aggregate.calculateSandRatio(0.45, 120, 2.8, '卵石'))
+        .toBe(MixDesignService_Aggregate.calculateSandRatio(0.45, 120, 2.8, 'cobble'))
+    })
+
+    test("碎石三种写法（不传 / 'gravel' / '碎石'）结果一致（碎石用户数值零变化）", () => {
+      expect(MixDesignService_Aggregate.calculateSandRatio(0.45, 120, 2.8, 'gravel')).toBe(base())
+      expect(MixDesignService_Aggregate.calculateSandRatio(0.45, 120, 2.8, '碎石')).toBe(base())
+    })
+
+    test('卵石加成后仍受 0.28-0.50 边界约束', () => {
+      const high = MixDesignService_Aggregate.calculateSandRatio(0.65, 220, 3.4, '卵石')
+      expect(high).toBeLessThanOrEqual(0.50)
+    })
+  })
 })
