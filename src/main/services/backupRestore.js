@@ -2,6 +2,7 @@
 // 通过 SystemService.prototype 挂载；纯 sqlite 文件拷贝，无实例状态依赖。
 
 const fs = require('fs')
+const fsp = fs.promises
 const path = require('path')
 const { app } = require('electron')
 
