@@ -13,7 +13,9 @@ module.exports = {
     '<rootDir>/.claude/worktrees/',
     '<rootDir>/tests/e2e/',         // 端到端测试走 npm run test:e2e，不进 npm test
     '<rootDir>/tests/manual/',      // 手工脚本（npm run test:manual）
-    '<rootDir>/tests/unit/'         // 老手动脚本驱动（独立 runner，不进 jest）
+    // 清理（2026-08-22）：tests/unit 是 node assert 风格脚本（裸断言 + file:// require），
+    // jest 不兼容；现由 npm run test:manual（run-node-suites.js）真实驱动，不再是孤儿
+    '<rootDir>/tests/unit/'
   ],
   collectCoverageFrom: [
     'src/main/agent/**/*.js',

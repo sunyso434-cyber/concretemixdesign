@@ -20,8 +20,18 @@ const nodeOnlyScripts = [
   'test-add-schemes.js',
   'test-schemes.js',
   'test-scheme-details.js',
-  'test-standard-scope-accuracy.js',
-  '../../scripts/test-agent-mock-llm.js'
+  // 清理（2026-08-22）：test-standard-scope-accuracy.js 文件已不存在（仅存于旧 worktree 副本），移除死引用
+  '../../scripts/test-agent-mock-llm.js',
+  // 清理（2026-08-22）：tests/unit 的 node assert 脚本原先无任何 runner（孤儿测试），
+  // 现并入本套件驱动（jest 与裸断言/file:// require 不兼容，故不走 jest）
+  '../unit/C2-trainingDataBuilder.test.js',
+  '../unit/SalesQuoteCalculationService.test.js',
+  '../unit/SalesQuoteSettingsMaterials.test.js',
+  '../unit/SalesQuoteToolGuard.test.js',
+  '../unit/XGBoostPredictionService.test.js',
+  '../unit/modelFormatConverter.test.js',
+  '../unit/planEvaluatorUtils.test.js',
+  '../unit/quoteReportPayload.test.js'
 ]
 
 let failed = 0
