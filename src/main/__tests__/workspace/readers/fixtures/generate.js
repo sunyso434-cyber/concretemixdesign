@@ -42,33 +42,10 @@ async function generate() {
     const doc = new PDFDocument()
     doc.pipe(fs.createWriteStream(pdfPath))
 
-    // 字体 fallback 链：跨 Windows 环境兼容
-    // - 原实现硬编码 Noto Sans SC，CI 裸 Windows 上可能没有这个字体
-    // - 依次尝试常见 CJK 字体；都没有则回退到 pdfkit 默认字体
-    // - 默认字体虽不渲染中文（中文变方框/空白），但 ASCII 部分仍可被 pdf-parse 提取
-    // - 内容已混入 ASCII 兜底文字，保证测试在任何环境下都能通过
-    const FONT_CANDIDATES = [
-      'C:/Windows/Fonts/Noto Sans SC (TrueType).otf',
-      'C:/Windows/Fonts/NotoSansSC-Regular.otf',
-      'C:/Windows/Fonts/NotoSansCJKsc-Regular.otf',
-      'C:/Windows/Fonts/msyh.ttc',
-      'C:/Windows/Fonts/simsun.ttc',
-      'C:/Windows/Fonts/simhei.ttf'
-    ]
-    let selectedFont = null
-    for (const fp of FONT_CANDIDATES) {
-      if (fs.existsSync(fp)) {
-        selectedFont = fp
-        break
-      }
-    }
-    if (selectedFont) {
-      doc.font(selectedFont)
-      console.log('[generate] pdf font selected:', selectedFont)
-    } else {
-      console.log('[generate] pdf font fallback: pdfkit default (CJK will not render)')
-    }
-
+    // 2026-08-23 修复：不再加载 Windows CJK 字体——pdfkit 0.20 对 .ttc/.otf 的 subset
+    // 路径抛 "this.font.createSubset is not a function"（本地有历史 sample.pdf 跳过生成未暴露，
+    // CI 干净环境必崩）。用默认字体（Helvetica）：中文渲染为方框，但内容已混入 ASCII 兜底
+    // 文字，pdf-parse 提取后 ASCII 部分保证断言通过（原注释的设计意图）。
     doc.text('Concrete Mix Design 混凝土配合比设计规范 JGJ 55-2011').fontSize(20)
     doc.addPage().text('Water-Binder Ratio 0.42 水胶比 0.42 影响强度').fontSize(14)
     doc.addPage().text('Sand Ratio 砂率影响工作性 strength').fontSize(14)
