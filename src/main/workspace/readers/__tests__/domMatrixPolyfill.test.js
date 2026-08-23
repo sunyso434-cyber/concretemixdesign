@@ -184,7 +184,13 @@ describe('domMatrixPolyfill', () => {
     })
   })
 
-  describe('实际场景：pdf-parse v2 能用 polyfill 解析 PDF', () => {
+  // 实机验证用例：依赖老板本机的 13MB 论文 PDF（不入 git）——文件不存在时自动跳过，
+  // 保证 CI/其他机器上套件可跑（polyfill 的核心逻辑已由上方用例覆盖）
+  const REAL_PDF = 'D:/C-c/newplan/1-s2.0-S095894652200302X-main.pdf'
+  const hasRealPdf = require('fs').existsSync(REAL_PDF)
+  const describeReal = hasRealPdf ? describe : describe.skip
+
+  describeReal('实际场景：pdf-parse v2 能用 polyfill 解析 PDF', () => {
     test('Node 16 模拟：delete global.DOMMatrix 后注入 polyfill，能解析 13MB PDF', async () => {
       // 模拟 Node 16.13.2 环境
       delete global.DOMMatrix
@@ -193,7 +199,7 @@ describe('domMatrixPolyfill', () => {
 
       const fsp = require('fs').promises
       const { PDFParse } = require('pdf-parse')
-      const buf = await fsp.readFile('D:/C-c/newplan/1-s2.0-S095894652200302X-main.pdf')
+      const buf = await fsp.readFile(REAL_PDF)
       const parser = new PDFParse({ data: buf, useWorker: false })
       const result = await parser.getText()
       expect(result.text).toContain('Cement and Concrete Composites')

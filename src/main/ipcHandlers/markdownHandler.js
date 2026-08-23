@@ -32,7 +32,14 @@ async function isAllowedPath(filePath, { workspaceRoot, skillUserDir }) {
   } catch {
     return { ok: false, reason: '文件不存在' }
   }
-  const roots = [workspaceRoot, skillUserDir].filter(Boolean)
+  const roots = []
+  for (const root of [workspaceRoot, skillUserDir].filter(Boolean)) {
+    // 2026-08-23 修复：根目录同样 realpath——文件已 realpath，若根目录含 8.3 短名
+    // （如 CI 的 RUNNER~1）或符号链接，前缀比较会误判越界
+    let realRoot = root
+    try { realRoot = await fs.realpath(root) } catch { continue }
+    roots.push(realRoot)
+  }
   for (const root of roots) {
     const rel = path.relative(root, real)
     if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) {
