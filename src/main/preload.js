@@ -373,15 +373,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
   // LLM 配置管理
+  // 安全（2026-08-22 审查）：getFull/getActiveFull（未脱敏 apiKey 出主进程）已删除，
+  // 测试连通性改传 id 由主进程自取配置
   llm: {
     list: () => ipcRenderer.invoke('llm:list'),
     save: (config) => ipcRenderer.invoke('llm:save', { config }),
     delete: (id) => ipcRenderer.invoke('llm:delete', { id }),
     activate: (id) => ipcRenderer.invoke('llm:activate', { id }),
     getActive: () => ipcRenderer.invoke('llm:getActive'),
-    getActiveFull: () => ipcRenderer.invoke('llm:getActiveFull'),
-    getFull: (id) => ipcRenderer.invoke('llm:getFull', { id }),
-    test: (config) => ipcRenderer.invoke('llm:test', { config })
+    test: (configOrId) => ipcRenderer.invoke('llm:test',
+      typeof configOrId === 'string' ? { id: configOrId } : { config: configOrId })
   },
   // R10：桌面「远程连接」面板
   remote: {

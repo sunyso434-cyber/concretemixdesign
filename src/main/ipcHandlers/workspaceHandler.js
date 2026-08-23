@@ -78,14 +78,35 @@ function register(refs) {
     }
   })
 
+  // 安全（2026-08-22 审查）：渲染端传入的 workspacePath 原样 readdir/openPath 等于
+  // 任意目录枚举原语。收口：只允许"数据库中出现过的工作区"或当前打开的工作区。
+  async function isKnownWorkspace(candidate) {
+    if (typeof candidate !== 'string' || candidate.length === 0) return false
+    const norm = (p) => path.resolve(String(p).replace(/\\/g, '/'))
+    const wanted = norm(candidate)
+    const current = refs.workspaceManager && refs.workspaceManager.current ? refs.workspaceManager.current() : null
+    if (current && current.path && norm(current.path) === wanted) return true
+    try {
+      const { ChatSession } = require('../db/database')
+      const rows = await ChatSession.findAll({ attributes: ['workspacePath'], group: ['workspacePath'] })
+      return rows.some(r => r.workspacePath && norm(r.workspacePath) === wanted)
+    } catch {
+      return false
+    }
+  }
+
   ipcMain.handle('workspace:listFiles', wrapWorkspaceCall(async (event, { subdir, workspacePath }) => {
     // 指定 workspacePath 时，用 fs 直接读该工作区（用于侧栏按工作区显示文件树）
     // subdir='root'（或缺省）读根目录；否则读 workspacePath/subdir（支持文件树展开子目录）
     if (workspacePath) {
       try {
+        if (!(await isKnownWorkspace(workspacePath))) {
+          throw new WorkspaceError('E-PARAM-INVALID', `未知的工作区路径: ${workspacePath}`, false)
+        }
+        const { resolveInside } = require('../utils/pathGuard')
         const target = (subdir === 'root' || !subdir)
           ? workspacePath
-          : path.posix.join(String(workspacePath).replace(/\\/g, '/'), String(subdir).replace(/\\/g, '/'))
+          : resolveInside(workspacePath, String(subdir).replace(/\\/g, '/'), '子目录')
         const entries = await fs.promises.readdir(target, { withFileTypes: true })
         const files = entries
           .filter(e => !e.name.startsWith('.')) // 过滤隐藏文件
@@ -96,6 +117,8 @@ function register(refs) {
           }))
         return { files }
       } catch (err) {
+        if (err instanceof WorkspaceError) throw err
+        if (err.code === 'E_PATH_ESCAPE') throw new WorkspaceError('E-PARAM-INVALID', err.message, false)
         throw new WorkspaceError('NOT_OPEN', `读取工作区文件失败: ${err.message}`, false)
       }
     }
@@ -108,6 +131,9 @@ function register(refs) {
       return { success: false, error: '路径不能为空' }
     }
     try {
+      if (!(await isKnownWorkspace(workspacePath))) {
+        return { success: false, error: `未知的工作区路径: ${workspacePath}` }
+      }
       const errorMessage = await shell.openPath(workspacePath)
       if (errorMessage) {
         // shell.openPath 失败时返回错误字符串，成功时返回空字符串

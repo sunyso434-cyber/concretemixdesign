@@ -30,7 +30,8 @@ function getImagesDir() {
  */
 async function prepareImagesDest(dir, name) {
   await fs.promises.mkdir(dir, { recursive: true })
-  let destName = name
+  // 安全（2026-08-22 审查）：name 来自渲染端/远程端，取 basename 防止 "..\..\x.png" 逃出图片目录
+  let destName = path.basename(String(name))
   let destPath = path.join(dir, destName)
   if (await fs.promises.access(destPath).then(() => true).catch(() => false)) {
     const ext = path.extname(name)

@@ -53,6 +53,9 @@ function registerLlmHandlers() {
       const allConfigs = await SystemService.getLlmConfigs()
       const idx = allConfigs.findIndex(c => c.id === config.id)
       if (idx >= 0) {
+        // 安全（2026-08-22 审查）：编辑已有配置时空 apiKey 表示"不修改密钥"，
+        // 渲染端不再需要回传完整 key（llm:getFull 通道已删除）
+        if (!config.apiKey) config.apiKey = allConfigs[idx].apiKey
         allConfigs[idx] = config
       } else {
         allConfigs.push(config)
@@ -110,41 +113,27 @@ function registerLlmHandlers() {
     }
   })
 
-  // 新增：获取当前完整 apiKey（仅用于服务端构建）
-  ipcMain.handle('llm:getActiveFull', async () => {
-    try {
-      const config = await SystemService.getActiveLlmConfig()
-      return { success: true, data: config }
-    } catch (err) {
-      return { success: false, error: err.message }
-    }
-  })
-
-  // 获取指定配置的完整信息（含未脱敏 apiKey）
-  ipcMain.handle('llm:getFull', async (_event, { id }) => {
-    try {
-      const configs = await SystemService.getLlmConfigs()
-      const found = configs.find(c => c.id === id)
-      if (!found) return { success: false, error: '配置不存在' }
-      return { success: true, data: found }
-    } catch (err) {
-      return { success: false, error: err.message }
-    }
-  })
-
   // 测试 LLM 连通性
-  ipcMain.handle('llm:test', async (_event, { config }) => {
+  // 安全（2026-08-22 审查）：支持传 { id } 由主进程自取配置测试——渲染端全程不接触未脱敏 apiKey
+  ipcMain.handle('llm:test', async (_event, { config, id } = {}) => {
     try {
-      const baseUrl = (config.baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '')
+      let cfg = config
+      if (!cfg && id) {
+        const configs = await SystemService.getLlmConfigs()
+        cfg = configs.find(c => c.id === id)
+        if (!cfg) return { success: false, error: '配置不存在' }
+      }
+      if (!cfg) return { success: false, error: '缺少测试配置' }
+      const baseUrl = (cfg.baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '')
       const response = await axios.post(`${baseUrl}/chat/completions`, {
-        model: config.model || 'deepseek-v4-flash',
+        model: cfg.model || 'deepseek-v4-flash',
         messages: [{ role: 'user', content: 'hi' }],
         max_tokens: 10,
         stream: false,
       }, {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.apiKey}`
+          'Authorization': `Bearer ${cfg.apiKey}`
         },
         timeout: 60000,
       })
@@ -158,7 +147,7 @@ function registerLlmHandlers() {
         return { success: false, error: 'API Key 无效，请检查并重新输入' }
       }
       if (status === 404) {
-        return { success: false, error: `模型 "${config.model}" 不存在或地址错误` }
+        return { success: false, error: '模型不存在或接口地址错误，请检查 model / base URL' }
       }
       if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED') {
         return { success: false, error: '无法连接到服务器，请检查 base URL' }
@@ -172,7 +161,8 @@ function registerLlmHandlers() {
 }
 
 function maskApiKey(key) {
-  if (!key || key.length < 8) return key || ''
+  if (!key) return ''
+  if (key.length < 8) return '****'
   return key.slice(0, 4) + '****' + key.slice(-4)
 }
 

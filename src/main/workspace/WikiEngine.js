@@ -239,7 +239,14 @@ class WikiEngine {
     }
     const startTime = Date.now()
 
-    const sourcePath = path.posix.join(current.path, filename)
+    // 安全（2026-08-22 审查）：filename 拼进工作区路径，收口防止 ".." 逃逸读工作区外文件
+    let sourcePath
+    try {
+      const { resolveInside } = require('../utils/pathGuard')
+      sourcePath = resolveInside(current.path, filename)
+    } catch (e) {
+      throw new WorkspaceError('E-PARAM-INVALID', `文件路径非法：${filename}（${e.message}）`, false)
+    }
     const crypto = require('crypto')
     const uuid = crypto.randomUUID()
     const tmpDir = path.join(current.path, 'wiki', '.tmp', `ingest-${uuid}`)

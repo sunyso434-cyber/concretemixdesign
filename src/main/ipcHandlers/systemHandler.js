@@ -65,6 +65,10 @@ class SystemHandler {
     // 恢复数据库
     ipcMain.handle('restore-database', async (_, backupPath) => {
       try {
+        // 安全（2026-08-22 审查）：路径来自渲染端（正常流程是系统对话框选择），做扩展名白名单
+        if (!backupPath || !/\.(db|sqlite)$/i.test(backupPath)) {
+          return { success: false, error: '恢复文件必须是 .db/.sqlite 数据库备份' }
+        }
         await systemService.restoreDatabase(backupPath)
         return { success: true }
       } catch (error) {
@@ -75,6 +79,9 @@ class SystemHandler {
     // 导入数据
     ipcMain.handle('import-data', async (_, filePath) => {
       try {
+        if (!filePath || !/\.(xlsx|xls|csv)$/i.test(filePath)) {
+          return { success: false, error: '导入文件必须是 .xlsx/.xls/.csv 格式' }
+        }
         await systemService.importData(filePath)
         return { success: true }
       } catch (error) {
@@ -85,6 +92,9 @@ class SystemHandler {
     // 导出数据
     ipcMain.handle('export-data', async (_, filePath) => {
       try {
+        if (!filePath || !/\.(xlsx|csv)$/i.test(filePath)) {
+          return { success: false, error: '导出文件必须是 .xlsx/.csv 格式' }
+        }
         await systemService.exportData(filePath)
         return { success: true }
       } catch (error) {

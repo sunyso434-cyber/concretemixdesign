@@ -360,9 +360,18 @@ class WorkspaceManager extends EventEmitter {
       throw new WorkspaceError('NOT_OPEN', '工作区未打开', false)
     }
     const { recursive = false, includeDirs = false, withIngestStatus = false } = options
-    const targetPath = subdir === 'root'
-      ? this._state.path
-      : path.posix.join(this._state.path, subdir)
+    // 安全（2026-08-22 审查）：subdir 拼进工作区路径，收口防止 ".." 逃逸枚举工作区外目录
+    let targetPath
+    if (subdir === 'root' || subdir === undefined || subdir === null) {
+      targetPath = this._state.path
+    } else {
+      try {
+        const { resolveInside } = require('../utils/pathGuard')
+        targetPath = resolveInside(this._state.path, subdir)
+      } catch (e) {
+        throw new WorkspaceError('E-PARAM-INVALID', `子目录路径非法：${subdir}（${e.message}）`, false)
+      }
+    }
 
     // withIngestStatus：预读 .workspace-index.json（仅 root 目录用得到）
     let ingestMap = null

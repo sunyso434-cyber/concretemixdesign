@@ -104,6 +104,13 @@ async function writeFile({ workspaceManager, wikiEngine = null, type, filename, 
       { received: { type, filename, hasPayload: !!payload, hasPatches: Array.isArray(patches) } }
     )
   }
+  // 安全（2026-08-22 审查）：filename 直接拼进 reports/ 路径，禁止分隔符与 ".." 逃逸
+  try {
+    const { assertSafeFileName } = require('../utils/pathGuard')
+    assertSafeFileName(filename, '文件名')
+  } catch (e) {
+    throw new WorkspaceError('E-PARAM-INVALID', e.message, false, { received: { filename } })
+  }
 
   // v10.2.0 方案 8：patches 模式分流
   if (patches !== undefined) {

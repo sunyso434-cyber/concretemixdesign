@@ -2,6 +2,23 @@
 // 由主文件 registerAgentHandlers 调用：registerSkillIpc(ipcMain, deps)
 // deps: { getSkillRegistry, getSkillExecutor, getSkillDebugger（函数取当前值）, initSkillSystem, registerWorkspacePseudoSkills }
 // 拆分原则：仅移动注册闭包，channel 名、参数、返回结构原样保留。
+// 安全（2026-08-22 审查）：skillName 会拼进 userDir 下的文件路径并被 require 执行，
+// 统一走 pathGuard 白名单校验，杜绝 ".." 逃逸与模板字符串注入。
+const { assertSafeSegment } = require('../utils/pathGuard')
+
+// 校验 skillName 并返回 userDir（skill 系统未初始化时返回 null）
+function requireSkillDir(getSkillRegistry, skillName) {
+  if (!getSkillRegistry()) {
+    return { err: { success: false, error: 'Skill 系统未初始化' } }
+  }
+  try {
+    assertSafeSegment(skillName, '技能名')
+  } catch (e) {
+    return { err: { success: false, error: e.message } }
+  }
+  return { userDir: getSkillRegistry().getUserDir() }
+}
+
 function registerSkillIpc(ipcMain, deps) {
   const { getSkillRegistry, getSkillExecutor, getSkillDebugger, initSkillSystem, registerWorkspacePseudoSkills } = deps
 
@@ -62,12 +79,11 @@ function registerSkillIpc(ipcMain, deps) {
   })
 
   ipcMain.handle('skill:getInfo', async (_event, { skillName }) => {
-    if (!getSkillRegistry()) {
-      return { success: false, error: 'Skill 系统未初始化' }
-    }
+    const guard = requireSkillDir(getSkillRegistry, skillName)
+    if (guard.err) return guard.err
     const fs = require('fs')
     const path = require('path')
-    const userDir = getSkillRegistry().getUserDir()
+    const userDir = guard.userDir
 
     // 检查.js文件
     let filePath = path.join(userDir, `${skillName}.js`)
@@ -92,12 +108,11 @@ function registerSkillIpc(ipcMain, deps) {
   })
 
   ipcMain.handle('skill:delete', async (_event, { skillName }) => {
-    if (!getSkillRegistry()) {
-      return { success: false, error: 'Skill 系统未初始化' }
-    }
+    const guard = requireSkillDir(getSkillRegistry, skillName)
+    if (guard.err) return guard.err
     const fs = require('fs')
     const path = require('path')
-    const userDir = getSkillRegistry().getUserDir()
+    const userDir = guard.userDir
 
     // 检查.js文件
     let filePath = path.join(userDir, `${skillName}.js`)
@@ -157,30 +172,34 @@ function registerSkillIpc(ipcMain, deps) {
   })
 
   ipcMain.handle('skill:create', async (_event, { skillName, description, functionality, template }) => {
-    if (!getSkillRegistry()) {
-      return { success: false, error: 'Skill 系统未初始化' }
-    }
+    const guard = requireSkillDir(getSkillRegistry, skillName)
+    if (guard.err) return guard.err
     const fs = require('fs')
     const path = require('path')
-    const userDir = getSkillRegistry().getUserDir()
+    const userDir = guard.userDir
     const filePath = path.join(userDir, `${skillName}.js`)
 
     if (fs.existsSync(filePath)) {
       return { success: false, error: { code: 'NAME_EXISTS', message: '技能名称已存在' } }
     }
 
+    // 模板注入防护：name/description 经 JSON.stringify 生成 JS 字面量，
+    // 用户输入的引号/反斜杠/换行无法逃逸出字符串（生成的文件后续会被 require 执行）
+    // 注释中的描述：剥掉换行与 "*/"，防止块注释被提前闭合
+    const descComment = String(description || '').replace(/[\r\n]+/g, ' ').replace(/\*\//g, '* /')
+
     // 模板系统：根据 template 类型生成不同骨架
     const templates = {
       query: `/**
- * ${description || '查询类技能'}
+ * ${descComment || '查询类技能'}
  *
  * 功能：从数据库或外部源查询数据，返回结构化结果
  * 示例：查询材料列表、查询历史记录、查询规范条款
  */
 
 module.exports = {
-  name: '${skillName}',
-  description: '${description || '查询类技能'}',
+  name: ${JSON.stringify(skillName)},
+  description: ${JSON.stringify(String(description || '查询类技能'))},
   version: '1.0.0',
   category: 'query',
 
@@ -229,15 +248,15 @@ module.exports = {
 `,
 
       calculate: `/**
- * ${description || '计算类技能'}
+ * ${descComment || '计算类技能'}
  *
  * 功能：根据输入参数执行数学计算或工程计算
  * 示例：配合比计算、强度预测、成本估算
  */
 
 module.exports = {
-  name: '${skillName}',
-  description: '${description || '计算类技能'}',
+  name: ${JSON.stringify(skillName)},
+  description: ${JSON.stringify(String(description || '计算类技能'))},
   version: '1.0.0',
   category: 'core',
 
@@ -292,15 +311,15 @@ module.exports = {
 `,
 
       check: `/**
- * ${description || '检查类技能'}
+ * ${descComment || '检查类技能'}
  *
  * 功能：校验数据是否符合规范、标准或业务规则
  * 示例：规范合规检查、参数范围校验、数据完整性检查
  */
 
 module.exports = {
-  name: '${skillName}',
-  description: '${description || '检查类技能'}',
+  name: ${JSON.stringify(skillName)},
+  description: ${JSON.stringify(String(description || '检查类技能'))},
   version: '1.0.0',
   category: 'analysis',
 

@@ -19,19 +19,17 @@ class SystemService {
   // 获取所有系统参数
   async getAllParams() {
     try {
-      console.log('开始获取所有系统参数')
       const params = await SystemParam.findAll()
-      console.log('从数据库获取到系统参数:', params.length, '个')
+      // 安全（2026-08-22 审查）：参数值含 deepseekApiKey/webSearchApiKey 等密钥，禁止整表打印进日志
+      console.log(`[SystemService] getAllParams: ${params.length} 个参数`)
       // 转换为前端需要的格式
-      const formattedParams = params.map(param => ({
+      return params.map(param => ({
         name: param.paramName,
         value: param.paramValue,
         type: param.paramType,
         description: param.description,
         status: param.status
       }))
-      console.log('格式化后的系统参数:', formattedParams)
-      return formattedParams
     } catch (error) {
       console.error('获取系统参数失败:', error)
       throw error

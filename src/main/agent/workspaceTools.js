@@ -19,6 +19,23 @@ const ErrorCodes = require('./ErrorCodes')
 const { WorkspaceError } = require('../workspace/WorkspaceError')
 const writeHandler = require('../workspace/write-handler')
 const imageIngest = require('../workspace/imageIngest')
+const { resolveInside, isPathInsideRoot } = require('../utils/pathGuard')
+
+// 安全（2026-08-22 审查）：office 工具路径收口。
+// writable=true（写/改/建类）：绝对路径也必须位于当前工作区内——LLM prompt 注入无法越区写文件；
+// writable=false（读类）：保留绝对路径读取能力（产品功能），相对路径仍收口防 ".." 逃逸。
+// 返回解析后的绝对路径；非法时抛 Error（调用方转 ErrorCodes）。
+function resolveOfficePath(input, current, writable) {
+  const root = current && current.path ? current.path : null
+  if (root && path.isAbsolute(input)) {
+    if (writable && !isPathInsideRoot(root, input)) {
+      throw new Error(`写类 office 操作仅允许工作区内路径（收到: ${input}）`)
+    }
+    return input
+  }
+  if (!root) return input
+  return resolveInside(root, input)
+}
 
 function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null }) {
   // v1.5.3 决策：每次 execute 都从 global 拿最新引用
@@ -567,9 +584,11 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         // 解析文件路径
         const wm = getWM()
         const current = wm.current ? wm.current() : null
-        let fullPath = args.filePath
-        if (current && current.path && !path.isAbsolute(fullPath)) {
-          fullPath = path.posix.join(current.path, fullPath)
+        let fullPath
+        try {
+          fullPath = resolveOfficePath(args.filePath, current, false)
+        } catch (e) {
+          return ErrorCodes.createError('E-PARAM-INVALID', e.message, '请使用工作区内相对路径', { retryable: false })
         }
 
         // 检查文件是否存在
@@ -738,9 +757,11 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         // 解析文件路径
         const wm = getWM()
         const current = wm.current ? wm.current() : null
-        let fullPath = args.filePath
-        if (current && current.path && !path.isAbsolute(fullPath)) {
-          fullPath = path.posix.join(current.path, fullPath)
+        let fullPath
+        try {
+          fullPath = resolveOfficePath(args.filePath, current, true)
+        } catch (e) {
+          return ErrorCodes.createError('E-PARAM-INVALID', e.message, '写类 office 操作路径必须位于当前打开的工作区内', { retryable: false })
         }
 
         // 检查文件是否存在
@@ -869,7 +890,12 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         if (!current || !current.path) {
           return ErrorCodes.createError('NOT_OPEN', '工作区未打开', '请先打开工作区', { retryable: false })
         }
-        const fullPath = path.posix.join(current.path, args.filePath)
+        let fullPath
+        try {
+          fullPath = resolveOfficePath(args.filePath, current, true)
+        } catch (e) {
+          return ErrorCodes.createError('E-PARAM-INVALID', e.message, '写类 office 操作路径必须位于当前打开的工作区内', { retryable: false })
+        }
         const officecli = require('../officecli/officecli-bridge')
         const avail = officecli.checkAvailability()
         if (!avail.available) {
@@ -941,7 +967,12 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         if (!current || !current.path) {
           return ErrorCodes.createError('NOT_OPEN', '工作区未打开', '请先打开工作区', { retryable: false })
         }
-        const fullPath = path.posix.join(current.path, args.filePath)
+        let fullPath
+        try {
+          fullPath = resolveOfficePath(args.filePath, current, false)
+        } catch (e) {
+          return ErrorCodes.createError('E-PARAM-INVALID', e.message, '请使用工作区内相对路径', { retryable: false })
+        }
         const officecli = require('../officecli/officecli-bridge')
         const avail = officecli.checkAvailability()
         if (!avail.available) {
@@ -983,7 +1014,12 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
         if (!current || !current.path) {
           return ErrorCodes.createError('NOT_OPEN', '工作区未打开', '请先打开工作区', { retryable: false })
         }
-        const fullPath = path.posix.join(current.path, args.filePath)
+        let fullPath
+        try {
+          fullPath = resolveOfficePath(args.filePath, current, false)
+        } catch (e) {
+          return ErrorCodes.createError('E-PARAM-INVALID', e.message, '请使用工作区内相对路径', { retryable: false })
+        }
         const officecli = require('../officecli/officecli-bridge')
         const avail = officecli.checkAvailability()
         if (!avail.available) {
@@ -1036,9 +1072,11 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
 
         const wm = getWM()
         const current = wm.current ? wm.current() : null
-        let fullPath = args.filename
-        if (current && current.path && !path.isAbsolute(fullPath)) {
-          fullPath = path.posix.join(current.path, fullPath)
+        let fullPath
+        try {
+          fullPath = resolveOfficePath(args.filename, current, true)
+        } catch (e) {
+          return ErrorCodes.createError('E-PARAM-INVALID', e.message, '新建文件路径必须位于当前打开的工作区内', { retryable: false })
         }
 
         try {
@@ -1093,15 +1131,16 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
 
         const wm = getWM()
         const current = wm.current ? wm.current() : null
-        const resolvePath = (p) => {
-          if (current && current.path && !path.isAbsolute(p)) {
-            return path.posix.join(current.path, p)
-          }
-          return p
-        }
+        // 安全（2026-08-22 审查）：写类工具路径统一收口到工作区内
+        const resolvePath = (p) => resolveOfficePath(p, current, true)
 
-        const fullTemplate = resolvePath(args.templatePath)
-        const fullOutput = resolvePath(args.outputPath)
+        let fullTemplate, fullOutput
+        try {
+          fullTemplate = resolvePath(args.templatePath)
+          fullOutput = resolvePath(args.outputPath)
+        } catch (e) {
+          return ErrorCodes.createError('E-PARAM-INVALID', e.message, '写类 office 操作路径必须位于当前打开的工作区内', { retryable: false })
+        }
 
         if (!fs.existsSync(fullTemplate)) {
           return ErrorCodes.createError('FILE_NOT_FOUND',
@@ -1170,9 +1209,11 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
 
         const wm = getWM()
         const current = wm.current ? wm.current() : null
-        let fullPath = args.filePath
-        if (current && current.path && !path.isAbsolute(fullPath)) {
-          fullPath = path.posix.join(current.path, fullPath)
+        let fullPath
+        try {
+          fullPath = resolveOfficePath(args.filePath, current, true)
+        } catch (e) {
+          return ErrorCodes.createError('E-PARAM-INVALID', e.message, '写类 office 操作路径必须位于当前打开的工作区内', { retryable: false })
         }
         if (!fs.existsSync(fullPath)) {
           return ErrorCodes.createError('FILE_NOT_FOUND', `文件不存在: ${fullPath}`, '请确认文件路径', { retryable: false })
@@ -1211,9 +1252,11 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
 
         const wm = getWM()
         const current = wm.current ? wm.current() : null
-        let fullPath = args.filePath
-        if (current && current.path && !path.isAbsolute(fullPath)) {
-          fullPath = path.posix.join(current.path, fullPath)
+        let fullPath
+        try {
+          fullPath = resolveOfficePath(args.filePath, current, false)
+        } catch (e) {
+          return ErrorCodes.createError('E-PARAM-INVALID', e.message, '请使用工作区内相对路径', { retryable: false })
         }
         if (!fs.existsSync(fullPath)) {
           return ErrorCodes.createError('FILE_NOT_FOUND', `文件不存在: ${fullPath}`, '', { retryable: false })
@@ -1260,14 +1303,15 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
 
         const wm = getWM()
         const current = wm.current ? wm.current() : null
-        const resolvePath = (p) => {
-          if (current && current.path && !path.isAbsolute(p)) {
-            return path.posix.join(current.path, p)
-          }
-          return p
+        // 安全（2026-08-22 审查）：写类工具路径统一收口到工作区内
+        const resolvePath = (p) => resolveOfficePath(p, current, true)
+        let fullTarget, fullSource
+        try {
+          fullTarget = resolvePath(args.filePath)
+          fullSource = resolvePath(args.sourceFile)
+        } catch (e) {
+          return ErrorCodes.createError('E-PARAM-INVALID', e.message, '写类 office 操作路径必须位于当前打开的工作区内', { retryable: false })
         }
-        const fullTarget = resolvePath(args.filePath)
-        const fullSource = resolvePath(args.sourceFile)
 
         if (!fs.existsSync(fullTarget)) {
           return ErrorCodes.createError('FILE_NOT_FOUND', `目标文件不存在: ${fullTarget}`, '', { retryable: false })
@@ -1325,9 +1369,11 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
 
         const wm = getWM()
         const current = wm.current ? wm.current() : null
-        let fullPath = args.filePath
-        if (current && current.path && !path.isAbsolute(fullPath)) {
-          fullPath = path.posix.join(current.path, fullPath)
+        let fullPath
+        try {
+          fullPath = resolveOfficePath(args.filePath, current, true)
+        } catch (e) {
+          return ErrorCodes.createError('E-PARAM-INVALID', e.message, 'officecli_raw 为危险工具，路径必须位于当前打开的工作区内', { retryable: false })
         }
         if (!fs.existsSync(fullPath)) { return ErrorCodes.createError('FILE_NOT_FOUND', `文件不存在: ${fullPath}`, '', { retryable: false }) }
 

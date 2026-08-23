@@ -194,9 +194,19 @@ async function load(workspacePath, source) {
     throw new WorkspaceError('PARAM_INVALID', `${source.type} 数据源必须传 source.filePath`, false)
   }
 
-  const absPath = path.isAbsolute(source.filePath)
-    ? source.filePath
-    : path.posix.join(workspacePath, source.filePath)
+  // 安全（2026-08-22 审查）：绝对路径是设计能力（分析用户指定文件，扩展名白名单兜底），
+  // 相对路径必须收口在工作区内，防 ".." 逃逸
+  let absPath
+  if (path.isAbsolute(source.filePath)) {
+    absPath = source.filePath
+  } else {
+    try {
+      const { resolveInside } = require('../../utils/pathGuard')
+      absPath = resolveInside(workspacePath, source.filePath, '数据文件路径')
+    } catch (e) {
+      throw new WorkspaceError('PARAM_INVALID', e.message, false)
+    }
+  }
 
   const ext = path.extname(absPath).toLowerCase()
   if (ext === '.xlsx' || ext === '.xls') {

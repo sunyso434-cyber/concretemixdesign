@@ -32,9 +32,11 @@ class ToolResultStore {
     }
 
     // 大结果：落盘
+    // 安全（2026-08-22 审查）：toolCallId 来自 LLM 响应，经 _safeId 收口为安全标识符，
+    // 防止 "../xx" 之类越出 sessionDir 写文件；非法 id 退化为哈希名（不中断主流程）
     const sessionDir = path.join(this.cacheDir, sessionId)
     fs.mkdirSync(sessionDir, { recursive: true })
-    const filePath = path.join(sessionDir, toolCallId + '.json')
+    const filePath = path.join(sessionDir, this._safeId(toolCallId) + '.json')
 
     let storeResult = null
     if (size > HUGE_THRESHOLD) {
@@ -90,10 +92,17 @@ class ToolResultStore {
     return this._readFromDisk(toolCallId)
   }
 
+  // toolCallId → 落盘文件名（store/_readFromDisk 共用，保证读写一致）
+  _safeId(toolCallId) {
+    if (/^[A-Za-z0-9_\-]{1,128}$/.test(String(toolCallId))) return toolCallId
+    const { createHash } = require('crypto')
+    return 'tc_' + createHash('sha256').update(String(toolCallId)).digest('hex').slice(0, 24)
+  }
+
   _readFromDisk(toolCallId) {
     try {
       const files = fs.readdirSync(this.cacheDir, { recursive: true })
-      const match = files.find(f => f.endsWith(toolCallId + '.json'))
+      const match = files.find(f => f.endsWith(this._safeId(toolCallId) + '.json'))
       if (match) {
         const fullPath = path.join(this.cacheDir, match)
         const content = fs.readFileSync(fullPath, 'utf8')

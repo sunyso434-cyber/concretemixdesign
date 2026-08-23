@@ -348,17 +348,8 @@ const LlmManager = () => {
   const handleTest = async (config) => {
     setTestingId(config.id)
     try {
-      const fullResult = await window.electronAPI.llm.getFull(config.id)
-      if (!fullResult.success) {
-        message.error('无法获取配置详情')
-        return
-      }
-      const fullConfig = fullResult.data
-      const result = await window.electronAPI.llm.test({
-        baseUrl: fullConfig.baseUrl,
-        apiKey: fullConfig.apiKey,
-        model: fullConfig.model
-      })
+      // 安全（2026-08-22 审查）：传 id 由主进程自取配置测试，渲染端不接触未脱敏 apiKey
+      const result = await window.electronAPI.llm.test(config.id)
       if (result.success) {
         message.success(`${config.name}: 连接成功`)
       } else {
@@ -377,27 +368,24 @@ const LlmManager = () => {
     setModalVisible(true)
   }
 
-  const openEdit = async (config) => {
+  const openEdit = (config) => {
     setEditingConfig(config)
-    // 获取完整配置（未脱敏 apiKey）
-    const fullResult = await window.electronAPI.llm.getFull(config.id)
-    const fullConfig = fullResult.success ? fullResult.data : config
+    // 安全（2026-08-22 审查）：不再从主进程取未脱敏 apiKey；
+    // 编辑时密钥留空 = 不修改（llm:save 在主进程保留原值）
     form.setFieldsValue({
-      id: fullConfig.id,
-      name: fullConfig.name,
-      provider: fullConfig.provider || 'deepseek',
-      baseUrl: fullConfig.baseUrl,
+      id: config.id,
+      name: config.name,
+      provider: config.provider || 'deepseek',
+      baseUrl: config.baseUrl,
       apiKey: '',
-      model: fullConfig.model,
-      thinkingEnabled: fullConfig.thinkingEnabled !== false,
-      reasoningEffort: fullConfig.reasoningEffort,
-      visionCapable: fullConfig.visionCapable === true,
-      maxTokens: fullConfig.maxTokens || 32768,
-      timeout: fullConfig.timeout || 120000,
-      contextLimit: fullConfig.contextLimit || 800000,
+      model: config.model,
+      thinkingEnabled: config.thinkingEnabled !== false,
+      reasoningEffort: config.reasoningEffort,
+      visionCapable: config.visionCapable === true,
+      maxTokens: config.maxTokens || 32768,
+      timeout: config.timeout || 120000,
+      contextLimit: config.contextLimit || 800000,
     })
-    // 保存完整 apiKey 用于编辑保存
-    setEditingConfig(fullConfig)
     setModalVisible(true)
   }
 
@@ -429,7 +417,8 @@ const LlmManager = () => {
         name: values.name,
         provider: values.provider,
         baseUrl: values.baseUrl.replace(/\/+$/, ''),
-        apiKey: values.apiKey || editingConfig?.apiKey || '',
+        // 编辑时空密钥 = 不修改（主进程 llm:save 保留原值）
+        apiKey: values.apiKey || '',
         model: values.model,
         thinkingEnabled: values.thinkingEnabled !== false,
         reasoningEffort: values.reasoningEffort || undefined,
