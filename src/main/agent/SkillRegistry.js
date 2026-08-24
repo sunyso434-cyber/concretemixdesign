@@ -15,6 +15,18 @@ const { wrapBlueprintAsSkill } = require('../skills/blueprint-loader')
 const RESIDENT_SKILL_NAMES = ['ask_user', 'todo_manage', 'web_search', 'web_fetch', 'recall_session']
 
 /**
+ * 常驻 skill 前缀（方案一 catalog 路由）：
+ * workspace_* 伪 skill 是高频基础设施（搜索/读页/写文件等），免 use_skill 加载直调
+ */
+const RESIDENT_SKILL_PREFIXES = ['workspace_']
+
+/**
+ * 目录式路由元工具名（方案一 catalog 路由）：
+ * use_skill 本身必须常驻——它是展开其他技能完整说明的唯一主动入口
+ */
+const META_ROUTER_SKILL_NAME = 'use_skill'
+
+/**
  * 关键词匹配停用词：不参与匹配的常见口语/虚词
  */
 const KEYWORD_STOPWORDS = new Set([
@@ -341,6 +353,74 @@ module.exports = {
     return Array.from(this._skills.values())
       .filter(skill => !skill._isMDSkill || skill._triggerMode !== 'soft')
       .map(skill => this._skillToToolSchema(skill))
+  }
+
+  /**
+   * 判断技能是否属于「常驻集」（方案一 catalog 路由：每轮必带 schema、免 use_skill 加载）
+   *
+   * 组成：RESIDENT_SKILL_NAMES 名单 ∪ workspace_ 前缀伪 skill ∪ use_skill 元工具。
+   * 未注册的名字也可为 true（纯名字判断，供调用方在注册表缺项时兜底降级）。
+   *
+   * @param {string} name
+   * @returns {boolean}
+   */
+  isResident(name) {
+    if (!name || typeof name !== 'string') return false
+    if (RESIDENT_SKILL_NAMES.includes(name)) return true
+    if (name === META_ROUTER_SKILL_NAME) return true
+    return RESIDENT_SKILL_PREFIXES.some(prefix => name.startsWith(prefix))
+  }
+
+  /**
+   * catalog 路由：只返回 常驻 + 会话已加载 的 skill schema（方案一）
+   *
+   * - 常驻集见 isResident（含 use_skill 元工具自身）
+   * - loadedNames：会话内已通过 use_skill / 拦截自动展开加载过的技能名（Array 或 Set）
+   *   → 只放行真实存在且非 soft trigger 的名字（soft 由 SoftSkillInjector 双轨管理）
+   * - full 模式回退仍走 getToolSchemas()，本方法不感知开关
+   * 输出与 getToolSchemas 相同的 JSON-Schema 形状，按注册顺序去重
+   *
+   * @param {string[]|Set<string>} [loadedNames] - 会话已加载技能名集合
+   * @returns {object[]} JSON Schema 数组
+   */
+  getRoutingToolSchemas(loadedNames) {
+    const relevantNames = new Set()
+
+    // 1. 常驻集（存在才加入，缺失容错——与 getRelevantToolSchemas 同约定）
+    for (const skill of this._skills.values()) {
+      if (this.isResident(skill.name)) relevantNames.add(skill.name)
+    }
+
+    // 2. 会话已加载：过滤不存在 / soft trigger 的名字
+    if (loadedNames) {
+      for (const name of loadedNames) {
+        const skill = typeof name === 'string' ? this._skills.get(name) : null
+        if (skill && !(skill._isMDSkill && skill._triggerMode === 'soft')) {
+          relevantNames.add(skill.name)
+        }
+      }
+    }
+
+    // 3. 复用 schema 构建逻辑，按注册顺序去重输出（soft 双重过滤兜底）
+    return Array.from(this._skills.values())
+      .filter(skill => relevantNames.has(skill.name))
+      .filter(skill => !skill._isMDSkill || skill._triggerMode !== 'soft')
+      .map(skill => this._skillToToolSchema(skill))
+  }
+
+  /**
+   * 单个技能的完整 JSON Schema（公开方法）
+   * 供 use_skill 元工具返回值与 toolExecutor 拦截自动展开使用；
+   * soft trigger 技能不提供 schema（返回 null，双轨管理）。
+   *
+   * @param {string} name
+   * @returns {object|null} JSON Schema 或 null（不存在/soft）
+   */
+  getSkillSchema(name) {
+    const skill = this._skills.get(name)
+    if (!skill) return null
+    if (skill._isMDSkill && skill._triggerMode === 'soft') return null
+    return this._skillToToolSchema(skill)
   }
 
   /**

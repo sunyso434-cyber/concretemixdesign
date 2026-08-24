@@ -103,6 +103,16 @@ const REPORT_SKILL_MATRIX = `## 5 类报告 → 必调 Skill 矩阵（软约束�
 在 \`generate_xlsx_report\` 生成的表格上加图表/条件格式等高级元素 → 用 \`edit_office_file\` 在该文件上接力加工（标准 xlsx 互通）。`
 
 /**
+ * 方案一 catalog 路由使用规则（随「当前可用技能」段注入，仅 renderMode='catalog' 时出现）
+ * 与 toolExecutor 拦截自动展开配套：拦截返回体含 needs_reload:true + schema。
+ */
+const CATALOG_USAGE_RULES = `## 技能使用规则（重要）
+1. 「常驻工具」可直接调用；
+2. 「技能目录」中的技能**必须先调 \`use_skill(name='技能名')\` 加载**，拿到完整参数定义后再正式调用；
+3. 若直接调用了未加载的目录技能，系统会拦截一次并自动返回该技能的参数定义（返回体含 needs_reload:true 和 schema 字段）→ 请随即用正确参数重新调用，不要原样重试；
+4. 禁止猜测未加载技能的参数；禁止编造目录之外的技能名。`
+
+/**
  * 构造 system prompt（v2）
  *
  * 改造点（Task 8）：
@@ -116,6 +126,10 @@ const REPORT_SKILL_MATRIX = `## 5 类报告 → 必调 Skill 矩阵（软约束�
  * @param {string[]} [params.skillNames] - 当前 session 可用技能名列表（降级用）
  * @param {Array<{name, category, description}>} [params.skillInfos] - 技能详细信息（按 category 分组生成第 4 段，零硬编码、零漏技能）
  * @param {string} [params.userRulesMarkdown] - agent.md 解析后的整段 Markdown（用 HTML 注释包裹注入）
+ * @param {string} [params.renderMode] - 技能段渲染模式（方案一 catalog 路由）：
+ *   - 'full'（默认）：旧行为，全量技能按类别分组 + 截断描述；
+ *   - 'catalog'：三小节——常驻工具清单 / 技能目录（调用前需 use_skill 加载）/ 使用规则。
+ *     依赖 skillInfos 每项附 resident 布尔标记（UnifiedStrategy 构造时注入）。
  * @returns {string} 完整的 system prompt
  */
 function buildSystemPrompt({
@@ -123,6 +137,7 @@ function buildSystemPrompt({
   userRulesMarkdown = '',
   skillNames = [],
   skillInfos = null,
+  renderMode = 'full',
   l3Summary = null,  // L3 核心记忆摘要（对标 MemGPT core memory）
   crossSessionBlock = '',  // P1-1: 跨会话摘要块
   softSkillSection = ''  // Task 4: 方法论 Skill 段（Layer 1，description 触发）
@@ -138,7 +153,30 @@ function buildSystemPrompt({
 
   // 优先用 skillInfos（带 description + category）按类别分组生成；降级用 skillNames（只名字）
   let skillSection
-  if (skillInfos && skillInfos.length > 0) {
+  if (renderMode === 'catalog' && skillInfos && skillInfos.length > 0) {
+    // 方案一 catalog 渲染：常驻段（可直接调用）+ 目录段（需 use_skill 加载）+ 使用规则
+    const residentInfos = skillInfos.filter(s => s.resident === true)
+    const catalogInfos = skillInfos.filter(s => s.resident !== true)
+
+    const groups = {}
+    for (const s of catalogInfos) {
+      const cat = s.category || 'general'
+      if (!groups[cat]) groups[cat] = []
+      groups[cat].push(`- ${s.name}：${truncateToCompleteSentence(s.description)}`)
+    }
+    const blocks = []
+    for (const [cat, lines] of Object.entries(groups)) {
+      blocks.push(`【${cat}】\n${lines.join('\n')}`)
+    }
+
+    skillSection = [
+      `## 常驻工具（共 ${residentInfos.length} 个，可直接调用）`,
+      residentInfos.map(s => `- ${s.name}：${truncateToCompleteSentence(s.description)}`).join('\n'),
+      `## 技能目录（共 ${catalogInfos.length} 个，调用前必须先用 use_skill 加载）`,
+      blocks.length > 0 ? blocks.join('\n\n') : '（目录为空，全部技能均为常驻工具）',
+      CATALOG_USAGE_RULES
+    ].join('\n\n')
+  } else if (skillInfos && skillInfos.length > 0) {
     const groups = {}
     for (const s of skillInfos) {
       const cat = s.category || 'general'
@@ -302,4 +340,4 @@ const SKILL_UPDATE_GUIDE = `# 技能管理决策指引（v10.2.0）
 2. 在脑里改完后用 \`rawBlueprint\` 一次写完（粒度粗但保证一致 + 自动备份）
 3. 不要用 \`create_skill format='blueprint'\` 试图"重建"已有蓝图——会被 NAME_EXISTS 拒绝`
 
-module.exports = { buildSystemPrompt, REPORT_SKILL_MATRIX, BLUEPRINT_AUTHORING_ROUTE, TODO_MANAGE_PROMPT, SKILL_UPDATE_GUIDE }
+module.exports = { buildSystemPrompt, REPORT_SKILL_MATRIX, BLUEPRINT_AUTHORING_ROUTE, TODO_MANAGE_PROMPT, SKILL_UPDATE_GUIDE, CATALOG_USAGE_RULES }

@@ -37,6 +37,7 @@ const LLN_NETWORK_FUSE = 5
   /**
    * 按工具结果描述符发完成事件（tool_done / tool_error）
    * - kind='md'/'ok' → tool_done
+   * - kind='auto_loaded' → tool_done（拦截自动展开是引导不是失败，前端按完成卡片展示）
    * - kind='fail'/'missing' → tool_error
    * - kind='interrupted' → 不发（被插话打断不报错，与旧行为一致）
    * - kind='fatal' → 不发（由 _executeToolCalls 统一发 type:'error'）
@@ -52,6 +53,11 @@ const LLN_NETWORK_FUSE = 5
       this._notifyProgress(this.webContents, {
         type: 'tool_done', toolCallId: tc.id, toolName: name, args,
         result: execResult, roundIndex, mode, status: 'running'
+      })
+    } else if (kind === 'auto_loaded') {
+      this._notifyProgress(this.webContents, {
+        type: 'tool_done', toolCallId: tc.id, toolName: name, args,
+        result: { auto_loaded: true }, roundIndex, mode, status: 'running'
       })
     } else if (kind === 'fail') {
       this._notifyProgress(this.webContents, {
@@ -112,7 +118,7 @@ const LLN_NETWORK_FUSE = 5
    * - 不 push toolMsg 到 trimmedMessages（返回 toolMsg，由调用方按原始顺序合并）
    * - 不记录 executedIds（由调用方统一记录）
    * @returns {object} 描述符 { tc, name, args, kind, toolMsg, ... }
-   *   kind: 'md' | 'ok' | 'fail' | 'interrupted' | 'missing' | 'fatal'
+   *   kind: 'md' | 'ok' | 'auto_loaded' | 'fail' | 'interrupted' | 'missing' | 'fatal'
    */
   async function _executeSingleTool(tc, ctx) {
     const { trimmedMessages, failureCounters, softWarnSent } = ctx
@@ -129,6 +135,36 @@ const LLN_NETWORK_FUSE = 5
       const toolMsg = { role: 'tool', tool_call_id: tc.id, content: mdInstruction }
       try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: mdInstruction, toolCallId: tc.id }) } catch (_) {}
       return { tc, name, args, kind: 'md', toolMsg }
+    }
+
+    // ===== 技能目录式路由（方案一）：未加载的非常驻技能 → 拦截并自动展开 =====
+    // - routingMode='full' 时完全跳过（行为与旧版一致）
+    // - 注册表缺新方法（旧式最小 mock）时整体降级直通，不拦截
+    // - 拦截不算执行失败：不计 failureCounters、不触发软提醒/熔断/LearningService.recordFailure
+    // - 自动登记已加载 → 下一轮该技能 schema 进入 tools 集合；LLM 只需按返回的参数定义重调一次
+    const routingActive = this.routingMode !== 'full' &&
+      typeof this.skillRegistry.getRoutingToolSchemas === 'function'
+    const notResident = typeof this.skillRegistry.isResident !== 'function' ||
+      !this.skillRegistry.isResident(name)
+    if (skill && routingActive && notResident) {
+      const sessionLoadedSkills = require('../sessionLoadedSkills')
+      if (!sessionLoadedSkills.has(sessionId, name)) {
+        sessionLoadedSkills.load(sessionId, name)
+        const autoLoadResult = {
+          success: false,
+          needs_reload: true,
+          auto_loaded: true,
+          name,
+          schema: this.skillRegistry.getSkillSchema(name),
+          note: `技能 "${name}" 此前未加载。已自动加载，schema 字段即其完整参数定义。请核对该定义后，用正确参数重新调用一次。`
+        }
+        let cacheResultAuto = null
+        try { cacheResultAuto = this.toolResultStore.store(sessionId, tc.id, autoLoadResult) } catch (_) {}
+        const contentAuto = JSON.stringify(autoLoadResult)
+        const toolMsgAuto = this._buildCachedToolMsg(tc.id, contentAuto, cacheResultAuto)
+        try { await this.agentMemoryService.saveMessage({ sessionId, role: 'tool', content: contentAuto, toolCallId: tc.id }) } catch (_) {}
+        return { tc, name, args, kind: 'auto_loaded', toolMsg: toolMsgAuto }
+      }
     }
 
     if (skill) {
@@ -231,8 +267,8 @@ const LLN_NETWORK_FUSE = 5
       return { tc, name, args, kind: 'ok', execResult, toolMsg: toolMsgOk }
     }
 
-    // 工具不存在：微压缩（带 try-catch）
-    const missingResult = { success: false, error: `工具 ${name} 不存在` }
+    // 工具不存在：微压缩（带 try-catch）；文案引导查看技能目录
+    const missingResult = { success: false, error: `工具 ${name} 不存在`, hint: '请查看系统提示词中的技能目录，不要编造技能名' }
     let cacheResultMiss = null
     try { cacheResultMiss = this.toolResultStore.store(sessionId, tc.id, missingResult) } catch (_) {}
     const toolContentMissing = JSON.stringify(missingResult)

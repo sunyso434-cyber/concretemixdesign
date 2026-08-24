@@ -35,6 +35,8 @@ const { ChatHistory } = require('../../db/database')
 const { SOFT_WARN_THRESHOLD, HARD_FUSE_THRESHOLD, LLN_NETWORK_FUSE } = require('./toolExecutor')
 const { _notifyProgress, _persistLastStep, _cleanMessage, _extractRecentFilePaths, _autoCompactIfNeeded } = require('./strategyHelpers')
 const { _buildCachedToolMsg, _emitToolCompletion, _checkSteerInterrupt, _executeSingleTool, _executeToolCalls } = require('./toolExecutor')
+// 方案一 catalog 技能路由：会话级已加载技能登记表（单例，与 use-skill/toolExecutor 共享）
+const sessionLoadedSkills = require('../sessionLoadedSkills')
 
 // 诊断日志：写到 agent-debug.log（与 agentHandler._log 同一文件）
 const _diagLogFile = path.join(os.homedir(), '.concrete-mixdesign', 'agent-debug.log')
@@ -208,8 +210,28 @@ class UnifiedStrategy {
     // - 不再调 agentMemoryService.buildMemoryContext（已重命名为 buildAgentMdBlock，且 v2 不再拼 history）
     // - agent.md 整段从 agentMdService.getFormattedRules() 拿，走 userRulesMarkdown 单一字段
     const historyMessages = await this.agentMemoryService.buildHistoryMessages(sessionId)
+
+    // ===== 方案一 catalog 技能路由开关 =====
+    // 读 LLM 设置字段 skillRoutingMode：'full'=旧版全量行为；缺失/其他值一律 'catalog'（默认）。
+    // 仿 maxSteps 读取模式（读不到配置不阻塞，走默认值）。须在 buildSystemPrompt 之前确定，
+    // 因为 renderMode 与 tools 集合都依赖它。
+    let routingMode = 'catalog'
+    try {
+      const routeCfg = await this.deepseekService._getConfig()
+      if (routeCfg && routeCfg.skillRoutingMode === 'full') routingMode = 'full'
+    } catch (_) { /* 读不到配置按 catalog */ }
+    this.routingMode = routingMode
+
     const skillNames = this.skillRegistry.getToolSchemas().map(s => s.function.name)
-    const skillInfos = skillNames.map(name => this.skillRegistry.getSkillMeta(name)).filter(Boolean)
+    const skillInfos = skillNames.map(name => {
+      const meta = this.skillRegistry.getSkillMeta(name)
+      if (!meta) return null
+      // 方案一 catalog 路由：附 resident 标记供 systemPromptBuilder 区分「常驻段/目录段」
+      const resident = typeof this.skillRegistry.isResident === 'function'
+        ? this.skillRegistry.isResident(name)
+        : false
+      return { ...meta, resident }
+    }).filter(Boolean)
 
     const userRulesMarkdown = this.agentMdService.getFormattedRules()
 
@@ -253,6 +275,7 @@ class UnifiedStrategy {
       userRulesMarkdown,
       skillNames,
       skillInfos,
+      renderMode: routingMode === 'full' ? 'full' : 'catalog',
       l3Summary,
       crossSessionBlock,
       softSkillSection  // Task 7: soft skill 注入段
@@ -344,7 +367,19 @@ class UnifiedStrategy {
     const debugLog = []
 
     // 2. 主循环（流式）
-    const toolSchemas = this.skillRegistry.getToolSchemas()
+
+    // ===== 方案一 catalog 技能路由：tools 集合工厂 =====
+    // - catalog（默认）：常驻集 ∪ use_skill ∪ 会话已加载技能；其余技能只以目录形式在 system prompt
+    // - full：旧行为，全量 getToolSchemas()
+    // - 注册表缺 getRoutingToolSchemas（旧式最小 mock）时降级 full，保证既有测试与调用方不受影响
+    const canRoute = typeof this.skillRegistry.getRoutingToolSchemas === 'function'
+    const getCurrentToolSchemas = () => {
+      if (routingMode === 'full' || !canRoute) {
+        return this.skillRegistry.getToolSchemas()
+      }
+      return this.skillRegistry.getRoutingToolSchemas(sessionLoadedSkills.get(sessionId))
+    }
+    let toolSchemas = getCurrentToolSchemas()
 
     // v0.9.x 输出优化：估算上下文构成（system/tools/messages），供前端细分面板展示
     // ⚠️ estimateTokens 只接受数组，这里直接用字符数估算（每 4 字符 ≈ 1 token）
@@ -448,6 +483,9 @@ class UnifiedStrategy {
       // 通知前端：新一轮思考开始
       const roundIndex = step
       this._notifyProgress(webContents, { type: 'reasoning_start', roundIndex, mode, status: 'running' })
+
+      // 方案一 catalog 路由：每轮重算 tools——上一轮 use_skill / 拦截自动展开新登记的技能本轮进入集合
+      toolSchemas = getCurrentToolSchemas()
 
       let response
       try {
