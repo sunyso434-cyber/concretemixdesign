@@ -85,3 +85,34 @@ describe('use_skill 元工具', () => {
     expect(result.success).toBe(true)
   })
 })
+
+// ===== 防回归：services_undeclared（2026-08-24 实机报错修复）=====
+// 教训：直接调 execute 绕过了 SkillExecutor + DynamicContextProvider 校验链路，
+// 漏掉了「技能必须显式声明 services 字段」的约定。以下两条测试堵住这条链路。
+
+const DynamicContextProvider = require('../../agent/DynamicContextProvider')
+const SkillExecutor = require('../../agent/SkillExecutor')
+
+describe('use_skill services 声明（防回归）', () => {
+  beforeEach(() => {
+    // 复用外层 beforeEach 已建好的 mockRegistry（含 calculate_mix_design/brainstorm_method），只追加 use_skill 本体
+    sessionLoadedSkills.reset()
+    mockRegistry._put(useSkill)
+  })
+
+  test('必须显式声明 services 数组', () => {
+    expect(Array.isArray(useSkill.services)).toBe(true)
+  })
+
+  test('走真实 SkillExecutor + DynamicContextProvider 链路不抛 services_undeclared', async () => {
+    const provider = new DynamicContextProvider({})
+    provider.setRegistry(mockRegistry)
+    const executor = new SkillExecutor({ skillRegistry: mockRegistry, contextProvider: provider })
+
+    const result = await executor.execute('use_skill', { name: 'calculate_mix_design' }, { sessionId: 'sess-exec' })
+
+    expect(result.success).toBe(true)
+    expect(result.data.loaded).toBe('calculate_mix_design')
+    expect(sessionLoadedSkills.has('sess-exec', 'calculate_mix_design')).toBe(true)
+  })
+})

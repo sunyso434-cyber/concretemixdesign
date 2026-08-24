@@ -15,6 +15,9 @@ module.exports = {
   name: 'use_skill',
   version: '1.0.0',
   category: 'agent',
+  // G3.2 约定：必须显式声明 services（DynamicContextProvider 遇 undefined 抛 services_undeclared）。
+  // use_skill 不依赖注入服务——registry 走 lazy require agentHandler，登记表直接 require 单例。
+  services: [],
   description:
     '按需加载一个技能的完整使用说明（参数定义）。当需要使用的技能不在常驻工具列表中时，' +
     '先调用本工具（name=技能名）获取其完整参数定义，再用正确参数正式调用该技能。' +
