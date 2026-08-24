@@ -1059,14 +1059,7 @@ const SmartDesignChat = () => {
                   onClick={() => setLintModalOpen(true)}
                 />
               </Tooltip>
-              {/* v11.7.7: 显示当前路由到的 LLM 模型，用户可感知路由状态 */}
-              {state.agent.currentModel && (
-                <Tooltip title={`当前模型：${state.agent.currentProvider} · ${state.agent.currentModel}`}>
-                  <Tag color="blue" style={{ marginRight: 0, cursor: 'default' }}>
-                    {state.agent.currentModel}
-                  </Tag>
-                </Tooltip>
-              )}
+              {/* 模型标签 + 上下文圆环已合并进 ContextUsageRing（2026-08-23 拆分） */}
               <ContextUsageRing state={state} chatState={chatState} />
             </div>
           </div>
