@@ -1434,6 +1434,74 @@ function buildWorkspaceSkills({ workspaceManager, wikiEngine, kgExtractor = null
           return ErrorCodes.createError('UNKNOWN', `查询 help 失败: ${err.message}`, '确认格式/verb/element 参数正确', { retryable: true })
         }
       }
+    ),
+    // ════════════════════════════════════════════
+    // 一键 xlsx 报表（exceljs 驱动）：从零造表走这里；
+    // 编辑/读取已有文件、Word/PPT 走 officecli 系列；需要图表/条件格式时先出本表再用 edit_office_file 接力。
+    // 设计与分工见 docs/2026-08-24-xlsx-migration-plan.md v2
+    // ════════════════════════════════════════════
+    skill('generate_xlsx_report',
+      '一键生成专业样式的 xlsx 报表（exceljs 驱动，一次调用直接出成品）。适合"从零造表"：报价单、材料汇总、试验数据表等结构化表格。' +
+      '自动套专业主题：首行大标题自动合并、表头深色底+加粗+冻结、斑马纹、全表边框、数字格式、总计行自动求和。' +
+      '支持自定义覆盖：每列宽度/对齐/小数位(numFmt)、配色主题(professional/gray/warm)、页签颜色(tabColor)、指定单元格微调(bold/color/fill/numFmt/align)。' +
+      '分工边界：编辑已有 Office 文件、读文件内容、Word/PPT → 用 officecli 系列；本工具产出后如需图表/条件格式等高级元素 → 用 edit_office_file 接力加工（产物为标准 xlsx，互通）。',
+      {
+        filename: {
+          type: 'string', required: true,
+          description: '输出文件路径（工作区相对路径），建议放 reports/ 目录，如 "reports/报价单-2026-08-25.xlsx"'
+        },
+        sheets: {
+          type: 'array', required: true,
+          description: 'Sheet 清单。每项: { name:"Sheet名(≤31字符)", title?:"首行大标题(可选,自动合并整行)", columns:["列名" 或 {header,key?,width?,numFmt?,align?"left|center|right"}], rows:[{列key:值}] 或 [[按列序取值]], zebra?:bool(斑马纹默认true), freeze?:bool(冻结表头默认true), autofilter?:bool, tabColor?:"RRGGBB", totalRow?:{label?"合计",sumKeys?[列key求和]}, cells?:{"B3":{bold?,color?,fill?,numFmt?,align?,size?}} }。' +
+            'numFmt 示例："#,##0.00"千分位两位小数、"0.0%"百分比、"@"强制文本。完整示例：[{"name":"报价明细","title":"材料报价单","columns":[{"header":"材料名称","key":"name","width":20},{"header":"单价","key":"price","numFmt":"#,##0.00","align":"right"},{"header":"数量","key":"qty"}],"rows":[{"name":"P.O 42.5水泥","price":450,"qty":100}],"totalRow":{"label":"合计","sumKeys":["price"]}}]'
+        },
+        theme: {
+          type: 'string', required: false,
+          description: '配色主题：professional(商务蓝,默认) / gray(商务灰) / warm(暖橙)',
+          enum: ['professional', 'gray', 'warm']
+        }
+      },
+      async (args) => {
+        const xlsxReport = require('../services/XlsxReportService')
+
+        const wm = getWM()
+        const current = wm.current ? wm.current() : null
+        let fullPath
+        try {
+          fullPath = resolveOfficePath(args.filename, current, true)
+        } catch (e) {
+          return ErrorCodes.createError('E-PARAM-INVALID', e.message,
+            '输出路径必须位于当前打开的工作区内，建议 reports/ 目录', { retryable: false })
+        }
+
+        try {
+          const result = await xlsxReport.generateReport(
+            { sheets: args.sheets, theme: args.theme }, fullPath
+          )
+          const size = fs.existsSync(fullPath) ? fs.statSync(fullPath).size : undefined
+          // 顶层冗余 path/size/savedAt：供渲染端 producedFiles 提取产出卡片（与 workspace_writeFile 同约定）
+          return {
+            success: true,
+            path: fullPath,
+            size,
+            savedAt: new Date().toISOString(),
+            data: {
+              filePath: args.filename,
+              fullPath,
+              sheetCount: result.sheetCount,
+              totalRows: result.totalRows,
+              sheets: result.sheets,
+              message: `已生成报表：${result.sheetCount} 个 Sheet / 共 ${result.totalRows} 行数据。` +
+                '如需图表或条件格式等高级元素，可用 edit_office_file 在此文件上接力加工'
+            }
+          }
+        } catch (err) {
+          return ErrorCodes.createError('E-PARAM-INVALID', `报表生成失败: ${err.message}`,
+            '检查 sheets 结构：每个 sheet 需要 name/columns(rows可空)；需要图表/条件格式时，先生成本表再用 edit_office_file 接力加工',
+            { retryable: true })
+        }
+      },
+      true  // isWrite：写盘操作
     )
   ]
 }

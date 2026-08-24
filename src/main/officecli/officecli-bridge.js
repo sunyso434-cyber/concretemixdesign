@@ -24,6 +24,13 @@ const PLATFORM_MAP = {
   linux: { dir: 'linux', binary: 'officecli' },
 }
 
+// 2026-08-25 驻留进程立即落盘（修复"AI 改完文件用户立刻打开看到旧内容"）：
+// officecli 1.0.14x 的修改类命令先进驻留进程内存，磁盘要等空闲 2~10s 自适应 flush 或显式 save/close。
+// OFFICECLI_RESIDENT_FLUSH=each 让每条命令返回前即落盘（官方帮助：batch 场景 "before the batch returns
+// under OFFICECLI_RESIDENT_FLUSH=each"，单命令实测同样生效）。已用真实二进制验证：add 后不解包直接读磁盘可见。
+// 代价：多命令序列的磁盘 I/O 次数变多——换取对非 officecli 读方（产出文件卡片/SheetJS/用户双击打开）的内容实时一致。
+const RESIDENT_FLUSH_ENV = { ...process.env, OFFICECLI_RESIDENT_FLUSH: 'each' }
+
 /**
  * 获取 OfficeCLI 二进制路径
  * @returns {string} 二进制绝对路径
@@ -89,6 +96,7 @@ function execOfficeCliSync(args, options = {}) {
       encoding: 'utf-8',
       input: options.input,
       maxBuffer: 50 * 1024 * 1024, // 50MB，大文档用
+      env: RESIDENT_FLUSH_ENV,
     })
     return { stdout: stdout.trim(), stderr: '' }
   } catch (err) {
@@ -115,6 +123,7 @@ function execOfficeCliAsync(args, options = {}) {
       encoding: 'utf-8',
       input: options.input,
       maxBuffer: 50 * 1024 * 1024,
+      env: RESIDENT_FLUSH_ENV,
     }, (err, stdout, stderr) => {
       if (err) {
         // 错误信息与 execOfficeCliSync 保持同一格式（2026-08-23 异步化统一）

@@ -134,3 +134,23 @@ describeReal('renderAsHtml', () => {
     expect(result).toContain('第一段正文')
   })
 })
+
+// 2026-08-25 驻留进程立即落盘守卫（OFFICECLI_RESIDENT_FLUSH=each）
+// 背景：1.0.14x 修改类命令先进驻留内存，磁盘延迟 2~10s flush——用户立刻打开产出文件会看到旧内容。
+// 修复：bridge 统一注入 OFFICECLI_RESIDENT_FLUSH=each。本用例保证"非 officecli 程序（SheetJS 直读磁盘）
+// 在不调 save/close 的前提下立即看到修改"，防止该行为回归。
+describeReal('驻留进程立即落盘守卫（2026-08-25）', () => {
+  test('add 后不调 save/close，磁盘立即可读', async () => {
+    const XLSX = require('xlsx')
+    const guardFile = path.join(tmpDir, 'flush-guard.xlsx')
+    await bridge.createDocument(guardFile, 'xlsx')
+    await bridge.execOfficeCliAsync(['add', guardFile, '/Sheet1', '--type', 'cell',
+      '--prop', 'ref=A1', '--prop', 'value=落盘守卫标记'])
+    // 直接从磁盘读（模拟产出文件卡片/第三方库视角），不调 save/close
+    const wb = XLSX.readFile(guardFile)
+    const found = Object.values(wb.Sheets).some(ws =>
+      Object.keys(ws).some(k => /^[A-Z]+\d+$/.test(k) && ws[k].v === '落盘守卫标记')
+    )
+    expect(found).toBe(true)
+  })
+})

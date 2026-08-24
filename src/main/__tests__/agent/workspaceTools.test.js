@@ -41,13 +41,13 @@ function makeMockKG() {
 }
 
 describe('buildWorkspaceSkills（Task 4.1 - 7 个伪 Skill）', () => {
-test('返回 26 个伪 Skill，名称集合与 brief 一致（2026-08-23 更新：v0.3.x 起 office/归档/分析系工具并入）', () => {
+test('返回 27 个伪 Skill，名称集合与 brief 一致（2026-08-25 更新：新增 generate_xlsx_report 一键报表）', () => {
     const skills = buildWorkspaceSkills({
       workspaceManager: makeMockWM(),
       wikiEngine: makeMockWiki(),
       kgExtractor: null
     })
-    expect(skills).toHaveLength(26)
+    expect(skills).toHaveLength(27)
     const names = skills.map(s => s.name).sort()
     expect(names).toEqual([
       'workspace_grep', 'workspace_ingest', 'workspace_lint', 'workspace_listFiles',
@@ -58,7 +58,8 @@ test('返回 26 个伪 Skill，名称集合与 brief 一致（2026-08-23 更新�
       'query_office_elements', 'refresh_office_doc',
       'create_office_file', 'merge_office_template',
       'move_office_element', 'validate_office_file',
-      'import_office_csv', 'officecli_raw', 'officecli_help'
+      'import_office_csv', 'officecli_raw', 'officecli_help',
+      'generate_xlsx_report'
     ].sort())
   })
 
@@ -291,7 +292,7 @@ test('返回 26 个伪 Skill，名称集合与 brief 一致（2026-08-23 更新�
     for (const s of skills) {
       reg.register(s, { builtin: true, filePath: '<workspace-pseudo>' })
     }
-    expect(reg.size).toBe(26)
+    expect(reg.size).toBe(27)
     const schemas = reg.getToolSchemas()
     const names = schemas.map(sc => sc.function.name).sort()
     expect(names).toEqual([
@@ -303,7 +304,8 @@ test('返回 26 个伪 Skill，名称集合与 brief 一致（2026-08-23 更新�
       'query_office_elements', 'refresh_office_doc',
       'create_office_file', 'merge_office_template',
       'move_office_element', 'validate_office_file',
-      'import_office_csv', 'officecli_raw', 'officecli_help'
+      'import_office_csv', 'officecli_raw', 'officecli_help',
+      'generate_xlsx_report'
     ].sort())
   })
 })

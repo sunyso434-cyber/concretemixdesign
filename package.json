@@ -1,6 +1,6 @@
 {
   "name": "concrete-mixdesign",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "砼智 Concrete Agent",
   "main": "main.js",
   "scripts": {
@@ -45,6 +45,7 @@
     "echarts-for-react": "^3.0.6",
     "effect": "^3.22.0",
     "effect-search": "^0.2.1",
+    "exceljs": "^4.4.0",
     "gray-matter": "^4.0.3",
     "iconv-lite": "^0.7.2",
     "js-yaml": "^4.2.0",
@@ -62,7 +63,7 @@
     "vega": "^6.3.1",
     "vega-lite": "^6.4.3",
     "ws": "^8.21.1",
-    "xlsx": "^0.18.5",
+    "xlsx": "file:vendor/xlsx-0.20.3.tgz",
     "yauzl": "^3.4.0"
   },
   "type": "commonjs",
@@ -72,7 +73,7 @@
     "copyright": "Copyright © 2026",
     "publish": null,
     "directories": {
-      "output": "dist-0.9.4",
+      "output": "dist-0.9.5",
       "buildResources": "public"
     },
     "files": [

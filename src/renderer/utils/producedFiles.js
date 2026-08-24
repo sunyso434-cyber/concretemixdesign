@@ -9,7 +9,7 @@
  * FileMessageCard 用 path 打开与定位。type 从扩展名推断（docx/xlsx/md/pdf…）。
  */
 
-const PRODUCING_TOOLS = new Set(['workspace_writeFile'])
+const PRODUCING_TOOLS = new Set(['workspace_writeFile', 'generate_xlsx_report'])
 
 export function extractProducedFiles(timeline) {
   if (!Array.isArray(timeline) || timeline.length === 0) return []
@@ -19,14 +19,19 @@ export function extractProducedFiles(timeline) {
     if (!item || item.type !== 'tool' || item.status !== 'done') continue
     if (!PRODUCING_TOOLS.has(item.toolName)) continue
     const result = item.result && typeof item.result === 'object' ? item.result : {}
-    const p = result.path || result.filePath
+    // 兼容两种返回形态：顶层 path（workspace_writeFile / generate_xlsx_report）
+    // 或 data.filePath 包装（officecli 系列未来接入时无需再改这里）
+    const inner = result.data && typeof result.data === 'object' ? result.data : {}
+    const p = result.path || result.filePath || inner.path || inner.filePath
     if (typeof p !== 'string' || p.length === 0 || seen.has(p)) continue
     seen.add(p)
     const extMatch = p.split('.').pop()
     const ext = extMatch ? extMatch.toLowerCase() : ''
     files.push({
       path: p,
-      size: typeof result.size === 'number' ? result.size : undefined,
+      size: typeof result.size === 'number'
+        ? result.size
+        : (typeof inner.size === 'number' ? inner.size : undefined),
       type: ext || undefined,
     })
   }
