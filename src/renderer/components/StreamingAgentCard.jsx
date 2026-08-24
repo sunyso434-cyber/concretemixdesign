@@ -208,13 +208,8 @@ const ReasoningBlock = ({ item }) => {
       >
         <StatusIcon type="reasoning" status={item.status} />
         {isRunning && !hasContent ? (
-          <Text className="ai-thinking-text" style={{
-            fontSize: 13,
-            color: 'var(--color-primary, #0071e3)',
-            fontStyle: 'italic'
-          }}>
-            AI思考中
-          </Text>
+          // 2026-08-24 去重：思考中文字与顶部状态条重复，运行中且无内容时只显示图标
+          null
         ) : (
           <>
             <Text style={{

@@ -107,7 +107,8 @@ export default function MessageContent({ item, agentStatus, agentReplyText, onOp
     return <ReactMarkdown components={mdComponents}>{linkifyMdRefs(item.content)}</ReactMarkdown>
   }
   if (agentStatus === 'thinking' && item._streaming) {
-    return <div className="ai-thinking">AI 正在思考<span className="ai-thinking-text"></span></div>
+    // 2026-08-24 去重：thinking 占位与 StreamingAgentCard 顶部状态条（含暂停/取消）重复，保留状态条
+    return null
   }
   if ((agentStatus === 'streaming' || agentStatus === 'tool_calling') && item._streaming) {
     return (

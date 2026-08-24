@@ -597,6 +597,9 @@ class UnifiedStrategy {
         }
         debugLog.push(failLog)
         this._notifyProgress(webContents, { type: 'debug_log', tag: '❌ LLM 失败', data: failLog, roundIndex, mode })
+        // 2026-08-24 落盘：失败详情（错误码/HTTP状态/耗时）此前只推前端轨迹，重启即失——
+        // 落 agent-debug.log 供事后定位限流/超时/参数错（failLog 无用户内容，无隐私面）
+        console.error('[LLM失败]', JSON.stringify({ ...failLog, sessionId, round: roundIndex }))
 
         this._notifyProgress(webContents, {
           type: 'reasoning_error',
@@ -635,7 +638,10 @@ class UnifiedStrategy {
         }
 
         if (err.code === 'E-LLM-429' && failureCounters.llmNetwork < threshold) {
-          await new Promise(r => setTimeout(r, 5000 * Math.pow(2, failureCounters.llmNetwork - 1)))
+          // 2026-08-24 改进：限流退避加长——首次 15s、指数递增、上限 60s（限流窗口通常 ≥60s，原 5s 起常撞墙）
+          const backoffMs = Math.min(15000 * Math.pow(2, failureCounters.llmNetwork - 1), 60000)
+          console.warn(`[LLM] 429 限流，${Math.round(backoffMs / 1000)}s 后自动重试（第 ${failureCounters.llmNetwork}/${threshold} 次）`)
+          await new Promise(r => setTimeout(r, backoffMs))
           continue
         }
 
@@ -651,6 +657,12 @@ class UnifiedStrategy {
             callSite: 'UnifiedStrategy.llmLoop',
             sessionId,
           })
+          // 2026-08-24 改进：按失败类型区分提示——网络类（限流/超时）是临时性的，引导等待而非改任务描述
+          if (failureCounters.llmNetwork >= LLN_NETWORK_FUSE) {
+            classifiedError.title = 'AI 服务暂时限流或网络波动'
+            classifiedError.hint = '通常是 API 速率限制，一般稍等 1-2 分钟自动恢复；稍后点"继续"即可，无需修改任务描述'
+            classifiedError.recovery = 'wait_retry'
+          }
           // 把 debugLog 附加到错误对象，前端可直接读取
           if (classifiedError.details) classifiedError.details.debugLog = debugLog
           this._notifyProgress(webContents, { type: 'error', error: classifiedError, mode })
