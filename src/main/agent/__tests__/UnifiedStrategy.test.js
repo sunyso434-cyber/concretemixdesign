@@ -31,9 +31,12 @@ jest.mock('../../services/DeepSeekService', () => {
 })
 
 // Task 4: mock contextStats.estimateTokens（_autoCompactIfNeeded 内部 dynamic require）
+// v0.9.x：UnifiedStrategy 另用 estimateTextTokens 做上下文估算（圆环/细分面板），一并 mock
 let mockEstimateTokens
+let mockEstimateTextTokens
 jest.mock('../../../shared/utils/contextStats', () => ({
-  estimateTokens: (...args) => mockEstimateTokens(...args)
+  estimateTokens: (...args) => mockEstimateTokens(...args),
+  estimateTextTokens: (...args) => mockEstimateTextTokens(...args)
 }))
 
 // sqlite3 原生模块在本环境（Node 20.20.2 非 Electron）加载即段错误（访问冲突 0xC0000005），
@@ -44,6 +47,7 @@ jest.mock('../../db/database', () => ({}))
 // 所有测试前确保 mockEstimateTokens 有默认返回值（低于阈值，避免自动压缩干扰现有测试）
 beforeEach(() => {
   mockEstimateTokens = jest.fn(() => 1000)
+  mockEstimateTextTokens = jest.fn((s) => Math.ceil(((s || '').length) / 4))
 })
 
 describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
@@ -141,6 +145,34 @@ describe('UnifiedStrategy 行为对齐 UnifiedOrchestrator', () => {
     // 退避后应重试并成功（不直接返回失败）
     expect(mocks.deepseekService.chatWithToolsStream).toHaveBeenCalledTimes(2)
   }, 15000)
+
+  test('v0.9.x: failover 切换前发 model_switching 事件（含人话原因）', async () => {
+    const mocks = makeMocks()
+    // 两套 LLM 配置：第一套限流失败，第二套成功
+    mocks.systemService.getLlmConfigs = jest.fn(async () => ([
+      { id: 'a', name: '模型A', provider: 'p1', apiKey: 'k1', model: 'm-a' },
+      { id: 'b', name: '模型B', provider: 'p2', apiKey: 'k2', model: 'm-b' },
+    ]))
+    mocks.deepseekService.chatWithToolsStream
+      .mockRejectedValueOnce({ code: 'E-LLM-429', message: 'rate limit' })
+      .mockResolvedValueOnce({ content: 'ok', tool_calls: null })
+
+    const mockSend = jest.fn()
+    const webContents = { send: mockSend, isDestroyed: jest.fn(() => false) }
+
+    const strategy = new UnifiedStrategy(mocks)
+    const result = await strategy.execute({ sessionId: 's_switch', message: 'hi', webContents })
+
+    expect(result.success).toBe(true)
+    const events = mockSend.mock.calls.map(c => c[1])
+    const sw = events.find(e => e && e.type === 'model_switching')
+    expect(sw).toBeDefined()
+    expect(sw.from).toBe('模型A')
+    expect(sw.to).toBe('模型B')
+    // 原因经错误分类器翻译成人话（E-LLM-429 → registry 中文标题）
+    expect(sw.reason.title).toBeTruthy()
+    expect(sw.reason.title).not.toBe('调用失败')
+  })
 
   test('场景 5: 用户中途调 abort → 优雅停止', async () => {
     const mocks = makeMocks()

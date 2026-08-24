@@ -84,6 +84,13 @@ export default function useAgentMode() {
             })
           }
           return
+        case 'model_switching':
+          // v0.9.x：failover 切换前告知——时间线留痕（模型X失败原因 + 自动改用Y）
+          dispatch({
+            type: 'MODEL_SWITCH_NOTICE',
+            payload: { from: data.from, to: data.to, reason: data.reason || {} }
+          })
+          return
         case 'reasoning_start':
           dispatch({ type: 'REASONING_START', payload: { roundIndex: data.roundIndex } })
           return

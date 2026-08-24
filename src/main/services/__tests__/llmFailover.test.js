@@ -139,6 +139,88 @@ describe('tryWithFailover', () => {
   })
 })
 
+describe('tryWithFailover onAttemptFail（v0.9.x：切换前抛错告知）', () => {
+  const mockConfigs = [
+    { id: 'c1', name: 'DeepSeek', provider: 'deepseek', apiKey: 'sk-d1' },
+    { id: 'c2', name: 'MiniMax', provider: 'minimax', apiKey: 'sk-m1' },
+    { id: 'c3', name: 'OpenAI', provider: 'openai', apiKey: 'sk-o1' },
+  ]
+
+  test('第一个失败且还有候选 → 切换前触发 onAttemptFail（带失败名/下一名/错误）', async () => {
+    const tryFn = jest.fn()
+      .mockRejectedValueOnce({ code: 'E-LLM-429', message: '限流' })
+      .mockResolvedValueOnce({ reply: 'ok' })
+    const onAttemptFail = jest.fn()
+
+    await tryWithFailover(mockConfigs, tryFn, jest.fn(), { onAttemptFail })
+
+    expect(onAttemptFail).toHaveBeenCalledTimes(1)
+    expect(onAttemptFail).toHaveBeenCalledWith({
+      failedName: 'DeepSeek',
+      nextName: 'MiniMax',
+      error: { code: 'E-LLM-429', message: '限流' },
+    })
+  })
+
+  test('第一个就成功 → 不触发 onAttemptFail', async () => {
+    const tryFn = jest.fn().mockResolvedValue({ reply: 'ok' })
+    const onAttemptFail = jest.fn()
+
+    await tryWithFailover(mockConfigs, tryFn, jest.fn(), { onAttemptFail })
+
+    expect(onAttemptFail).not.toHaveBeenCalled()
+  })
+
+  test('最后一个配置失败 → 不再触发（没有下一个候选）', async () => {
+    const tryFn = jest.fn()
+      .mockRejectedValueOnce(new Error('fail1'))
+      .mockRejectedValueOnce(new Error('fail2'))
+      .mockRejectedValueOnce(new Error('final'))
+    const onAttemptFail = jest.fn()
+
+    await expect(tryWithFailover(mockConfigs, tryFn, jest.fn(), { onAttemptFail }))
+      .rejects.toThrow('final')
+
+    expect(onAttemptFail).toHaveBeenCalledTimes(2)  // c1→c2、c2→c3，c3 后无候选不触发
+    expect(onAttemptFail.mock.calls[0][0].failedName).toBe('DeepSeek')
+    expect(onAttemptFail.mock.calls[1][0].failedName).toBe('MiniMax')
+  })
+
+  test('shouldStopOnError 命中（用户中断）→ 直接穿透，不触发 onAttemptFail', async () => {
+    const abortErr = { name: 'AbortError', message: '用户中断' }
+    const tryFn = jest.fn().mockRejectedValue(abortErr)
+    const onAttemptFail = jest.fn()
+
+    await expect(tryWithFailover(
+      mockConfigs, tryFn, jest.fn(),
+      { onAttemptFail, shouldStopOnError: (e) => e?.name === 'AbortError' }
+    )).rejects.toBe(abortErr)
+
+    expect(onAttemptFail).not.toHaveBeenCalled()
+  })
+
+  test('onAttemptFail 自身抛错 → 不阻断 failover 主流程', async () => {
+    const tryFn = jest.fn()
+      .mockRejectedValueOnce(new Error('fail1'))
+      .mockResolvedValueOnce({ reply: 'ok' })
+    const onAttemptFail = jest.fn(() => { throw new Error('callback boom') })
+
+    const { result } = await tryWithFailover(mockConfigs, tryFn, jest.fn(), { onAttemptFail })
+
+    expect(result.reply).toBe('ok')
+  })
+
+  test('不传 onAttemptFail → 行为与旧版完全一致', async () => {
+    const tryFn = jest.fn()
+      .mockRejectedValueOnce(new Error('fail1'))
+      .mockResolvedValueOnce({ reply: 'ok' })
+
+    const { result } = await tryWithFailover(mockConfigs, tryFn, jest.fn())
+
+    expect(result.reply).toBe('ok')
+  })
+})
+
 describe('prioritizeActiveFirst（v11.7.9 新增）', () => {
   const cA = { id: 'a', name: 'A' }
   const cB = { id: 'b', name: 'B' }

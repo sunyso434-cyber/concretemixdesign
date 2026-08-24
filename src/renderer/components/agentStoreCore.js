@@ -18,8 +18,10 @@ export const initialState = {
   // v0.9.x 圆环修复：真实值落点时的消息数快照——之后新增的消息（回复/新提问）
   // 用估算叠加到真实基数上，圆环随对话实时上涨（SmartDesignChat 圆环计算用）
   contextRealTokensAt: 0,
-  // 上下文上限（主进程 cfg.deepseekContextLimit；SET_CONTEXT_STATS / model_info 更新；UI 分母）
-  contextLimit: 200000,
+  // 上下文上限（圆环分母）：来自 LLM 配置中当前模型的 contextLimit（各模型不同，如 128K/1M），
+  // 由 SET_MESSAGES（会话加载）/ SET_CONTEXT_STATS（model_info）更新；
+  // 此处仅是配置读取失败时的最后防线，与主进程兜底口径一致（800000）
+  contextLimit: 800000,
   // v0.9.x 输出优化：上下文构成细分（{ system, tools, messages } token 估算，来自主进程 context_stats 事件）
   contextBreakdown: null,
   agent: {
@@ -339,12 +341,19 @@ export function agentReducer(state, action) {
     }
     case 'SET_CONTEXT_STATS': {
       // v8.4.2：支持同时更新 contextLimit；不传时保持原值
-      // v0.9.x 圆环修复：记录真实值对应的消息数快照——之后新增的消息（assistant 回复/用户新消息）
-      // 用估算叠加到真实基数上，圆环随对话实时上涨（原 max(估算, 真实) 被大真实值压住不动）
+      // v0.9.x 圆环修复（回复计入）：校准落点取"正在流式生成的回复"占位消息的 index——
+      // model_info 到达时该回复仍在增长且尚未计入真实值，落点定在占位消息上，
+      // 圆环对其内容实时估算叠加，回复边生成圆环边涨；无流式占位时退回消息末尾。
+      // 已知取舍：多轮任务中间轮次已生成的文本会在下一轮真实值里重复计一次，
+      // 幅度小且下一次 model_info 自动校正，不值得为此引入字符偏移的复杂度
+      let at = state.messages.length
+      for (let i = state.messages.length - 1; i >= 0; i--) {
+        if (state.messages[i] && state.messages[i]._streaming === true) { at = i; break }
+      }
       return {
         ...state,
         contextRealTokens: action.payload.realTokens || 0,
-        contextRealTokensAt: state.messages.length,
+        contextRealTokensAt: at,
         contextLimit: action.payload.contextLimit || state.contextLimit
       }
     }
@@ -354,6 +363,27 @@ export function agentReducer(state, action) {
       return {
         ...state,
         contextBreakdown: b && typeof b === 'object' ? b : state.contextBreakdown
+      }
+    }
+    case 'MODEL_SWITCH_NOTICE': {
+      // v0.9.x：failover 切换前在时间线留痕（DONE 时随 timeline 固化进消息，历史可回溯）
+      // 节点形如：{ type:'notice', content:'模型「A」调用失败，原因：AI 请求频率超限，已自动改用「B」继续' }
+      const { from, to, reason } = action.payload || {}
+      const parts = []
+      if (from) parts.push(`模型「${from}」调用失败`)
+      parts.push(reason && reason.title ? `原因：${reason.title}` : '原因未知')
+      if (to) parts.push(`已自动改用「${to}」继续`)
+      return {
+        ...state,
+        agent: {
+          ...state.agent,
+          timeline: [...state.agent.timeline, {
+            type: 'notice',
+            content: parts.join('，'),
+            hint: (reason && reason.hint) || '',
+            status: 'done'
+          }]
+        }
       }
     }
     case 'REASONING_START': {

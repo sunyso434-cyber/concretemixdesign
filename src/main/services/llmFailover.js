@@ -56,6 +56,8 @@ function prioritizeActiveFirst(configs, activeId) {
  * @param {object} [opts] - 可选参数
  * @param {string} [opts.activeId] - 激活配置的 ID，传入后优先尝试该配置
  * @param {Function} [opts.shouldStopOnError] - (error) => boolean，返回 true 时直接抛出该错误，不再切换配置
+ * @param {Function} [opts.onAttemptFail] - ({ failedName, nextName, error }) => void，
+ *   某配置失败且即将尝试下一个之前触发（切换前告知用户原因）
  * @returns {Promise<{result: *, usedConfig: object}>}
  * @throws 全部失败时抛出最后一个错误
  */
@@ -95,6 +97,18 @@ async function tryWithFailover(configs, tryWithConfig, onSwitch, opts = {}) {
       lastError = error
       // v11.7.5：所有错误都继续尝试下一个 config
       console.warn(`[llmFailover] config[${i}] "${config.name || config.provider}" 失败: ${error.message || error.code || 'unknown'}，尝试下一个...`)
+      // v0.9.x：切换前先把失败原因抛给调用方（老板要求：切换前告知用户原因）。
+      // 仅在还有下一个候选时触发；回调自身异常不阻断 failover 主流程
+      const nextConfig = valid[i + 1]
+      if (nextConfig && typeof opts.onAttemptFail === 'function') {
+        try {
+          opts.onAttemptFail({
+            failedName: config.name || config.provider || '未知',
+            nextName: nextConfig.name || nextConfig.provider || '未知',
+            error,
+          })
+        } catch (_) {}
+      }
     }
   }
 

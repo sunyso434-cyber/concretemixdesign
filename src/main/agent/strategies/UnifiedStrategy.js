@@ -28,6 +28,7 @@ const { getInstance: getAgentMdService } = require('../agentMd')
 const { classifyError } = require('../errorClassifier')
 const { createAsyncLogWriter } = require('../../utils/asyncLogWriter')
 const { tryWithFailover } = require('../../services/llmFailover')
+const { estimateTextTokens } = require('../../../shared/utils/contextStats')
 const DeepSeekService = require('../../services/DeepSeekService')
 const MemoryTierService = require('../../services/MemoryTierService')
 const ToolResultStore = require('../ToolResultStore')
@@ -382,17 +383,16 @@ class UnifiedStrategy {
     let toolSchemas = getCurrentToolSchemas()
 
     // v0.9.x 输出优化：估算上下文构成（system/tools/messages），供前端细分面板展示
-    // ⚠️ estimateTokens 只接受数组，这里直接用字符数估算（每 4 字符 ≈ 1 token）
-    // 修复：messages 用 trimmedMessages（实际发给 LLM 的），与下方 model_info 兜底估算
-    // 口径一致——原 messagesForLLM 是压缩后未裁剪的，trim 触发后两处数字对不上
+    // 用共享 estimateTextTokens（CJK 1 字≈1 token / 其他 4 字符≈1 token），
+    // 与下方 model_info 兜底估算、前端圆环估算口径一致——
+    // 旧 chars/4 对中文低估 3~4 倍；messages 用 trimmedMessages（实际发给 LLM 的）
     try {
-      const estChars = (s) => Math.ceil(((s || '').length) / 4)
       this._notifyProgress(webContents, {
         type: 'context_stats',
         breakdown: {
-          system: estChars(systemPrompt),
-          tools: estChars(JSON.stringify(toolSchemas || [])),
-          messages: estChars(JSON.stringify(trimmedMessages || []))
+          system: estimateTextTokens(systemPrompt),
+          tools: estimateTextTokens(JSON.stringify(toolSchemas || [])),
+          messages: estimateTextTokens(JSON.stringify(trimmedMessages || []))
         }
       })
     } catch (_) { /* 统计失败不影响主流程 */ }
@@ -553,7 +553,23 @@ class UnifiedStrategy {
             // v3.1 要点 2：中断错误（AbortError / 用户插话标志）直接穿透，不切换配置
             shouldStopOnError: (err) => err?.name === 'AbortError'
               || err?.code === 'ERR_CANCELED'
-              || this.orchestrator?.isInterrupted?.()
+              || this.orchestrator?.isInterrupted?.(),
+            // v0.9.x：切换前告知——把失败配置的错误用人话抛给前端时间线留痕
+            onAttemptFail: ({ failedName, nextName, error }) => {
+              let reason = { code: 'unknown', title: '调用失败', hint: '' }
+              try {
+                const c = classifyError(error, { callSite: 'llmFailover.onAttemptFail' })
+                if (c && c.code) {
+                  reason = { code: c.code, title: c.title, hint: c.hint }
+                }
+              } catch (_) {}
+              this._notifyProgress(webContents, {
+                type: 'model_switching',
+                from: failedName,
+                to: nextName,
+                reason,
+              })
+            }
           }
         )
         response = result
@@ -562,24 +578,28 @@ class UnifiedStrategy {
         // v0.9.x 输出优化：附加本轮 token 用量（DeepSeek 流式最后一个 chunk 的 usage）与真实上下文上限，
         // 供统计行与上下文圆环（真实 prompt_tokens / 真实 contextLimit）使用
         if (usedConfig) {
-          // v0.9.x：上下文上限取 LLM 设置里的 contextLimit（用户配置；_getConfig 兼容 config/legacy 两模式）
-          // ⚠️ 配置存储为字符串（如 "1023999"），必须 Number() 后再判断
-          let llmContextLimit = 200000
+          // v0.9.x：上下文上限取 LLM 设置里的 contextLimit（用户配置）
+          // 圆环修复：优先读 failover 实际使用的 usedConfig.contextLimit——
+          // failover 换模型后分母必须跟着换（各模型上限不同，如 128K/1M），
+          // 读不到再降级 _getConfig()；配置存储可能是字符串（如 "1023999"），必须 Number()
+          let llmContextLimit = 800000
           try {
-            const llmCfg = await this.deepseekService._getConfig()
-            const cl = Number(llmCfg && llmCfg.contextLimit)
+            const cl = Number(usedConfig && usedConfig.contextLimit)
             if (Number.isFinite(cl) && cl > 0) {
               llmContextLimit = cl
+            } else {
+              const llmCfg = await this.deepseekService._getConfig()
+              const fb = Number(llmCfg && llmCfg.contextLimit)
+              if (Number.isFinite(fb) && fb > 0) llmContextLimit = fb
             }
           } catch (_) {}
-          // 防御：部分代理网关（如 opencode.ai 中转）不回传 usage → 用字符估算兜底，
+          // 防御：部分代理网关（如 opencode.ai 中转）不回传 usage → 用共享公式估算兜底，
           // 保证上下文圆环/统计行始终有值（真实 usage 优先）
           let llmUsage = response?.usage || null
           if (!llmUsage) {
             try {
-              const estChars = (s) => Math.ceil(((s || '').length) / 4)
-              const promptTokens = estChars(systemPrompt) + estChars(JSON.stringify(toolSchemas || [])) + estChars(JSON.stringify(trimmedMessages || []))
-              const completionTokens = estChars(response?.content || '')
+              const promptTokens = estimateTextTokens(systemPrompt) + estimateTextTokens(JSON.stringify(toolSchemas || [])) + estimateTextTokens(JSON.stringify(trimmedMessages || []))
+              const completionTokens = estimateTextTokens(response?.content || '')
               llmUsage = {
                 prompt_tokens: promptTokens,
                 completion_tokens: completionTokens,

@@ -30,6 +30,9 @@ export function buildTrajectorySteps(messages) {
 
     timeline.forEach((item, ti) => {
       if (!item || typeof item !== 'object') return
+      // v0.9.x：notice（模型切换留痕等系统提示）不进轨迹账本——轨迹只记思考+工具，
+      // 切换提示已在聊天时间线中展示
+      if (item.type === 'notice') return
       steps.push({
         key: `${m.id || 'm'}-${turn}-${ti}`,
         turn,

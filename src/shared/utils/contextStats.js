@@ -3,7 +3,9 @@
  * contextStats - 上下文统计纯函数工具（共享层）
  *
  * 职责：
- * 1. estimateTokens - 估算 messages 的 token 数（每 4 字符 ≈ 1 token）
+ * 1. estimateTextTokens / estimateTokens - 估算文本与 messages 的 token 数
+ *    （CJK 字符按 1 字 ≈ 1 token，其他字符按 4 字符 ≈ 1 token；
+ *      旧版统一 4 字符 ≈ 1 token 对中文低估约 3~4 倍，导致上下文圆环显示偏低）
  * 2. getContextPercent - 计算已用上下文比例（优先 realTokens，降级估算）
  * 3. messagesToText - 把 messages 数组拼成 LLM 可读文本
  *
@@ -12,6 +14,26 @@
 
 const DEFAULT_CONTEXT_LIMIT = 800000
 const CHARS_PER_TOKEN = 4
+const CJK_TOKENS_PER_CHAR = 1
+
+// CJK 统一汉字 + 扩展A + 中文标点 + 全角符号
+const CJK_CHAR_REGEX = /[\u3400-\u4DBF\u4E00-\u9FFF\u3000-\u303F\uFF00-\uFFEF]/
+
+/**
+ * 估算单段文本的 token 数（中英混合口径）
+ * @param {string} text
+ * @returns {number}
+ */
+function estimateTextTokens(text) {
+  if (!text) return 0
+  let cjkCount = 0
+  let otherCount = 0
+  for (const ch of text) {
+    if (CJK_CHAR_REGEX.test(ch)) cjkCount++
+    else otherCount++
+  }
+  return Math.ceil(cjkCount * CJK_TOKENS_PER_CHAR + otherCount / CHARS_PER_TOKEN)
+}
 
 /**
  * 把单条 message 的 content 提取为字符串
@@ -31,14 +53,13 @@ function extractContent(message) {
 
 /**
  * 估算 messages 数组的总 token 数
- * 用启发式：每 4 字符 ≈ 1 token
  * @param {Array<{role, content}>} messages
- * @returns {number} ceil(totalChars / 4)
+ * @returns {number}
  */
 function estimateTokens(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return 0
-  const totalChars = messages.reduce((sum, m) => sum + extractContent(m).length, 0)
-  return Math.ceil(totalChars / CHARS_PER_TOKEN)
+  const text = messages.map(m => extractContent(m)).join('')
+  return estimateTextTokens(text)
 }
 
 /**
@@ -73,6 +94,7 @@ function messagesToText(messages) {
 
 module.exports = {
   DEFAULT_CONTEXT_LIMIT,
+  estimateTextTokens,
   estimateTokens,
   getContextPercent,
   messagesToText,

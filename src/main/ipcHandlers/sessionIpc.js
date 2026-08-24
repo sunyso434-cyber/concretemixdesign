@@ -78,8 +78,9 @@ function registerSessionIpc(ipcMain, deps) {
       const { timeline, ...restMetadata } = m.metadata
       return { ...m, metadata: restMetadata }
     })
-    // v0.9.x：附带 LLM 配置的上下文上限（圆环分母；配置存储可能是字符串，须 Number()）
-    let contextLimit = 200000
+    // v0.9.x：附带 LLM 配置的上下文上限（圆环分母；各模型配置不同；
+    // 配置存储可能是字符串，须 Number()；读取失败时兜底 800000 与全局口径一致）
+    let contextLimit = 800000
     try {
       const activeCfg = await deps.getActiveLlmConfig()
       const cl = Number(activeCfg && activeCfg.contextLimit)

@@ -168,18 +168,49 @@ const { parseInlineThinking } = require('./streamParser')
 
     const apiUrl = `${(cfg.baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '')}/chat/completions`
 
-    // v11.7.5: HTTP 错误时预读响应体，注入 error._apiErrorBody，避免 _buildClassifiedError 再去读已消耗的 stream
+    /**
+     * 判断错误是否为"网关不认识 stream_options 参数"的拒绝（400/422 且错误体提到该参数）
+     * 判定前会把响应体读完并回写到 err.response.data（避免外层再读已消耗的流）
+     */
+    async function isStreamOptionsReject(err) {
+      const status = err?.response?.status
+      if (status !== 400 && status !== 422) return false
+      const d = err.response.data
+      let text = ''
+      try {
+        if (typeof d === 'string') text = d
+        else if (d && typeof d.on === 'function') {
+          const parsed = await _readErrorBody(d)
+          text = typeof parsed === 'object' ? JSON.stringify(parsed) : String(parsed || '')
+        } else if (d) text = JSON.stringify(d)
+      } catch (_) {}
+      err.response.data = text || ''
+      return text.includes('stream_options')
+    }
+
+    const doPost = (body) => axios.post(apiUrl, body, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${cfg.apiKey || this.config.apiKey}`
+      },
+      responseType: 'stream',
+      timeout: cfg.timeout,
+      signal   // v3.0：axios 原生支持，abort 时抛 ERR_CANCELED
+    })
+
+    // v0.9.x 圆环修复：显式索要真实 token 用量（OpenAI 兼容标准参数）。
+    // 不带该参数时多数网关流式模式不回传 usage，前端被迫走字符估算导致圆环偏低；
+    // 个别老网关不认识该参数会报 400 → 自动去掉参数重试一次，行为与旧版一致
     let response
     try {
-      response = await axios.post(apiUrl, requestBody, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${cfg.apiKey || this.config.apiKey}`
-        },
-        responseType: 'stream',
-        timeout: cfg.timeout,
-        signal   // v3.0：axios 原生支持，abort 时抛 ERR_CANCELED
-      })
+      try {
+        response = await doPost({ ...requestBody, stream_options: { include_usage: true } })
+      } catch (firstError) {
+        if (firstError.code === 'ERR_CANCELED' || firstError.name === 'CanceledError' || firstError.name === 'AbortError') throw firstError
+        if (!(await isStreamOptionsReject(firstError))) throw firstError
+        console.warn(`[DeepSeek] ⚠️ 网关不支持 stream_options（HTTP ${firstError.response?.status}），已去掉该参数重试`)
+        response = await doPost(requestBody)
+      }
     } catch (postError) {
       // v3.1 要点 3：响应头前 abort 静默跳过，不打吓人日志
       if (postError.code === 'ERR_CANCELED' || postError.name === 'CanceledError' || postError.name === 'AbortError') {

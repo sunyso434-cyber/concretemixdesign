@@ -88,7 +88,7 @@ const TrajectoryPanel = ({ messages, liveTimeline, agentStatus, focusToolCallId 
     if (!isAgentWorking || !Array.isArray(liveTimeline) || liveTimeline.length === 0) return []
     const turn = steps.length > 0 ? steps[steps.length - 1].turn + 1 : 1
     return liveTimeline
-      .filter(item => item && typeof item === 'object')
+      .filter(item => item && typeof item === 'object' && item.type !== 'notice')
       .map((item, ti) => ({
         key: `live-${turn}-${ti}`,
         turn,

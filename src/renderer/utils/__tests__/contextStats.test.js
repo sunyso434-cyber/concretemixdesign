@@ -2,6 +2,7 @@
 // 直接测试共享层源码（CJS），避免经过 renderer ESM 中转
 const {
   estimateTokens,
+  estimateTextTokens,
   getContextPercent,
   messagesToText,
   DEFAULT_CONTEXT_LIMIT
@@ -31,8 +32,23 @@ describe('estimateTokens', () => {
   })
 
   test('中文 content', () => {
-    // "你好" = 2 字符，2/4 = 0.5 → 1 (ceil)
-    expect(estimateTokens([{ role: 'user', content: '你好' }])).toBe(1)
+    // 新口径：汉字按 1 字 ≈ 1 token，"你好" = 2 tokens
+    expect(estimateTokens([{ role: 'user', content: '你好' }])).toBe(2)
+  })
+
+  test('中英混合按各自口径累加', () => {
+    // "你好hi" = 2 汉字(2) + 2 字符(ceil(2/4)=1) = 3
+    expect(estimateTokens([{ role: 'user', content: '你好hi' }])).toBe(3)
+  })
+
+  test('estimateTextTokens 纯 ASCII 与旧口径一致', () => {
+    // "hello" = 5/4 → ceil = 2
+    expect(estimateTextTokens('hello')).toBe(2)
+  })
+
+  test('estimateTextTokens 中文标点与全角符号按 CJK 计', () => {
+    // "你好！" = 3 个 CJK 字符（含全角叹号）→ 3
+    expect(estimateTextTokens('你好！')).toBe(3)
   })
 
   test('content 是数组（卡片）时拼接所有 text 字段', () => {

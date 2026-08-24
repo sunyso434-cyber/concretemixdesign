@@ -1,6 +1,6 @@
 {
   "name": "concrete-mixdesign",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "砼智 Concrete Agent",
   "main": "main.js",
   "scripts": {
@@ -73,7 +73,7 @@
     "copyright": "Copyright © 2026",
     "publish": null,
     "directories": {
-      "output": "dist-0.9.6",
+      "output": "dist-0.9.7",
       "buildResources": "public"
     },
     "files": [

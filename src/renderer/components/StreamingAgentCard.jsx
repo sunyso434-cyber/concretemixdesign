@@ -4,7 +4,8 @@ import { Space, Typography, Button, Table } from 'antd'
 import {
   LoadingOutlined, CheckCircleOutlined, CloseCircleOutlined,
   PauseCircleOutlined, PlayCircleOutlined, StopOutlined,
-  CaretRightOutlined, CaretDownOutlined, BulbOutlined, ToolOutlined, HistoryOutlined
+  CaretRightOutlined, CaretDownOutlined, BulbOutlined, ToolOutlined, HistoryOutlined,
+  WarningOutlined
 } from '@ant-design/icons'
 import { resultToTableData } from '../utils/toolResultTable'
 import MixDesignResultCard from './MixDesignResultCard'
@@ -185,6 +186,29 @@ const StatusIcon = ({ type, status }) => {
   }
   return <ToolOutlined style={{ color: '#999', fontSize: 14 }} />
 }
+
+/** 系统提示块（v0.9.x：failover 模型切换留痕等非工具/思考类时间线节点） */
+const NoticeBlock = ({ item }) => (
+  <div style={{
+    padding: '4px 0 4px 12px',
+    marginLeft: 8,
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 6
+  }}>
+    <WarningOutlined style={{ color: 'var(--color-warning, #FF9500)', fontSize: 14, marginTop: 2 }} />
+    <div>
+      <Text style={{ fontSize: 13, color: 'var(--color-warning, #FF9500)' }}>
+        {item.content}
+      </Text>
+      {item.hint && (
+        <div style={{ fontSize: 12, color: 'var(--color-text-secondary, #666)', marginTop: 2 }}>
+          {item.hint}
+        </div>
+      )}
+    </div>
+  </div>
+)
 
 /** 单个推理块 */
 const ReasoningBlock = ({ item }) => {
@@ -527,9 +551,11 @@ const StreamingAgentCard = ({ timeline, liveTimeline, live, status, agentReplyTe
       {/* 时间线 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
         {effectiveTimeline.map((item, index) => (
-          item.type === 'reasoning'
-            ? <ReasoningBlock key={`r-${item.roundIndex ?? index}`} item={item} />
-            : <ToolBlock key={`t-${item.toolCallId || item.id || index}`} item={item} onInspectTool={onInspectTool} />
+          item.type === 'notice'
+            ? <NoticeBlock key={`n-${index}`} item={item} />
+            : item.type === 'reasoning'
+              ? <ReasoningBlock key={`r-${item.roundIndex ?? index}`} item={item} />
+              : <ToolBlock key={`t-${item.toolCallId || item.id || index}`} item={item} onInspectTool={onInspectTool} />
         ))}
       </div>
 

@@ -306,6 +306,81 @@ describe('agentReducer - SET_CONTEXT_STATS', () => {
     expect(next.contextRealTokens).toBe(80000)
     expect(next.contextRealTokensAt).toBe(3)
   })
+
+  // v0.9.x 圆环修复（回复计入）：有流式占位消息时，落点定在占位消息上——
+  // 回复内容尚未计入真实值，圆环对占位消息实时估算叠加
+  test('存在流式占位消息时快照落点为占位消息 index', () => {
+    const stateWithStreaming = {
+      ...initialState,
+      messages: [
+        { role: 'user', content: '问题' },
+        { role: 'assistant', content: '', _streaming: true, _agentRequestId: 'r1' }
+      ]
+    }
+    const next = agentReducer(stateWithStreaming, {
+      type: 'SET_CONTEXT_STATS',
+      payload: { realTokens: 9000 }
+    })
+    expect(next.contextRealTokensAt).toBe(1)
+  })
+
+  test('无流式占位消息时落点回退到消息末尾', () => {
+    const stateNoStreaming = {
+      ...initialState,
+      messages: [
+        { role: 'assistant', content: '历史回复', _streaming: false },
+        { role: 'user', content: '新问题' }
+      ]
+    }
+    const next = agentReducer(stateNoStreaming, {
+      type: 'SET_CONTEXT_STATS',
+      payload: { realTokens: 7000 }
+    })
+    expect(next.contextRealTokensAt).toBe(2)
+  })
+})
+
+describe('agentReducer - MODEL_SWITCH_NOTICE（v0.9.x failover 切换留痕）', () => {
+  test('追加 notice 节点，含失败模型/原因/接替模型', () => {
+    const next = agentReducer(initialState, {
+      type: 'MODEL_SWITCH_NOTICE',
+      payload: {
+        from: '模型A',
+        to: '模型B',
+        reason: { code: 'E-LLM-429', title: 'AI 请求频率超限', hint: '稍等后重试' }
+      }
+    })
+    expect(next.agent.timeline).toHaveLength(1)
+    const node = next.agent.timeline[0]
+    expect(node.type).toBe('notice')
+    expect(node.status).toBe('done')
+    expect(node.content).toContain('模型A')
+    expect(node.content).toContain('AI 请求频率超限')
+    expect(node.content).toContain('模型B')
+    expect(node.hint).toBe('稍等后重试')
+  })
+
+  test('reason 缺失时显示"原因未知"，不抛错', () => {
+    const next = agentReducer(initialState, {
+      type: 'MODEL_SWITCH_NOTICE',
+      payload: { from: '模型A', to: '模型B', reason: null }
+    })
+    expect(next.agent.timeline[0].content).toContain('原因未知')
+    expect(next.agent.timeline[0].hint).toBe('')
+  })
+
+  test('多次切换追加多条 notice，不覆盖已有时间线节点', () => {
+    const once = agentReducer(initialState, {
+      type: 'MODEL_SWITCH_NOTICE',
+      payload: { from: 'A', to: 'B', reason: { title: 'x' } }
+    })
+    const twice = agentReducer(once, {
+      type: 'MODEL_SWITCH_NOTICE',
+      payload: { from: 'B', to: 'C', reason: { title: 'y' } }
+    })
+    expect(twice.agent.timeline).toHaveLength(2)
+    expect(twice.agent.timeline[1].content).toContain('C')
+  })
 })
 
 describe('agentReducer - PAUSE/RESUME（v0.9.x 精确恢复暂停前状态）', () => {
